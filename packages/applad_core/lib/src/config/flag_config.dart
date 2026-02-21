@@ -43,6 +43,16 @@ final class FlagConfig {
   final String? description;
   final int? rolloutPercentage; // 0-100
 
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'type': type,
+        'default': defaultValue,
+        'variants': variants,
+        'environments': environmentOverrides.map((k, v) => MapEntry(k.name, v)),
+        'description': description,
+        'rollout_percentage': rolloutPercentage,
+      };
+
   dynamic valueFor(Environment env) =>
       environmentOverrides[env] ?? defaultValue;
 }

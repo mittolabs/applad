@@ -26,6 +26,13 @@ final class OrgConfig {
   final String name;
   final List<OrgMember> members;
   final List<String> infrastructureTargets;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'members': members.map((m) => m.toJson()).toList(),
+        'infrastructure_targets': infrastructureTargets,
+      };
 }
 
 final class OrgMember {
@@ -40,4 +47,9 @@ final class OrgMember {
 
   final String email;
   final String role;
+
+  Map<String, dynamic> toJson() => {
+        'email': email,
+        'role': role,
+      };
 }

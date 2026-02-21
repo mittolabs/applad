@@ -40,6 +40,15 @@ final class TableConfig {
   final List<TablePermissionRule> permissions;
   final bool timestamps;
   final bool softDelete;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'fields': fields.map((f) => f.toJson()).toList(),
+        'indexes': indexes.map((i) => i.toJson()).toList(),
+        'permissions': permissions.map((p) => p.toJson()).toList(),
+        'timestamps': timestamps,
+        'soft_delete': softDelete,
+      };
 }
 
 final class FieldConfig {
@@ -73,6 +82,16 @@ final class FieldConfig {
   final bool indexed;
   final dynamic defaultValue;
   final String? references; // e.g. "organizations"
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'type': type,
+        'required': requiredLevel,
+        'unique': unique,
+        'indexed': indexed,
+        'default': defaultValue,
+        'references': references,
+      };
 }
 
 final class IndexConfig {
@@ -89,6 +108,12 @@ final class IndexConfig {
   final List<String> fields;
   final bool unique;
   final String? name;
+
+  Map<String, dynamic> toJson() => {
+        'fields': fields,
+        'unique': unique,
+        'name': name,
+      };
 }
 
 final class TablePermissionRule {
@@ -110,4 +135,10 @@ final class TablePermissionRule {
   final String role; // e.g. "owner", "admin", "user", "*"
   final List<String> actions; // e.g. ["read", "write"] or ["*"]
   final String? filter; // e.g. "id == $user.id"
+
+  Map<String, dynamic> toJson() => {
+        'role': role,
+        'actions': actions,
+        'filter': filter,
+      };
 }

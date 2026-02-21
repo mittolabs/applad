@@ -46,6 +46,16 @@ final class HostingConfig {
   final String outputDirectory;
   final List<HostingHeader> headers;
   final List<HostingRedirect> redirects;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'domain': domain,
+        'source': source?.toJson(),
+        'build_command': buildCommand,
+        'output_directory': outputDirectory,
+        'headers': headers.map((h) => h.toJson()).toList(),
+        'redirects': redirects.map((r) => r.toJson()).toList(),
+      };
 }
 
 final class GitSource {
@@ -60,6 +70,11 @@ final class GitSource {
 
   final String repo;
   final String branch;
+
+  Map<String, dynamic> toJson() => {
+        'repo': repo,
+        'branch': branch,
+      };
 }
 
 final class HostingHeader {
@@ -82,6 +97,11 @@ final class HostingHeader {
 
   final String path;
   final Map<String, String> headers;
+
+  Map<String, dynamic> toJson() => {
+        'path': path,
+        'headers': headers,
+      };
 }
 
 final class HostingRedirect {
@@ -99,4 +119,10 @@ final class HostingRedirect {
   final String from;
   final String to;
   final int statusCode;
+
+  Map<String, dynamic> toJson() => {
+        'from': from,
+        'to': to,
+        'status_code': statusCode,
+      };
 }

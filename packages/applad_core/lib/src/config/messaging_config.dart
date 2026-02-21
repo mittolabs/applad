@@ -13,19 +13,20 @@ final class MessagingConfig {
   factory MessagingConfig.fromMap(Map<String, dynamic> map) {
     return MessagingConfig(
       email: map['email'] != null
-          ? EmailConfig.fromMap(map['email'] as Map<String, dynamic>)
+          ? EmailConfig.fromMap(Map<String, dynamic>.from(map['email'] as Map))
           : null,
       sms: map['sms'] != null
-          ? SmsConfig.fromMap(map['sms'] as Map<String, dynamic>)
+          ? SmsConfig.fromMap(Map<String, dynamic>.from(map['sms'] as Map))
           : null,
       push: map['push'] != null
-          ? PushConfig.fromMap(map['push'] as Map<String, dynamic>)
+          ? PushConfig.fromMap(Map<String, dynamic>.from(map['push'] as Map))
           : null,
       inApp: map['in_app'] != null
-          ? InAppConfig.fromMap(map['in_app'] as Map<String, dynamic>)
+          ? InAppConfig.fromMap(Map<String, dynamic>.from(map['in_app'] as Map))
           : null,
       integrations: (map['integrations'] as List?)
-              ?.map((i) => IntegrationConfig.fromMap(i as Map<String, dynamic>))
+              ?.map((i) => IntegrationConfig.fromMap(
+                  Map<String, dynamic>.from(i as Map)))
               .toList() ??
           [],
     );
@@ -36,6 +37,14 @@ final class MessagingConfig {
   final PushConfig? push;
   final InAppConfig? inApp;
   final List<IntegrationConfig> integrations;
+
+  Map<String, dynamic> toJson() => {
+        'email': email?.toJson(),
+        'sms': sms?.toJson(),
+        'push': push?.toJson(),
+        'in_app': inApp?.toJson(),
+        'integrations': integrations.map((i) => i.toJson()).toList(),
+      };
 }
 
 final class EmailConfig {
@@ -49,10 +58,13 @@ final class EmailConfig {
   factory EmailConfig.fromMap(Map<String, dynamic> map) {
     return EmailConfig(
       enabled: map['enabled'] as bool? ?? false,
-      provider: map['provider'] as String?,
-      config: map['config'] as Map<String, dynamic>?,
-      environmentOverrides:
-          map['environment_overrides'] as Map<String, dynamic>?,
+      provider: map['provider']?.toString(),
+      config: map['config'] != null
+          ? Map<String, dynamic>.from(map['config'] as Map)
+          : null,
+      environmentOverrides: map['environment_overrides'] != null
+          ? Map<String, dynamic>.from(map['environment_overrides'] as Map)
+          : null,
     );
   }
 
@@ -60,6 +72,13 @@ final class EmailConfig {
   final String? provider;
   final Map<String, dynamic>? config;
   final Map<String, dynamic>? environmentOverrides;
+
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'provider': provider,
+        'config': config,
+        'environment_overrides': environmentOverrides,
+      };
 }
 
 final class SmsConfig {
@@ -72,14 +91,22 @@ final class SmsConfig {
   factory SmsConfig.fromMap(Map<String, dynamic> map) {
     return SmsConfig(
       enabled: map['enabled'] as bool? ?? false,
-      provider: map['provider'] as String?,
-      config: map['config'] as Map<String, dynamic>?,
+      provider: map['provider']?.toString(),
+      config: map['config'] != null
+          ? Map<String, dynamic>.from(map['config'] as Map)
+          : null,
     );
   }
 
   final bool enabled;
   final String? provider;
   final Map<String, dynamic>? config;
+
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'provider': provider,
+        'config': config,
+      };
 }
 
 final class PushConfig {
@@ -92,8 +119,8 @@ final class PushConfig {
     return PushConfig(
       enabled: map['enabled'] as bool? ?? false,
       providers: (map['providers'] as List?)
-              ?.map(
-                  (p) => PushProviderConfig.fromMap(p as Map<String, dynamic>))
+              ?.map((p) => PushProviderConfig.fromMap(
+                  Map<String, dynamic>.from(p as Map)))
               .toList() ??
           [],
     );
@@ -101,6 +128,11 @@ final class PushConfig {
 
   final bool enabled;
   final List<PushProviderConfig> providers;
+
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'providers': providers.map((p) => p.toJson()).toList(),
+      };
 }
 
 final class PushProviderConfig {
@@ -112,15 +144,23 @@ final class PushProviderConfig {
 
   factory PushProviderConfig.fromMap(Map<String, dynamic> map) {
     return PushProviderConfig(
-      platform: map['platform'] as String,
-      provider: map['provider'] as String,
-      config: map['config'] as Map<String, dynamic>?,
+      platform: map['platform']?.toString() ?? '',
+      provider: map['provider']?.toString() ?? '',
+      config: map['config'] != null
+          ? Map<String, dynamic>.from(map['config'] as Map)
+          : null,
     );
   }
 
   final String platform;
   final String provider;
   final Map<String, dynamic>? config;
+
+  Map<String, dynamic> toJson() => {
+        'platform': platform,
+        'provider': provider,
+        'config': config,
+      };
 }
 
 final class InAppConfig {
@@ -135,7 +175,7 @@ final class InAppConfig {
     return InAppConfig(
       enabled: map['enabled'] as bool? ?? false,
       persistence: map['persistence'] as bool? ?? true,
-      maxAge: map['max_age'] as String?,
+      maxAge: map['max_age']?.toString(),
       realtimeDelivery: map['realtime_delivery'] as bool? ?? true,
     );
   }
@@ -144,6 +184,13 @@ final class InAppConfig {
   final bool persistence;
   final String? maxAge;
   final bool realtimeDelivery;
+
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'persistence': persistence,
+        'max_age': maxAge,
+        'realtime_delivery': realtimeDelivery,
+      };
 }
 
 final class IntegrationConfig {
@@ -156,10 +203,10 @@ final class IntegrationConfig {
 
   factory IntegrationConfig.fromMap(Map<String, dynamic> map) {
     return IntegrationConfig(
-      name: map['name'] as String,
+      name: map['name']?.toString() ?? '',
       enabled: map['enabled'] as bool? ?? false,
-      webhookUrl: map['webhook_url'] as String?,
-      defaultChannel: map['default_channel'] as String?,
+      webhookUrl: map['webhook_url']?.toString(),
+      defaultChannel: map['default_channel']?.toString(),
     );
   }
 
@@ -167,4 +214,11 @@ final class IntegrationConfig {
   final bool enabled;
   final String? webhookUrl;
   final String? defaultChannel;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'enabled': enabled,
+        'webhook_url': webhookUrl,
+        'default_channel': defaultChannel,
+      };
 }

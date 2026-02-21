@@ -14,6 +14,7 @@ final class ServerConfig {
     if (_instance != null) return _instance!;
 
     final path = rootPath ??
+        Platform.environment['APPLAD_WORKSPACE_ROOT'] ??
         Platform.environment['APPLAD_CONFIG_PATH'] ??
         Directory.current.path;
 
@@ -22,8 +23,6 @@ final class ServerConfig {
       _instance = merger.merge(path);
       return _instance!;
     } catch (e) {
-      // In Phase 1, we allow the server to start without full config
-      // and return a minimal default config.
       _instance = _minimalConfig(path);
       return _instance!;
     }
@@ -44,8 +43,9 @@ final class ServerConfig {
 
   /// Returns the loaded config. Throws if not yet loaded.
   static ApplAdConfig get instance {
-    if (_instance == null)
+    if (_instance == null) {
       throw StateError('ServerConfig not initialized. Call load() first.');
+    }
     return _instance!;
   }
 

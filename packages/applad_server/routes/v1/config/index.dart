@@ -7,22 +7,20 @@ import 'package:dart_frog/dart_frog.dart';
 /// Returns the entire parsed configuration tree (all merged YAML files)
 /// discovered from the workspace root.
 Response onRequest(RequestContext context) {
-  final loader = context.read<ConfigLoader>();
-  final workspacePath =
-      Platform.environment['APPLAD_WORKSPACE_ROOT'] ?? Directory.current.path;
-
   try {
-    final configTree = loader.loadDirectoryRecursive(workspacePath);
+    final config = context.read<ApplAdConfig>();
     return Response.json(body: {
       'status': 'ok',
-      'workspace': configTree,
+      'config': config.toJson(),
     });
   } catch (e, st) {
     return Response.json(
       statusCode: 500,
       body: {
+        'status': 'error',
         'error': e.toString(),
-        'trace': st.toString(),
+        if (Platform.environment['APPLAD_ENV'] == 'development')
+          'trace': st.toString(),
       },
     );
   }

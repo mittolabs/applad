@@ -14,15 +14,21 @@ final class DeploymentConfig {
   });
 
   factory DeploymentConfig.fromMap(Map<String, dynamic> map) {
+    final buildMap = map['build'] as Map?;
+    final signingMap = map['signing'] as Map?;
+
     return DeploymentConfig(
-      name: map['name'] as String,
-      platform: map['platform'] as String,
-      buildCommand: map['build_command'] as String?,
-      credentialsRef: map['credentials'] is String &&
-              SecretRef.isSecretRef(map['credentials'] as String)
-          ? SecretRef.parse(map['credentials'] as String)
-          : null,
-      region: map['region'] as String?,
+      name: map['name']?.toString() ?? '',
+      platform: map['platform']?.toString() ?? 'unknown',
+      buildCommand: (map['build_command'] ?? buildMap?['command'])?.toString(),
+      credentialsRef:
+          (map['credentials'] ?? signingMap?['keystore']) is String &&
+                  SecretRef.isSecretRef(
+                      (map['credentials'] ?? signingMap?['keystore']) as String)
+              ? SecretRef.parse(
+                  (map['credentials'] ?? signingMap?['keystore']) as String)
+              : null,
+      region: map['region']?.toString(),
       environment: (map['environment'] as Map?)?.cast<String, String>() ?? {},
     );
   }
@@ -33,4 +39,13 @@ final class DeploymentConfig {
   final SecretRef? credentialsRef;
   final String? region;
   final Map<String, String> environment;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'platform': platform,
+        'build_command': buildCommand,
+        'credentials': credentialsRef?.toString(),
+        'region': region,
+        'environment': environment,
+      };
 }

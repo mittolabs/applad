@@ -53,6 +53,15 @@ final class ProjectConfig {
   final String orgId;
   final Map<Environment, ProjectEnvironmentConfig> environments;
   final Environment defaultEnvironment;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'org_id': orgId,
+        'environments':
+            environments.map((k, v) => MapEntry(k.name, v.toJson())),
+        'default_environment': defaultEnvironment.name,
+      };
 }
 
 final class ProjectEnvironmentConfig {
@@ -97,4 +106,11 @@ final class ProjectEnvironmentConfig {
   final String? host;
   final String? user;
   final Map<String, String> variables;
+
+  Map<String, dynamic> toJson() => {
+        'infra_target': infraTarget,
+        'host': host,
+        'user': user,
+        'variables': variables,
+      };
 }

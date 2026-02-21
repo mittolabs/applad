@@ -31,6 +31,16 @@ final class FunctionConfig {
   final int timeoutSeconds;
   final Map<String, String> environment;
   final String? schedule; // cron expression for scheduled functions
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'runtime': runtime,
+        'trigger': trigger.name,
+        'memory': memory,
+        'timeout_seconds': timeoutSeconds,
+        'environment': environment,
+        'schedule': schedule,
+      };
 }
 
 enum FunctionTrigger {

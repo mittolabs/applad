@@ -41,6 +41,13 @@ final class InstanceConfig {
   final AiConfig? ai;
   final ObservabilityRef? observability;
   final List<String> enabledFeatures;
+
+  Map<String, dynamic> toJson() => {
+        'version': version,
+        'ai': ai?.toJson(),
+        'observability': observability?.toJson(),
+        'features': enabledFeatures,
+      };
 }
 
 final class AiConfig {
@@ -64,6 +71,12 @@ final class AiConfig {
   final String provider;
   final String? model;
   final SecretRef? apiKeyRef;
+
+  Map<String, dynamic> toJson() => {
+        'provider': provider,
+        'model': model,
+        'api_key': apiKeyRef?.toString(),
+      };
 }
 
 final class ObservabilityRef {
@@ -90,4 +103,9 @@ final class ObservabilityRef {
 
   final String? logLevel;
   final bool? tracing;
+
+  Map<String, dynamic> toJson() => {
+        'log_level': logLevel,
+        'tracing': tracing,
+      };
 }

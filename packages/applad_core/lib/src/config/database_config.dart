@@ -17,27 +17,44 @@ final class DatabaseConfig {
   });
 
   factory DatabaseConfig.fromMap(Map<String, dynamic> map) {
+    // If it has connections list, pick the primary one or the first one
+    Map<String, dynamic> target = map;
+    if (map['connections'] is List && (map['connections'] as List).isNotEmpty) {
+      final connections = map['connections'] as List;
+      final primary = connections.firstWhere(
+        (c) => c is Map && (c['id'] == 'primary' || c['id'] == map['default']),
+        orElse: () => connections.first,
+      );
+      if (primary is Map) {
+        target = Map<String, dynamic>.from(primary);
+      }
+    }
+
     return DatabaseConfig(
       adapter:
-          DatabaseAdapter.fromString(map['adapter'] as String? ?? 'sqlite'),
-      connectionStringRef: _maybeSecretRef(map['connection_string']),
-      host: map['host'] as String?,
-      port: map['port'] as int?,
-      database: map['database'] as String?,
-      username: map['username'] as String?,
-      passwordRef: _maybeSecretRef(map['password']),
-      pool: map['pool'] != null
-          ? PoolConfig.fromMap(map['pool'] as Map<String, dynamic>)
+          DatabaseAdapter.fromString(target['adapter']?.toString() ?? 'sqlite'),
+      connectionStringRef:
+          _maybeSecretRef(target['connection_string'] ?? target['url']),
+      host: target['host']?.toString(),
+      port: target['port'] as int?,
+      database:
+          (target['database'] ?? target['db'] ?? target['path'])?.toString(),
+      username: (target['username'] ?? target['user'])?.toString(),
+      passwordRef: _maybeSecretRef(target['password'] ?? target['pass']),
+      pool: target['pool'] != null
+          ? PoolConfig.fromMap(Map<String, dynamic>.from(target['pool'] as Map))
           : null,
-      migrations: map['migrations'] != null
-          ? MigrationsConfig.fromMap(map['migrations'] as Map<String, dynamic>)
+      migrations: target['migrations'] != null
+          ? MigrationsConfig.fromMap(
+              Map<String, dynamic>.from(target['migrations'] as Map))
           : null,
     );
   }
 
   static SecretRef? _maybeSecretRef(dynamic value) {
-    if (value is String && SecretRef.isSecretRef(value))
+    if (value is String && SecretRef.isSecretRef(value)) {
       return SecretRef.parse(value);
+    }
     return null;
   }
 
@@ -50,6 +67,18 @@ final class DatabaseConfig {
   final SecretRef? passwordRef;
   final PoolConfig? pool;
   final MigrationsConfig? migrations;
+
+  Map<String, dynamic> toJson() => {
+        'adapter': adapter.name,
+        'connection_string': connectionStringRef?.toString(),
+        'host': host,
+        'port': port,
+        'database': database,
+        'username': username,
+        'password': passwordRef?.toString(),
+        'pool': pool?.toJson(),
+        'migrations': migrations?.toJson(),
+      };
 }
 
 enum DatabaseAdapter {
@@ -81,6 +110,11 @@ final class PoolConfig {
 
   final int minConnections;
   final int maxConnections;
+
+  Map<String, dynamic> toJson() => {
+        'min': minConnections,
+        'max': maxConnections,
+      };
 }
 
 final class MigrationsConfig {
@@ -95,4 +129,9 @@ final class MigrationsConfig {
 
   final String directory;
   final bool autoRun;
+
+  Map<String, dynamic> toJson() => {
+        'directory': directory,
+        'auto_run': autoRun,
+      };
 }

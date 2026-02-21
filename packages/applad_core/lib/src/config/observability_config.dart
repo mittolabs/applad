@@ -18,8 +18,9 @@ final class ObservabilityConfig {
 
     String parseLogLevel(Map<String, dynamic> m) {
       if (m['log_level'] is String) return m['log_level'] as String;
-      if (m['logging'] is Map)
+      if (m['logging'] is Map) {
         return (m['logging'] as Map)['level'] as String? ?? 'info';
+      }
       return 'info';
     }
 
@@ -41,6 +42,13 @@ final class ObservabilityConfig {
   final bool tracing;
   final bool metricsEnabled;
   final List<ObservabilityExporter> exporters;
+
+  Map<String, dynamic> toJson() => {
+        'log_level': logLevel.name,
+        'tracing': tracing,
+        'metrics_enabled': metricsEnabled,
+        'exporters': exporters.map((e) => e.toJson()).toList(),
+      };
 }
 
 enum LogLevel {
@@ -72,4 +80,9 @@ final class ObservabilityExporter {
 
   final String type; // otlp, prometheus, etc.
   final String endpoint;
+
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'endpoint': endpoint,
+      };
 }

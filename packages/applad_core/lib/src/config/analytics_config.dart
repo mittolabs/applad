@@ -22,4 +22,11 @@ final class AnalyticsConfig {
   final List<String> capturedEvents;
   final bool enabled;
   final bool anonymizeIps;
+
+  Map<String, dynamic> toJson() => {
+        'retention_days': retentionDays,
+        'captured_events': capturedEvents,
+        'enabled': enabled,
+        'anonymize_ips': anonymizeIps,
+      };
 }

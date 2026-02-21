@@ -13,18 +13,21 @@ final class AuthConfig {
   factory AuthConfig.fromMap(Map<String, dynamic> map) {
     return AuthConfig(
       providers: (map['providers'] as List?)
-              ?.map((p) => AuthProvider.fromMap(p as Map<String, dynamic>))
+              ?.map((p) =>
+                  AuthProvider.fromMap(Map<String, dynamic>.from(p as Map)))
               .toList() ??
           [],
       mfa: map['mfa'] != null
-          ? MfaConfig.fromMap(map['mfa'] as Map<String, dynamic>)
+          ? MfaConfig.fromMap(Map<String, dynamic>.from(map['mfa'] as Map))
           : null,
       sso: map['sso'] != null
-          ? SsoConfig.fromMap(map['sso'] as Map<String, dynamic>)
+          ? SsoConfig.fromMap(Map<String, dynamic>.from(map['sso'] as Map))
           : null,
-      sessionDurationSeconds: map['session_duration_seconds'] as int? ?? 86400,
+      sessionDurationSeconds: (map['session_duration_seconds'] ??
+              (map['session'] as Map?)?['duration']) as int? ??
+          86400,
       rbac: map['rbac'] != null
-          ? RbacConfig.fromMap(map['rbac'] as Map<String, dynamic>)
+          ? RbacConfig.fromMap(Map<String, dynamic>.from(map['rbac'] as Map))
           : null,
     );
   }
@@ -34,6 +37,14 @@ final class AuthConfig {
   final SsoConfig? sso;
   final int sessionDurationSeconds;
   final RbacConfig? rbac;
+
+  Map<String, dynamic> toJson() => {
+        'providers': providers.map((p) => p.toJson()).toList(),
+        'mfa': mfa?.toJson(),
+        'sso': sso?.toJson(),
+        'session_duration_seconds': sessionDurationSeconds,
+        'rbac': rbac?.toJson(),
+      };
 }
 
 final class AuthProvider {
@@ -41,8 +52,8 @@ final class AuthProvider {
 
   factory AuthProvider.fromMap(Map<String, dynamic> map) {
     return AuthProvider(
-      type: map['type'] as String,
-      clientId: map['client_id'] as String?,
+      type: (map['type'] ?? map['name'])?.toString() ?? 'email',
+      clientId: map['client_id']?.toString(),
       enabled: map['enabled'] as bool? ?? true,
     );
   }
@@ -50,6 +61,12 @@ final class AuthProvider {
   final String type; // email, google, github, apple, etc.
   final String? clientId;
   final bool enabled;
+
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'client_id': clientId,
+        'enabled': enabled,
+      };
 }
 
 final class MfaConfig {
@@ -58,12 +75,21 @@ final class MfaConfig {
   factory MfaConfig.fromMap(Map<String, dynamic> map) {
     return MfaConfig(
       required: map['required'] as bool? ?? false,
-      methods: (map['methods'] as List?)?.cast<String>() ?? ['totp'],
+      methods: (map['methods'] as List?)?.map((m) {
+            if (m is Map) return m['type']?.toString() ?? 'totp';
+            return m.toString();
+          }).toList() ??
+          ['totp'],
     );
   }
 
   final bool required;
   final List<String> methods;
+
+  Map<String, dynamic> toJson() => {
+        'required': required,
+        'methods': methods,
+      };
 }
 
 final class SsoConfig {
@@ -80,6 +106,12 @@ final class SsoConfig {
   final String provider;
   final String? domain;
   final bool required;
+
+  Map<String, dynamic> toJson() => {
+        'provider': provider,
+        'domain': domain,
+        'required': required,
+      };
 }
 
 final class RbacConfig {
@@ -94,4 +126,9 @@ final class RbacConfig {
 
   final String? rolesFile;
   final String defaultRole;
+
+  Map<String, dynamic> toJson() => {
+        'roles_file': rolesFile,
+        'default_role': defaultRole,
+      };
 }

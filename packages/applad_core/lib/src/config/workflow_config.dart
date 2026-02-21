@@ -34,6 +34,14 @@ final class WorkflowConfig {
       triggerMap; // e.g. {type: "event", event: "auth.user.created"}
   final RetryConfig? retry;
   final int? timeout;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'steps': steps.map((s) => s.toJson()).toList(),
+        'trigger': triggerMap,
+        'retry': retry?.toJson(),
+        'timeout_seconds': timeout,
+      };
 }
 
 final class WorkflowStep {
@@ -72,6 +80,17 @@ final class WorkflowStep {
   final List<String> dependsOn;
   final Map<String, dynamic> params;
   final String? condition;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'type': type,
+        'channel': channel,
+        'template': template,
+        'function': functionName,
+        'depends_on': dependsOn,
+        'params': params,
+        'condition': condition,
+      };
 }
 
 final class RetryConfig {
@@ -86,4 +105,9 @@ final class RetryConfig {
 
   final int maxAttempts;
   final int delaySeconds;
+
+  Map<String, dynamic> toJson() => {
+        'max_attempts': maxAttempts,
+        'delay_seconds': delaySeconds,
+      };
 }

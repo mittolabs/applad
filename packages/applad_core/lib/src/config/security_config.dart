@@ -30,6 +30,14 @@ final class SecurityConfig {
   final String? csp;
   final List<String> ipAllowlist;
   final List<String> ipBlocklist;
+
+  Map<String, dynamic> toJson() => {
+        'rate_limiting': rateLimiting?.toJson(),
+        'cors': cors?.toJson(),
+        'csp': csp,
+        'ip_allowlist': ipAllowlist,
+        'ip_blocklist': ipBlocklist,
+      };
 }
 
 final class RateLimitConfig {
@@ -53,6 +61,13 @@ final class RateLimitConfig {
   final int burstSize;
   final bool byIp;
   final bool byUser;
+
+  Map<String, dynamic> toJson() => {
+        'requests_per_minute': requestsPerMinute,
+        'burst_size': burstSize,
+        'by_ip': byIp,
+        'by_user': byUser,
+      };
 }
 
 final class CorsConfig {
@@ -82,4 +97,12 @@ final class CorsConfig {
   final List<String> allowedHeaders;
   final bool allowCredentials;
   final int maxAgeSecs;
+
+  Map<String, dynamic> toJson() => {
+        'allowed_origins': allowedOrigins,
+        'allowed_methods': allowedMethods,
+        'allowed_headers': allowedHeaders,
+        'allow_credentials': allowCredentials,
+        'max_age_secs': maxAgeSecs,
+      };
 }

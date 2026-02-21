@@ -22,6 +22,12 @@ final class StorageConfig {
   final String adapter; // local, s3, r2, gcs, azure
   final List<BucketConfig> buckets;
   final int maxFileSizeMb;
+
+  Map<String, dynamic> toJson() => {
+        'adapter': adapter,
+        'buckets': buckets.map((b) => b.toJson()).toList(),
+        'max_file_size_mb': maxFileSizeMb,
+      };
 }
 
 final class BucketConfig {
@@ -46,4 +52,11 @@ final class BucketConfig {
   final bool public;
   final List<String> allowedMimeTypes;
   final int? maxFileSizeMb;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'public': public,
+        'allowed_mime_types': allowedMimeTypes,
+        'max_file_size_mb': maxFileSizeMb,
+      };
 }

@@ -13,7 +13,7 @@ enum Environment {
 
   static Environment fromString(String value) {
     return switch (value.toLowerCase()) {
-      'development' || 'dev' => Environment.development,
+      'development' || 'dev' || 'local' => Environment.development,
       'staging' => Environment.staging,
       'production' || 'prod' => Environment.production,
       _ => throw ArgumentError('Unknown environment: $value'),
