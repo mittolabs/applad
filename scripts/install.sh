@@ -12,19 +12,21 @@ echo "================================================="
 # Detect OS
 OS="$(uname -s)"
 case "${OS}" in
-    Linux*)     PLATFORM="linux";;
-    Darwin*)    PLATFORM="macos";;
-    MINGW*|CYGWIN*|MSYS*) PLATFORM="windows";;
+    Linux*)     TARGET_OS="unknown-linux-gnu";;
+    Darwin*)    TARGET_OS="apple-darwin";;
+    MINGW*|CYGWIN*|MSYS*) TARGET_OS="pc-windows-msvc";;
     *)          echo "Error: Unsupported OS: ${OS}"; exit 1;;
 esac
 
 # Detect Architecture
 ARCH="$(uname -m)"
 case "${ARCH}" in
-    x86_64|amd64) ARCH="x64";;
-    arm64|aarch64) ARCH="arm64";;
+    x86_64|amd64) TARGET_ARCH="x86_64";;
+    arm64|aarch64) TARGET_ARCH="aarch64";;
     *)             echo "Error: Unsupported architecture: ${ARCH}"; exit 1;;
 esac
+
+TARGET="${TARGET_ARCH}-${TARGET_OS}"
 
 echo "=> Fetching latest release version from ${REPO}..."
 LATEST_VERSION=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -36,27 +38,36 @@ fi
 
 echo "=> Latest version is ${LATEST_VERSION}"
 
-# Construct download URL (matching the GitHub Action artifact names)
-BINARY_NAME="applad-${PLATFORM}-${ARCH}"
-if [ "${PLATFORM}" = "windows" ]; then
-    BINARY_NAME="${BINARY_NAME}.exe"
-fi
+# Construct download URL
+ZIP_NAME="applad-${TARGET}.zip"
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST_VERSION}/${ZIP_NAME}"
 
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST_VERSION}/${BINARY_NAME}"
-
-echo "=> Downloading ${BINARY_NAME}..."
+echo "=> Downloading ${ZIP_NAME}..."
 mkdir -p "${INSTALL_DIR}"
 
-TMP_FILE="$(mktemp)"
-if ! curl -sL --fail "${DOWNLOAD_URL}" -o "${TMP_FILE}"; then
+TMP_DIR="$(mktemp -d)"
+TMP_ZIP="${TMP_DIR}/${ZIP_NAME}"
+
+if ! curl -sL --fail "${DOWNLOAD_URL}" -o "${TMP_ZIP}"; then
     echo "Error: Failed to download the binary from ${DOWNLOAD_URL}"
     echo "Ensure that the release assets are successfully published."
-    rm -f "${TMP_FILE}"
+    rm -rf "${TMP_DIR}"
     exit 1
 fi
 
-mv "${TMP_FILE}" "${INSTALL_DIR}/${EXE_NAME}"
-chmod +x "${INSTALL_DIR}/${EXE_NAME}"
+echo "=> Extracting archive..."
+unzip -q "${TMP_ZIP}" -d "${TMP_DIR}"
+
+# Check for windows .exe
+if [ -f "${TMP_DIR}/applad.exe" ]; then
+    mv "${TMP_DIR}/applad.exe" "${INSTALL_DIR}/${EXE_NAME}.exe"
+    chmod +x "${INSTALL_DIR}/${EXE_NAME}.exe"
+else
+    mv "${TMP_DIR}/applad" "${INSTALL_DIR}/${EXE_NAME}"
+    chmod +x "${INSTALL_DIR}/${EXE_NAME}"
+fi
+
+rm -rf "${TMP_DIR}"
 
 echo ""
 echo "=> Applad CLI installed successfully to:"
