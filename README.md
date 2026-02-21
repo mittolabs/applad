@@ -1,8 +1,8 @@
 # Applad
 
-**Open-source Backend-as-a-Service (BaaS) + Infrastructure-as-Code (IaC) + AI-native assistant — built with Dart & Flutter.**
+**The open-source BaaS where everything is config, everything is visual, and everything is assisted by AI.**
 
-> Deploy your entire backend with a single YAML config tree. Scale from SQLite to Postgres to distributed clusters without changing your app code.
+> More than just a BaaS, Applad is the Infrastructure-as-Code (IaC) tool for your entire backend. It replaces disjointed tools for database, auth, CI/CD, feature flags, and analytics with a single, agentless, coherent system. Your config files are the backend, the admin UI is a friendly lens into them, and your AI "lad" actively helps you configure, debug, and deploy anywhere from a local SQLite binary to a multi-VPS cloud cluster without changing your app code. Built with Dart & Flutter.
 
 ---
 

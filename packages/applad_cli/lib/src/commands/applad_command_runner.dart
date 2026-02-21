@@ -82,6 +82,43 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
     addCommand(OrgsCommand());
     addCommand(ProjectsCommand());
   }
+  String _getAppladLogo() {
+    const logo = '''
+      █████╗ ██████╗ ██████╗ ██╗      █████╗ ██████╗ 
+     ██╔══██╗██╔══██╗██╔══██╗██║     ██╔══██╗██╔══██╗
+     ███████║██████╔╝██████╔╝██║     ███████║██║  ██║
+     ██╔══██║██╔═══╝ ██╔═══╝ ██║     ██╔══██║██║  ██║
+     ██║  ██║██║     ██║     ███████╗██║  ██║██████╔╝
+     ╚═╝  ╚═╝╚═╝     ╚═╝     ╚══════╝╚═╝  ╚═╝╚═════╝ ''';
+
+    final StringBuffer buffer = StringBuffer();
+    final lines = logo.split('\n');
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final runes = line.runes.toList();
+      for (int j = 0; j < runes.length; j++) {
+        final double t = j / (runes.isEmpty ? 1 : runes.length);
+
+        // Gradient from Cyan (0,255,255) to Purple/Pink (255,0,255)
+        final int r = (0 + t * 255).round().clamp(0, 255);
+        final int g = (255 - t * 255).round().clamp(0, 255);
+        final int b = 255;
+
+        buffer.write('\x1b[38;2;$r;$g;${b}m${String.fromCharCode(runes[j])}');
+      }
+      buffer.write('\x1b[0m\n');
+    }
+
+    return buffer.toString();
+  }
+
+  @override
+  void printUsage() {
+    print(_getAppladLogo());
+    print('\x1b[1m* Welcome to Applad AI-Native CLI!\x1b[0m\n');
+    super.printUsage();
+  }
 
   @override
   Future<void> run(Iterable<String> args) async {
