@@ -1,0 +1,42 @@
+# ============================================================
+# DEPLOYMENT PIPELINE DEFINITION
+# Pipeline structure in config. Signing credentials stored
+# encrypted in the admin-managed database — never here.
+# Build history and submission status in runtime database.
+# Every deployment attributed to the SSH key that triggered it.
+# ============================================================
+
+name: "android-production"
+platform: "android"
+target: "play-store"
+track: "production" # internal | alpha | beta | production
+
+source:
+  type: "git"
+  repo: "github.com/myorg/myapp"
+  branch: "main"
+
+build:
+  command: "flutter build appbundle --release"
+  output: "build/app/outputs/bundle/release/app-release.aab"
+
+  # Build runs in an isolated Docker container
+  # Applad SSHs into the build infrastructure, runs the container, leaves
+  infrastructure:
+    type: "vps" # Run build on VPS to control cost
+    host: "build.acme-corp.com"
+    ssh_key: "ci-github-actions"
+
+signing:
+  keystore: "android-keystore" # Reference to credential in admin database
+  key_alias: "release" # Actual keystore file never in config
+
+store_metadata:
+  package_name: "com.acme.myapp"
+  release_notes: "auto" # Auto-generate from git commits
+
+triggers:
+  - type: "git_tag"
+    pattern: "v*"
+
+  - type: "manual" # Always allow manual trigger

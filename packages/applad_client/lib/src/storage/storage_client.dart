@@ -10,7 +10,8 @@ final class StorageClient {
   final ApplAdClient client;
 
   /// Access a specific bucket.
-  BucketClient from(String bucket) => BucketClient(client: client, bucket: bucket);
+  BucketClient from(String bucket) =>
+      BucketClient(client: client, bucket: bucket);
 }
 
 /// Client for a specific storage bucket.

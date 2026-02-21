@@ -18,7 +18,8 @@ final class DeploymentConfig {
       name: map['name'] as String,
       platform: map['platform'] as String,
       buildCommand: map['build_command'] as String?,
-      credentialsRef: map['credentials'] is String && SecretRef.isSecretRef(map['credentials'] as String)
+      credentialsRef: map['credentials'] is String &&
+              SecretRef.isSecretRef(map['credentials'] as String)
           ? SecretRef.parse(map['credentials'] as String)
           : null,
       region: map['region'] as String?,

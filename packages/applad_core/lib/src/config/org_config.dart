@@ -17,7 +17,8 @@ final class OrgConfig {
               ?.map((m) => OrgMember.fromMap(m as Map<String, dynamic>))
               .toList() ??
           [],
-      infrastructureTargets: (map['infrastructure_targets'] as List?)?.cast<String>() ?? [],
+      infrastructureTargets:
+          (map['infrastructure_targets'] as List?)?.cast<String>() ?? [],
     );
   }
 

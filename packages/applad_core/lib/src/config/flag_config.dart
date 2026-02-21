@@ -36,5 +36,6 @@ final class FlagConfig {
   final String? description;
   final int? rolloutPercentage; // 0-100
 
-  bool isEnabledFor(Environment env) => environmentOverrides[env] ?? defaultEnabled;
+  bool isEnabledFor(Environment env) =>
+      environmentOverrides[env] ?? defaultEnabled;
 }

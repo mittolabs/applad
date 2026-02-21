@@ -11,6 +11,9 @@ workspace:
   - packages/applad_admin
   - packages/applad_client
 
+dev_dependencies:
+  melos: ^7.4.0
+
 melos:
   command:
     bootstrap:

@@ -55,9 +55,9 @@ final class ApplAdClient {
   TableClient from(String table) => TableClient(client: this, table: table);
 
   Map<String, String> get defaultHeaders => {
-    'Content-Type': 'application/json',
-    'X-Applad-Project': projectId,
-    if (apiKey != null) 'X-Applad-Key': apiKey!,
-    if (_authToken != null) 'Authorization': 'Bearer $_authToken',
-  };
+        'Content-Type': 'application/json',
+        'X-Applad-Project': projectId,
+        if (apiKey != null) 'X-Applad-Key': apiKey!,
+        if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+      };
 }

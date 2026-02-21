@@ -31,11 +31,11 @@ final class SshIdentity {
   final String? publicKey;
 
   Map<String, dynamic> toMap() => {
-    'fingerprint': fingerprint,
-    'label': label,
-    'identity_string': identityString,
-    if (publicKey != null) 'public_key': publicKey,
-  };
+        'fingerprint': fingerprint,
+        'label': label,
+        'identity_string': identityString,
+        if (publicKey != null) 'public_key': publicKey,
+      };
 
   @override
   String toString() => 'SshIdentity($label [$fingerprint])';

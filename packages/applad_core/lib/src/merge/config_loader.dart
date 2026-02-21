@@ -21,11 +21,13 @@ final class ConfigLoader {
       final yaml = loadYaml(content);
       if (yaml == null) return {};
       if (yaml is! Map) {
-        throw ConfigError('Expected a YAML map, got ${yaml.runtimeType}', filePath: filePath);
+        throw ConfigError('Expected a YAML map, got ${yaml.runtimeType}',
+            filePath: filePath);
       }
       return _deepConvert(yaml) as Map<String, dynamic>;
     } on YamlException catch (e) {
-      throw ConfigError('Failed to parse YAML: ${e.message}', filePath: filePath, cause: e);
+      throw ConfigError('Failed to parse YAML: ${e.message}',
+          filePath: filePath, cause: e);
     }
   }
 
@@ -36,7 +38,8 @@ final class ConfigLoader {
 
     final results = <String, Map<String, dynamic>>{};
     for (final entity in dir.listSync()) {
-      if (entity is File && (entity.path.endsWith('.yaml') || entity.path.endsWith('.yml'))) {
+      if (entity is File &&
+          (entity.path.endsWith('.yaml') || entity.path.endsWith('.yml'))) {
         final name = p.basenameWithoutExtension(entity.path);
         results[name] = loadFile(entity.path);
       }
@@ -51,7 +54,8 @@ final class ConfigLoader {
 
     final results = <String, Map<String, dynamic>>{};
     for (final entity in dir.listSync(recursive: true)) {
-      if (entity is File && (entity.path.endsWith('.yaml') || entity.path.endsWith('.yml'))) {
+      if (entity is File &&
+          (entity.path.endsWith('.yaml') || entity.path.endsWith('.yml'))) {
         final relativePath = p.relative(entity.path, from: dirPath);
         final name = relativePath.replaceAll(RegExp(r'\.ya?ml$'), '');
         results[name] = loadFile(entity.path);
@@ -62,7 +66,9 @@ final class ConfigLoader {
 
   dynamic _deepConvert(dynamic value) {
     if (value is YamlMap) {
-      return {for (final e in value.entries) e.key.toString(): _deepConvert(e.value)};
+      return {
+        for (final e in value.entries) e.key.toString(): _deepConvert(e.value)
+      };
     } else if (value is YamlList) {
       return [for (final item in value) _deepConvert(item)];
     }

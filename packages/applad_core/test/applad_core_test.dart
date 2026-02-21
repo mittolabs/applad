@@ -23,9 +23,11 @@ void main() {
 
   group('Environment', () {
     test('parses environment strings', () {
-      expect(Environment.fromString('development'), equals(Environment.development));
+      expect(Environment.fromString('development'),
+          equals(Environment.development));
       expect(Environment.fromString('dev'), equals(Environment.development));
-      expect(Environment.fromString('production'), equals(Environment.production));
+      expect(
+          Environment.fromString('production'), equals(Environment.production));
       expect(Environment.fromString('prod'), equals(Environment.production));
       expect(Environment.fromString('staging'), equals(Environment.staging));
     });
@@ -37,7 +39,8 @@ void main() {
 
   group('ApplAdError', () {
     test('ConfigError includes file path in message', () {
-      const error = ConfigError('File not found', filePath: '/path/to/file.yaml', lineNumber: 42);
+      const error = ConfigError('File not found',
+          filePath: '/path/to/file.yaml', lineNumber: 42);
       expect(error.toString(), contains('/path/to/file.yaml'));
       expect(error.toString(), contains('42'));
     });

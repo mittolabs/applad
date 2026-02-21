@@ -18,7 +18,8 @@ final class DatabaseConfig {
 
   factory DatabaseConfig.fromMap(Map<String, dynamic> map) {
     return DatabaseConfig(
-      adapter: DatabaseAdapter.fromString(map['adapter'] as String? ?? 'sqlite'),
+      adapter:
+          DatabaseAdapter.fromString(map['adapter'] as String? ?? 'sqlite'),
       connectionStringRef: _maybeSecretRef(map['connection_string']),
       host: map['host'] as String?,
       port: map['port'] as int?,
@@ -35,7 +36,8 @@ final class DatabaseConfig {
   }
 
   static SecretRef? _maybeSecretRef(dynamic value) {
-    if (value is String && SecretRef.isSecretRef(value)) return SecretRef.parse(value);
+    if (value is String && SecretRef.isSecretRef(value))
+      return SecretRef.parse(value);
     return null;
   }
 

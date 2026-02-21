@@ -26,18 +26,27 @@ final class AppRouter {
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: [
-          GoRoute(path: '/dashboard', builder: (c, s) => const DashboardScreen()),
+          GoRoute(
+              path: '/dashboard', builder: (c, s) => const DashboardScreen()),
           GoRoute(path: '/tables', builder: (c, s) => const TablesScreen()),
           GoRoute(path: '/auth', builder: (c, s) => const AuthScreen()),
           GoRoute(path: '/storage', builder: (c, s) => const StorageScreen()),
-          GoRoute(path: '/functions', builder: (c, s) => const FunctionsScreen()),
-          GoRoute(path: '/workflows', builder: (c, s) => const WorkflowsScreen()),
-          GoRoute(path: '/messaging', builder: (c, s) => const MessagingScreen()),
+          GoRoute(
+              path: '/functions', builder: (c, s) => const FunctionsScreen()),
+          GoRoute(
+              path: '/workflows', builder: (c, s) => const WorkflowsScreen()),
+          GoRoute(
+              path: '/messaging', builder: (c, s) => const MessagingScreen()),
           GoRoute(path: '/flags', builder: (c, s) => const FlagsScreen()),
-          GoRoute(path: '/analytics', builder: (c, s) => const AnalyticsScreen()),
+          GoRoute(
+              path: '/analytics', builder: (c, s) => const AnalyticsScreen()),
           GoRoute(path: '/hosting', builder: (c, s) => const HostingScreen()),
-          GoRoute(path: '/deployments', builder: (c, s) => const DeploymentsScreen()),
-          GoRoute(path: '/observability', builder: (c, s) => const ObservabilityScreen()),
+          GoRoute(
+              path: '/deployments',
+              builder: (c, s) => const DeploymentsScreen()),
+          GoRoute(
+              path: '/observability',
+              builder: (c, s) => const ObservabilityScreen()),
           GoRoute(path: '/instruct', builder: (c, s) => const InstructScreen()),
           GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),
         ],

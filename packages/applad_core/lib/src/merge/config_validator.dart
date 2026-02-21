@@ -32,7 +32,8 @@ final class ConfigValidator {
     if (config.database != null) _validateDatabase(config, violations);
 
     // Check for error-level violations
-    final errors = violations.where((v) => v.severity == ViolationSeverity.error).toList();
+    final errors =
+        violations.where((v) => v.severity == ViolationSeverity.error).toList();
     if (errors.isNotEmpty) {
       throw ValidationError(
         'Config validation failed with ${errors.length} error(s)',
@@ -43,7 +44,8 @@ final class ConfigValidator {
     return violations;
   }
 
-  void _validateInstance(ApplAdConfig config, List<ValidationViolation> violations) {
+  void _validateInstance(
+      ApplAdConfig config, List<ValidationViolation> violations) {
     if (config.instance.version.isEmpty) {
       violations.add(const ValidationViolation(
         path: 'applad.yaml > version',
@@ -67,7 +69,8 @@ final class ConfigValidator {
     }
   }
 
-  void _validateProject(ApplAdConfig config, List<ValidationViolation> violations) {
+  void _validateProject(
+      ApplAdConfig config, List<ValidationViolation> violations) {
     if (config.project.id.isEmpty) {
       violations.add(const ValidationViolation(
         path: 'project.yaml > id',
@@ -82,7 +85,8 @@ final class ConfigValidator {
     }
   }
 
-  void _validateTables(ApplAdConfig config, List<ValidationViolation> violations) {
+  void _validateTables(
+      ApplAdConfig config, List<ValidationViolation> violations) {
     for (final table in config.tables) {
       if (table.fields.isEmpty) {
         violations.add(ValidationViolation(
@@ -102,7 +106,8 @@ final class ConfigValidator {
     }
   }
 
-  void _validateAuth(ApplAdConfig config, List<ValidationViolation> violations) {
+  void _validateAuth(
+      ApplAdConfig config, List<ValidationViolation> violations) {
     final auth = config.auth!;
     if (auth.providers.isEmpty) {
       violations.add(const ValidationViolation(
@@ -113,7 +118,8 @@ final class ConfigValidator {
     }
   }
 
-  void _validateDatabase(ApplAdConfig config, List<ValidationViolation> violations) {
+  void _validateDatabase(
+      ApplAdConfig config, List<ValidationViolation> violations) {
     final db = config.database!;
     if (db.adapter != DatabaseAdapter.sqlite) {
       if (db.connectionStringRef == null && db.host == null) {

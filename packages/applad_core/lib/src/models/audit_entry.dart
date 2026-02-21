@@ -53,13 +53,13 @@ final class AuditEntry {
   final Map<String, dynamic> metadata;
 
   Map<String, dynamic> toMap() => {
-    'id': id,
-    'timestamp': timestamp.toIso8601String(),
-    'action': action,
-    'actor': actor.toMap(),
-    if (via != null) 'via': via,
-    if (diff != null) 'diff': diff,
-    if (instructionPrompt != null) 'instruction_prompt': instructionPrompt,
-    if (metadata.isNotEmpty) 'metadata': metadata,
-  };
+        'id': id,
+        'timestamp': timestamp.toIso8601String(),
+        'action': action,
+        'actor': actor.toMap(),
+        if (via != null) 'via': via,
+        if (diff != null) 'diff': diff,
+        if (instructionPrompt != null) 'instruction_prompt': instructionPrompt,
+        if (metadata.isNotEmpty) 'metadata': metadata,
+      };
 }

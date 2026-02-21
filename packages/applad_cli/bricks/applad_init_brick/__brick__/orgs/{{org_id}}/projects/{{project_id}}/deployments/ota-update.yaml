@@ -1,0 +1,17 @@
+name: "ota-update"
+platform: "flutter"
+target: "ota"
+
+source:
+  type: "git"
+  repo: "github.com/myorg/myapp"
+  branch: "main"
+
+rollout:
+  strategy: "gradual" # immediate | gradual | canary
+  percentage: 10 # Start at 10% — adoption tracking in runtime database
+  increment: 10
+  interval: "24h"
+
+triggers:
+  - type: "manual"

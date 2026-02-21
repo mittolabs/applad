@@ -70,7 +70,8 @@ final class HostingHeader {
 }
 
 final class HostingRedirect {
-  const HostingRedirect({required this.from, required this.to, this.statusCode = 301});
+  const HostingRedirect(
+      {required this.from, required this.to, this.statusCode = 301});
 
   factory HostingRedirect.fromMap(Map<String, dynamic> map) {
     return HostingRedirect(

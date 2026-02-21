@@ -1,0 +1,58 @@
+# ============================================================
+# PROJECT DEFINITION
+# Defines environments and infrastructure targets.
+# Per-environment targets mean local, VPS, and cloud can
+# all coexist for the same project at different stages.
+# ============================================================
+
+id: "my-project"
+name: "my-project"
+org: "my-org"
+description: "Primary application"
+
+features: # Override instance-level feature toggles
+  graphql: true
+  realtime: true
+  messaging: true
+  flags: true
+  analytics: true
+  deployments: true
+  instruct: true
+
+environments:
+  - name: "development"
+    url: "http://localhost:8080"
+    infrastructure:
+      type: "local" # Runs on developer's machine
+
+
+#  Uncomment below when deploying to servers
+#  - name: "staging"
+#    url: "https://staging-api.myapp.com"
+#    infrastructure:
+#      type: "vps"                    # Flat-rate VPS — predictable cost
+#      host: "staging.my-org.com"
+#      user: "applad"
+#      ssh_key: "ci-github-actions"   # References key label from org.yaml
+#      docker_host: "unix:///var/run/docker.sock"
+
+#  - name: "production"
+#    url: "https://api.myapp.com"
+#    infrastructure:
+#      type: "vps"                    # Primary production on VPS
+#      host: "prod-01.my-org.com"
+#      user: "applad"
+#      ssh_key: "ci-github-actions"
+#      docker_host: "unix:///var/run/docker.sock"
+#
+#    # Cloud resources used on-demand alongside the VPS.
+#    # Storage, email, and burst compute drawn from cloud
+#    # providers as utilities — not a platform commitment.
+#    cloud_adapters:
+#      - provider: "aws"
+#        region: "eu-west-1"
+#        credentials: "aws-production"   # Reference to credential in admin database
+#        services:
+#          - s3                          # Storage adapter
+#          - ses                         # High-volume email
+#          - rds                         # Managed Postgres when needed

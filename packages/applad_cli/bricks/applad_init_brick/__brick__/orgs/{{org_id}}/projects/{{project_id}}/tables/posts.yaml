@@ -1,0 +1,44 @@
+name: "posts"
+timestamps: true
+soft_delete: false
+
+fields:
+  - name: "title"
+    type: "string"
+    required: true
+
+  - name: "body"
+    type: "text"
+    required: true
+
+  - name: "author_id"
+    type: "relation"
+    table: "users"
+    required: true
+
+  - name: "status"
+    type: "enum"
+    values: ["draft", "published", "archived"]
+    default: "draft"
+
+  - name: "tags"
+    type: "array"
+    items: "string"
+
+indexes:
+  - fields: ["author_id"]
+  - fields: ["status", "created_at"]
+  - fields: ["title", "body"]
+    type: "fulltext"
+
+permissions:
+  - role: "*"
+    actions: ["read"]
+    filter: "status == 'published'"
+
+  - role: "user"
+    actions: ["write"]
+    filter: "author_id == $user.id"
+
+  - role: "admin"
+    actions: ["*"]

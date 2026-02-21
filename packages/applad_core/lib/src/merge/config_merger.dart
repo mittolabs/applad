@@ -67,7 +67,8 @@ final class ApplAdConfig {
 
 /// Merges all YAML config files into a single [ApplAdConfig] tree.
 final class ConfigMerger {
-  ConfigMerger({ConfigLoader? loader}) : _loader = loader ?? const ConfigLoader();
+  ConfigMerger({ConfigLoader? loader})
+      : _loader = loader ?? const ConfigLoader();
 
   final ConfigLoader _loader;
 
@@ -77,36 +78,49 @@ final class ConfigMerger {
 
     final orgsDir = p.join(rootPath, 'orgs');
     final orgDirs = _listSubdirs(orgsDir);
-    if (orgDirs.isEmpty) throw StateError('No org directories found in $orgsDir');
+    if (orgDirs.isEmpty)
+      throw StateError('No org directories found in $orgsDir');
 
     final orgDir = orgDirs.first;
     final org = OrgConfig.fromMap(_loader.loadFile(p.join(orgDir, 'org.yaml')));
 
     final projectsDir = p.join(orgDir, 'projects');
     final projectDirs = _listSubdirs(projectsDir);
-    if (projectDirs.isEmpty) throw StateError('No project directories found in $projectsDir');
+    if (projectDirs.isEmpty)
+      throw StateError('No project directories found in $projectsDir');
 
     final projectDir = projectDirs.first;
-    final project = ProjectConfig.fromMap(_loader.loadFile(p.join(projectDir, 'project.yaml')));
+    final project = ProjectConfig.fromMap(
+        _loader.loadFile(p.join(projectDir, 'project.yaml')));
 
     return ApplAdConfig(
       instance: instance,
       org: org,
       project: project,
       auth: _opt(p.join(projectDir, 'auth', 'auth.yaml'), AuthConfig.fromMap),
-      database: _opt(p.join(projectDir, 'database', 'database.yaml'), DatabaseConfig.fromMap),
+      database: _opt(p.join(projectDir, 'database', 'database.yaml'),
+          DatabaseConfig.fromMap),
       tables: _loadTables(p.join(projectDir, 'tables')),
-      storage: _opt(p.join(projectDir, 'storage', 'storage.yaml'), StorageConfig.fromMap),
+      storage: _opt(
+          p.join(projectDir, 'storage', 'storage.yaml'), StorageConfig.fromMap),
       functions: _loadFunctions(p.join(projectDir, 'functions')),
-      workflows: _loadDir(p.join(projectDir, 'workflows'), WorkflowConfig.fromMap),
-      messaging: _opt(p.join(projectDir, 'messaging', 'messaging.yaml'), MessagingConfig.fromMap),
+      workflows:
+          _loadDir(p.join(projectDir, 'workflows'), WorkflowConfig.fromMap),
+      messaging: _opt(p.join(projectDir, 'messaging', 'messaging.yaml'),
+          MessagingConfig.fromMap),
       flags: _loadDir(p.join(projectDir, 'flags'), FlagConfig.fromMap),
       hosting: _loadDir(p.join(projectDir, 'hosting'), HostingConfig.fromMap),
-      deployments: _loadDir(p.join(projectDir, 'deployments'), DeploymentConfig.fromMap),
-      realtime: _opt(p.join(projectDir, 'realtime', 'realtime.yaml'), RealtimeConfig.fromMap),
-      analytics: _opt(p.join(projectDir, 'analytics', 'analytics.yaml'), AnalyticsConfig.fromMap),
-      observability: _opt(p.join(projectDir, 'observability', 'observability.yaml'), ObservabilityConfig.fromMap),
-      security: _opt(p.join(projectDir, 'security', 'security.yaml'), SecurityConfig.fromMap),
+      deployments:
+          _loadDir(p.join(projectDir, 'deployments'), DeploymentConfig.fromMap),
+      realtime: _opt(p.join(projectDir, 'realtime', 'realtime.yaml'),
+          RealtimeConfig.fromMap),
+      analytics: _opt(p.join(projectDir, 'analytics', 'analytics.yaml'),
+          AnalyticsConfig.fromMap),
+      observability: _opt(
+          p.join(projectDir, 'observability', 'observability.yaml'),
+          ObservabilityConfig.fromMap),
+      security: _opt(p.join(projectDir, 'security', 'security.yaml'),
+          SecurityConfig.fromMap),
       rootPath: rootPath,
     );
   }
@@ -128,9 +142,12 @@ final class ConfigMerger {
   }
 
   List<FunctionConfig> _loadFunctions(String dir) {
-    return _listSubdirs(dir).map((funcDir) {
-      return _opt(p.join(funcDir, 'function.yaml'), FunctionConfig.fromMap);
-    }).whereType<FunctionConfig>().toList();
+    return _listSubdirs(dir)
+        .map((funcDir) {
+          return _opt(p.join(funcDir, 'function.yaml'), FunctionConfig.fromMap);
+        })
+        .whereType<FunctionConfig>()
+        .toList();
   }
 
   List<T> _loadDir<T>(String dir, T Function(Map<String, dynamic>) factory) {
@@ -140,11 +157,7 @@ final class ConfigMerger {
   List<String> _listSubdirs(String dirPath) {
     final dir = Directory(dirPath);
     if (!dir.existsSync()) return [];
-    return dir
-        .listSync()
-        .whereType<Directory>()
-        .map((d) => d.path)
-        .toList()
+    return dir.listSync().whereType<Directory>().map((d) => d.path).toList()
       ..sort();
   }
 }

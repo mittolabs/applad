@@ -1,0 +1,20 @@
+# ============================================================
+# FEATURE FLAG SKELETON
+# Defines that the flag exists, its variants, its defaults.
+# Targeting rules — who sees what — live in the admin-managed
+# database so product managers can adjust rollouts without
+# a git commit or deployment.
+# Evaluation logs in the runtime database.
+# Rolling back a flag definition is a git revert.
+# Pausing a rollout is a UI toggle.
+# ============================================================
+
+key: "new-dashboard"
+type: "boolean" # boolean | multivariate | percentage
+default: false
+description: "New dashboard UI redesign"
+
+environments:
+  development: true
+  staging: true
+  production: false # Off by default. Targeting rules in admin UI.

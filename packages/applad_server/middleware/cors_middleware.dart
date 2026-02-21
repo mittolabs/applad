@@ -26,8 +26,7 @@ Map<String, String> _corsHeaders(Request request) {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
-    'Access-Control-Allow-Headers':
-        'Content-Type, Authorization, X-Applad-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Applad-Key',
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Max-Age': '86400',
   };

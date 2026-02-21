@@ -1,0 +1,39 @@
+# ============================================================
+# HOSTING SITE DEFINITION
+# Site structure, routing, security headers in config.
+# Deployment history and traffic metrics in runtime database.
+# Security headers reviewed in the same PR as the site config.
+# ============================================================
+
+name: "web"
+domain: "myapp.com"
+www_redirect: true
+ssl: true # Automatic via Caddy — no manual cert management
+
+source:
+  type: "git"
+  repo: "github.com/myorg/myapp-web"
+  branch: "main"
+  build_command: "flutter build web"
+  output_dir: "build/web"
+
+headers:
+  - path: "/*"
+    values:
+      X-Frame-Options: "DENY"
+      X-Content-Type-Options: "nosniff"
+      X-XSS-Protection: "1; mode=block"
+      Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+      Referrer-Policy: "strict-origin-when-cross-origin"
+      Content-Security-Policy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+      Permissions-Policy: "camera=(), microphone=(), geolocation=()"
+
+redirects:
+  - from: "/old-path"
+    to: "/new-path"
+    status: 301
+
+preview_environments:
+  enabled: true
+  pattern: "pr-{number}.preview.myapp.com"
+  ssl: true

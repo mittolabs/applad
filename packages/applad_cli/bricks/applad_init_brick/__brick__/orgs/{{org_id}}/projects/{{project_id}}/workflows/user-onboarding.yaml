@@ -1,0 +1,31 @@
+name: "user-onboarding"
+trigger:
+  type: "event"
+  event: "auth.user.created"
+
+# Workflow steps reference messaging by channel and template key.
+# Not by provider-specific implementation details.
+# Provider config is in messaging/messaging.yaml.
+# Template content is in the admin-managed database.
+steps:
+  - name: "send-welcome-email"
+    type: "message"
+    channel: "email"
+    template: "welcome"
+
+  - name: "send-welcome-push"
+    type: "message"
+    channel: "push"
+    template: "welcome-push"
+    depends_on: ["send-welcome-email"]
+
+  - name: "create-default-workspace"
+    type: "function"
+    function: "create-workspace"
+    depends_on: ["send-welcome-email"]
+
+  - name: "notify-team-slack"
+    type: "message"
+    channel: "slack"
+    template: "new-user-alert"
+    depends_on: ["create-default-workspace"]

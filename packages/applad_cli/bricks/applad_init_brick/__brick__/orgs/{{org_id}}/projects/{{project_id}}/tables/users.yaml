@@ -1,0 +1,67 @@
+# ============================================================
+# TABLE DEFINITION
+# "tables" is the universal term regardless of adapter.
+# Relational adapters produce SQL tables.
+# Document adapters produce collections.
+# The developer-facing surface is always consistent.
+#
+# Permission rules live here alongside the schema.
+# Security is reviewed in the same PR as the table it protects.
+# ============================================================
+
+name: "users"
+timestamps: true
+soft_delete: true
+
+fields:
+  - name: "email"
+    type: "string"
+    unique: true
+    required: true
+    indexed: true
+
+  - name: "name"
+    type: "string"
+    required: true
+
+  - name: "avatar_url"
+    type: "string"
+    required: false
+
+  - name: "role"
+    type: "enum"
+    values: ["user", "admin"]
+    default: "user"
+
+  - name: "org_id"
+    type: "relation"
+    table: "organizations" # "table" not "collection" — consistent terminology
+    required: true
+
+  - name: "mfa_enabled"
+    type: "boolean"
+    default: false
+
+indexes:
+  - fields: ["email"]
+    unique: true
+  - fields: ["org_id", "role"]
+  - fields: ["created_at"]
+
+# Permission rules live here, not in a separate security config.
+# Reviewed in the same PR as the schema. Security and schema
+# are the same concern for the same reviewer at the same time.
+permissions:
+  - role: "owner"
+    actions: ["*"]
+
+  - role: "admin"
+    actions: ["read", "write"]
+
+  - role: "user"
+    actions: ["read"]
+    filter: "id == $user.id" # Users can only read their own record
+
+  - role: "*"
+    actions: ["read"]
+    filter: "id == $user.id AND deleted_at == null"

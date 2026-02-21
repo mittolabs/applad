@@ -9,12 +9,14 @@ sealed class ApplAdError implements Exception {
   final Object? cause;
 
   @override
-  String toString() => 'ApplAdError: $message${cause != null ? '\nCaused by: $cause' : ''}';
+  String toString() =>
+      'ApplAdError: $message${cause != null ? '\nCaused by: $cause' : ''}';
 }
 
 /// Raised when a config file cannot be found or parsed.
 final class ConfigError extends ApplAdError {
-  const ConfigError(super.message, {super.cause, this.filePath, this.lineNumber});
+  const ConfigError(super.message,
+      {super.cause, this.filePath, this.lineNumber});
 
   final String? filePath;
   final int? lineNumber;
@@ -31,21 +33,26 @@ final class ConfigError extends ApplAdError {
 
 /// Raised when config validation fails.
 final class ValidationError extends ApplAdError {
-  const ValidationError(super.message, {super.cause, this.violations = const []});
+  const ValidationError(super.message,
+      {super.cause, this.violations = const []});
 
   final List<ValidationViolation> violations;
 
   @override
   String toString() {
     if (violations.isEmpty) return 'ValidationError: $message';
-    final details = violations.map((v) => '  - ${v.path}: ${v.message}').join('\n');
+    final details =
+        violations.map((v) => '  - ${v.path}: ${v.message}').join('\n');
     return 'ValidationError: $message\n$details';
   }
 }
 
 /// A single validation rule violation.
 final class ValidationViolation {
-  const ValidationViolation({required this.path, required this.message, this.severity = ViolationSeverity.error});
+  const ValidationViolation(
+      {required this.path,
+      required this.message,
+      this.severity = ViolationSeverity.error});
 
   final String path;
   final String message;

@@ -36,7 +36,8 @@ final class BucketConfig {
     return BucketConfig(
       name: map['name'] as String,
       public: map['public'] as bool? ?? false,
-      allowedMimeTypes: (map['allowed_mime_types'] as List?)?.cast<String>() ?? [],
+      allowedMimeTypes:
+          (map['allowed_mime_types'] as List?)?.cast<String>() ?? [],
       maxFileSizeMb: map['max_file_size_mb'] as int?,
     );
   }

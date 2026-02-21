@@ -13,7 +13,8 @@ final class SecurityConfig {
   factory SecurityConfig.fromMap(Map<String, dynamic> map) {
     return SecurityConfig(
       rateLimiting: map['rate_limiting'] != null
-          ? RateLimitConfig.fromMap(map['rate_limiting'] as Map<String, dynamic>)
+          ? RateLimitConfig.fromMap(
+              map['rate_limiting'] as Map<String, dynamic>)
           : null,
       cors: map['cors'] != null
           ? CorsConfig.fromMap(map['cors'] as Map<String, dynamic>)
@@ -65,10 +66,12 @@ final class CorsConfig {
 
   factory CorsConfig.fromMap(Map<String, dynamic> map) {
     return CorsConfig(
-      allowedOrigins: (map['allowed_origins'] as List?)?.cast<String>() ?? ['*'],
+      allowedOrigins:
+          (map['allowed_origins'] as List?)?.cast<String>() ?? ['*'],
       allowedMethods: (map['allowed_methods'] as List?)?.cast<String>() ??
           ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: (map['allowed_headers'] as List?)?.cast<String>() ?? ['*'],
+      allowedHeaders:
+          (map['allowed_headers'] as List?)?.cast<String>() ?? ['*'],
       allowCredentials: map['allow_credentials'] as bool? ?? false,
       maxAgeSecs: map['max_age_secs'] as int? ?? 86400,
     );

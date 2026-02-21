@@ -1,0 +1,30 @@
+# ============================================================
+# APPLAD GITIGNORE
+# These files should never be committed to repository state.
+# ============================================================
+
+# Environment variables containing secrets
+.env
+.env.local
+.env.*.local
+secrets.local.yaml
+
+# Local databases and analytics dumps
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Build artifacts
+build/
+.dart_tool/
+
+# Applad Runtime State
+.applad/
+*.applad-lock
+logs/
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db

@@ -14,9 +14,12 @@ final class InstanceConfig {
   factory InstanceConfig.fromMap(Map<String, dynamic> map) {
     return InstanceConfig(
       version: map['version'] as String? ?? '1',
-      ai: map['ai'] != null ? AiConfig.fromMap(map['ai'] as Map<String, dynamic>) : null,
+      ai: map['ai'] != null
+          ? AiConfig.fromMap(map['ai'] as Map<String, dynamic>)
+          : null,
       observability: map['observability'] != null
-          ? ObservabilityRef.fromMap(map['observability'] as Map<String, dynamic>)
+          ? ObservabilityRef.fromMap(
+              map['observability'] as Map<String, dynamic>)
           : null,
       enabledFeatures: (map['enabled_features'] as List?)?.cast<String>() ?? [],
     );
@@ -39,7 +42,8 @@ final class AiConfig {
     return AiConfig(
       provider: map['provider'] as String,
       model: map['model'] as String?,
-      apiKeyRef: map['api_key'] is String && SecretRef.isSecretRef(map['api_key'] as String)
+      apiKeyRef: map['api_key'] is String &&
+              SecretRef.isSecretRef(map['api_key'] as String)
           ? SecretRef.parse(map['api_key'] as String)
           : null,
     );

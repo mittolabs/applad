@@ -28,10 +28,20 @@ class DashboardScreen extends StatelessWidget {
               spacing: 16,
               runSpacing: 16,
               children: const [
-                _StatCard(title: 'Tables', value: '—', icon: Icons.table_chart_outlined),
-                _StatCard(title: 'Users', value: '—', icon: Icons.people_outlined),
-                _StatCard(title: 'Functions', value: '—', icon: Icons.functions_outlined),
-                _StatCard(title: 'Storage Used', value: '—', icon: Icons.folder_outlined),
+                _StatCard(
+                    title: 'Tables',
+                    value: '—',
+                    icon: Icons.table_chart_outlined),
+                _StatCard(
+                    title: 'Users', value: '—', icon: Icons.people_outlined),
+                _StatCard(
+                    title: 'Functions',
+                    value: '—',
+                    icon: Icons.functions_outlined),
+                _StatCard(
+                    title: 'Storage Used',
+                    value: '—',
+                    icon: Icons.folder_outlined),
               ],
             ),
           ],
@@ -42,7 +52,8 @@ class DashboardScreen extends StatelessWidget {
 }
 
 class _StatCard extends StatelessWidget {
-  const _StatCard({required this.title, required this.value, required this.icon});
+  const _StatCard(
+      {required this.title, required this.value, required this.icon});
 
   final String title;
   final String value;

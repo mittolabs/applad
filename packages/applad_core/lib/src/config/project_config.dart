@@ -18,7 +18,8 @@ final class ProjectConfig {
     if (rawEnvs != null) {
       for (final entry in rawEnvs.entries) {
         final env = Environment.fromString(entry.key as String);
-        envMap[env] = ProjectEnvironmentConfig.fromMap(entry.value as Map<String, dynamic>);
+        envMap[env] = ProjectEnvironmentConfig.fromMap(
+            entry.value as Map<String, dynamic>);
       }
     }
     return ProjectConfig(

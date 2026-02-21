@@ -44,7 +44,8 @@ final class ServerConfig {
 
   /// Returns the loaded config. Throws if not yet loaded.
   static ApplAdConfig get instance {
-    if (_instance == null) throw StateError('ServerConfig not initialized. Call load() first.');
+    if (_instance == null)
+      throw StateError('ServerConfig not initialized. Call load() first.');
     return _instance!;
   }
 

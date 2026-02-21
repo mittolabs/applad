@@ -15,7 +15,8 @@ final class TableClient {
   }
 
   /// Update rows matching the given ID.
-  Future<Map<String, dynamic>> update(String id, Map<String, dynamic> data) async {
+  Future<Map<String, dynamic>> update(
+      String id, Map<String, dynamic> data) async {
     throw UnimplementedError('update — available in Phase 2');
   }
 
@@ -25,7 +26,8 @@ final class TableClient {
   }
 
   /// Subscribe to real-time changes on this table.
-  void on(RealtimeEvent event, void Function(Map<String, dynamic> payload) callback) {
+  void on(RealtimeEvent event,
+      void Function(Map<String, dynamic> payload) callback) {
     throw UnimplementedError('Realtime — available in Phase 3');
   }
 }

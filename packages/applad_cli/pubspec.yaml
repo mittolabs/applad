@@ -13,6 +13,7 @@ dependencies:
   applad_core:
     path: ../applad_core
   args: ^2.5.0
+  mason: ^0.1.2
   path: ^1.9.0
 
 dev_dependencies:

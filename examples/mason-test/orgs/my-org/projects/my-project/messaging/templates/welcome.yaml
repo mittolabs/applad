@@ -1,0 +1,22 @@
+# ============================================================
+# MESSAGING TEMPLATE REFERENCE
+# This file defines that the template exists, which channels
+# it supports, and subject/title defaults.
+# Actual content — HTML, copy, variables — lives in the
+# admin-managed database so non-developers can edit it
+# through the UI without a git commit or deployment.
+# ============================================================
+
+key: "welcome"
+channels: ["email", "push", "in_app"]
+description: "Sent when a new user signs up"
+
+defaults:
+  email:
+    subject: "Welcome to My App"
+  push:
+    title: "Welcome!"
+    body: "Your account is ready."
+  in_app:
+    title: "Welcome to My App"
+    body: "Get started by completing your profile."

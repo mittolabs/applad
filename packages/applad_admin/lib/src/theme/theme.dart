@@ -20,7 +20,8 @@ final class ApplAdTheme {
       ),
       navigationRailTheme: const NavigationRailThemeData(
         selectedIconTheme: IconThemeData(color: _primaryColor),
-        selectedLabelTextStyle: TextStyle(color: _primaryColor, fontWeight: FontWeight.w600),
+        selectedLabelTextStyle:
+            TextStyle(color: _primaryColor, fontWeight: FontWeight.w600),
       ),
       cardTheme: CardThemeData(
         elevation: 0,
@@ -33,7 +34,8 @@ final class ApplAdTheme {
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
     );
   }
@@ -51,7 +53,8 @@ final class ApplAdTheme {
       ),
       navigationRailTheme: const NavigationRailThemeData(
         selectedIconTheme: IconThemeData(color: _secondaryColor),
-        selectedLabelTextStyle: TextStyle(color: _secondaryColor, fontWeight: FontWeight.w600),
+        selectedLabelTextStyle:
+            TextStyle(color: _secondaryColor, fontWeight: FontWeight.w600),
       ),
       cardTheme: CardThemeData(
         elevation: 0,

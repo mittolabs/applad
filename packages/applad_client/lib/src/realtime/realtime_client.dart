@@ -30,7 +30,8 @@ final class RealtimeSubscription {
 
   final String name;
 
-  RealtimeSubscription on(String event, void Function(Map<String, dynamic>) callback) {
+  RealtimeSubscription on(
+      String event, void Function(Map<String, dynamic>) callback) {
     return this;
   }
 

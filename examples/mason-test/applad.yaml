@@ -1,0 +1,109 @@
+# ============================================================
+# APPLAD.YAML - Root instance configuration
+# This is the entry point. Everything else lives in its own
+# focused file under orgs/. Applad merges the full tree at
+# startup. Structure and intent only — no runtime state here.
+# ============================================================
+
+version: "1.0"
+name: "my-org-applad-instance"
+description: "My Applad instance"
+
+# ============================================================
+# INSTANCE
+# ============================================================
+instance:
+  url: "https://api.myapp.com"
+  region: "us-east-1"
+  secret: ${APPLAD_SECRET} # Always env-injected, never hardcoded
+
+  features: # Toggle any feature on/off instance-wide
+    ui: true # Admin Flutter UI
+    api: true # REST API
+    graphql: true # GraphQL API
+    realtime: true # Realtime subscriptions
+    storage: true # File storage
+    functions: true # Serverless functions
+    hosting: true # Static/dynamic hosting
+    workflows: true # Automation workflows
+    flags: true # Feature flags
+    analytics: true # Built-in analytics
+    deployments: true # App deployment pipelines
+    instruct: true # Lad AI assistant via applad instruct
+    messaging: true # Unified messaging
+
+# ============================================================
+# AI / LAD
+# Powers applad instruct. API keys stored encrypted in the
+# admin database — never here. Swap providers through the
+# admin UI without touching this file.
+# ============================================================
+ai:
+  enabled: true
+  provider: "anthropic" # anthropic | openai | gemini | mistral | custom
+  model: "claude-sonnet-4-6"
+
+  features:
+    scaffolding: true # Generate tables, functions, pipelines from instructions
+    debugging: true # Reads logs and suggests fixes
+    monitoring: true # Proactive anomaly detection
+    migrations: true # AI-assisted migration generation
+    infrastructure: true # Provision and manage VPS and cloud resources
+    security: true # Security audit and anomaly detection
+    dry_run: true # Always available via --dry-run flag
+
+  # dry_run_default: false           # Set true to always preview before applying
+
+# ============================================================
+# OBSERVABILITY (INSTANCE-LEVEL)
+# Applies across all orgs and projects.
+# Per-project overrides in orgs/<org>/projects/<project>/observability/
+# ============================================================
+observability:
+  logging:
+    level: "info" # debug | info | warn | error
+    structured: true
+    include_request_body: false # Never log bodies in production
+    scrub_secrets: true # Auto-scrub known secret patterns from logs
+
+  tracing:
+    enabled: true
+    sampling_rate: 0.1 # 10% of requests
+
+  export:
+    - type: "otlp"
+      enabled: false
+      endpoint: ${OTEL_ENDPOINT}
+
+    - type: "grafana"
+      enabled: false
+      url: ${GRAFANA_URL}
+      api_key: ${GRAFANA_API_KEY}
+
+# ============================================================
+# SECURITY (INSTANCE-LEVEL)
+# Global security defaults. Per-project overrides in
+# orgs/<org>/projects/<project>/observability/observability.yaml
+# ============================================================
+security:
+  ssh:
+    password_auth: false # Always disabled. Key-based only.
+    key_rotation_reminder_days: 90 # Remind developers to rotate keys
+    session_timeout: 300 # SSH sessions closed after 5 minutes of inactivity
+
+  audit:
+    enabled: true
+    sign_entries: true # Cryptographically sign every audit entry
+    retain_for: "7y" # Retain audit log for 7 years
+
+  scan:
+    containers: true # Scan function images before deployment
+    dependencies: true # Audit function dependencies on deploy
+    block_on_critical: true # Block deployment on critical vulnerabilities
+
+
+# ============================================================
+# Applad discovers orgs and projects by scanning the orgs/
+# directory. No need to list them here — the directory
+# structure IS the config.
+# ============================================================

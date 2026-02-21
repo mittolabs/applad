@@ -1,0 +1,26 @@
+# ============================================================
+# REALTIME CHANNEL DEFINITIONS
+# Broker config and channel structure here.
+# Subscription state in runtime database.
+# ============================================================
+
+adapter: "nats" # nats | redis
+url: ${NATS_URL}
+ssl: true
+
+channels:
+  - name: "posts"
+    table: "posts" # "table" not "collection"
+    events: ["create", "update", "delete"]
+    permissions:
+      - role: "*"
+        filter: "status == 'published'"
+      - role: "admin"
+        filter: null # Admins see all events
+
+  - name: "notifications"
+    table: "in_app_notifications"
+    events: ["create"]
+    permissions:
+      - role: "user"
+        filter: "user_id == $user.id"

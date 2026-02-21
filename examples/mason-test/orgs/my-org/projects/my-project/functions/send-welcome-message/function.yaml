@@ -1,0 +1,29 @@
+# ============================================================
+# FUNCTION DEFINITION
+# Runtime, triggers, environment references.
+# Function code lives alongside this file.
+# Execution logs in runtime database.
+# applad instruct can scaffold this entire directory.
+# ============================================================
+
+name: "send-welcome-message"
+runtime: "dart" # dart | node | python | go | php | ruby
+entrypoint: "main.dart" # Relative to this directory
+timeout: 30
+memory: "256mb"
+
+# Container security — each function runs isolated
+container:
+  readonly_filesystem: true
+  no_new_privileges: true
+  network: "restricted" # No outbound except explicitly allowed
+  allowed_hosts:
+    - "api.resend.com"
+
+triggers:
+  - type: "event"
+    event: "auth.user.created"
+
+environment:
+  - key: "MESSAGING_PROVIDER"
+    value: ${MESSAGING_PROVIDER}

@@ -17,18 +17,77 @@
 ## Quick Start
 
 ```bash
-# Install Applad CLI
+# Install Applad CLI globally
 dart pub global activate applad_cli
 
-# Scaffold a new project
+# Scaffold a new project natively using Mason templates (creates applad.yaml + orgs/ config tree)
 applad init
 
-# Validate your config
+# Validate your entire config tree without starting the server
 applad config validate
 
-# Start the server
+# Start the Applad server (merges config and listens for requests)
 applad up
 ```
+
+## CLI Reference
+
+Applad provides a rich CLI mapping directly to your YAML configuration. Here are some of the most common commands:
+
+### Scaffolding & Config
+
+```bash
+applad init                           # Scaffold applad.yaml and orgs/ directory structure
+applad config validate                # Validate full config tree without starting
+applad config diff                    # Diff between local config tree and running instance
+```
+
+### AI Assistant (Instruct)
+
+```bash
+applad instruct "create a users table with email, name, avatar, and soft delete"
+applad instruct "add fulltext search to posts"
+applad instruct "set up a deployment pipeline for my Flutter app to the Play Store"
+applad instruct --dry-run "provision RDS for production"  # Preview changes
+```
+
+### Organizations & Projects
+
+```bash
+applad orgs list                      # List all organizations on this instance
+applad orgs create --name "Acme"      # Create a new org — scaffolds orgs/acme/org.yaml
+applad projects list                  # List all projects on this instance
+applad projects switch <project-id>   # Set active project context
+```
+
+### Database & Tables
+
+```bash
+applad db migrate                     # Run pending migrations
+applad db generate "add_avatar_to_users"  # Generate a new migration file
+applad tables list                    # List all tables in active project
+applad tables generate <name>         # Scaffold a new table file in tables/<name>.yaml
+```
+
+### Functions & Workflows
+
+```bash
+applad functions list
+applad functions deploy <name>
+applad workflows trigger <name>
+applad workflows logs <name>
+```
+
+### Messaging & Realtime
+
+```bash
+applad messaging channels list        # List configured channels
+applad messaging test email --to user@example.com --template welcome
+applad realtime channels list
+applad realtime status
+```
+
+_For a full list of commands, run `applad --help`._
 
 ## Monorepo Structure
 

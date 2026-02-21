@@ -15,7 +15,8 @@ final class ObservabilityConfig {
       tracing: map['tracing'] as bool? ?? false,
       metricsEnabled: map['metrics_enabled'] as bool? ?? false,
       exporters: (map['exporters'] as List?)
-              ?.map((e) => ObservabilityExporter.fromMap(e as Map<String, dynamic>))
+              ?.map((e) =>
+                  ObservabilityExporter.fromMap(e as Map<String, dynamic>))
               .toList() ??
           [],
     );

@@ -39,6 +39,12 @@ Thumbs.db
 *.applad-lock
 secrets.local.yaml
 
+# Local Database Files
+data/
+*.db
+*.db-shm
+*.db-wal
+
 # Docker
 docker/data/
 

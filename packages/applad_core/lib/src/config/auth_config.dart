@@ -16,10 +16,16 @@ final class AuthConfig {
               ?.map((p) => AuthProvider.fromMap(p as Map<String, dynamic>))
               .toList() ??
           [],
-      mfa: map['mfa'] != null ? MfaConfig.fromMap(map['mfa'] as Map<String, dynamic>) : null,
-      sso: map['sso'] != null ? SsoConfig.fromMap(map['sso'] as Map<String, dynamic>) : null,
+      mfa: map['mfa'] != null
+          ? MfaConfig.fromMap(map['mfa'] as Map<String, dynamic>)
+          : null,
+      sso: map['sso'] != null
+          ? SsoConfig.fromMap(map['sso'] as Map<String, dynamic>)
+          : null,
       sessionDurationSeconds: map['session_duration_seconds'] as int? ?? 86400,
-      rbac: map['rbac'] != null ? RbacConfig.fromMap(map['rbac'] as Map<String, dynamic>) : null,
+      rbac: map['rbac'] != null
+          ? RbacConfig.fromMap(map['rbac'] as Map<String, dynamic>)
+          : null,
     );
   }
 
