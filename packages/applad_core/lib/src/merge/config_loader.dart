@@ -47,20 +47,43 @@ final class ConfigLoader {
     return results;
   }
 
-  /// Recursively loads all YAML files from a directory.
+  /// Recursively loads all YAML files from a directory, pruning hidden paths.
   Map<String, Map<String, dynamic>> loadDirectoryRecursive(String dirPath) {
-    final dir = Directory(dirPath);
-    if (!dir.existsSync()) return {};
+    final rootDir = Directory(dirPath);
+    if (!rootDir.existsSync()) return {};
 
     final results = <String, Map<String, dynamic>>{};
-    for (final entity in dir.listSync(recursive: true)) {
-      if (entity is File &&
-          (entity.path.endsWith('.yaml') || entity.path.endsWith('.yml'))) {
-        final relativePath = p.relative(entity.path, from: dirPath);
-        final name = relativePath.replaceAll(RegExp(r'\.ya?ml$'), '');
-        results[name] = loadFile(entity.path);
+    final directoriesToVisit = <Directory>[rootDir];
+
+    while (directoriesToVisit.isNotEmpty) {
+      final currentDir = directoriesToVisit.removeLast();
+      File('debug_traverse.txt').writeAsStringSync(
+          'VISITING: \${currentDir.path}\\n',
+          mode: FileMode.append);
+
+      try {
+        for (final entity in currentDir.listSync(followLinks: false)) {
+          final name = p.basename(entity.path);
+
+          // Prune standard caches and hidden folders from traversal entirely!
+          if (name.startsWith('.') || name == 'build') {
+            continue;
+          }
+
+          if (entity is Directory) {
+            directoriesToVisit.add(entity);
+          } else if (entity is File &&
+              (name.endsWith('.yaml') || name.endsWith('.yml'))) {
+            final relativePath = p.relative(entity.path, from: dirPath);
+            final keyName = relativePath.replaceAll(RegExp(r'\.ya?ml$'), '');
+            results[keyName] = loadFile(entity.path);
+          }
+        }
+      } catch (_) {
+        // Skip inaccessible directories during traversal
       }
     }
+
     return results;
   }
 

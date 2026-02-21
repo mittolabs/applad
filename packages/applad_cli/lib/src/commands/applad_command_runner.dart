@@ -4,21 +4,7 @@ import 'init_command.dart';
 import 'up_command.dart';
 import 'config_command.dart';
 import 'db_command.dart';
-import 'auth_command.dart';
-import 'storage_command.dart';
-import 'functions_command.dart';
-import 'workflows_command.dart';
-import 'deploy_command.dart';
-import 'hosting_command.dart';
-import 'flags_command.dart';
 import 'messaging_command.dart';
-import 'instruct_command.dart';
-import 'keys_command.dart';
-import 'audit_command.dart';
-import 'secrets_command.dart';
-import 'users_command.dart';
-import 'export_command.dart';
-import 'serve_command.dart';
 import 'tables_command.dart';
 import 'orgs_command.dart';
 import 'projects_command.dart';
@@ -63,21 +49,7 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
     addCommand(UpCommand());
     addCommand(ConfigCommand());
     addCommand(DbCommand());
-    addCommand(AuthCommand());
-    addCommand(StorageCommand());
-    addCommand(FunctionsCommand());
-    addCommand(WorkflowsCommand());
-    addCommand(DeployCommand());
-    addCommand(HostingCommand());
-    addCommand(FlagsCommand());
     addCommand(MessagingCommand());
-    addCommand(InstructCommand());
-    addCommand(KeysCommand());
-    addCommand(AuditCommand());
-    addCommand(SecretsCommand());
-    addCommand(UsersCommand());
-    addCommand(ExportCommand());
-    addCommand(ServeCommand());
     addCommand(TablesCommand());
     addCommand(OrgsCommand());
     addCommand(ProjectsCommand());
@@ -91,26 +63,8 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
      ██║  ██║██║     ██║     ███████╗██║  ██║██████╔╝
      ╚═╝  ╚═╝╚═╝     ╚═╝     ╚══════╝╚═╝  ╚═╝╚═════╝ ''';
 
-    final StringBuffer buffer = StringBuffer();
-    final lines = logo.split('\n');
-
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      final runes = line.runes.toList();
-      for (int j = 0; j < runes.length; j++) {
-        final double t = j / (runes.isEmpty ? 1 : runes.length);
-
-        // Gradient from Cyan (0,255,255) to Purple/Pink (255,0,255)
-        final int r = (0 + t * 255).round().clamp(0, 255);
-        final int g = (255 - t * 255).round().clamp(0, 255);
-        final int b = 255;
-
-        buffer.write('\x1b[38;2;$r;$g;${b}m${String.fromCharCode(runes[j])}');
-      }
-      buffer.write('\x1b[0m\n');
-    }
-
-    return buffer.toString();
+    // Simple, clean cyan foreground text color
+    return '\x1b[36m$logo\x1b[0m\n';
   }
 
   @override

@@ -1,0 +1,20 @@
+name: "avatars"
+public: true
+max_file_size: "5mb"
+allowed_types: ["image/jpeg", "image/png", "image/webp"]
+
+# Virus scanning before files are accepted
+scan:
+  enabled: true
+  block_on_threat: true
+
+permissions:
+  - role: "user"
+    actions: ["read", "write"]
+    filter: "owner_id == $user.id"
+
+  - role: "*"
+    actions: ["read"]
+
+  - role: "admin"
+    actions: ["*"]

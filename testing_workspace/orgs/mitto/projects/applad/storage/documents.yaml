@@ -1,0 +1,19 @@
+name: "documents"
+public: false
+max_file_size: "50mb"
+allowed_types: ["application/pdf", "text/*", "application/msword"]
+
+scan:
+  enabled: true
+  block_on_threat: true
+
+encryption:
+  at_rest: true # Encrypt individual files at rest
+
+permissions:
+  - role: "admin"
+    actions: ["*"]
+
+  - role: "user"
+    actions: ["read", "write"]
+    filter: "org_id == $user.org_id"

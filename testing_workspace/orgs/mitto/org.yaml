@@ -1,0 +1,63 @@
+# ============================================================
+# ORG DEFINITION
+# Structure and roles only. Member records, invitations,
+# usage metrics, and audit logs live in the runtime database.
+# ============================================================
+
+id: "mitto"
+name: "mitto"
+description: "Main organization"
+
+roles:
+  - name: "owner"
+    permissions: ["*"]
+
+  - name: "admin"
+    permissions: ["read", "write", "delete", "invite", "manage_projects"]
+
+  - name: "developer"
+    permissions: ["read", "write", "manage_projects"]
+
+  - name: "viewer"
+    permissions: ["read"]
+
+# SSH keys for developers registered to this org.
+# Private keys never stored anywhere — only public keys here.
+# Key fingerprints used to attribute every CLI, UI, and
+# applad instruct action in the audit trail.
+ssh_keys:
+# Uncomment below to define initial ssh keys for authorization
+#  - label: "alice@macbook-pro"
+#    fingerprint: "SHA256:abc123..."
+#    identity: "alice@mitto"
+#    role: "admin"
+#    scopes: ["*"]                    # Full access
+#
+#  - label: "ci-github-actions"
+#    fingerprint: "SHA256:ghi789..."
+#    identity: "ci@mitto"
+#    role: "ci"
+#    scopes:
+#      - "deployments:run"
+#      - "functions:deploy"
+#      - "hosting:deploy"
+
+security:
+  mfa:
+    required: false # All org members must enroll MFA
+    methods: ["totp", "webauthn"]
+
+  data_residency:
+    region: "us-east-1" # All org data physically in region
+
+  ip_allowlist:
+    enabled: false # Managed through admin UI when enabled
+    # Actual IP entries in admin-managed database — not here
+
+  session:
+    max_duration: 28800 # 8 hours
+    idle_timeout: 3600 # 1 hour
+
+billing:
+  plan: "team" # free | solo | team | enterprise
+  # Usage data and invoices in runtime database

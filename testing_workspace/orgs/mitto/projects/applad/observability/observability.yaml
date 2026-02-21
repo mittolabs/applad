@@ -1,0 +1,103 @@
+# ============================================================
+# OBSERVABILITY AND SECURITY POLICY
+# Logging, tracing, rate limits, and security rules.
+# Security policies live here alongside the project they govern.
+# Reviewed in the same PR as the project changes.
+# Logs, traces, and security events in runtime database.
+# ============================================================
+
+logging:
+  level: "info"
+  structured: true
+  include_request_body: false
+  scrub_secrets: true
+
+tracing:
+  enabled: true
+  sampling_rate: 0.1
+
+# Rate limiting — configurable per endpoint, per user, per org
+rate_limiting:
+  default:
+    requests: 100
+    window: "1m"
+    per: "ip"
+
+  routes:
+    - path: "/auth/*"
+      requests: 20
+      window: "1m"
+      per: "ip"
+      block_duration: "15m"
+
+    - path: "/api/v1/payments/*"
+      requests: 10
+      window: "1m"
+      per: "user"
+
+cors:
+  enabled: true
+  allowed_origins:
+    - "https://myapp.com"
+    - "https://staging.myapp.com"
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowed_headers: ["Authorization", "Content-Type"]
+  max_age: 86400
+
+security_events:
+  log_failed_auth: true
+  log_rate_limit_hits: true
+  log_blocked_ips: true
+  log_permission_denials: true
+  log_anomalous_access: true
+  log_instruct_actions: true # Log all applad instruct operations with prompts
+
+anomaly_detection:
+  enabled: true
+  rules:
+    - name: "impossible-travel"
+      enabled: true
+      notify: ["slack"]
+      template: "security-alert"
+
+    - name: "repeated-permission-denials"
+      threshold: 10
+      window: "5m"
+      notify: ["slack", "email"]
+      template: "security-alert"
+
+    - name: "unusual-instruct-volume"
+      description: "Alert if instruct commands spike unexpectedly — possible key compromise"
+      threshold: 20
+      window: "10m"
+      notify: ["slack"]
+
+alerts:
+  - name: "high-error-rate"
+    metric: "api.error_rate"
+    threshold: 0.05
+    window: "5m"
+    notify:
+      - channel: "slack"
+      - channel: "email"
+        template: "alert-high-error-rate"
+
+  - name: "slow-queries"
+    metric: "db.query_duration_p99"
+    threshold: 1000 # ms
+    window: "5m"
+    notify:
+      - channel: "slack"
+
+  - name: "cloud-cost-spike"
+    metric: "cloud.cost_per_hour"
+    threshold: 10.00 # USD
+    window: "1h"
+    notify:
+      - channel: "slack"
+        template: "cloud-cost-alert"
+
+export:
+  - type: "otlp"
+    enabled: false
+    endpoint: ${OTEL_ENDPOINT}
