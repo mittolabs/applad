@@ -1,7 +1,6 @@
 name: applad_core
 description: Shared models, config types, and YAML merge engine for Applad.
 version: 0.1.0
-publish_to: none
 repository: https://github.com/mittolabs/applad/tree/main/packages/applad_core
 
 environment:

@@ -17,8 +17,8 @@
 ## Quick Start
 
 ```bash
-# Install Applad CLI globally
-dart pub global activate applad_cli
+# Install Applad CLI globally (from local source during development)
+dart pub global activate -s path ./packages/applad_cli
 
 # Scaffold a new project natively using Mason templates (creates applad.yaml + orgs/ config tree)
 applad init
