@@ -32,13 +32,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          sdk: stable
+          channel: "stable"
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
         working-directory: packages/applad_cli
 
       - name: Compile executable
