@@ -1,0 +1,16 @@
+# Avatars Bucket
+# Stores user profile pictures.
+name: avatars
+
+# Public buckets allow unauthenticated reads (for displaying images)
+public: true
+
+# Only allow image files
+allowed_mime_types:
+  - image/jpeg
+  - image/png
+  - image/webp
+  - image/gif
+
+# Max 5MB for avatars
+max_file_size_mb: 5

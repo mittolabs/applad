@@ -1,0 +1,20 @@
+name: applad_cli
+description: The `applad` CLI — manage your Applad project from the terminal.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/mittolabs/applad/tree/main/packages/applad_cli
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+resolution: workspace
+
+dependencies:
+  applad_core:
+    path: ../applad_core
+  args: ^2.5.0
+  path: ^1.9.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

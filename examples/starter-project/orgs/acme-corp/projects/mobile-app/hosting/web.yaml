@@ -1,0 +1,35 @@
+# Web App Hosting Configuration
+# Configures deployment of the Flutter web build.
+name: web
+
+# Custom domain (optional)
+domain: app.acme-corp.com
+
+# Git source for CI/CD triggered builds
+source:
+  repo: acme-corp/mobile-app
+  branch: main
+
+# Build command for Flutter web
+build_command: flutter build web --release
+
+# Output directory
+output_directory: build/web
+
+# Security headers
+headers:
+  - path: "/*"
+    headers:
+      X-Frame-Options: DENY
+      X-Content-Type-Options: nosniff
+      Referrer-Policy: strict-origin-when-cross-origin
+      Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Redirects
+redirects:
+  - from: /old-dashboard
+    to: /dashboard
+    status: 301
+  - from: /app/*
+    to: /
+    status: 200  # SPA fallback

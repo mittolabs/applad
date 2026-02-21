@@ -1,0 +1,15 @@
+# Applad Instance Configuration
+# This file defines the root instance settings.
+version: "1"
+
+# AI assistant configuration (optional)
+# ai:
+#   provider: anthropic
+#   model: claude-opus-4-6
+#   api_key: ${ANTHROPIC_API_KEY}
+
+# Features enabled at the instance level
+enabled_features:
+  - auth
+  - database
+  - storage

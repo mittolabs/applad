@@ -1,0 +1,28 @@
+# Welcome Email Template
+name: welcome
+channel: email
+subject: "Welcome to {{app_name}}, {{name}}!"
+
+# Template body (HTML and text versions)
+body:
+  html: |
+    <h1>Welcome, {{name}}!</h1>
+    <p>Thanks for joining {{app_name}}. We're excited to have you.</p>
+    <p>
+      <a href="{{dashboard_url}}" style="background:#6366F1;color:white;padding:12px 24px;border-radius:6px;text-decoration:none">
+        Get Started
+      </a>
+    </p>
+    <p>Questions? Reply to this email.</p>
+  text: |
+    Welcome, {{name}}!
+
+    Thanks for joining {{app_name}}. We're excited to have you.
+
+    Get started: {{dashboard_url}}
+
+    Questions? Reply to this email.
+
+variables:
+  app_name: "Acme Corp"
+  dashboard_url: "https://app.acme-corp.com/dashboard"

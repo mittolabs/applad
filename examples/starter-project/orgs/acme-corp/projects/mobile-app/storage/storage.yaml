@@ -1,0 +1,15 @@
+# Storage Configuration
+# Defines the storage adapter and global settings.
+
+# Adapter: local | s3 | r2 | gcs | azure
+adapter: s3
+
+# S3 configuration (or compatible: R2, MinIO, etc.)
+# endpoint: ${S3_ENDPOINT}     # Only for non-AWS S3 compatible services
+# region: ${AWS_REGION}
+# bucket: ${S3_BUCKET}
+# access_key: ${AWS_ACCESS_KEY_ID}
+# secret_key: ${AWS_SECRET_ACCESS_KEY}
+
+# Global max file size (per bucket can override this)
+max_file_size_mb: 100

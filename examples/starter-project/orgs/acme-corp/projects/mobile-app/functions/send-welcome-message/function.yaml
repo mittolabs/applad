@@ -1,0 +1,19 @@
+# Send Welcome Message Function
+# Sends a welcome email when a new user signs up.
+name: send-welcome-message
+
+# Runtime: dart | node | python | go
+runtime: dart
+
+# Trigger: http | schedule | event | webhook
+trigger: event
+# event: auth.user.created  # Triggered automatically on new user signup
+
+# Resource allocation
+memory: 128  # MB
+timeout_seconds: 30
+
+# Environment variables available to this function
+environment:
+  FROM_EMAIL: noreply@acme-corp.com
+  FROM_NAME: "Acme Corp"

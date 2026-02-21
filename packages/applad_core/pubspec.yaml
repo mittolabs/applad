@@ -1,0 +1,20 @@
+name: applad_core
+description: Shared models, config types, and YAML merge engine for Applad.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/mittolabs/applad/tree/main/packages/applad_core
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+resolution: workspace
+
+dependencies:
+  collection: ^1.18.0
+  equatable: ^2.0.5
+  path: ^1.9.0
+  yaml: ^3.1.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

@@ -1,0 +1,57 @@
+# Users Table
+# Extends the built-in auth.users table with app-specific profile data.
+name: users
+
+fields:
+  - name: id
+    type: uuid
+    unique: true
+    default: gen_random_uuid()
+
+  - name: auth_user_id
+    type: uuid
+    references: auth.users.id  # Foreign key to the auth users table
+    unique: true
+
+  - name: display_name
+    type: text
+    nullable: true
+
+  - name: avatar_url
+    type: text
+    nullable: true
+
+  - name: bio
+    type: text
+    nullable: true
+
+  - name: website
+    type: text
+    nullable: true
+
+  - name: is_verified
+    type: boolean
+    default: false
+
+  - name: metadata
+    type: jsonb
+    nullable: true
+
+# Auto-add created_at and updated_at columns
+timestamps: true
+
+# Soft delete — sets deleted_at instead of removing rows
+soft_delete: true
+
+# Indexes for common query patterns
+indexes:
+  - fields: [auth_user_id]
+    unique: true
+  - fields: [display_name]
+
+# Row-level security rules
+permissions:
+  select: "true"                                    # Anyone can read profiles
+  insert: "auth.uid() = auth_user_id"               # Users can only create their own profile
+  update: "auth.uid() = auth_user_id"               # Users can only update their own profile
+  delete: "auth.uid() = auth_user_id"               # Users can only delete their own profile

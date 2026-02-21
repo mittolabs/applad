@@ -1,0 +1,20 @@
+name: applad_server
+description: Dart Frog API server for Applad.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/mittolabs/applad/tree/main/packages/applad_server
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+resolution: workspace
+
+dependencies:
+  applad_core:
+    path: ../applad_core
+  dart_frog: ^1.2.0
+
+dev_dependencies:
+  dart_frog_gen: ^2.1.0
+  lints: ^5.0.0
+  test: ^1.25.0

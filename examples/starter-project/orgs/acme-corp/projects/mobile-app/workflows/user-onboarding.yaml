@@ -1,0 +1,37 @@
+# User Onboarding Workflow
+# Orchestrates the steps to onboard a new user after signup.
+name: user-onboarding
+
+# Trigger: event name or cron expression
+trigger: auth.user.created
+
+# Retry configuration
+retry:
+  max_attempts: 3
+  delay_seconds: 10
+
+# Timeout for the entire workflow
+timeout_seconds: 300
+
+# Workflow steps — executed in order
+steps:
+  - name: send-welcome-email
+    action: function.invoke
+    params:
+      function: send-welcome-message
+
+  - name: create-user-profile
+    action: table.insert
+    params:
+      table: users
+      data:
+        auth_user_id: "{{event.user.id}}"
+        display_name: "{{event.user.display_name}}"
+
+  - name: send-onboarding-notification
+    action: messaging.send
+    condition: "{{steps.create-user-profile.success}} == true"
+    params:
+      channel: push
+      template: onboarding-day-1
+      recipient: "{{event.user.id}}"

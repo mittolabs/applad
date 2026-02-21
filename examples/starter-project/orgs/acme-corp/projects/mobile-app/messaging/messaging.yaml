@@ -1,0 +1,18 @@
+# Messaging Configuration
+# Defines which channels and providers handle messaging.
+
+# Active messaging channels
+channels:
+  - email
+  - push
+  # - sms    # Uncomment to enable SMS
+
+# Provider configurations
+providers:
+  - type: resend       # Transactional email
+    name: resend-email
+  - type: expo         # Push notifications (mobile apps)
+    name: expo-push
+
+# Default sender for email
+default_sender: "Acme Corp <noreply@acme-corp.com>"

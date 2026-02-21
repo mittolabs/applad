@@ -1,0 +1,28 @@
+# Applad Instance Configuration
+# This is the root config for your entire Applad deployment.
+version: "1"
+
+# AI assistant configuration
+# The `applad instruct` command uses this to understand and modify your config.
+ai:
+  provider: anthropic
+  model: claude-opus-4-6
+  api_key: ${ANTHROPIC_API_KEY}
+
+# Observability settings at the instance level
+observability:
+  log_level: info
+  tracing: false
+
+# Which Applad features are enabled for this instance
+enabled_features:
+  - auth
+  - database
+  - storage
+  - functions
+  - workflows
+  - messaging
+  - flags
+  - analytics
+  - hosting
+  - realtime

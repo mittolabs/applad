@@ -1,0 +1,37 @@
+# Default RBAC Roles
+# These roles are available across all projects in the org.
+
+roles:
+  - name: admin
+    description: "Full access to all resources"
+    permissions:
+      - resource: "*"
+        actions: ["*"]
+
+  - name: developer
+    description: "Read and write access, no user management"
+    permissions:
+      - resource: "tables"
+        actions: ["select", "insert", "update", "delete"]
+      - resource: "storage"
+        actions: ["read", "write"]
+      - resource: "functions"
+        actions: ["invoke"]
+
+  - name: user
+    description: "Standard user — access controlled by table-level RLS"
+    permissions:
+      - resource: "tables"
+        actions: ["select", "insert", "update", "delete"]
+      - resource: "storage.public"
+        actions: ["read"]
+      - resource: "functions.public"
+        actions: ["invoke"]
+
+  - name: readonly
+    description: "Read-only access to public resources"
+    permissions:
+      - resource: "tables"
+        actions: ["select"]
+      - resource: "storage.public"
+        actions: ["read"]

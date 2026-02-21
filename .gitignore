@@ -1,0 +1,52 @@
+# Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+pubspec.lock
+*.g.dart
+*.freezed.dart
+
+# Flutter
+/android/.gradle/
+/ios/Pods/
+/ios/.symlinks/
+*.xcworkspace
+*.xcodeproj/*.mode1v3
+*.xcodeproj/*.mode2v3
+*.xcodeproj/*.perspectivev3
+*.xcodeproj/xcuserdata/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Applad runtime
+.applad/
+*.applad-lock
+secrets.local.yaml
+
+# Docker
+docker/data/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local

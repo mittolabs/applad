@@ -1,0 +1,27 @@
+name: applad_admin
+description: Flutter admin dashboard for Applad.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/mittolabs/applad/tree/main/packages/applad_admin
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+resolution: workspace
+
+dependencies:
+  applad_core:
+    path: ../applad_core
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.0
+  go_router: ^14.0.0
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

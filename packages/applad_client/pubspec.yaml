@@ -1,0 +1,20 @@
+name: applad_client
+description: Dart/Flutter client SDK for apps built on Applad.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/mittolabs/applad/tree/main/packages/applad_client
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+resolution: workspace
+
+dependencies:
+  applad_core:
+    path: ../applad_core
+  http: ^1.2.0
+  web_socket_channel: ^3.0.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

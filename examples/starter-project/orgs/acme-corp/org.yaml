@@ -1,0 +1,19 @@
+# Organization Configuration
+# Represents your company/team within Applad.
+id: acme-corp
+name: Acme Corp
+
+# Team members and their roles
+members:
+  - email: cto@acme-corp.com
+    role: admin
+  - email: backend@acme-corp.com
+    role: developer
+  - email: devops@acme-corp.com
+    role: operator
+
+# Infrastructure targets available to this org
+# These are the cloud providers / platforms you deploy to.
+infrastructure_targets:
+  - fly.io
+  - aws-s3

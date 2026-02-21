@@ -1,0 +1,22 @@
+# Project Configuration
+id: my-project
+name: my-project
+org_id: my-org
+
+# Default environment to use when not specified
+default_environment: development
+
+# Per-environment configuration
+environments:
+  development:
+    variables:
+      APP_ENV: development
+      LOG_LEVEL: debug
+  staging:
+    variables:
+      APP_ENV: staging
+      LOG_LEVEL: info
+  production:
+    variables:
+      APP_ENV: production
+      LOG_LEVEL: warning

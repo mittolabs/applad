@@ -1,0 +1,15 @@
+# Database Configuration
+adapter: sqlite
+
+# SQLite database file location (relative to project root)
+# database: .applad/data.db
+
+# Connection pool settings
+pool:
+  min: 1
+  max: 10
+
+# Migration settings
+migrations:
+  directory: migrations
+  auto_run: false

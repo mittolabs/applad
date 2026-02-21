@@ -1,0 +1,23 @@
+# Authentication Configuration
+# Configure who can sign up and how they authenticate.
+
+# Auth providers
+providers:
+  - type: email
+  # - type: google
+  #   client_id: ${GOOGLE_CLIENT_ID}
+  # - type: github
+  #   client_id: ${GITHUB_CLIENT_ID}
+
+# Session duration (in seconds). Default: 24 hours.
+session_duration_seconds: 86400
+
+# Multi-factor authentication
+mfa:
+  required: false
+  methods:
+    - totp
+
+# Role-based access control
+rbac:
+  default_role: user

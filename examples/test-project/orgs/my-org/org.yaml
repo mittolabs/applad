@@ -1,0 +1,13 @@
+# Organization Configuration
+id: my-org
+name: my-org
+
+# Team members
+members:
+  - email: admin@example.com
+    role: admin
+
+# Infrastructure targets (where to deploy)
+# infrastructure_targets:
+#   - fly
+#   - aws

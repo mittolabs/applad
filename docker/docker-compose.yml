@@ -1,0 +1,76 @@
+# Applad Self-Hosted — Docker Compose
+# One command to run your entire Applad backend:
+#   docker compose up
+#
+# This starts:
+#   - Applad API server (port 8080)
+#   - SQLite data persistence via volume
+#   - Caddy reverse proxy (ports 80/443 with automatic HTTPS)
+
+version: "3.9"
+
+services:
+  # ─── Applad API Server ──────────────────────────────────────────────────────
+  applad:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      APPLAD_CONFIG_PATH: "/app/config"
+      # Database configuration
+      DB_ADAPTER: "sqlite"
+      # Add your secrets here or use a .env file:
+      # ANTHROPIC_API_KEY: ""
+    volumes:
+      # Mount your config tree (edit this path to point to your config)
+      - ../examples/starter-project:/app/config:ro
+      # Persistent SQLite data
+      - applad-data:/data
+    ports:
+      - "8080:8080"
+    networks:
+      - applad-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ─── Caddy Reverse Proxy ────────────────────────────────────────────────────
+  # Provides automatic HTTPS, HTTP/2, and clean URLs.
+  # For local development you can comment this out.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    command: |
+      caddy reverse-proxy
+        --from :80
+        --to applad:8080
+    networks:
+      - applad-network
+    depends_on:
+      applad:
+        condition: service_healthy
+    profiles:
+      - proxy  # Only start with: docker compose --profile proxy up
+
+volumes:
+  applad-data:
+    driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
+    driver: local
+
+networks:
+  applad-network:
+    driver: bridge

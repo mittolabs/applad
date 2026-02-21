@@ -1,0 +1,31 @@
+# Project Configuration
+# A project is a single backend application (e.g., a mobile app's backend).
+id: mobile-app
+name: Mobile App
+org_id: acme-corp
+
+# The default environment when none is specified
+default_environment: development
+
+# Per-environment configuration overrides
+environments:
+  development:
+    infra_target: local
+    variables:
+      APP_ENV: development
+      LOG_LEVEL: debug
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8080"
+
+  staging:
+    infra_target: fly.io
+    variables:
+      APP_ENV: staging
+      LOG_LEVEL: info
+      ALLOWED_ORIGINS: "https://staging.acme-corp.com"
+
+  production:
+    infra_target: fly.io
+    variables:
+      APP_ENV: production
+      LOG_LEVEL: warning
+      ALLOWED_ORIGINS: "https://app.acme-corp.com"

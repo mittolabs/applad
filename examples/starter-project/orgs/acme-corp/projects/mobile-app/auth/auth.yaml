@@ -1,0 +1,26 @@
+# Authentication Configuration
+# Defines how users sign up and authenticate.
+
+# Auth providers — order determines priority
+providers:
+  - type: email
+    # Email/password auth with optional magic link
+  - type: google
+    client_id: ${GOOGLE_CLIENT_ID}
+  - type: apple
+    client_id: ${APPLE_CLIENT_ID}
+
+# Session configuration
+session_duration_seconds: 604800  # 7 days
+
+# Multi-factor authentication
+mfa:
+  required: false       # Make true to require MFA for all users
+  methods:
+    - totp              # Time-based one-time passwords (Google Authenticator, etc.)
+    # - sms             # SMS codes (requires messaging provider)
+
+# Role-based access control
+rbac:
+  default_role: user    # Role assigned to new users
+  roles_file: ../../../../shared/roles/default-roles.yaml

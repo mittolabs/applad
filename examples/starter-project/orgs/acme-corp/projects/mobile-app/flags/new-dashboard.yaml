@@ -1,0 +1,17 @@
+# New Dashboard Feature Flag
+# Controls rollout of the redesigned dashboard UI.
+name: new-dashboard
+description: "Enable the redesigned dashboard with real-time metrics."
+
+# Disabled by default globally
+default_enabled: false
+
+# Per-environment overrides
+environments:
+  development: true   # Always on in dev for testing
+  staging: true       # On in staging for QA
+  production: false   # Off in prod until fully tested
+
+# Gradual rollout percentage (0-100)
+# Once ready, set this to roll out gradually to production users.
+# rollout_percentage: 25

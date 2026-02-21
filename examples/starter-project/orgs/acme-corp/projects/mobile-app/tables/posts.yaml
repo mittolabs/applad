@@ -1,0 +1,56 @@
+# Posts Table
+# Stores user-created content posts.
+name: posts
+
+fields:
+  - name: id
+    type: uuid
+    default: gen_random_uuid()
+    unique: true
+
+  - name: user_id
+    type: uuid
+    references: users.id
+
+  - name: title
+    type: text
+
+  - name: body
+    type: text
+    nullable: true
+
+  - name: slug
+    type: text
+    unique: true
+
+  - name: published
+    type: boolean
+    default: false
+
+  - name: published_at
+    type: timestamp
+    nullable: true
+
+  - name: tags
+    type: jsonb
+    nullable: true
+
+  - name: view_count
+    type: integer
+    default: 0
+
+timestamps: true
+soft_delete: true
+
+indexes:
+  - fields: [user_id]
+  - fields: [slug]
+    unique: true
+  - fields: [published, published_at]
+  - fields: [user_id, published]
+
+permissions:
+  select: "published = true OR auth.uid() = user_id"   # Published posts or own drafts
+  insert: "auth.uid() = user_id"                        # Authenticated users only
+  update: "auth.uid() = user_id"                        # Author only
+  delete: "auth.uid() = user_id OR auth.role() = 'admin'"  # Author or admin

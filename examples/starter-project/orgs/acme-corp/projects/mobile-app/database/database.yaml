@@ -1,0 +1,26 @@
+# Database Configuration
+# Defines the database adapter and connection settings.
+
+# Adapter: sqlite | postgres | mysql | turso
+adapter: postgres
+
+# Connection details (use secret references for credentials)
+host: ${DB_HOST}
+port: 5432
+database: ${DB_NAME}
+username: ${DB_USER}
+password: ${DB_PASSWORD}
+
+# For local development, you can use SQLite:
+# adapter: sqlite
+# (SQLite stores data in .applad/data.db by default)
+
+# Connection pool settings
+pool:
+  min: 2
+  max: 20
+
+# Migration settings
+migrations:
+  directory: migrations  # relative to project root
+  auto_run: false        # set to true to auto-migrate on startup (not recommended for prod)

@@ -1,0 +1,8 @@
+# Messaging Configuration
+# Provider config per channel.
+email:
+  enabled: true
+  provider: resend
+  config:
+    api_key: ${RESEND_API_KEY}
+    from: "hello@example.com"
