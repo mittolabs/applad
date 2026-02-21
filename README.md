@@ -2,17 +2,17 @@
 
 **The open-source BaaS where everything is config, everything is visual, and everything is assisted by AI.**
 
-> More than just a BaaS, Applad is the Infrastructure-as-Code (IaC) tool for your entire backend. It replaces disjointed tools for database, auth, CI/CD, feature flags, and analytics with a single, agentless, coherent system. Your config files are the backend, the admin UI is a friendly lens into them, and your AI "lad" actively helps you configure, debug, and deploy anywhere from a local SQLite binary to a multi-VPS cloud cluster without changing your app code. Built with Dart & Flutter.
+> More than just a BaaS, Applad is the Infrastructure-as-Code (IaC) tool for your entire backend. It replaces disjointed tools for database, auth, CI/CD, feature flags, and analytics with a single, agentless, coherent system. Your config files are the backend, the admin UI is a friendly lens into them. Built with Dart & Flutter.
 
 ---
 
 ## Features
 
-- **Config-driven backend** — define tables, auth, storage, functions, workflows, messaging, and hosting in version-controlled YAML
-- **Multi-environment** — dev, staging, prod from a single config tree with per-environment overrides
-- **AI assistant** — `applad instruct` understands your config and applies infrastructure changes safely, with full audit trails
-- **Self-hostable** — `docker compose up` and you're running
-- **Open source** — Apache 2.0, own your data and infrastructure
+- **Config-driven backend** — define tables, auth, storage, functions, workflows, messaging, and hosting in version-controlled YAML.
+- **Multi-environment** — dev, staging, prod from a single config tree with per-environment overrides.
+- **Dynamic API Gateway** — your configuration is automatically exposed as a live REST API.
+- **Zero-Dependency Deploy** — `applad up` provisions local servers or matches production VPS environments natively.
+- **Open source** — Apache 2.0, own your data and infrastructure.
 
 ## Quick Start
 
@@ -23,74 +23,53 @@ curl -fsSL https://raw.githubusercontent.com/mittolabs/applad/main/scripts/insta
 # OR install via Dart globally (for Dart/Flutter devs)
 dart pub global activate -s path ./packages/applad_cli
 
-# Scaffold a new project natively using Mason templates (creates applad.yaml + orgs/ config tree)
+# Scaffold a new project natively using Mason templates
 applad init
 
-# Validate your entire config tree without starting the server
-applad config validate
-
-# Start the Applad server (merges config and listens for requests)
+# Start the Applad server (Local Development)
 applad up
+
+# Deploy to VPS (Remote Infrastructure)
+# 1. Update project.yaml with your VPS host/user
+# 2. Run:
+applad up --env staging
 ```
 
 ## CLI Reference
 
-Applad provides a rich CLI mapping directly to your YAML configuration. Here are some of the most common commands:
+Applad provides a rich CLI mapping directly to your YAML configuration.
 
-### Scaffolding & Config
+### Core Commands
 
 ```bash
 applad init                           # Scaffold applad.yaml and orgs/ directory structure
-applad config validate                # Validate full config tree without starting
-applad config diff                    # Diff between local config tree and running instance
+applad up                             # Start local API server or provision VPS
+applad config validate                # Validate full config tree logic
 ```
 
-### AI Assistant (Instruct)
+### Discovery & Inspection
 
 ```bash
-applad instruct "create a users table with email, name, avatar, and soft delete"
-applad instruct "add fulltext search to posts"
-applad instruct "set up a deployment pipeline for my Flutter app to the Play Store"
-applad instruct --dry-run "provision RDS for production"  # Preview changes
+applad orgs list                      # List organizations in the current workspace
+applad projects list                  # List projects in the current workspace
+applad tables list                    # List all database tables defined in config
 ```
 
-### Organizations & Projects
+### Modules
 
 ```bash
-applad orgs list                      # List all organizations on this instance
-applad orgs create --name "Acme"      # Create a new org — scaffolds orgs/acme/org.yaml
-applad projects list                  # List all projects on this instance
-applad projects switch <project-id>   # Set active project context
+applad messaging test                 # Test channel connectivity (Email/SMS/Push)
+applad db migrate                     # Trigger migrations based on config state
 ```
 
-### Database & Tables
+## API Gateway
 
-```bash
-applad db migrate                     # Run pending migrations
-applad db generate "add_avatar_to_users"  # Generate a new migration file
-applad tables list                    # List all tables in active project
-applad tables generate <name>         # Scaffold a new table file in tables/<name>.yaml
-```
+When you run `applad up`, a Dart Frog server boots living at `http://localhost:8080`. This server provides a live lens into your configuration patterns.
 
-### Functions & Workflows
-
-```bash
-applad functions list
-applad functions deploy <name>
-applad workflows trigger <name>
-applad workflows logs <name>
-```
-
-### Messaging & Realtime
-
-```bash
-applad messaging channels list        # List configured channels
-applad messaging test email --to user@example.com --template welcome
-applad realtime channels list
-applad realtime status
-```
-
-_For a full list of commands, run `applad --help`._
+- `GET /v1/config` - Full merged configuration JSON.
+- `GET /v1/orgs` - Current organization details.
+- `GET /v1/projects/database` - Active database adapter and connection specs.
+- `GET /v1/projects/auth` - Configured providers and security rules.
 
 ## Monorepo Structure
 
@@ -118,9 +97,6 @@ melos bootstrap
 
 # Analyze all packages
 melos run analyze
-
-# Run all tests
-melos run test
 ```
 
 ## License
