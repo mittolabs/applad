@@ -58,14 +58,21 @@ final class ProjectConfig {
 final class ProjectEnvironmentConfig {
   const ProjectEnvironmentConfig({
     this.infraTarget,
+    this.host,
+    this.user,
     this.variables = const {},
   });
 
   factory ProjectEnvironmentConfig.fromMap(Map<String, dynamic> map) {
     final rawInfra = map['infrastructure'];
     String? expectedType;
+    String? expectedHost;
+    String? expectedUser;
+
     if (rawInfra is Map) {
       expectedType = rawInfra['type']?.toString();
+      expectedHost = rawInfra['host']?.toString();
+      expectedUser = rawInfra['user']?.toString();
     } else if (rawInfra is String) {
       expectedType = rawInfra;
     }
@@ -80,10 +87,14 @@ final class ProjectEnvironmentConfig {
 
     return ProjectEnvironmentConfig(
       infraTarget: map['infra_target']?.toString() ?? expectedType,
+      host: expectedHost,
+      user: expectedUser,
       variables: parsedVars,
     );
   }
 
   final String? infraTarget;
+  final String? host;
+  final String? user;
   final Map<String, String> variables;
 }

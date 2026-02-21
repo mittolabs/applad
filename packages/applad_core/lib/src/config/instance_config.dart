@@ -12,16 +12,28 @@ final class InstanceConfig {
   });
 
   factory InstanceConfig.fromMap(Map<String, dynamic> map) {
+    final rawFeatures = map['features'] ?? map['enabled_features'];
+    final featuresList = <String>[];
+    if (rawFeatures is Map) {
+      for (final entry in rawFeatures.entries) {
+        if (entry.value == true) {
+          featuresList.add(entry.key.toString());
+        }
+      }
+    } else if (rawFeatures is List) {
+      featuresList.addAll(rawFeatures.map((e) => e.toString()));
+    }
+
     return InstanceConfig(
-      version: map['version'] as String? ?? '1',
+      version: map['version']?.toString() ?? '1',
       ai: map['ai'] != null
-          ? AiConfig.fromMap(map['ai'] as Map<String, dynamic>)
+          ? AiConfig.fromMap(Map<String, dynamic>.from(map['ai'] as Map))
           : null,
       observability: map['observability'] != null
           ? ObservabilityRef.fromMap(
-              map['observability'] as Map<String, dynamic>)
+              Map<String, dynamic>.from(map['observability'] as Map))
           : null,
-      enabledFeatures: (map['enabled_features'] as List?)?.cast<String>() ?? [],
+      enabledFeatures: featuresList,
     );
   }
 

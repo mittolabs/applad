@@ -21,10 +21,11 @@ features: # Override instance-level feature toggles
 
 environments:
   - name: "development"
-    url: "http://localhost:8080"
+    url: "http://168.231.124.81"
     infrastructure:
-      type: "local" # Runs on developer's machine
-
+      type: "vps"
+      host: "168.231.124.81"
+      user: "root"
 
 #  Uncomment below when deploying to servers
 #  - name: "staging"

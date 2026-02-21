@@ -14,8 +14,8 @@ source:
   type: "git"
   repo: "github.com/myorg/myapp-web"
   branch: "main"
-  build_command: "flutter build web"
-  output_dir: "build/web"
+  build_command: "bash -c 'cd react-app && npm run build'"
+  output_dir: "react-app/dist"
 
 headers:
   - path: "/*"
