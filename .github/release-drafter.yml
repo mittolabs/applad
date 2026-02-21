@@ -1,0 +1,64 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+categories:
+  - title: "🚀 Features"
+    labels:
+      - "feat"
+      - "feature"
+      - "enhancement"
+  - title: "🐛 Bug Fixes"
+    labels:
+      - "fix"
+      - "bug"
+      - "bugfix"
+  - title: "🧰 Maintenance & Chores"
+    labels:
+      - "chore"
+      - "docs"
+      - "refactor"
+      - "style"
+      - "test"
+      - "ci"
+
+change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
+
+autolabeler:
+  - label: "feat"
+    title:
+      - "/^feat:.*/i"
+      - '/^feat\(.*\):.*/i'
+    branch:
+      - '/^feat\/.*/i'
+      - '/^feature\/.*/i'
+  - label: "fix"
+    title:
+      - "/^fix:.*/i"
+      - '/^fix\(.*\):.*/i'
+    branch:
+      - '/^fix\/.*/i'
+      - '/^bug\/.*/i'
+  - label: "chore"
+    title:
+      - "/^chore:.*/i"
+      - '/^chore\(.*\):.*/i'
+  - label: "docs"
+    title:
+      - "/^docs:.*/i"
+      - '/^docs\(.*\):.*/i'
+  - label: "refactor"
+    title:
+      - "/^refactor:.*/i"
+      - '/^refactor\(.*\):.*/i'
+  - label: "test"
+    title:
+      - "/^test:.*/i"
+      - '/^test\(.*\):.*/i'
+  - label: "ci"
+    title:
+      - "/^ci:.*/i"
+      - '/^ci\(.*\):.*/i'
+
+template: |
+  ## What's Changed
+
+  $CHANGES
