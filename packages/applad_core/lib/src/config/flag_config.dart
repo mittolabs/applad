@@ -6,36 +6,43 @@ import '../models/environment.dart';
 final class FlagConfig {
   const FlagConfig({
     required this.name,
-    this.defaultEnabled = false,
+    this.type = 'boolean',
+    this.defaultValue,
+    this.variants = const [],
     this.environmentOverrides = const {},
     this.description,
     this.rolloutPercentage,
   });
 
   factory FlagConfig.fromMap(Map<String, dynamic> map) {
-    final overrides = <Environment, bool>{};
+    final overrides = <Environment, dynamic>{};
     final rawOverrides = map['environments'] as Map?;
     if (rawOverrides != null) {
       for (final entry in rawOverrides.entries) {
-        final env = Environment.fromString(entry.key as String);
-        overrides[env] = entry.value as bool;
+        final env = Environment.fromString(entry.key.toString());
+        overrides[env] = entry.value;
       }
     }
     return FlagConfig(
-      name: map['name'] as String,
-      defaultEnabled: map['default_enabled'] as bool? ?? false,
+      name: (map['name'] ?? map['key'])?.toString() ?? '',
+      type: map['type']?.toString() ?? 'boolean',
+      defaultValue: map['default'] ?? map['default_enabled'],
+      variants:
+          (map['variants'] as List?)?.map((e) => e.toString()).toList() ?? [],
       environmentOverrides: overrides,
-      description: map['description'] as String?,
+      description: map['description']?.toString(),
       rolloutPercentage: map['rollout_percentage'] as int?,
     );
   }
 
   final String name;
-  final bool defaultEnabled;
-  final Map<Environment, bool> environmentOverrides;
+  final String type; // boolean, multivariate
+  final dynamic defaultValue; // bool or String
+  final List<String> variants;
+  final Map<Environment, dynamic> environmentOverrides;
   final String? description;
   final int? rolloutPercentage; // 0-100
 
-  bool isEnabledFor(Environment env) =>
-      environmentOverrides[env] ?? defaultEnabled;
+  dynamic valueFor(Environment env) =>
+      environmentOverrides[env] ?? defaultValue;
 }

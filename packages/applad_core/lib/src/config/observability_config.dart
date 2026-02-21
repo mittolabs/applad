@@ -10,11 +10,26 @@ final class ObservabilityConfig {
   });
 
   factory ObservabilityConfig.fromMap(Map<String, dynamic> map) {
+    bool parseTracing(dynamic val) {
+      if (val is bool) return val;
+      if (val is Map) return val['enabled'] as bool? ?? false;
+      return false;
+    }
+
+    String parseLogLevel(Map<String, dynamic> m) {
+      if (m['log_level'] is String) return m['log_level'] as String;
+      if (m['logging'] is Map)
+        return (m['logging'] as Map)['level'] as String? ?? 'info';
+      return 'info';
+    }
+
+    final rawExporters = map['exporters'] ?? map['export'];
+
     return ObservabilityConfig(
-      logLevel: LogLevel.fromString(map['log_level'] as String? ?? 'info'),
-      tracing: map['tracing'] as bool? ?? false,
+      logLevel: LogLevel.fromString(parseLogLevel(map)),
+      tracing: parseTracing(map['tracing']),
       metricsEnabled: map['metrics_enabled'] as bool? ?? false,
-      exporters: (map['exporters'] as List?)
+      exporters: (rawExporters as List?)
               ?.map((e) =>
                   ObservabilityExporter.fromMap(e as Map<String, dynamic>))
               .toList() ??

@@ -6,24 +6,29 @@ final class TableConfig {
     required this.name,
     required this.fields,
     this.indexes = const [],
-    this.permissions,
+    this.permissions = const [],
     this.timestamps = true,
     this.softDelete = false,
   });
 
   factory TableConfig.fromMap(Map<String, dynamic> map) {
     return TableConfig(
-      name: map['name'] as String,
-      fields: (map['fields'] as List)
-          .map((f) => FieldConfig.fromMap(f as Map<String, dynamic>))
-          .toList(),
-      indexes: (map['indexes'] as List?)
-              ?.map((i) => IndexConfig.fromMap(i as Map<String, dynamic>))
+      name: map['name']?.toString() ?? '',
+      fields: (map['fields'] as List?)
+              ?.map((f) =>
+                  FieldConfig.fromMap(Map<String, dynamic>.from(f as Map)))
               .toList() ??
           [],
-      permissions: map['permissions'] != null
-          ? TablePermissions.fromMap(map['permissions'] as Map<String, dynamic>)
-          : null,
+      indexes: (map['indexes'] as List?)
+              ?.map((i) =>
+                  IndexConfig.fromMap(Map<String, dynamic>.from(i as Map)))
+              .toList() ??
+          [],
+      permissions: (map['permissions'] as List?)
+              ?.map((p) => TablePermissionRule.fromMap(
+                  Map<String, dynamic>.from(p as Map)))
+              .toList() ??
+          [],
       timestamps: map['timestamps'] as bool? ?? true,
       softDelete: map['soft_delete'] as bool? ?? false,
     );
@@ -32,7 +37,7 @@ final class TableConfig {
   final String name;
   final List<FieldConfig> fields;
   final List<IndexConfig> indexes;
-  final TablePermissions? permissions;
+  final List<TablePermissionRule> permissions;
   final bool timestamps;
   final bool softDelete;
 }
@@ -41,29 +46,33 @@ final class FieldConfig {
   const FieldConfig({
     required this.name,
     required this.type,
-    this.nullable = false,
+    this.requiredLevel = false,
     this.unique = false,
+    this.indexed = false,
     this.defaultValue,
     this.references,
   });
 
   factory FieldConfig.fromMap(Map<String, dynamic> map) {
     return FieldConfig(
-      name: map['name'] as String,
-      type: map['type'] as String,
-      nullable: map['nullable'] as bool? ?? false,
+      name: map['name']?.toString() ?? '',
+      type: map['type']?.toString() ?? '',
+      requiredLevel: map['required'] as bool? ?? false,
       unique: map['unique'] as bool? ?? false,
+      indexed: map['indexed'] as bool? ?? false,
       defaultValue: map['default'],
-      references: map['references'] as String?,
+      references: map['table']?.toString() ??
+          map['references']?.toString(), // Handle relation targets
     );
   }
 
   final String name;
-  final String type; // text, integer, boolean, uuid, timestamp, jsonb, etc.
-  final bool nullable;
+  final String type; // string, integer, boolean, relation, enum, etc.
+  final bool requiredLevel;
   final bool unique;
+  final bool indexed;
   final dynamic defaultValue;
-  final String? references; // e.g. "users.id"
+  final String? references; // e.g. "organizations"
 }
 
 final class IndexConfig {
@@ -71,9 +80,9 @@ final class IndexConfig {
 
   factory IndexConfig.fromMap(Map<String, dynamic> map) {
     return IndexConfig(
-      fields: (map['fields'] as List).cast<String>(),
+      fields: (map['fields'] as List?)?.map((e) => e.toString()).toList() ?? [],
       unique: map['unique'] as bool? ?? false,
-      name: map['name'] as String?,
+      name: map['name']?.toString(),
     );
   }
 
@@ -82,26 +91,23 @@ final class IndexConfig {
   final String? name;
 }
 
-final class TablePermissions {
-  const TablePermissions({
-    this.select,
-    this.insert,
-    this.update,
-    this.delete,
+final class TablePermissionRule {
+  const TablePermissionRule({
+    required this.role,
+    required this.actions,
+    this.filter,
   });
 
-  factory TablePermissions.fromMap(Map<String, dynamic> map) {
-    return TablePermissions(
-      select: map['select'] as String?,
-      insert: map['insert'] as String?,
-      update: map['update'] as String?,
-      delete: map['delete'] as String?,
+  factory TablePermissionRule.fromMap(Map<String, dynamic> map) {
+    return TablePermissionRule(
+      role: map['role']?.toString() ?? '',
+      actions:
+          (map['actions'] as List?)?.map((e) => e.toString()).toList() ?? [],
+      filter: map['filter']?.toString(),
     );
   }
 
-  /// Permission rule expression (e.g. "auth.uid = user_id", "role = admin").
-  final String? select;
-  final String? insert;
-  final String? update;
-  final String? delete;
+  final String role; // e.g. "owner", "admin", "user", "*"
+  final List<String> actions; // e.g. ["read", "write"] or ["*"]
+  final String? filter; // e.g. "id == $user.id"
 }

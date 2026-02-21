@@ -13,20 +13,27 @@ final class HostingConfig {
   });
 
   factory HostingConfig.fromMap(Map<String, dynamic> map) {
+    final Map<String, dynamic>? sourceMap =
+        map['source'] is Map ? Map<String, dynamic>.from(map['source']) : null;
+
     return HostingConfig(
-      name: map['name'] as String,
-      domain: map['domain'] as String?,
-      source: map['source'] != null
-          ? GitSource.fromMap(map['source'] as Map<String, dynamic>)
-          : null,
-      buildCommand: map['build_command'] as String?,
-      outputDirectory: map['output_directory'] as String? ?? 'build/web',
+      name: map['name']?.toString() ?? '',
+      domain: map['domain']?.toString(),
+      source: sourceMap != null ? GitSource.fromMap(sourceMap) : null,
+      buildCommand: map['build_command']?.toString() ??
+          sourceMap?['build_command']?.toString(),
+      outputDirectory: map['output_directory']?.toString() ??
+          map['output_dir']?.toString() ??
+          sourceMap?['output_dir']?.toString() ??
+          'build/web',
       headers: (map['headers'] as List?)
-              ?.map((h) => HostingHeader.fromMap(h as Map<String, dynamic>))
+              ?.map((h) =>
+                  HostingHeader.fromMap(Map<String, dynamic>.from(h as Map)))
               .toList() ??
           [],
       redirects: (map['redirects'] as List?)
-              ?.map((r) => HostingRedirect.fromMap(r as Map<String, dynamic>))
+              ?.map((r) =>
+                  HostingRedirect.fromMap(Map<String, dynamic>.from(r as Map)))
               .toList() ??
           [],
     );
@@ -46,8 +53,8 @@ final class GitSource {
 
   factory GitSource.fromMap(Map<String, dynamic> map) {
     return GitSource(
-      repo: map['repo'] as String,
-      branch: map['branch'] as String? ?? 'main',
+      repo: map['repo']?.toString() ?? '',
+      branch: map['branch']?.toString() ?? 'main',
     );
   }
 
@@ -59,9 +66,17 @@ final class HostingHeader {
   const HostingHeader({required this.path, required this.headers});
 
   factory HostingHeader.fromMap(Map<String, dynamic> map) {
+    final rawHeaders = map['headers'] ?? map['values'];
+    final headersMap = <String, String>{};
+    if (rawHeaders is Map) {
+      for (final entry in rawHeaders.entries) {
+        headersMap[entry.key.toString()] = entry.value?.toString() ?? '';
+      }
+    }
+
     return HostingHeader(
-      path: map['path'] as String,
-      headers: (map['headers'] as Map).cast<String, String>(),
+      path: map['path']?.toString() ?? '',
+      headers: headersMap,
     );
   }
 
@@ -75,9 +90,9 @@ final class HostingRedirect {
 
   factory HostingRedirect.fromMap(Map<String, dynamic> map) {
     return HostingRedirect(
-      from: map['from'] as String,
-      to: map['to'] as String,
-      statusCode: map['status'] as int? ?? 301,
+      from: map['from']?.toString() ?? '',
+      to: map['to']?.toString() ?? '',
+      statusCode: (map['status'] ?? map['status_code']) as int? ?? 301,
     );
   }
 

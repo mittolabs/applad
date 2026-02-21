@@ -58,9 +58,21 @@ final class ObservabilityRef {
   const ObservabilityRef({this.logLevel, this.tracing});
 
   factory ObservabilityRef.fromMap(Map<String, dynamic> map) {
+    bool? parseTracing(dynamic val) {
+      if (val is bool) return val;
+      if (val is Map) return val['enabled'] as bool?;
+      return null;
+    }
+
+    String? parseLogLevel(Map<String, dynamic> m) {
+      if (m['log_level'] is String) return m['log_level'] as String;
+      if (m['logging'] is Map) return (m['logging'] as Map)['level'] as String?;
+      return null;
+    }
+
     return ObservabilityRef(
-      logLevel: map['log_level'] as String?,
-      tracing: map['tracing'] as bool?,
+      logLevel: parseLogLevel(map),
+      tracing: parseTracing(map['tracing']),
     );
   }
 

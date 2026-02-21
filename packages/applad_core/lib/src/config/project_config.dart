@@ -14,21 +14,36 @@ final class ProjectConfig {
 
   factory ProjectConfig.fromMap(Map<String, dynamic> map) {
     final envMap = <Environment, ProjectEnvironmentConfig>{};
-    final rawEnvs = map['environments'] as Map?;
-    if (rawEnvs != null) {
+    final rawEnvs = map['environments'];
+
+    if (rawEnvs is List) {
+      for (final item in rawEnvs) {
+        if (item is Map) {
+          final name = item['name']?.toString();
+          if (name != null) {
+            final env = Environment.fromString(name);
+            envMap[env] = ProjectEnvironmentConfig.fromMap(
+                Map<String, dynamic>.from(item));
+          }
+        }
+      }
+    } else if (rawEnvs is Map) {
       for (final entry in rawEnvs.entries) {
-        final env = Environment.fromString(entry.key as String);
-        envMap[env] = ProjectEnvironmentConfig.fromMap(
-            entry.value as Map<String, dynamic>);
+        final env = Environment.fromString(entry.key.toString());
+        if (entry.value is Map) {
+          envMap[env] = ProjectEnvironmentConfig.fromMap(
+              Map<String, dynamic>.from(entry.value));
+        }
       }
     }
+
     return ProjectConfig(
-      id: map['id'] as String,
-      name: map['name'] as String,
-      orgId: map['org_id'] as String,
+      id: map['id']?.toString() ?? '',
+      name: map['name']?.toString() ?? '',
+      orgId: (map['org_id'] ?? map['org'])?.toString() ?? '',
       environments: envMap,
       defaultEnvironment: map['default_environment'] != null
-          ? Environment.fromString(map['default_environment'] as String)
+          ? Environment.fromString(map['default_environment'].toString())
           : Environment.development,
     );
   }
@@ -47,9 +62,25 @@ final class ProjectEnvironmentConfig {
   });
 
   factory ProjectEnvironmentConfig.fromMap(Map<String, dynamic> map) {
+    final rawInfra = map['infrastructure'];
+    String? expectedType;
+    if (rawInfra is Map) {
+      expectedType = rawInfra['type']?.toString();
+    } else if (rawInfra is String) {
+      expectedType = rawInfra;
+    }
+
+    final rawVars = map['variables'];
+    Map<String, String> parsedVars = {};
+    if (rawVars is Map) {
+      for (final entry in rawVars.entries) {
+        parsedVars[entry.key.toString()] = entry.value?.toString() ?? '';
+      }
+    }
+
     return ProjectEnvironmentConfig(
-      infraTarget: map['infra_target'] as String?,
-      variables: (map['variables'] as Map?)?.cast<String, String>() ?? {},
+      infraTarget: map['infra_target']?.toString() ?? expectedType,
+      variables: parsedVars,
     );
   }
 

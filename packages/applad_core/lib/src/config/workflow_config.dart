@@ -5,20 +5,24 @@ final class WorkflowConfig {
   const WorkflowConfig({
     required this.name,
     required this.steps,
-    this.trigger,
+    this.triggerMap,
     this.retry,
     this.timeout,
   });
 
   factory WorkflowConfig.fromMap(Map<String, dynamic> map) {
     return WorkflowConfig(
-      name: map['name'] as String,
-      steps: (map['steps'] as List)
-          .map((s) => WorkflowStep.fromMap(s as Map<String, dynamic>))
-          .toList(),
-      trigger: map['trigger'] as String?,
+      name: map['name']?.toString() ?? '',
+      steps: (map['steps'] as List?)
+              ?.map((s) =>
+                  WorkflowStep.fromMap(Map<String, dynamic>.from(s as Map)))
+              .toList() ??
+          [],
+      triggerMap: map['trigger'] is Map
+          ? Map<String, dynamic>.from(map['trigger'] as Map)
+          : null,
       retry: map['retry'] != null
-          ? RetryConfig.fromMap(map['retry'] as Map<String, dynamic>)
+          ? RetryConfig.fromMap(Map<String, dynamic>.from(map['retry'] as Map))
           : null,
       timeout: map['timeout_seconds'] as int?,
     );
@@ -26,7 +30,8 @@ final class WorkflowConfig {
 
   final String name;
   final List<WorkflowStep> steps;
-  final String? trigger; // event name or cron
+  final Map<String, dynamic>?
+      triggerMap; // e.g. {type: "event", event: "auth.user.created"}
   final RetryConfig? retry;
   final int? timeout;
 }
@@ -34,22 +39,37 @@ final class WorkflowConfig {
 final class WorkflowStep {
   const WorkflowStep({
     required this.name,
-    required this.action,
+    required this.type,
+    this.channel,
+    this.template,
+    this.functionName,
+    this.dependsOn = const [],
     this.params = const {},
     this.condition,
   });
 
   factory WorkflowStep.fromMap(Map<String, dynamic> map) {
     return WorkflowStep(
-      name: map['name'] as String,
-      action: map['action'] as String,
+      name: map['name']?.toString() ?? '',
+      type: map['type']?.toString() ??
+          map['action']?.toString() ??
+          '', // fallback to legacy action
+      channel: map['channel']?.toString(),
+      template: map['template']?.toString(),
+      functionName: map['function']?.toString(),
+      dependsOn:
+          (map['depends_on'] as List?)?.map((e) => e.toString()).toList() ?? [],
       params: (map['params'] as Map?)?.cast<String, dynamic>() ?? {},
-      condition: map['condition'] as String?,
+      condition: map['condition']?.toString(),
     );
   }
 
   final String name;
-  final String action; // e.g. "function.invoke", "email.send"
+  final String type; // e.g. "message", "function"
+  final String? channel;
+  final String? template;
+  final String? functionName;
+  final List<String> dependsOn;
   final Map<String, dynamic> params;
   final String? condition;
 }

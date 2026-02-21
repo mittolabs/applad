@@ -99,8 +99,9 @@ final class _ValidateSubcommand extends Command<void> {
       }
     } on ConfigError catch (e) {
       Output.error('Failed to load config: ${e.message}');
-    } catch (e) {
+    } catch (e, st) {
       Output.error('Unexpected error: $e');
+      Output.error('Stacktrace: $st');
     }
   }
 }
