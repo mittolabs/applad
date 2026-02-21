@@ -1,0 +1,54 @@
+name: Build and Release Binaries
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build_binaries:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            artifact_name: applad-linux-x64
+          - os: macos-latest
+            platform: macos
+            arch: x64
+            artifact_name: applad-macos-x64
+          - os: macos-14
+            platform: macos
+            arch: arm64
+            artifact_name: applad-macos-arm64
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            artifact_name: applad-windows-x64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+        working-directory: packages/applad_cli
+
+      - name: Compile executable
+        run: dart compile exe bin/applad.dart -o ../../${{ matrix.artifact_name }}
+        working-directory: packages/applad_cli
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ matrix.artifact_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
