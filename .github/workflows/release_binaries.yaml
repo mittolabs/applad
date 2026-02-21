@@ -15,7 +15,7 @@ jobs:
             platform: linux
             arch: x64
             artifact_name: applad-linux-x64
-          - os: macos-13
+          - os: macos-12
             platform: macos
             arch: x64
             artifact_name: applad-macos-x64
