@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:path/path.dart' as p;
 import '../utils/output.dart';
 import '../utils/config_finder.dart';
 
@@ -28,29 +29,65 @@ final class FunctionsCreateCommand extends Command<void> {
   Future<void> run() async {
     Output.header('Create Function');
 
-    final projectDir = ConfigFinder.findProjectRoot();
+    final projectDir = ConfigFinder.discoverProjectRoot();
     if (projectDir == null) {
-      Output.error('No Applad project found (missing project.yaml).');
+      Output.error('No Applad project found.');
       return;
     }
 
+    final projectName = p.basename(projectDir.path);
+    Output.info('Selected project: $projectName');
+
     final functionsDir = Directory('${projectDir.path}/functions');
     if (!functionsDir.existsSync()) {
-      Output.info('Functions namespace is not enabled. Creating directory...');
+      Output.info('Creating functions/ directory...');
       functionsDir.createSync(recursive: true);
     }
 
     final name = Output.prompt('Function name', defaultValue: 'my-function');
-    final runtime =
-        Output.prompt('Runtime (dart/node/python)', defaultValue: 'dart');
-
     final yamlFile = File('${functionsDir.path}/$name.yaml');
+
     if (yamlFile.existsSync()) {
-      Output.error('Function "$name" already exists.');
+      Output.error('Function config "$name.yaml" already exists.');
       return;
     }
 
-    final memory = Output.prompt('Memory limit (128mb/256mb/512mb)',
+    final sourceType = Output.prompt('Source type (local/github/registry)',
+        defaultValue: 'local');
+
+    String sourceYaml = '';
+    String? localSourcePath;
+
+    if (sourceType == 'local') {
+      localSourcePath = Output.prompt('Source path (relative to project root)',
+          defaultValue: './src/functions/$name/main.dart');
+      sourceYaml = '''
+source:
+  type: "local"
+  path: "$localSourcePath"''';
+    } else if (sourceType == 'github') {
+      final repo = Output.prompt('GitHub Repo (org/repo)');
+      final branch = Output.prompt('Branch', defaultValue: 'main');
+      final path = Output.prompt('Path within repo');
+      sourceYaml = '''
+source:
+  type: "github"
+  repo: "$repo"
+  branch: "$branch"
+  path: "$path"
+  ssh_key: "ci-github-actions"''';
+    } else if (sourceType == 'registry') {
+      final image = Output.prompt('Container Image');
+      sourceYaml = '''
+source:
+  type: "registry"
+  image: "$image"
+  credentials: "registry-credentials"''';
+    }
+
+    final runtime =
+        Output.prompt('Runtime (dart/node/python)', defaultValue: 'dart');
+    final memory = Output.prompt('Memory limit (128mb/256mb/512mb/1gb)',
         defaultValue: '256mb');
     final timeout =
         int.tryParse(Output.prompt('Timeout in seconds', defaultValue: '30')) ??
@@ -67,40 +104,41 @@ runtime: "$runtime"
 timeout: $timeout
 memory: "$memory"
 
-# Container security — each function runs isolated
+$sourceYaml
+
 container:
-  image: "applad/runtime-$runtime:latest"
-  read_only_root: true
+  readonly_filesystem: true
+  no_new_privileges: true
 ''';
 
     yamlFile.writeAsStringSync(content);
-
-    Output.blank();
     Output.success('Created function config: ${yamlFile.path}');
 
-    // Create source stub if local
-    final sourcePath = '${functionsDir.path}/$name.${_getExtension(runtime)}';
-    final sourceFile = File(sourcePath);
-    if (!sourceFile.existsSync()) {
-      sourceFile.writeAsStringSync(_getStub(runtime));
-      Output.success('Created source stub: $sourcePath');
+    // If local, try to create source stub
+    if (sourceType == 'local' && localSourcePath != null) {
+      final absoluteSourcePath =
+          p.normalize(p.join(projectDir.path, localSourcePath));
+      final sourceFile = File(absoluteSourcePath);
+
+      if (!sourceFile.existsSync()) {
+        try {
+          sourceFile.parent.createSync(recursive: true);
+          sourceFile.writeAsStringSync(_getStub(runtime));
+          Output.success(
+              'Created source stub: ${p.relative(absoluteSourcePath)}');
+        } catch (e) {
+          Output.warning(
+              'Could not create source stub at $absoluteSourcePath: $e');
+        }
+      }
     }
 
     Output.blank();
     Output.nextSteps([
-      'Edit ${yamlFile.path} to configure triggers or environment vars.',
-      'Edit $sourcePath to implement your logic.',
+      'Edit ${yamlFile.path} to refine your configuration.',
+      if (sourceType == 'local') 'Implement your logic in $localSourcePath',
       'Run `applad up` to deploy.'
     ]);
-  }
-
-  String _getExtension(String runtime) {
-    return switch (runtime) {
-      'dart' => 'dart',
-      'node' => 'js',
-      'python' => 'py',
-      _ => 'txt',
-    };
   }
 
   String _getStub(String runtime) {

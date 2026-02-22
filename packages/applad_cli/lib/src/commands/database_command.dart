@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:path/path.dart' as p;
 import '../utils/output.dart';
 import '../utils/config_finder.dart';
 import 'tables/list_command.dart';
@@ -40,11 +41,14 @@ final class DatabaseTablesCreateCommand extends Command<void> {
   Future<void> run() async {
     Output.header('Create Table');
 
-    final projectDir = ConfigFinder.findProjectRoot();
+    final projectDir = ConfigFinder.discoverProjectRoot();
     if (projectDir == null) {
-      Output.error('No Applad project found (missing project.yaml).');
+      Output.error('No Applad project found.');
       return;
     }
+
+    final projectName = p.basename(projectDir.path);
+    Output.info('Selected project: $projectName');
 
     final tablesDir = Directory('${projectDir.path}/database/tables');
     if (!tablesDir.existsSync()) {

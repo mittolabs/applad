@@ -19,6 +19,9 @@ import 'database_command.dart';
 import 'storage_command.dart';
 import 'flags_command.dart';
 import 'workflows_command.dart';
+import '../utils/interactive_shell.dart';
+import '../utils/output.dart';
+import '../security/trust_manager.dart';
 
 /// The root command runner for the `applad` CLI.
 final class ApplAdCommandRunner extends CommandRunner<void> {
@@ -76,7 +79,9 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
     addCommand(LogoutCommand());
     addCommand(AccessCommand());
   }
-  String _getAppladLogo() {
+
+  /// Returns the ASCII logo for Applad.
+  String getLogo() {
     const logo = '''
       █████╗ ██████╗ ██████╗ ██╗      █████╗ ██████╗ 
      ██╔══██╗██╔══██╗██╔══██╗██║     ██╔══██╗██╔══██╗
@@ -91,7 +96,7 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
 
   @override
   void printUsage() {
-    print(_getAppladLogo());
+    print(getLogo());
     print('\x1b[1m* Welcome to Applad AI-Native CLI!\x1b[0m\n');
     super.printUsage();
   }
@@ -108,7 +113,32 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
       return;
     }
 
-    await super.run(args);
+    if (args.isEmpty) {
+      await InteractiveShell(this).start();
+      return;
+    }
+
+    // Security check: Guard sensitive commands with workspace trust
+    final isSensitive = ['up', 'init', 'deploy', 'down', 'access']
+        .contains(argResults.command?.name);
+    if (isSensitive && !TrustManager.isTrusted()) {
+      if (!TrustManager.ensureTrusted()) {
+        Output.error(
+            'Aborted: This command requires workspace trust to proceed.');
+        return;
+      }
+    }
+
+    try {
+      await super.run(args);
+    } catch (e) {
+      if (e is UsageException) {
+        Output.error(e.message);
+        printUsage();
+      } else {
+        rethrow;
+      }
+    }
   }
 
   @override

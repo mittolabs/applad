@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:path/path.dart' as p;
 import '../utils/output.dart';
 import '../utils/config_finder.dart';
 
@@ -26,11 +27,14 @@ final class WorkflowsCreateCommand extends Command<void> {
   Future<void> run() async {
     Output.header('Create Workflow');
 
-    final projectDir = ConfigFinder.findProjectRoot();
+    final projectDir = ConfigFinder.discoverProjectRoot();
     if (projectDir == null) {
-      Output.error('No Applad project found (missing project.yaml).');
+      Output.error('No Applad project found.');
       return;
     }
+
+    final projectName = p.basename(projectDir.path);
+    Output.info('Selected project: $projectName');
 
     final workflowsDir = Directory('${projectDir.path}/workflows');
     if (!workflowsDir.existsSync()) {
