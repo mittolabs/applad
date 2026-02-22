@@ -1,6 +1,8 @@
 library;
 
 import '../models/secret_ref.dart';
+import '../models/source_block.dart';
+import '../utils/env_parser.dart';
 
 /// Deployment configuration (`deployments/*.yaml`).
 final class DeploymentConfig {
@@ -11,11 +13,12 @@ final class DeploymentConfig {
     this.credentialsRef,
     this.region,
     this.environment = const {},
+    this.source,
   });
 
   factory DeploymentConfig.fromMap(Map<String, dynamic> map) {
-    final buildMap = map['build'] as Map?;
-    final signingMap = map['signing'] as Map?;
+    final buildMap = map['build'] is Map ? map['build'] as Map : null;
+    final signingMap = map['signing'] is Map ? map['signing'] as Map : null;
 
     return DeploymentConfig(
       name: map['name']?.toString() ?? '',
@@ -29,7 +32,10 @@ final class DeploymentConfig {
                   (map['credentials'] ?? signingMap?['keystore']) as String)
               : null,
       region: map['region']?.toString(),
-      environment: (map['environment'] as Map?)?.cast<String, String>() ?? {},
+      environment: parseEnvironment(map['environment']),
+      source: map['source'] != null
+          ? SourceBlock.fromMap(Map<String, dynamic>.from(map['source'] as Map))
+          : null,
     );
   }
 
@@ -39,6 +45,7 @@ final class DeploymentConfig {
   final SecretRef? credentialsRef;
   final String? region;
   final Map<String, String> environment;
+  final SourceBlock? source;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -47,5 +54,6 @@ final class DeploymentConfig {
         'credentials': credentialsRef?.toString(),
         'region': region,
         'environment': environment,
+        'source': source?.toJson(),
       };
 }

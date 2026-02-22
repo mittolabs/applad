@@ -24,7 +24,9 @@ final class AuthConfig {
           ? SsoConfig.fromMap(Map<String, dynamic>.from(map['sso'] as Map))
           : null,
       sessionDurationSeconds: (map['session_duration_seconds'] ??
-              (map['session'] as Map?)?['duration']) as int? ??
+              (map['session'] is Map
+                  ? (map['session'] as Map)['duration']
+                  : null)) as int? ??
           86400,
       rbac: map['rbac'] != null
           ? RbacConfig.fromMap(Map<String, dynamic>.from(map['rbac'] as Map))

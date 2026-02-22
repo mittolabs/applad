@@ -18,7 +18,7 @@ import '../routes/v1/config/index.dart' as v1_config_index;
 import '../routes/v1/_middleware.dart' as v1_middleware;
 
 void main() async {
-  final address = InternetAddress.tryParse('') ?? InternetAddress.anyIPv6;
+  final address = InternetAddress.tryParse('0.0.0.0') ?? InternetAddress.anyIPv6;
   final port = int.tryParse(Platform.environment['PORT'] ?? '8080') ?? 8080;
   hotReload(() => createServer(address, port));
 }

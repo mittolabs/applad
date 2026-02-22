@@ -227,13 +227,13 @@ final appladInitBrickBundle = MasonBundle.fromJson(<String, dynamic>{
     "org_id": {
       "type": "string",
       "description": "The organization ID.",
-      "default": "my-org",
+      "default": "personal-projects",
       "prompt": "Organization ID:"
     },
     "org_name": {
       "type": "string",
       "description": "The organization name.",
-      "default": "my-org",
+      "default": "personal-projects",
       "prompt": "Organization name:"
     },
     "project_id": {

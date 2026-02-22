@@ -1,5 +1,5 @@
 import 'package:args/command_runner.dart';
-import '../utils/output.dart';
+import 'orgs/list_command.dart';
 
 /// `applad orgs` — Manage organizations on this instance.
 final class OrgsCommand extends Command<void> {
@@ -10,11 +10,11 @@ final class OrgsCommand extends Command<void> {
   String get description => 'Manage organizations on this instance.';
 
   OrgsCommand() {
-    // Add subcommands here later, e.g., list, create, delete, switch, members, keys
+    addSubcommand(OrgsListCommand());
   }
 
   @override
   Future<void> run() async {
-    Output.info('applad orgs - Manage organizations (coming in Phase 2)');
+    printUsage();
   }
 }

@@ -123,18 +123,21 @@ final class ConfigMerger {
       auth: _opt(p.join(projectDir, 'auth', 'auth.yaml'), AuthConfig.fromMap),
       database: _opt(p.join(projectDir, 'database', 'database.yaml'),
           DatabaseConfig.fromMap),
-      tables: _loadTables(p.join(projectDir, 'tables')),
       storage: _opt(
           p.join(projectDir, 'storage', 'storage.yaml'), StorageConfig.fromMap),
-      functions: _loadFunctions(p.join(projectDir, 'functions')),
-      workflows:
-          _loadDir(p.join(projectDir, 'workflows'), WorkflowConfig.fromMap),
+      tables:
+          _loadNamedFiles(p.join(projectDir, 'tables'), TableConfig.fromMap),
+      functions: _loadNamedFiles(
+          p.join(projectDir, 'functions'), FunctionConfig.fromMap),
+      workflows: _loadNamedFiles(
+          p.join(projectDir, 'workflows'), WorkflowConfig.fromMap),
       messaging: _opt(p.join(projectDir, 'messaging', 'messaging.yaml'),
           MessagingConfig.fromMap),
-      flags: _loadDir(p.join(projectDir, 'flags'), FlagConfig.fromMap),
-      hosting: _loadDir(p.join(projectDir, 'hosting'), HostingConfig.fromMap),
-      deployments:
-          _loadDir(p.join(projectDir, 'deployments'), DeploymentConfig.fromMap),
+      flags: _loadNamedFiles(p.join(projectDir, 'flags'), FlagConfig.fromMap),
+      hosting:
+          _loadNamedFiles(p.join(projectDir, 'hosting'), HostingConfig.fromMap),
+      deployments: _loadNamedFiles(
+          p.join(projectDir, 'deployments'), DeploymentConfig.fromMap),
       realtime: _opt(p.join(projectDir, 'realtime', 'realtime.yaml'),
           RealtimeConfig.fromMap),
       analytics: _opt(p.join(projectDir, 'analytics', 'analytics.yaml'),
@@ -150,31 +153,24 @@ final class ConfigMerger {
 
   T? _opt<T>(String path, T Function(Map<String, dynamic>) factory) {
     try {
+      final file = File(path);
+      if (!file.existsSync()) return null;
       return factory(_loader.loadFile(path));
     } catch (_) {
       return null;
     }
   }
 
-  List<TableConfig> _loadTables(String dir) {
-    return _loader.loadDirectory(dir).entries.map((e) {
+  List<T> _loadNamedFiles<T>(
+      String dirPath, T Function(Map<String, dynamic>) factory) {
+    final dir = Directory(dirPath);
+    if (!dir.existsSync()) return [];
+
+    return _loader.loadDirectory(dirPath).entries.map((e) {
       final map = e.value;
       map['name'] ??= e.key;
-      return TableConfig.fromMap(map);
+      return factory(map);
     }).toList();
-  }
-
-  List<FunctionConfig> _loadFunctions(String dir) {
-    return _listSubdirs(dir)
-        .map((funcDir) {
-          return _opt(p.join(funcDir, 'function.yaml'), FunctionConfig.fromMap);
-        })
-        .whereType<FunctionConfig>()
-        .toList();
-  }
-
-  List<T> _loadDir<T>(String dir, T Function(Map<String, dynamic>) factory) {
-    return _loader.loadDirectory(dir).values.map(factory).toList();
   }
 
   List<String> _listSubdirs(String dirPath) {

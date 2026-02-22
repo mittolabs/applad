@@ -11,6 +11,7 @@ resolution: workspace
 dependencies:
   applad_core: ^0.1.0
   args: ^2.5.0
+  http: ^1.2.0
   mason: ^0.1.2
   path: ^1.9.0
 

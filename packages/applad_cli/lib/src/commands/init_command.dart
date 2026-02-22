@@ -41,8 +41,9 @@ final class InitCommand extends Command<void> {
     // Gather project details
     final orgName = (argResults!['org'] as String?) ??
         (useDefaults
-            ? 'my-org'
-            : Output.prompt('Organization name', defaultValue: 'my-org'));
+            ? 'personal-projects'
+            : Output.prompt('Organization name',
+                defaultValue: 'personal-projects'));
 
     final projectName = (argResults!['project'] as String?) ??
         (useDefaults

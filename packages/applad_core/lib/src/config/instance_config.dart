@@ -26,10 +26,10 @@ final class InstanceConfig {
 
     return InstanceConfig(
       version: map['version']?.toString() ?? '1',
-      ai: map['ai'] != null
+      ai: map['ai'] is Map
           ? AiConfig.fromMap(Map<String, dynamic>.from(map['ai'] as Map))
           : null,
-      observability: map['observability'] != null
+      observability: map['observability'] is Map
           ? ObservabilityRef.fromMap(
               Map<String, dynamic>.from(map['observability'] as Map))
           : null,

@@ -20,8 +20,11 @@
 # Install universally without Dart (macOS / Linux / Windows WSL)
 curl -fsSL https://raw.githubusercontent.com/mittolabs/applad/main/scripts/install.sh | bash
 
-# OR install via Dart globally (for Dart/Flutter devs)
-dart pub global activate -s path ./packages/applad_cli
+# OR build from source (recommended for contributors)
+./scripts/build_local.sh
+
+# To remove the local build:
+rm ~/.applad/bin/applad
 
 # Scaffold a new project natively using Mason templates
 applad init

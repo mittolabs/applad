@@ -55,6 +55,14 @@ final class UpCommand extends Command<void> {
       return;
     }
 
+    if (argResults!['watch'] as bool) {
+      await _watch(rootPath, envName, dryRun);
+    } else {
+      await _executeUp(rootPath, envName, dryRun);
+    }
+  }
+
+  Future<void> _executeUp(String rootPath, String envName, bool dryRun) async {
     final merger = ConfigMerger();
     final config = merger.merge(rootPath);
     final targetEnv = Environment.fromString(envName);
@@ -74,34 +82,122 @@ final class UpCommand extends Command<void> {
     }
   }
 
+  Future<void> _watch(String rootPath, String envName, bool dryRun) async {
+    Output.info('Watching for changes in $rootPath...');
+
+    // Initial run
+    await _executeUp(rootPath, envName, dryRun);
+
+    final watcher = Directory(rootPath).watch(recursive: true);
+    await for (final event in watcher) {
+      if (p.basename(event.path).startsWith('.') ||
+          p.split(event.path).contains('.applad') ||
+          p.split(event.path).contains('node_modules') ||
+          p.split(event.path).contains('build') ||
+          p.split(event.path).contains('dist')) {
+        continue;
+      }
+
+      Output.info('Change detected: ${event.path}. Reconciling...');
+      // Small debounce delay could be nice but let's keep it simple for now
+      await _executeUp(rootPath, envName, dryRun);
+    }
+  }
+
   Future<void> _runLocal(String workspaceRoot, bool dryRun) async {
     Output.info('\x1b[32mBooting Applad Core Server Locally...\x1b[0m');
 
     if (dryRun) {
       Output.info(
-          'DRY-RUN: Would spawn dart_frog dev in workspace $workspaceRoot');
+          'DRY-RUN: Would boot Applad Core Server via Docker Compose in workspace $workspaceRoot');
       return;
     }
 
-    var serverPath =
-        p.join(Directory.current.path, 'packages', 'applad_server');
-    if (!Directory(serverPath).existsSync()) {
-      serverPath =
-          p.join(Directory.current.parent.path, 'packages', 'applad_server');
+    var appladRepoRoot = Directory.current.path;
+    if (!Directory(p.join(appladRepoRoot, 'packages', 'applad_core'))
+        .existsSync()) {
+      // 1. Try parent
+      final parent = Directory.current.parent.path;
+      if (Directory(p.join(parent, 'packages', 'applad_core')).existsSync()) {
+        appladRepoRoot = parent;
+      } else {
+        // 2. Try discovery relative to the CLI script
+        try {
+          final scriptPath = Platform.script.toFilePath();
+          var dir = Directory(p.dirname(scriptPath));
+          for (int i = 0; i < 5; i++) {
+            if (Directory(p.join(dir.path, 'packages', 'applad_core'))
+                .existsSync()) {
+              appladRepoRoot = dir.path;
+              break;
+            }
+            if (dir.path == dir.parent.path) break;
+            dir = dir.parent;
+          }
+        } catch (_) {}
+      }
     }
+
+    final localStagingDir =
+        Directory(p.join(workspaceRoot, '.applad', 'local'));
+    if (!localStagingDir.existsSync()) {
+      localStagingDir.createSync(recursive: true);
+    }
+
+    final filteredPubspecYml = '''
+name: applad_workspace
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+workspace:
+  - packages/applad_core
+  - packages/applad_cli
+  - packages/applad_server
+''';
+    File(p.join(localStagingDir.path, 'root_pubspec.yaml'))
+        .writeAsStringSync(filteredPubspecYml);
+
+    final composeYml = '''
+version: '3.8'
+
+services:
+  applad_server:
+    image: dart:stable
+    container_name: applad_server_local
+    tty: true
+    working_dir: /app/packages/applad_server
+    command: /bin/sh -c "dart pub get && dart pub global activate dart_frog_cli && dart pub global run dart_frog_cli:dart_frog dev --port 8080 --hostname 0.0.0.0"
+    volumes:
+      - $appladRepoRoot:/app
+      - $workspaceRoot:/app/config
+      - ${p.join(localStagingDir.path, 'root_pubspec.yaml')}:/app/pubspec.yaml
+    environment:
+      - APPLAD_WORKSPACE_ROOT=/app/config
+    ports:
+      - "8080:8080"
+''';
+
+    final composeFile =
+        File(p.join(localStagingDir.path, 'docker-compose.yml'));
+    composeFile.writeAsStringSync(composeYml);
+
+    Output.info('Booting Applad Core Server via Docker Compose...');
 
     try {
       final process = await Process.start(
-        'dart_frog',
-        ['dev'],
-        workingDirectory: serverPath,
-        environment: {'APPLAD_WORKSPACE_ROOT': workspaceRoot},
-        mode: ProcessStartMode.inheritStdio,
+        'docker',
+        ['compose', '-f', composeFile.path, 'up', '-d', '--remove-orphans'],
       );
-      await process.exitCode;
+      final exitCode = await process.exitCode;
+      if (exitCode != 0) {
+        Output.error('Docker Compose failed with exit code $exitCode');
+      } else {
+        Output.success('Applad Core Server started via Docker Compose.');
+        Output.info('API Gateway live at: http://localhost:8080');
+      }
     } catch (e) {
-      Output.error(
-          'Failed to spawn the Applad server. Ensure dart_frog_cli is installed.');
+      Output.error('Failed to launch Docker Compose.');
+      Output.info('Ensure Docker is installed and running.');
       Output.error(e.toString());
     }
   }

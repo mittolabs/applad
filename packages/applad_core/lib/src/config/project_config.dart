@@ -1,6 +1,7 @@
 library;
 
 import '../models/environment.dart';
+import '../utils/env_parser.dart';
 
 /// Project-level configuration (`project.yaml`).
 final class ProjectConfig {
@@ -86,19 +87,11 @@ final class ProjectEnvironmentConfig {
       expectedType = rawInfra;
     }
 
-    final rawVars = map['variables'];
-    Map<String, String> parsedVars = {};
-    if (rawVars is Map) {
-      for (final entry in rawVars.entries) {
-        parsedVars[entry.key.toString()] = entry.value?.toString() ?? '';
-      }
-    }
-
     return ProjectEnvironmentConfig(
       infraTarget: map['infra_target']?.toString() ?? expectedType,
       host: expectedHost,
       user: expectedUser,
-      variables: parsedVars,
+      variables: parseEnvironment(map['variables'] ?? map['environment']),
     );
   }
 
