@@ -12,6 +12,9 @@ import 'deploy_command.dart';
 import 'down_command.dart';
 import 'status_command.dart';
 import 'version_command.dart';
+import 'login_command.dart';
+import 'logout_command.dart';
+import 'access_command.dart';
 
 /// The root command runner for the `applad` CLI.
 final class ApplAdCommandRunner extends CommandRunner<void> {
@@ -61,6 +64,9 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
     addCommand(DownCommand());
     addCommand(StatusCommand());
     addCommand(VersionCommand());
+    addCommand(LoginCommand());
+    addCommand(LogoutCommand());
+    addCommand(AccessCommand());
   }
   String _getAppladLogo() {
     const logo = '''

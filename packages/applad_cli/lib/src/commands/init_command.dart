@@ -21,6 +21,13 @@ final class InitCommand extends Command<void> {
       'project',
       help: 'Project name.',
     );
+    argParser.addOption(
+      'template',
+      abbr: 't',
+      help: 'Base template to start from.',
+      allowed: ['saas', 'api', 'cms', 'minimal'],
+      defaultsTo: 'saas',
+    );
   }
 
   @override
@@ -37,6 +44,17 @@ final class InitCommand extends Command<void> {
     Output.blank();
 
     final useDefaults = argResults!['yes'] as bool;
+    final template = argResults!['template'] as String;
+
+    Output.info('Using template: $template');
+
+    final appladYaml = File('applad.yaml');
+    if (appladYaml.existsSync()) {
+      Output.error('An applad.yaml file already exists in this directory.');
+      Output.info(
+          'If you are joining an existing project, use `applad login` instead.');
+      return;
+    }
 
     // Gather project details
     final orgName = (argResults!['org'] as String?) ??
