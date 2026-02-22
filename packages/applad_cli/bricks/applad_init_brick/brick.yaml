@@ -56,3 +56,35 @@ vars:
     description: "Is the adapter sqlite?"
     default: true
     prompt: "Is sqlite?"
+  enable_functions:
+    type: boolean
+    description: "Enable serverless functions?"
+    default: true
+  enable_storage:
+    type: boolean
+    description: "Enable file storage?"
+    default: true
+  enable_messaging:
+    type: boolean
+    description: "Enable unified messaging?"
+    default: true
+  enable_realtime:
+    type: boolean
+    description: "Enable realtime subscriptions?"
+    default: true
+  enable_analytics:
+    type: boolean
+    description: "Enable analytics?"
+    default: true
+  enable_deployments:
+    type: boolean
+    description: "Enable deployment pipelines?"
+    default: true
+  enable_workflows:
+    type: boolean
+    description: "Enable automation workflows?"
+    default: true
+  enable_flags:
+    type: boolean
+    description: "Enable feature flags?"
+    default: true

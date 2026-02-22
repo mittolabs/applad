@@ -73,6 +73,59 @@ final class InitCommand extends Command<void> {
         : Output.prompt('Database adapter (sqlite/postgres/mysql)',
             defaultValue: 'sqlite');
 
+    // Interactive feature selection
+    Output.blank();
+    Output.info('Select features to enable:');
+
+    final enableFunctions = useDefaults ||
+        Output.confirmWithDescription(
+          'Enable Functions?',
+          'Serverless Dart/Node/Python functions with auto-scaling and isolated runtimes.',
+          defaultValue: true,
+        );
+    final enableStorage = useDefaults ||
+        Output.confirmWithDescription(
+          'Enable Storage?',
+          'Secure file storage buckets with role-based access control and CDN support.',
+          defaultValue: true,
+        );
+    final enableMessaging = useDefaults ||
+        Output.confirmWithDescription(
+          'Enable Messaging?',
+          'Unified Email, SMS, and Push notifications via a single provider-agnostic API.',
+          defaultValue: true,
+        );
+    final enableRealtime = useDefaults ||
+        Output.confirmWithDescription(
+          'Enable Realtime?',
+          'Live database subscriptions and pub/sub messaging for instant UI updates.',
+          defaultValue: true,
+        );
+    final enableAnalytics = useDefaults ||
+        Output.confirmWithDescription(
+          'Enable Analytics?',
+          'Built-in event tracking and usage metrics with zero-config dashboards.',
+          defaultValue: true,
+        );
+    final enableDeployments = useDefaults ||
+        Output.confirmWithDescription(
+          'Enable Deployments?',
+          'CI/CD pipelines for Flutter apps and static sites with zero-downtime releases.',
+          defaultValue: true,
+        );
+    final enableWorkflows = useDefaults ||
+        Output.confirmWithDescription(
+          'Enable Workflows?',
+          'Visual automation and long-running business logic orchestration.',
+          defaultValue: true,
+        );
+    final enableFlags = useDefaults ||
+        Output.confirmWithDescription(
+          'Enable Feature Flags?',
+          'Remote config and percentage rollouts to decouple code from releases.',
+          defaultValue: true,
+        );
+
     final orgId = _toId(orgName);
     final projectId = _toId(projectName);
 
@@ -89,6 +142,14 @@ final class InitCommand extends Command<void> {
       'project_name': projectName,
       'db_adapter': dbAdapter,
       'is_sqlite': dbAdapter == 'sqlite',
+      'enable_functions': enableFunctions,
+      'enable_storage': enableStorage,
+      'enable_messaging': enableMessaging,
+      'enable_realtime': enableRealtime,
+      'enable_analytics': enableAnalytics,
+      'enable_deployments': enableDeployments,
+      'enable_workflows': enableWorkflows,
+      'enable_flags': enableFlags,
     });
 
     Output.blank();

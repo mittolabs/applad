@@ -1,6 +1,6 @@
 name: "daily-report"
 runtime: "python"
-entrypoint: "daily.py"
+entrypoint: "daily-report.py"
 timeout: 300
 memory: "1gb"
 

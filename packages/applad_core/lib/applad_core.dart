@@ -13,7 +13,7 @@ export 'src/config/function_config.dart';
 export 'src/config/workflow_config.dart';
 export 'src/config/messaging_config.dart';
 export 'src/config/flag_config.dart';
-export 'src/config/hosting_config.dart';
+
 export 'src/config/deployment_config.dart';
 export 'src/config/realtime_config.dart';
 export 'src/config/analytics_config.dart';

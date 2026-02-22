@@ -106,6 +106,17 @@ final class Output {
     return input == 'y' || input == 'yes';
   }
 
+  /// Prompt the user for a yes/no answer with a descriptive text.
+  static bool confirmWithDescription(String question, String description,
+      {bool defaultValue = false}) {
+    stdout.writeln('  ${_dim('└─ $description')}');
+    final hint = defaultValue ? '[Y/n]' : '[y/N]';
+    stdout.write('  ${_cyan('?')} $question $hint: ');
+    final input = (stdin.readLineSync() ?? '').trim().toLowerCase();
+    if (input.isEmpty) return defaultValue;
+    return input == 'y' || input == 'yes';
+  }
+
   /// Print "next steps" section.
   static void nextSteps(List<String> steps) {
     blank();

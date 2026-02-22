@@ -12,6 +12,37 @@ version: "1.0"
 name: "my-applad-instance"
 description: "My Applad instance"
 
+---
+
+## Core Contracts
+
+Every component and operation in Applad adheres to these fundamental contracts.
+
+### Idempotency — Guaranteed Reconciliation
+Applad's reconciliation model is **fully idempotent**. Running `applad up` twice produces the same result as running it once. Running it against an already-reconciled environment is a no-op that produces a clean recap confirming nothing changed.
+
+- **Containers**: Compared by image digest and environment hash.
+- **Migrations**: Tracked by checksum in the migration history table.
+- **Config**: Compared against the last-applied config signature.
+- **Cloud resources**: Checked for existence before provisioning.
+
+### Predictability — The Operational Contract
+Applad prioritizes operational trust over raw power.
+- **`applad up --dry-run --diff`**: Tells you exactly what will change.
+- **`applad up`**: Changes exactly that and nothing else.
+- **Run Recap**: Provides a clean summary of what happened.
+- **Audit Trail**: Records who did it and when.
+
+### Declarative Config — No YAML Logic
+Applad config files are **purely declarative**. They describe structure and intent—schemas, adapters, pipelines, providers. They do not describe logic.
+- No loops, no conditionals, no templating syntax in `.yaml` files.
+- Logic lives in **Functions** and **Workflows**.
+
+### Actionable Errors — "Why and How", Never Just "What"
+Every error in Applad names the file, the line, the exact problem, and whenever possible the fix. Error messages are treated as a first-class product surface.
+
+---
+
 # ============================================================
 # INSTANCE
 # ============================================================
@@ -1805,7 +1836,58 @@ my-project/
         └── utils/
 ```
 
-**Directory → UI navigation mapping:**
+**Discovery Mechanism:**
+Applad discovers the project hierarchy by scanning for marker files.
+
+1. Load `applad.yaml` at the root.
+2. Scan `orgs/` — any subdirectory containing `org.yaml` is an **Organisation**.
+3. Scan org subdirectories — any subdirectory containing `project.yaml` is a **Project**.
+4. Load and merge all `.yaml` files recursively within each project.
+
+No explicit listing of orgs or projects is required. The directory structure and marker files are the entire discovery signal.
+
+---
+
+## Secrets Management
+
+Applad uses a scoped, pointer-based secrets model. Secrets never live in config files.
+
+### The Pointer Model
+
+Config files contain `${VAR_NAME}` references. These are pointers resolved at operation time.
+
+- **Local development**: Resolved from `.env` files.
+- **Shared environments**: Resolved from the admin operational database or external providers.
+
+### Scoped Resolution
+
+Variables are resolved from the most specific scope to the least:
+
+1. **Environment-level**: Specific to a target (e.g., `production`).
+2. **Project-level**: Shared across all environments in a project.
+3. **Org-level**: Shared across all projects in an organisation.
+4. **Instance-level**: Global defaults.
+
+### Secure Injection
+
+Secrets are injected at runtime (e.g., via SSH session environment variables) and are never written to disk on targets. The synthesized `docker-compose.yml` contains references, not values.
+
+---
+
+## Data Layers
+
+Applad differentiates between four distinct layers of data to ensure security and operational clarity.
+
+| Layer                | Content                                                                               | Storage                    |
+| -------------------- | ------------------------------------------------------------------------------------- | -------------------------- |
+| **Config Files**     | Structural intent: schemas, pipelines, adapters, roles (intent only), SSH key scopes. | Git repository (`.yaml`)   |
+| **Access Control**   | Enforcement: role grants, scope assignments, approvals, apply grants.                 | Admin Database             |
+| **Operational Data** | Admin-managed runtime settings: flag targeting, messaging templates, secret values.   | Admin Database (Encrypted) |
+| **Runtime Data**     | Application state: users, rows, logs, audit trail, analytics.                         | Runtime Database           |
+
+---
+
+## Directory → UI navigation mapping:
 
 | Directory path         | UI breadcrumb         |
 | ---------------------- | --------------------- |
@@ -1905,10 +1987,82 @@ $ applad up
 
 Key properties of the bootstrap sequence:
 
-- **Inline in `applad up`** — no separate bootstrap command
-- **Localhost only during bootstrap** — the instance does not accept external connections until bootstrap is complete
-- **One-time and permanent** — once an owner SSH key is registered, the bootstrap path is closed forever. Re-opening it requires direct database access, which is intentional friction.
-- **`applad up` on an already-bootstrapped instance** — skips the sequence entirely and reconciles normally
+- **Inline in `applad up`** — no separate bootstrap command.
+- **Localhost only during bootstrap** — the instance does not accept external connections until bootstrap is complete.
+- **One-time and permanent** — once an owner SSH key is registered, the bootstrap path is closed forever.
+- **`applad up` on an already-bootstrapped instance** — skips the sequence entirely and reconciles normally.
+
+### The Reconciliation Lifecycle
+
+`applad up` is the primary command for matching reality to your config tree.
+
+1. **Bootstrap**: (If first run) Initialize database and identity.
+2. **Merge**: Read the entire config tree and satisfying `${VAR}` references.
+3. **Validate**: Perform cross-reference and schema validation.
+4. **Plan**: Compare desired state against current state to determine changes.
+5. **Authorize**: Check the invoking SSH key for required scopes (`infrastructure:apply:<env>`).
+6. **Apply**: Apply changes in dependency order, using **Handlers** for efficiency.
+7. **Recap**: Produce a summary of the operation.
+
+### The Handler Pattern — Efficient Reconciliation
+
+Applad uses a handler pattern to batch restarts and reloads. If multiple config changes would each trigger a service restart, Applad batches them and restarts the service exactly once at the end of the run.
+
+- **Restarts**: Triggered by image or environment changes.
+- **Migrations**: Batch all pending migrations for a connection into one transaction.
+- **Reloads**: Hot-reload Caddy config once after all web deployment changes.
+
+### The Run Recap
+
+After every `applad up`, a summary provides immediate clarity on the outcome:
+
+```
+RECAP ─────────────────────────────────────────────
+  environment   production
+  duration      14.2s
+  actor         alice@acme-corp (SHA256:abc123...)
+
+  ok            12    already correct, no changes
+  changed        3    database, functions, messaging
+  skipped        0
+  failed         0
+
+  ✓ 2 pending migrations applied (primary)
+  ✓ send-welcome-message redeployed (source updated)
+  ✓ messaging config reconciled (provider changed to ses)
+─────────────────────────────────────────────────────
+```
+
+---
+
+## CLI Standards
+
+### Dry-Run and Diff
+
+Every command that produces side effects supports `--dry-run` and `--diff`.
+
+- **`--dry-run`**: Shows the plan without executing.
+- **`--diff`**: Shows the exact delta between current and desired state.
+- **Mandatory Workflow**: `applad up --env production --dry-run --diff` before any production apply.
+
+### Exit Codes
+
+Exit codes are stable and machine-readable for CI/CD integration.
+
+| Code | Meaning                                                        |
+| ---- | -------------------------------------------------------------- |
+| `0`  | **Success** — No changes needed.                               |
+| `1`  | **Error** — Operational failure.                               |
+| `2`  | **Changed** — Success with one or more changes applied.        |
+| `3`  | **Validation** — Config is invalid, aborted.                   |
+| `4`  | **Unreachable** — Target host or service could not be reached. |
+| `5`  | **Drift** — Drift detected (during `applad status --drift`).   |
+
+### Machine-Readable Output
+
+All commands support `--output json` for parsing by automated systems.
+
+---
 
 ---
 
@@ -1966,11 +2120,26 @@ Once approved, Bob can run `applad up` locally immediately — no further approv
 # ============================================================
 
 # Scaffolds a new Applad project in the current directory.
-# Generates applad.yaml, orgs/ directory, .gitignore, and
-# an initial .env.example at the instance level.
-# Fails immediately if applad.yaml already exists.
-applad init
-applad init --template saas           # saas | api | cms | minimal
+# Prompts interactively for features to enable (functions, storage, etc.)
+# and creates the corresponding directory structure.
+applad init [--template <name>]
+
+# ============================================================
+# CREATE COMMANDS (GUIDED)
+# ============================================================
+
+# Guided creation of a new serverless function.
+# Prompts for: name, runtime, trigger type, memory, timeout, etc.
+# Generates: functions/<name>.yaml and source stub if local.
+applad functions create [<name>]
+
+# Guided creation of a database table.
+# Prompts for: name, database connection, fields, and base permissions.
+applad database tables create [<name>]
+
+# Guided creation of a storage bucket.
+# Prompts for: name, public/private access, and file type restrictions.
+applad storage buckets create [<name>]
 
 # Reads the entire config tree, validates it, synthesizes
 # docker-compose.yml for each environment, and makes reality

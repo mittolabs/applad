@@ -1,7 +1,5 @@
-import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:applad_core/applad_core.dart';
-import 'package:path/path.dart' as p;
 import '../utils/output.dart';
 import '../utils/config_finder.dart';
 
@@ -44,15 +42,12 @@ final class DeployListCommand extends Command<void> {
     final merger = ConfigMerger();
     final config = merger.merge(rootPath);
 
-    if (config.hosting.isEmpty && config.deployments.isEmpty) {
+    if (config.deployments.isEmpty) {
       Output.info('No deployment pipelines found in this project.');
       return;
     }
 
     Output.header('Deployment Pipelines');
-    for (final host in config.hosting) {
-      Output.info('- ${host.name} (type: web)');
-    }
     for (final dep in config.deployments) {
       Output.info('- ${dep.name} (platform: ${dep.platform})');
     }
@@ -115,7 +110,6 @@ final class DeployRunCommand extends Command<void> {
     }
 
     final host = envConfig.host;
-    final user = envConfig.user ?? 'root';
     if (host == null) {
       Output.error(
           'No "host" specified in the infrastructure configuration for $envName.');
@@ -123,66 +117,19 @@ final class DeployRunCommand extends Command<void> {
     }
 
     // Resolve pipeline
-    HostingConfig? targetHost;
+    DeploymentConfig? targetDep;
     try {
-      targetHost = config.hosting.firstWhere((h) => h.name == pipelineName);
+      targetDep = config.deployments.firstWhere((d) => d.name == pipelineName);
     } catch (_) {}
 
-    if (targetHost != null) {
-      await _deployWeb(targetHost, rootPath, user, host);
+    if (targetDep == null) {
+      Output.error('No deployment pipeline found named "$pipelineName".');
       return;
     }
-
-    Output.error(
-        'Deployment pipeline "$pipelineName" not found. Check applad deploy list.');
   }
 
-  Future<void> _deployWeb(
-      HostingConfig hosting, String rootPath, String user, String host) async {
-    if (hosting.buildCommand != null) {
-      Output.info(
-          'Building ${hosting.name} frontend: ${hosting.buildCommand} ...');
-      final buildProc = await Process.start('sh', ['-c', hosting.buildCommand!],
-          workingDirectory: rootPath, mode: ProcessStartMode.inheritStdio);
-      if (await buildProc.exitCode != 0) {
-        return Output.error('Frontend build failed.');
-      }
-    }
-
-    Output.info('Syncing build artifacts to remote host...');
-    final outDir = hosting.outputDirectory;
-    final targetDest = '/opt/applad/${hosting.name}_web';
-
-    final mkdirProc = await Process.start(
-        'ssh',
-        [
-          '-o',
-          'StrictHostKeyChecking=no',
-          '$user@$host',
-          'mkdir -p $targetDest'
-        ],
-        mode: ProcessStartMode.inheritStdio);
-    await mkdirProc.exitCode;
-
-    await _rsync(p.join(rootPath, outDir), '$user@$host:$targetDest');
-
-    Output.success('Deployed ${hosting.name} successfully!');
-  }
-
-  Future<void> _rsync(String source, String destination,
-      {List<String> excludes = const [], bool isFile = false}) async {
-    final args = ['-avz', '--delete', '-e', 'ssh -o StrictHostKeyChecking=no'];
-    args.addAll(excludes);
-    args.add(isFile ? source : '$source/');
-    args.add(destination);
-
-    final proc = await Process.start('rsync', args);
-    final exit = await proc.exitCode;
-    if (exit != 0) {
-      throw Exception(
-          'Rsync failed for \$source -> \$destination with exit code \$exit');
-    }
-  }
+  // Temporarily disabled since the infrastructure handling now branches from `targetDep`
+  // Future deployment target support comes in next phase.
 }
 
 final class DeployStatusCommand extends Command<void> {

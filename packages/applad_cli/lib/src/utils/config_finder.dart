@@ -26,7 +26,6 @@ final class ConfigFinder {
     }
   }
 
-  /// Like [findRoot] but throws if not found.
   String requireRoot({String? startDir}) {
     final root = findRoot(startDir: startDir);
     if (root == null) {
@@ -37,5 +36,24 @@ final class ConfigFinder {
       );
     }
     return root;
+  }
+
+  /// Searches from [startDir] upward until it finds `project.yaml`.
+  /// Returns the directory containing `project.yaml`, or null if not found.
+  static Directory? findProjectRoot({String? startDir}) {
+    var current = Directory(startDir ?? Directory.current.path);
+
+    while (true) {
+      final candidate = File(p.join(current.path, 'project.yaml'));
+      if (candidate.existsSync()) {
+        return current;
+      }
+
+      final parent = current.parent;
+      if (parent.path == current.path) {
+        return null;
+      }
+      current = parent;
+    }
   }
 }

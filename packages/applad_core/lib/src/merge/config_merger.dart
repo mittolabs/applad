@@ -14,7 +14,7 @@ import '../config/function_config.dart';
 import '../config/workflow_config.dart';
 import '../config/messaging_config.dart';
 import '../config/flag_config.dart';
-import '../config/hosting_config.dart';
+
 import '../config/deployment_config.dart';
 import '../config/realtime_config.dart';
 import '../config/analytics_config.dart';
@@ -36,7 +36,6 @@ final class ApplAdConfig {
     this.workflows = const [],
     this.messaging,
     this.flags = const [],
-    this.hosting = const [],
     this.deployments = const [],
     this.realtime,
     this.analytics,
@@ -56,7 +55,7 @@ final class ApplAdConfig {
   final List<WorkflowConfig> workflows;
   final MessagingConfig? messaging;
   final List<FlagConfig> flags;
-  final List<HostingConfig> hosting;
+
   final List<DeploymentConfig> deployments;
   final RealtimeConfig? realtime;
   final AnalyticsConfig? analytics;
@@ -76,7 +75,6 @@ final class ApplAdConfig {
         'workflows': workflows.map((w) => w.toJson()).toList(),
         'messaging': messaging?.toJson(),
         'flags': flags.map((f) => f.toJson()).toList(),
-        'hosting': hosting.map((h) => h.toJson()).toList(),
         'deployments': deployments.map((d) => d.toJson()).toList(),
         'realtime': realtime?.toJson(),
         'analytics': analytics?.toJson(),
@@ -137,8 +135,6 @@ final class ConfigMerger {
       messaging: _opt(p.join(projectDir, 'messaging', 'messaging.yaml'),
           MessagingConfig.fromMap),
       flags: _loadNamedFiles(p.join(projectDir, 'flags'), FlagConfig.fromMap),
-      hosting:
-          _loadNamedFiles(p.join(projectDir, 'hosting'), HostingConfig.fromMap),
       deployments: _loadNamedFiles(
           p.join(projectDir, 'deployments'), DeploymentConfig.fromMap),
       realtime: _opt(p.join(projectDir, 'realtime', 'realtime.yaml'),

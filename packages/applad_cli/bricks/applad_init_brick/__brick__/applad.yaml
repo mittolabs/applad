@@ -21,16 +21,16 @@ instance:
     ui: true # Admin Flutter UI
     api: true # REST API
     graphql: true # GraphQL API
-    realtime: true # Realtime subscriptions
-    storage: true # File storage
-    functions: true # Serverless functions
-    hosting: true # Static/dynamic hosting
-    workflows: true # Automation workflows
-    flags: true # Feature flags
-    analytics: true # Built-in analytics
-    deployments: true # App deployment pipelines
+    realtime: { { enable_realtime } } # Realtime subscriptions
+    storage: { { enable_storage } } # File storage
+    functions: { { enable_functions } } # Serverless functions
+
+    workflows: { { enable_workflows } } # Automation workflows
+    flags: { { enable_flags } } # Feature flags
+    analytics: { { enable_analytics } } # Built-in analytics
+    deployments: { { enable_deployments } } # App deployment pipelines
     instruct: true # Lad AI assistant via applad instruct
-    messaging: true # Unified messaging
+    messaging: { { enable_messaging } } # Unified messaging
 
 # ============================================================
 # AI / LAD

@@ -5,7 +5,6 @@ import 'up_command.dart';
 import 'config_command.dart';
 import 'db_command.dart';
 import 'messaging_command.dart';
-import 'tables_command.dart';
 import 'orgs_command.dart';
 import 'projects_command.dart';
 import 'deploy_command.dart';
@@ -15,6 +14,11 @@ import 'version_command.dart';
 import 'login_command.dart';
 import 'logout_command.dart';
 import 'access_command.dart';
+import 'functions_command.dart';
+import 'database_command.dart';
+import 'storage_command.dart';
+import 'flags_command.dart';
+import 'workflows_command.dart';
 
 /// The root command runner for the `applad` CLI.
 final class ApplAdCommandRunner extends CommandRunner<void> {
@@ -25,12 +29,12 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
         ) {
     argParser.addFlag(
       'version',
-      abbr: 'v',
       negatable: false,
       help: 'Print the current version.',
     );
     argParser.addFlag(
       'verbose',
+      abbr: 'v',
       negatable: false,
       help: 'Enable verbose output.',
     );
@@ -56,8 +60,12 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
     addCommand(UpCommand());
     addCommand(ConfigCommand());
     addCommand(DbCommand());
+    addCommand(FunctionsCommand());
+    addCommand(DatabaseCommand());
+    addCommand(StorageCommand());
     addCommand(MessagingCommand());
-    addCommand(TablesCommand());
+    addCommand(FlagsCommand());
+    addCommand(WorkflowsCommand());
     addCommand(OrgsCommand());
     addCommand(ProjectsCommand());
     addCommand(DeployCommand());
@@ -92,7 +100,10 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
   Future<void> run(Iterable<String> args) async {
     final argResults = parse(args);
 
-    if (argResults['version'] == true) {
+    // Only print version if --version is passed AND no command is specified.
+    // This allows `applad up --version` to mean "show me the version of the engine" (if it were an option)
+    // but more importantly avoids hijacking `applad up -v`.
+    if (argResults['version'] == true && argResults.command == null) {
       print('applad v$kApplAdVersion');
       return;
     }

@@ -55,57 +55,5 @@ scripts:
     description: Format all Dart files
 
   clean:
-    run: dart pub cache clean
-    description: Clean pub cacherepository: https://github.com/mittolabs/applad
-
-packages:
-  - packages/*
-
-command:
-  bootstrap:
-    usePubspecOverrides: true
-
-scripts:
-  analyze:
-    run: dart analyze
-    exec:
-      concurrency: 4
-    description: Run dart analyze in all packages
-    packageFilters:
-      flutter: false
-
-  analyze:flutter:
-    run: flutter analyze
-    exec:
-      concurrency: 2
-    description: Run flutter analyze in all Flutter packages
-    packageFilters:
-      flutter: true
-
-  test:
-    run: dart test
-    exec:
-      concurrency: 4
-    description: Run tests in all Dart packages
-    packageFilters:
-      flutter: false
-      dirExists: test
-
-  test:flutter:
-    run: flutter test
-    exec:
-      concurrency: 2
-    description: Run tests in all Flutter packages
-    packageFilters:
-      flutter: true
-      dirExists: test
-
-  format:
-    run: dart format .
-    exec:
-      concurrency: 4
-    description: Format all Dart files
-
-  clean:
-    run: dart pub cache clean
-    description: Clean pub cache
+    run: melos clean && dart pub cache clean
+    description: Clean all packages and pub cache

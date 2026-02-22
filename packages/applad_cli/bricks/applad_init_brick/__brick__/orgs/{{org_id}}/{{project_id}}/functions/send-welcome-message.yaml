@@ -1,16 +1,22 @@
 # ============================================================
 # FUNCTION DEFINITION
-# Runtime, triggers, environment references.
-# Function code lives alongside this file.
-# Execution logs in runtime database.
-# applad instruct can scaffold this entire directory.
+# This example demonstrates fetching function source from
+# a remote Git repository at deploy time.
 # ============================================================
 
 name: "send-welcome-message"
-runtime: "dart" # dart | node | python | go | php | ruby
-entrypoint: "main.dart" # Relative to this directory
+runtime: "dart"
 timeout: 30
 memory: "256mb"
+
+source:
+  type: "github"
+  repo: "mittolabs/applad-examples"
+  branch: "main"
+  path: "functions/send-welcome-message/handler.dart"
+  ssh_key: "ci-github-actions" # References key in org.yaml
+
+entrypoint: "handler"
 
 # Container security — each function runs isolated
 container:

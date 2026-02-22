@@ -180,11 +180,11 @@ version: '3.8'
 
 services:
   applad_server:
-    image: ghcr.io/mittolabs/applad-server:\${envConfig.engineVersion}
+    image: ghcr.io/mittolabs/applad-server:${envConfig.engineVersion}
     container_name: applad_server_local
     volumes:
-      - \$workspaceRoot:/app/config
-      - \${workspaceRoot}/.applad/data:/data
+      - $workspaceRoot:/app/config
+      - $workspaceRoot/.applad/data:/data
     environment:
       - APPLAD_WORKSPACE_ROOT=/app/config
     ports:
@@ -197,14 +197,21 @@ services:
 
     Output.info('Booting Applad Core Server via Docker Compose...');
 
+    final bool verbose = globalResults?['verbose'] == true;
+
     try {
       final process = await Process.start(
         'docker',
         ['compose', '-f', composeFile.path, 'up', '-d', '--remove-orphans'],
+        mode: verbose ? ProcessStartMode.inheritStdio : ProcessStartMode.normal,
       );
       final exitCode = await process.exitCode;
       if (exitCode != 0) {
         Output.error('Docker Compose failed with exit code $exitCode');
+        if (!verbose) {
+          Output.info(
+              'Try running with --verbose or -v to see detailed errors.');
+        }
       } else {
         Output.success('Applad Core Server started via Docker Compose.');
         Output.info('API Gateway live at: http://localhost:8080');

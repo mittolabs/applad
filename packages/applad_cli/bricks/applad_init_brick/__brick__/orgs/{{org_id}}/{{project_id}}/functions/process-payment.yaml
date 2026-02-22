@@ -1,6 +1,6 @@
 name: "process-payment"
 runtime: "node"
-entrypoint: "index.js"
+entrypoint: "process-payment.js"
 timeout: 60
 memory: "512mb"
 

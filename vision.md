@@ -88,10 +88,8 @@ The practical consequences:
 - **Onboarding is `applad up`** — any developer on any machine with Docker installed gets a full running stack immediately, no environment setup required beyond filling in `.env`
 - **No runtime surprises on deploy** — you've been running production containers locally the entire time
 - **The CLI manages Docker Compose synthesis** — Applad reads your project config and generates the correct `docker-compose.yml` for that environment, including service definitions, networking, volume mounts, and environment injection. You never write Docker Compose files by hand.
-- **`applad up --dry-run` shows the synthesized compose file** before applying it, so you can inspect exactly what would run
+- **`applad up --dry-run --diff` shows the full plan** — the synthesized Docker Compose, every service that would start or restart, every config change, every migration pending — before touching anything
 - **Debugging is standard Docker tooling** — `docker logs`, `docker exec`, `docker compose ps`. No Applad-proprietary runtime primitives. Everything is inspectable with tools your team already knows.
-
-This applies equally to the VPS model. When `applad up --env production` runs, it SSHes into the target, synthesizes the correct `docker-compose.yml` for that environment's config, applies it, and leaves. The machine has no Applad agent — just Docker containers running the services defined by your config.
 
 ---
 
@@ -99,7 +97,7 @@ This applies equally to the VPS model. When `applad up --env production` runs, i
 
 Applad is **agentless**. There is no daemon sitting on your servers waiting for instructions. No agent to install, maintain, update, patch, or secure on every machine you manage. Applad connects over SSH, synthesizes and applies a Docker Compose configuration, manages everything from your config tree, and leaves. The only requirement on the target machine is Docker.
 
-This is the same philosophy that made Ansible win over agent-based tools like Puppet and Chef. The operational overhead of managing agents across a fleet of servers is real, painful, and a source of its own class of bugs and security issues. Applad inherits Ansible's answer to that problem.
+This is the same philosophy that made Ansible win over agent-based tools like Puppet and Chef. The operational overhead of managing agents across a fleet of servers is real, painful, and a source of its own class of bugs and security issues. Applad inherits Ansible's answer to that problem — and deliberately learns from both what Ansible got right and where it fell short.
 
 **What this means in practice:**
 
@@ -126,15 +124,325 @@ Developer runs: applad deploy run android-production
 
 ---
 
+## Predictability — The Operational Contract
+
+Ansible earned trust not because it was the most powerful tool, but because it was the most predictable. Operators could read a playbook, know what it would do, run it in check mode, verify the plan, run it for real, and read a clear summary of what happened. That predictability is what makes a tool safe to use in production at 2am.
+
+Applad makes the same contract, fully and explicitly:
+
+**`applad up --dry-run --diff` tells you exactly what will change.** Every service that would start or restart. Every config change. Every migration that would run. Every cloud resource that would be provisioned. Every SSH connection that would open. Nothing is a surprise.
+
+**`applad up` changes exactly that and nothing else.** If `--dry-run` showed it, it happens. If `--dry-run` didn't show it, it doesn't happen.
+
+**The run recap tells you what happened.** After every `applad up`, a clean summary:
+
+```
+applad up --env production
+...
+
+RECAP ─────────────────────────────────────────────
+  environment   production
+  duration      14.2s
+  actor         alice@acme-corp (SHA256:abc123...)
+
+  ok            12    already correct, no changes
+  changed        3    database, functions, messaging
+  skipped        0
+  failed         0
+
+  ✓ 2 pending migrations applied (primary)
+  ✓ send-welcome-message redeployed (source updated)
+  ✓ messaging config reconciled (provider changed to ses)
+─────────────────────────────────────────────────────
+```
+
+**The audit trail records who did it.** Every run, every change, every SSH session, attributed to the initiating SSH key identity.
+
+This is the operational contract. It is non-negotiable. Every command in Applad upholds it.
+
+---
+
+## Idempotency — A First-Class Contract, Not an Accident
+
+Applad's reconciliation model is **fully idempotent**. Running `applad up` twice produces the same result as running it once. Running it against an already-reconciled environment is a no-op that produces a clean recap confirming nothing changed. This is guaranteed — not incidental, not aspirational, not "usually true."
+
+This matters in several contexts:
+
+- **CI/CD pipelines** that run `applad up` on every push need to know a no-change run won't cause restarts, downtime, or spurious audit entries
+- **Recovery scenarios** where you need to re-run `applad up` after a partial failure without fear of double-applying migrations or restarting healthy services
+- **Team environments** where multiple developers might run `applad up` in quick succession
+
+Each resource type in Applad has an explicit idempotency strategy:
+
+- **Containers** — compared by image digest and environment hash. Only restarted if either has changed.
+- **Migrations** — tracked by checksum in the migration history table. Never re-applied.
+- **Config** — compared against the last-applied config signature. No-op if unchanged.
+- **Cloud resources** — checked for existence before provisioning. Existing resources with matching config are left untouched.
+- **Caddy config** — generated deterministically from deployment config. Reloaded only if the output differs from the running config.
+- **SSH sessions** — opened only if work needs to be done. A fully reconciled environment opens no SSH connections.
+
+**Drift detection** is the companion to idempotency. `applad status --drift` connects to every configured environment, compares the running state against the config tree, and reports what has drifted — without changing anything. This is the continuous monitoring side of the idempotency contract: Applad can tell you at any time whether reality matches your config, and what the delta is if not.
+
+```
+$ applad status --drift --env production
+
+DRIFT REPORT ─────────────────────────────────────
+  environment   production
+
+  ✓ database         in sync
+  ✗ functions        drift detected
+      send-welcome-message: running v1.2.0, config specifies v1.3.0
+  ✓ storage          in sync
+  ✓ messaging        in sync
+  ✗ observability    drift detected
+      rate_limiting.routes[/auth/*].requests: running 20, config specifies 15
+  ✓ deployments      in sync
+──────────────────────────────────────────────────
+  2 resources drifted. Run applad up --env production to reconcile.
+```
+
+---
+
+## `applad up` — One Command, Full Reconciliation
+
+`applad up` is the single most important command in Applad. It is the reconciliation command — the equivalent of `terraform apply` for your entire backend. You describe what you want in your config tree. `applad up` makes reality match it.
+
+Concretely, `applad up`:
+
+1. If the database is uninitialised, runs bootstrap inline before proceeding
+2. Reads and merges the entire config tree
+3. Validates all `${VAR}` references are satisfied — fails fast with clear, actionable errors
+4. Validates all cross-references — functions referenced in workflows exist, tables referenced in realtime channels exist, etc.
+5. Checks the invoking SSH key has the required scope for the target environment (skipped for local)
+6. Compares desired state against current state to determine what actually needs to change
+7. For resources already in sync — records as `ok`, takes no action, opens no SSH connections
+8. For resources that have changed — applies changes in dependency order, using the handler pattern to avoid redundant restarts
+9. Produces a run recap with counts, durations, and a clear summary of what changed
+10. Records the full operation in the audit trail with the initiating SSH key identity
+
+**Flags:**
+
+`--dry-run` shows the full reconciliation plan without executing anything. Always run before applying to a production environment.
+
+`--diff` shows the delta between current state and desired state for every resource. Combines with `--dry-run` for the safest pre-production review: `applad up --env production --dry-run --diff`.
+
+`--only <tag>` reconciles only resources matching the tag. `--only database` runs pending migrations without touching functions or deployments. `--only functions,messaging` reconciles only those two namespaces.
+
+`--skip <tag>` reconciles everything except the tagged resources. `--skip deployments` reconciles infrastructure without triggering any deployment pipelines.
+
+`--watch` is for local development only. Watches the config tree and automatically reconciles on every save.
+
+`-v` through `-vvv` control verbosity. The default is quiet — just the recap. `-v` adds per-resource status lines. `-vv` adds the synthesized Docker Compose and each SSH command. `-vvv` adds full request/response detail.
+
+**Tags** work across the entire config tree. Every resource belongs to an implicit tag matching its directory — `database`, `tables`, `storage`, `buckets`, `functions`, `workflows`, `messaging`, `flags`, `deployments`, `realtime`, `analytics`, `observability`. Explicit custom tags can be defined on any resource.
+
+---
+
+## The Handler Pattern — Efficient Reconciliation
+
+Applad uses a handler pattern for service restarts, modelled on Ansible's handler system. When multiple config changes would each individually trigger a service restart, Applad batches them and restarts the service exactly once at the end of the reconciliation run.
+
+**Without handlers:** Change messaging config + update a messaging template + rotate the messaging provider API key = three restarts of the messaging service.
+
+**With handlers:** All three changes are applied. The messaging service restart handler fires once at the end. One restart. Zero unnecessary downtime.
+
+The handler pattern applies to:
+
+- **Service restarts** — only if one or more dependent configs changed
+- **Migration runs** — all pending migrations for a connection run in a single transaction
+- **Config reloads** — Caddy config reloaded once after all web deployment config changes are applied
+- **Post-deploy health checks** — run once after all functions in a batch are deployed
+- **`.env.example` regeneration** — regenerated once after all config changes in a run
+
+The result is that `applad up` is both correct and efficient. It does exactly the work that needs doing, in the right order, and no more.
+
+---
+
+## `--dry-run` and `--diff` — Everywhere, Not Just at the Top
+
+`--dry-run` is not just a flag on `applad up`. It is available on every command that produces side effects. This is a design requirement, not a convenience:
+
+```bash
+applad up --dry-run
+applad db migrate --dry-run
+applad functions deploy <n> --dry-run
+applad deploy run android-production --dry-run
+applad access grant bob@acme-corp --dry-run
+applad secrets rotate STRIPE_SECRET --dry-run
+applad instruct --dry-run "add fulltext search to posts"
+```
+
+Every command that writes anything supports `--dry-run`. The canonical pre-production workflow is always:
+
+```bash
+applad up --env production --dry-run --diff
+# Review the plan
+applad up --env production
+# Review the recap
+```
+
+---
+
+## Actionable Errors — Never Just "What", Always "Why and How"
+
+Ansible's error messages are notoriously unhelpful — they tell you what failed but not why or how to fix it. Applad invests heavily in the opposite.
+
+Every error in Applad names the file, the line, the exact problem, and whenever possible the fix:
+
+```
+ERROR database/tables/users.yaml line 14
+  Relation field "org_id" references table "organisations" which does not exist.
+  Did you mean "organizations"? (found in database/tables/organizations.yaml)
+  Fix: change the table: value on line 14 to "organizations"
+```
+
+```
+ERROR Missing required variable STRIPE_SECRET
+  Referenced by: functions/process-payment.yaml line 8
+  This variable is required for the "production" environment.
+  Set it with: applad secrets set STRIPE_SECRET
+  Or add it to your .env file for local development.
+```
+
+```
+ERROR applad up --env production requires infrastructure:apply:production scope
+  Your key (SHA256:def456... bob@workstation) does not have this scope.
+  Ask an admin to run: applad access grant bob@acme-corp \
+    --scope "infrastructure:apply:production" --project mobile-app
+```
+
+```
+ERROR Cross-database relation detected
+  database/tables/posts.yaml line 22: "author_id" targets "users" (primary)
+  but "posts" targets the "analytics" connection.
+  Cross-database relations must be resolved at the application layer.
+  Use type: "string" and handle the join in your application code.
+```
+
+Error messages are treated as a first-class product surface. Clear, actionable errors are the difference between a tool that teams trust and one that causes support tickets.
+
+---
+
+## Config is Purely Declarative — No YAML Logic
+
+Ansible playbooks start as clean YAML but quickly become a programming language — loops, conditionals, Jinja2 templates embedded in strings. It is one of the most persistent complaints about Ansible at scale. Once you need `when:` conditions and `with_items:` loops in your infrastructure config, you have accidentally written a program in a format that wasn't designed for it, and debugging it is miserable.
+
+Applad's config files are and will always remain **purely declarative**. They describe what exists — schemas, adapters, pipelines, providers, rules. They do not describe logic.
+
+If you need conditional behavior — send this message only if the user has a mobile device, run this migration only if this table exists, deploy to production only if tests pass — that is what functions, workflows, and CI/CD pipeline conditions are for. Config describes structure. Code describes behavior. These are different things and they live in different places.
+
+This is a hard line. Applad will never add templating syntax, conditional blocks, or loop constructs to `.yaml` config files. Any `.yaml` file in an Applad project can be read by anyone — developer, product manager, security auditor, `applad instruct` — and understood immediately, without knowing a template language. Config is always what it appears to be.
+
+---
+
+## Secrets Management — First-Class, Not Bolted On
+
+Ansible Vault was added as an afterthought — encrypted files in the repo, a separate password to manage, awkward integration with external secret managers. The lesson is to design secrets management as a first-class system from the start.
+
+**The fundamental rule:** Secrets never live in config files. Config files contain only `${VAR}` references — pointers. The actual values live in one of three places depending on context:
+
+- **Local development** — `.env` file, filled in by the developer from `.env.example`. Only on the developer's machine. Never committed.
+- **Admin database** — for all non-local environments. Set via `applad secrets set`, managed through the admin UI. Encrypted at rest with an application-layer key in addition to database-level encryption.
+- **External secret manager** — for teams using AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager, or similar. Applad fetches from there at operation time.
+
+**Scoped secret storage:**
+
+Secrets exist at four scopes, resolved from most specific to least:
+
+```
+Environment-level  →  secrets for a specific environment only
+Project-level      →  available to all environments in the project
+Org-level          →  available to all projects in the org
+Instance-level     →  available everywhere
+```
+
+The same `${STRIPE_SECRET}` reference in config resolves to the test key in development and the live key in production, automatically, based on scope.
+
+**Safe injection — secrets never written to disk on servers:**
+
+For VPS environments, Applad injects secrets into containers at runtime via Docker's environment injection, passed through the SSH session. The synthesized `docker-compose.yml` written to the server contains references, not values. A developer with SSH access to the production VPS cannot read secret values by inspecting the compose file on disk.
+
+**External provider adapters:**
+
+```yaml
+secrets:
+  provider: "vault"
+  config:
+    address: ${VAULT_ADDR}
+    token: ${VAULT_TOKEN}
+    path: "secret/mobile-app"
+```
+
+The default provider is the admin database. Teams with existing Vault or AWS Secrets Manager infrastructure point Applad at those instead. `${VAR}` references in config files never change — the provider is a resolution detail, not a config concern.
+
+**Rotation with a transition window:**
+
+`applad secrets rotate STRIPE_SECRET` enters a configurable transition window — typically 15 minutes — during which both old and new values are accepted. At the end of the window the old value is permanently invalidated. Dependent containers receive the new value. Services that can hot-reload do so without restart. Those that can't get a rolling restart with zero downtime.
+
+**Emergency revocation:**
+
+`applad secrets revoke STRIPE_SECRET` immediately invalidates the secret, lists every function, workflow, and service that referenced it, and optionally triggers redeployment of affected services. The blast radius is always visible before confirming.
+
+**Full audit trail on all secret operations:**
+
+Every `applad secrets set`, `rotate`, `revoke`, and runtime access of a secret by a function or container produces an audit log entry. Who set it, when it was last rotated, which services have accessed it, and from which environment.
+
+**`.env` files are explicitly development-only:**
+
+`applad up --env staging` and `applad up --env production` warn loudly — and can be configured to refuse — if a `.env` file is detected as the source of secrets rather than the admin database or an external provider.
+
+---
+
+## Composable Config — Shared Roles and Templates
+
+Ansible roles are reusable, self-contained units of configuration that can be shared and composed across playbooks. Applad formalises this with a `shared/` directory at the instance level that any org or project can reference.
+
+A team might define a `postgres-primary` shared config block that includes standard connection settings, migration config, and baseline table permission rules — then reference it across multiple projects. A team that manages many similar projects defines the baseline once in `shared/` and inherits it everywhere, with per-project overrides where needed.
+
+Project templates extend this to whole-project scaffolding. `applad init --template saas` is the entry point, but once a project is running well it can be extracted as a template and reused. Templates are just directories of `.yaml` files with `${VAR}` placeholders — no special syntax.
+
+**Config inheritance** follows the same hierarchy as secret resolution: environment-level overrides beat project-level, which beats org-level, which beats instance-level. Overrides are explicit and always visible in the config tree.
+
+The guiding rule: **compose config, don't copy it**. If the same configuration block appears in more than one project, it belongs in `shared/`. Drift between similar projects is a maintenance burden — shared config eliminates it.
+
+---
+
+## Machine-Readable Output and Exit Codes
+
+Applad's CLI is designed for both human operators and automated pipelines. Every command that produces output supports `--output json`. CI/CD pipelines can parse `applad up --output json` and act on the structured recap.
+
+Exit codes are well-defined and stable across all commands:
+
+| Code | Meaning                                                                  |
+| ---- | ------------------------------------------------------------------------ |
+| `0`  | Success — no changes needed, or no errors                                |
+| `1`  | Error — command failed                                                   |
+| `2`  | Success with changes — one or more changes were applied                  |
+| `3`  | Validation failure — config is invalid, nothing was attempted            |
+| `4`  | Unreachable — one or more infrastructure targets could not be reached    |
+| `5`  | Drift detected — returned by `applad status --drift` when drift is found |
+
+Pipelines can differentiate between success-with-no-changes (exit 0) and success-with-changes (exit 2) — which matters for triggering downstream steps like Slack notifications or smoke tests.
+
+## Discovery over Templates — Guided Interaction
+
+Applad avoids the "kitchen sink" template problem. A new project starts minimal, with only the core infrastructure enabled. From there, the CLI guides you through adding exactly what you need.
+
+- **Interactive `applad init`**: You select which namespaces you need (Functions, Storage, Messaging, etc.). Applad enables them in `applad.yaml` and creates the folders, but leaves them empty of clutter.
+- **Resource `create` commands**: Instead of copy-pasting YAML, you use commands like `applad functions create`. The CLI prompts you for the name, runtime, trigger, and memory limits, then generates a perfect, spec-compliant file for you.
+- **Live Documentation**: The `create` commands act as a guided interface to the spec. No need to look up valid runtime strings or trigger types — the CLI gives you the options inline.
+
+This approach ensures that every file in your project was put there by a deliberate choice, not as part of a boilerplate package you didn't fully understand.
+
+---
+
 ## Access Control — Config Describes, Database Enforces
 
-This is one of Applad's most important architectural decisions, and it has a sharp answer to a question most systems get wrong.
-
-**Config files cannot be the enforcement layer for permissions that govern config files.** That's circular. You cannot guard the safe with a key that's inside the safe. If `require_approval: true` lived in `project.yaml`, any developer with repo access could change it to `false` and push. The file they would need to edit to bypass the control is the same file that holds the control.
+**Config files cannot be the enforcement layer for permissions that govern config files.** That's circular. You cannot guard the safe with a key that's inside the safe. If `require_approval: true` lived in `project.yaml`, any developer with repo access could change it to `false` and push.
 
 Applad's answer is a clean separation: **config files describe intent, the admin database enforces it**.
 
-Role definitions in `org.yaml` are declarative documentation. They describe the intended shape of each role and serve as defaults when a new member is granted a role. But they are not the enforcement layer. Editing `org.yaml` or any other config file and pushing to git does not change what anyone can actually do. Only `applad access` commands and the admin UI change what anyone can do — and both require an SSH key with `access:manage` scope, both write to the admin database, and both are recorded in the audit trail.
+Role definitions in `org.yaml` are declarative documentation. Editing any config file and pushing to git does not change what anyone can actually do. Only `applad access` commands and the admin UI change what anyone can do — both require an SSH key with `access:manage` scope, both write to the admin database, and both are recorded in the audit trail.
 
 **The three-layer permission model:**
 
@@ -146,321 +454,73 @@ Project grants     — your role in this specific project, stored in admin datab
 SSH key scopes     — the maximum your key can ever exercise, stored in org.yaml
 ```
 
-A developer might have `infrastructure:apply:production` granted via their role in the admin database, but if their SSH key's scopes in `org.yaml` don't include it, the operation is still rejected. Key scopes are a hard ceiling that role grants cannot exceed. This means `org.yaml` does serve a real security function — but as a constraint on what keys can do, not as a grant of what they can do. You can limit a key's maximum capability in `org.yaml` without that being bypassable via the database, because the check is an intersection.
+Key scopes in `org.yaml` are a hard ceiling that role grants cannot exceed. This is the one security function config files legitimately serve — constraining maximum capability, not granting it.
 
 **What `applad up` actually checks:**
 
-When `applad up --env production` runs, Applad checks the admin database — not `project.yaml` — to verify the invoking SSH key has `infrastructure:apply:production`. A developer can push config changes to the repo all day. Nothing touches production until an authorized key explicitly runs `applad up --env production`, and that gate checks the database, not files.
+When `applad up --env production` runs, Applad checks the admin database — not `project.yaml` — to verify the invoking SSH key has `infrastructure:apply:production`. A developer can push config changes all day. Nothing touches production until an authorized key explicitly runs the command, and that gate checks the database.
 
-**Destructive operations require explicit elevation:**
+**Destructive operations require explicit elevation:** `schema:destructive`, `permissions:write`, `infrastructure:apply:production`, `access:manage` — none granted by default, all audited.
 
-Some operations require a scope that no default role grants. They must be explicitly granted to specific identities and are never assumed:
-
-- Dropping a table or removing a field — `schema:destructive`
-- Changing permission rules on a table — `permissions:write`
-- Applying to production — `infrastructure:apply:production`
-- Managing access grants — `access:manage`
-
-These cannot be performed accidentally. They require a key that has been explicitly granted the scope, the grant itself requires `access:manage`, and every use is recorded in the audit trail with cryptographic attribution.
-
-**Local development is exempt:**
-
-`applad up` against a local environment (`infrastructure.type: "local"`) runs immediately without checking the admin database for environment-level grants. Local is Docker Compose on the developer's own machine — there is nothing shared or sensitive to protect. The full enforcement model only applies to shared environments.
+**Local development is exempt:** `applad up` against a local environment runs immediately without database grant checks.
 
 ---
 
 ## SSH Keys and Traceability — Every Change Has an Author
 
-When a developer interacts with Applad — whether through the CLI, the admin UI, or via `applad instruct` — their **SSH key is the identity that signs and attributes every action**. This is not just an authentication mechanism. It is the foundation of Applad's full audit trail and traceability model.
+Every CLI operation, every config push, every admin UI session, every `applad instruct` action, every `applad access` operation, every agentless remote operation, and every deployment of every type is attributed to a named SSH key identity with cryptographic proof.
 
-**How it works:**
-
-When a developer registers with an Applad instance, they register their SSH public key. From that point forward:
-
-- **CLI operations** are authenticated via SSH key. When `applad db migrate` runs, the migration is attributed to the key that initiated it.
-- **Config changes via `applad config push`** are signed with the developer's SSH key. The signature is stored in the audit log alongside the full diff of what changed.
-- **Admin UI sessions** are bootstrapped via SSH key authentication. Every UI action is attributed to the same identity as CLI operations. There is no separate "UI user" that bypasses the key-based identity model.
-- **`applad instruct` operations** — the change is attributed to your key identity. The exact prompt is recorded in the audit trail alongside every file modified, migration generated, or infrastructure operation triggered.
-- **`applad access` operations** — every grant and revocation is attributed to the key that performed it, with the full before/after state recorded.
-- **Agentless remote operations** — when Applad SSHes into a remote machine, it does so using the initiating developer's key or a scoped deployment key. The remote machine's auth logs show exactly which key performed which operation and when.
-- **Deployment operations** — every `applad deploy run` is attributed to the initiating SSH key identity in the audit trail.
-
-**What the audit trail captures:**
-
-```
-{
-  "timestamp": "2026-02-22T10:32:14Z",
-  "actor": {
-    "key_fingerprint": "SHA256:abc123...",
-    "key_label": "alice@macbook-pro",
-    "identity": "alice@acme-corp",
-    "via": "cli"                     # cli | ui | instruct | api | ci
-  },
-  "action": "deployments.run",
-  "target": {
-    "org": "acme-corp",
-    "project": "mobile-app",
-    "deployment": "android-production",
-    "type": "play-store",
-    "environment": "production"
-  },
-  "change": {
-    "artifact": "app-release-v2.1.0.aab",
-    "config_signature": "SHA256:def456...",
-    "instruction_prompt": null        # Populated when via == "instruct"
-  },
-  "remote": {
-    "host": "build.acme-corp.com",
-    "ssh_session": "session-uuid",
-    "duration_ms": 84200
-  }
-}
-```
-
-**What this enables:**
-
-- **Full traceability** — every schema change, every deployment of every type, every config push, every migration, every flag toggle, every cloud resource spin-up, every access grant and revocation — has a named human behind it. No anonymous changes, ever.
-- **Non-repudiation** — cryptographic proof of who made each change via SSH key signatures
-- **Instruction transparency** — every `applad instruct` action records the exact prompt alongside every change made
-- **Access change attribution** — every grant and revocation of every scope is attributed to whoever made the change, not just whoever received it
-- **Scoped deployment keys** — CI/CD pipelines use scoped keys with limited permissions. Automated actions clearly distinguishable from human actions.
-- **Key rotation without history loss** — new key linked to existing identity. Historical entries retain the old fingerprint.
-- **Revocation** — when a developer leaves, their key is revoked. Pending operations rejected. Historical entries preserved.
+The audit trail captures actor, action, target, change, and — for `applad instruct` — the exact prompt that produced the change. Every access grant and revocation records both who received the change and who made it. Key rotation preserves historical attribution. Revocation blocks new operations immediately while preserving the historical record.
 
 ---
 
 ## First Run and Developer Onboarding
 
-**`applad init` does one thing: scaffold a new project.**
+**`applad init` does one thing: scaffold a new project.** It fails immediately if `applad.yaml` already exists.
 
-It generates `applad.yaml`, the `orgs/` directory, `.gitignore`, and an initial `.env.example` at the instance level. It does not touch any database. It does not handle authentication. If `applad.yaml` already exists in the current directory, it fails immediately with a clear error. It has exactly one job.
+**`applad up` handles bootstrap on first run.** When it detects an uninitialised database, it prompts for the instance URL, first owner's email, SSH public key path, and organisation name, then seeds the database and permanently closes the bootstrap path.
 
-**`applad up` handles bootstrap on first run.**
+**Developers joining an existing project run `applad login`.** Reads the instance URL from `applad.yaml`, registers their SSH key, sends an access request to administrators. Local environments run immediately — no approval needed. Shared environments require an administrator to run `applad access approve`.
 
-When `applad up` detects an uninitialised database, it enters bootstrap mode before starting the instance. It prompts for the instance URL, the first owner's email, their SSH public key path, and the organisation name. It registers the owner identity, seeds the database, and permanently closes the bootstrap path — it cannot be re-entered without wiping the database, which is deliberate friction. The instance does not accept external connections until bootstrap is complete. Once done, `applad up` continues normally.
-
-**Developers joining an existing project run `applad login`.**
-
-A developer clones the repo, fills in their `.env`, and runs `applad login`. Applad reads the instance URL from `applad.yaml`, prompts for their email and SSH key path, and sends an access request to the instance administrators. The developer can run `applad up` locally immediately — local environments require no approval. For staging and production, an administrator approves the request via the admin UI or `applad access approve`, which registers the SSH key in the admin database with the appropriate role and grants.
-
-**The three commands have clean, non-overlapping intent:**
-
-| Command        | Intent                                   | Fails if                                     |
-| -------------- | ---------------------------------------- | -------------------------------------------- |
-| `applad init`  | Scaffold a new project                   | `applad.yaml` already exists                 |
-| `applad up`    | Start/reconcile. Bootstrap on first run. | Database check fails, env vars missing       |
-| `applad login` | Authenticate to an existing instance     | Instance unreachable, key already registered |
-
-No command does double duty. No command is reused for a different purpose depending on context.
-
----
-
-## `applad up` — One Command to Rule Them All
-
-`applad up` is the single most important command in Applad. It is the reconciliation command — the equivalent of `terraform apply` for your entire backend. You describe what you want in your config tree. `applad up` makes reality match it.
-
-Concretely, `applad up`:
-
-1. If the database is uninitialised, runs bootstrap inline before proceeding
-2. Reads and merges the entire config tree
-3. Validates all `${VAR}` references are satisfied — fails fast with clear errors pointing to the exact file and variable
-4. Validates all cross-references — functions referenced in workflows exist, tables referenced in realtime channels exist, etc.
-5. Checks the invoking SSH key has the required scope for the target environment (skipped for local)
-6. For local environments: synthesizes a `docker-compose.yml` and applies it via Docker Compose
-7. For VPS environments: SSHes in, synthesizes the correct `docker-compose.yml` for that environment, applies it, and disconnects
-8. For cloud adapters: provisions any configured adapters that aren't yet active
-9. Starts or restarts affected services without downtime
-10. Records the operation in the audit trail with the initiating SSH key identity
-
-`applad up --dry-run` is the equivalent of `terraform plan`. It shows exactly what would change — which SSH connections would open, which Docker Compose services would start or restart, which cloud adapters would be provisioned, which config has drifted, which migrations are pending — without doing any of it. **Always run `--dry-run` before applying changes to a production environment.**
-
-`applad up --watch` is for local development only. It watches your config files and automatically reconciles on every save, giving you an instant feedback loop.
-
-Infrastructure is not a separate concern requiring separate commands. It is just config. You define your environments and infrastructure targets. `applad up` handles the rest.
+| Command        | Intent                               | Fails if                                           |
+| -------------- | ------------------------------------ | -------------------------------------------------- |
+| `applad init`  | Scaffold a new project               | `applad.yaml` already exists                       |
+| `applad up`    | Reconcile. Bootstrap on first run.   | Validation fails, vars missing, scope insufficient |
+| `applad login` | Authenticate to an existing instance | Instance unreachable, key already registered       |
 
 ---
 
 ## .env.example — Auto-Generated, Always In Sync
 
-Applad eliminates one of the most persistent sources of developer friction — figuring out which environment variables are needed and where. Every `${VAR_NAME}` reference across the entire config tree is automatically extracted and placed into a scoped `.env.example` file that mirrors the config tree structure.
+Every `${VAR_NAME}` reference across the entire config tree is automatically extracted and placed into a scoped `.env.example`. Each is annotated — what the variable is for, which config file uses it, what format it expects, whether it should go through `applad secrets set` in production.
 
-**How it works:**
+Auto-generated on every config change. Always gitignored for `.env`. Validated on startup with actionable errors for missing variables. Environment-aware. Scoped per project.
 
-Applad scans every `.yaml` file in the tree and extracts every `${VAR}` reference. It places each variable into the `.env.example` at the scope where it is first meaningfully referenced — instance-level vars at the root, org-level vars in `orgs/<org>/.env.example`, project-level vars in `orgs/<org>/<project>/.env.example`. Each `.env.example` is annotated — not just a list of empty keys but a documented file that tells you what each variable is for, which config file uses it, what format it expects, and whether it should go through `applad secrets set` rather than a `.env` file in production.
-
-**Key behaviors:**
-
-- **Auto-generated, never manually edited** — `applad env generate` regenerates from the config tree. Adding a new `${VAR}` to any yaml file means the next generation picks it up and places it at the right scope with annotations.
-- **Always gitignored for `.env`** — `applad init` writes `.gitignore` entries for all `.env` files across the entire tree automatically. `.env.example` files are always committed.
-- **Validated on startup** — `applad up` checks that all referenced `${VAR}` values are present before starting. Missing variables produce a clear error: `Missing required variable STRIPE_SECRET — used by functions/process-payment.yaml`
-- **Environment-aware** — `applad env generate --env production` generates a `.env.example` containing only the variables needed for that environment
-- **Secret classification** — variables that reference credentials are annotated with a note pointing to `applad secrets set`
-- **Scoped per project** — a developer onboarding to `mobile-app` under `acme-corp` only sees that project's variables at `orgs/acme-corp/mobile-app/.env.example`
-
-**Onboarding a new developer becomes:**
-
-```bash
-git clone github.com/myorg/myapp-infra
-cp orgs/acme-corp/mobile-app/.env.example \
-   orgs/acme-corp/mobile-app/.env
-# Fill in values — every variable is annotated with what it's for
-applad login
-applad up
-```
-
-Everything they need is documented in the `.env.example`. Nothing is missing. Nothing is a mystery. And because local runs the exact same Docker Compose model as production, they're already testing against a production-equivalent environment from their first `applad up`.
+Onboarding: `cp .env.example .env`, fill in values, `applad login`, `applad up`. Every variable documented. Nothing is a mystery.
 
 ---
 
 ## What Lives Where — The Four-Way Separation
 
-One of Applad's core architectural decisions is a clean separation between what belongs in config files, what belongs in the database as admin-managed operational data, what belongs in the database as access control grants, and what belongs in the database as application runtime data.
+**Config files** — structural decisions requiring developer review: schemas, pipelines, rules, adapters, role definitions (intent only), SSH key scopes (hard ceilings), `${VAR}` references (never values), `.env.example` files.
 
-**Config files — structural decisions requiring developer review, rarely changing:**
+**Database (access control)** — managed via `applad access` only: actual role grants, project-level overrides, scope grants, environment-level apply grants, time-limited access, pending requests, access change history.
 
-- Database schema definitions and migrations
-- Table, field, and index definitions
-- Permission and security rules on tables and buckets
-- Auth provider configuration
-- Feature flag skeletons — that a flag exists, its variants, its default state, its environments
-- Function definitions and source block pointers
-- Workflow and automation pipeline structure
-- Storage bucket definitions and access rules
-- Deployment pipeline definitions — web, mobile, desktop, OTA — with source blocks
-- Environment definitions and infrastructure targets
-- Organisation structure and role definitions (declarative intent, not enforcement)
-- SSH public keys for registered developers and scoped deployment keys (with key scopes as hard ceilings)
-- Docker Compose synthesis rules
-- Plugin and adapter configuration
-- Enabled/disabled feature toggles at instance and project level
-- API and webhook endpoint definitions
-- Service integration configuration
-- Secret references — `${VAR}` pointers to environment-injected secrets, never the secrets themselves
-- Messaging provider config and template references
-- Security policy definitions — rate limits, CORS, CSP, IP allowlists, MFA requirements
-- `.env.example` files — auto-generated from `${VAR}` references, always committed
+**Database (admin-managed operational data)** — feature flag targeting rules, messaging template content, signing certificates (encrypted), AI and cloud provider credentials (encrypted), secret values for non-local environments (encrypted), IP allowlists, MFA enrollment.
 
-**Database (access control — managed via `applad access` and admin UI):**
-
-- Actual role grants per identity per org
-- Project-level role overrides per identity
-- Scope grants for elevated operations (`schema:destructive`, `permissions:write`, etc.)
-- Environment-level apply grants (`infrastructure:apply:production`)
-- Time-limited access grants with automatic expiry
-- Pending access requests from `applad login`
-- Access change history
-
-**Database (admin-managed operational data):**
-
-- Feature flag targeting rules — who sees which variant, rollout percentages, scheduling
-- Messaging template content — actual copy, HTML, and variables for all channels
-- External webhook subscriptions
-- Per-org and per-project feature enablement
-- Custom dashboard configurations and layouts
-- Scheduled job overrides and pause states
-- Store credentials and mobile signing certificates (encrypted at rest)
-- AI provider API keys (encrypted at rest)
-- Cloud provider credentials and access keys (encrypted at rest)
-- Active IP allowlist entries
-- MFA enrollment records
-
-**Database (application runtime data):**
-
-- User records and auth sessions
-- All application data — rows, documents, files
-- Feature flag evaluation logs and per-user flag state
-- Analytics events and aggregated metrics
-- Full audit log — every config change, every SSH operation, every Docker Compose synthesis and apply, every cloud API call, every deployment of every type, every admin action, every auth event, every access grant and revocation, every `applad instruct` prompt and its changes
-- Deployment history and build logs
-- Function execution logs and traces
-- OTA update adoption tracking and gradual rollout state
-- Organisation member records and invitations
-- User-generated API keys and tokens (hashed)
-- Messaging send history across all channels
-- Real-time subscription state
-- Queue and job execution state for workflows
-- Storage file metadata and usage records
-- In-app notification records
-- Security event logs
-- Cloud resource lifecycle logs
-
-The guiding rules:
-
-- **Developer decision requiring git review → config files**
-- **Access control that must be tamper-proof → access control database layer**
-- **Admin or non-developer changes through UI without deployment → admin-managed database**
-- **Generated by user actions or system processes → application runtime database**
+**Database (application runtime data)** — user records, application data, analytics, full audit log, deployment history, function logs, messaging send history, real-time state, storage metadata, security event logs.
 
 ---
 
 ## Security
 
-Security in Applad is woven through every architectural decision from the ground up. The agentless model, the SSH key identity system, the separation of config intent from database enforcement, the Docker-everywhere approach, and the config-as-code approach all have direct security benefits.
-
-**The fundamental security principle:**
-
-Config files cannot enforce security over themselves. Access controls, approval requirements, and scope restrictions live in the admin database and are managed only through authenticated, audited, privileged operations. A developer editing config files cannot escalate their own privileges, bypass environment protections, or grant themselves access to production. The enforcement layer is outside the reach of the files it governs.
-
-**Encryption:**
-
-- All databases encrypted at rest. Secrets, signing certificates, cloud credentials, and AI API keys in the operational database are encrypted with an additional application-layer key derived from the instance secret — database-level access alone is insufficient to read sensitive values.
-- TLS everywhere, automatic via Caddy. SSH connections use key-based auth only — password auth is disabled by design.
-- Every config push signed with the initiating developer's SSH key.
-- Cloud provider API calls made over TLS with credentials fetched at operation time from the encrypted operational database. Never in environment variables or config files.
-
-**Authentication and Identity:**
-
-- SSH key-based identity for all developer and CI/CD interactions. Password-based access disabled.
-- Admin UI MFA — TOTP and WebAuthn/FIDO2. Configurable per org.
-- Brute force protection — automatic lockout and exponential backoff.
-- Argon2id password hashing with configurable cost parameters.
-- Short-lived SSH sessions — ephemeral, opened for the duration of an operation and immediately closed.
-- Bootstrap is a one-time, permanently closeable path. Re-opening it requires wiping the database.
-
-**Container Security:**
-
-- Every function runs in an isolated Docker container with a read-only filesystem, no-new-privileges enforcement, and restricted network access with an explicit allowlist of permitted outbound hosts.
-- Container images are scanned for vulnerabilities before deployment. Critical vulnerabilities block deployment by default.
-- The Docker Compose model means container security is consistent across local, VPS, and cloud — the same container configuration runs everywhere.
-- No host filesystem access from function containers.
-
-**Permissions and Isolation:**
-
-- Applad-native permission rules in `database/tables/*.yaml` and `storage/buckets/*.yaml`, translated to the underlying database's enforcement mechanism.
-- Row-level filtering — permissions support filter expressions.
-- Strict project and organisation isolation by default.
-- Scoped deployment keys — CI/CD keys cannot modify schema or access other projects.
-- Cloud resource isolation — resources tagged and scoped to the project that provisioned them.
-
-**Network Security:**
-
-- Rate limiting configurable per endpoint, per user, per org.
-- CORS configurable per project and per deployment. Defaults to restrictive.
-- CSP headers configurable per web deployment. Secure defaults shipped.
-- IP allowlisting per org or project, managed through admin UI.
-- DDoS mitigation via Caddy-level connection rate limiting.
-
-**Secrets Management:**
-
-- Secrets never in config files — only `${VAR}` references.
-- Secrets never in logs — logging layer scrubs known secret patterns.
-- `.env` files auto-gitignored. `.env.example` annotates which vars are secrets and points to `applad secrets set`.
-- Cloud credentials never in config files — fetched at operation time from encrypted operational database.
-
-**Security in the config tree:**
-Security policies live alongside the resources they protect. Permission rules in `database/tables/*.yaml`. Bucket access rules in `storage/buckets/*.yaml`. Auth security in `auth/auth.yaml`. Rate limits and CORS in `observability/observability.yaml`. A developer cannot add a table without its permission rules being visible to reviewers in the same diff.
+Security is woven through every architectural decision. Config files cannot enforce security over themselves — access controls live in the admin database. Secrets are injected at runtime via SSH session, never written to disk on servers. Every function runs in an isolated container with read-only filesystem, no-new-privileges, and a restricted network allowlist. Container images scanned before deployment. TLS everywhere via Caddy. SSH key-based auth only. Bootstrap permanently closeable. Full secret access audit trail. Security policies live alongside the resources they protect, reviewed in the same PR.
 
 ---
 
 ## Config File Structure — The Directory IS the UI
 
-Applad's config is split across a directory tree of focused `.yaml` files — merged at runtime into one resolved config. The same pattern Terraform uses with `.tf` files, applied to your entire backend.
-
-**The directory structure mirrors UI navigation.** If in the admin UI you navigate to Database > Tables > users, the config file lives at `database/tables/users.yaml`. If you navigate to Storage > Buckets > avatars, the config lives at `storage/buckets/avatars.yaml`. The path in the filesystem is the breadcrumb in the UI. They are the same thing.
-
-This has a compounding benefit beyond tidiness: when `applad instruct` references a file in an error message, a dry-run output, or an audit log entry, the path tells you exactly where in the UI to find what it's describing. `database/tables/users.yaml` — go to Database, then Tables, then users.
-
-The hierarchy is encoded directly in the directory structure. An `org.yaml` file marks a directory as an org. A `project.yaml` file marks a directory as a project. No explicit listing anywhere. No `projects/` wrapper folder — that level of nesting was redundant. The file's presence is the entire signal.
+The directory structure mirrors UI navigation exactly. `database/tables/users.yaml` is Database > Tables > users. `storage/buckets/avatars.yaml` is Storage > Buckets > avatars. The path in the filesystem is the breadcrumb in the UI. They are the same thing.
 
 ```
 my-project/
@@ -471,312 +531,92 @@ my-project/
 │
 ├── orgs/
 │   └── acme-corp/
-│       ├── org.yaml                    # Marks this directory as an org
+│       ├── org.yaml
 │       ├── .env.example
-│       ├── .env
-│       │
-│       └── mobile-app/                 # project.yaml marks this as a project
+│       └── mobile-app/
 │           ├── project.yaml
 │           ├── .env.example
-│           ├── .env
-│           │
-│           ├── auth/                   # UI: Auth
-│           │   └── auth.yaml
-│           │
-│           ├── database/               # UI: Database
+│           ├── auth/
+│           ├── database/
 │           │   ├── database.yaml
-│           │   ├── migrations/         # UI: Database > Migrations
-│           │   │   ├── primary/
-│           │   │   └── analytics/
-│           │   └── tables/             # UI: Database > Tables
-│           │       ├── users.yaml
-│           │       ├── posts.yaml
-│           │       └── events.yaml     # database: "analytics"
-│           │
-│           ├── storage/                # UI: Storage
+│           │   ├── migrations/
+│           │   └── tables/
+│           ├── storage/
 │           │   ├── storage.yaml
-│           │   └── buckets/            # UI: Storage > Buckets
-│           │       ├── avatars.yaml
-│           │       └── documents.yaml
-│           │
-│           ├── functions/              # UI: Functions
-│           │   ├── send-welcome-message.yaml
-│           │   ├── process-payment.yaml
-│           │   └── daily-report.yaml
-│           │
-│           ├── workflows/              # UI: Workflows
-│           │   ├── user-onboarding.yaml
-│           │   └── payment-failed-recovery.yaml
-│           │
-│           ├── messaging/              # UI: Messaging
-│           │   ├── messaging.yaml
-│           │   └── templates/          # UI: Messaging > Templates
-│           │       ├── welcome.yaml
-│           │       └── payment-failed.yaml
-│           │
-│           ├── flags/                  # UI: Flags
-│           │   └── new-dashboard.yaml
-│           │
-│           ├── deployments/            # UI: Deployments
-│           │   ├── web.yaml
-│           │   ├── android-production.yaml
-│           │   ├── ios-production.yaml
-│           │   └── ota.yaml
-│           │
-│           ├── realtime/               # UI: Realtime
-│           │   └── realtime.yaml
-│           │
-│           ├── analytics/              # UI: Analytics
-│           │   └── analytics.yaml
-│           │
-│           └── observability/          # UI: Observability
-│               └── observability.yaml
+│           │   └── buckets/
+│           ├── functions/
+│           ├── workflows/
+│           ├── messaging/
+│           │   └── templates/
+│           ├── flags/
+│           ├── deployments/
+│           ├── realtime/
+│           ├── analytics/
+│           └── observability/
+│
+└── shared/
 ```
 
-**How Applad discovers the structure:**
-
-1. Load `applad.yaml` at the root
-2. Scan `orgs/` — any subdirectory containing `org.yaml` is an org
-3. For each org, scan subdirectories — any subdirectory containing `project.yaml` is a project
-4. For each project, load all `.yaml` files in all subdirectories recursively
-5. Merge into a single resolved config tree in memory
-6. Validate the full merged config, synthesize Docker Compose, start — or error with the exact file and line
-
-No explicit listing of orgs or projects anywhere. The directory structure and the presence of `org.yaml` and `project.yaml` is the entire discovery mechanism.
+`org.yaml` marks an org. `project.yaml` marks a project. No explicit listing anywhere. No `projects/` wrapper folder — one level shorter everywhere. Applad discovers everything by scanning for these marker files.
 
 ---
 
 ## Core Architecture
 
-Applad's core infrastructure is written in Dart — auth, database engine, storage, realtime, the CLI, and the admin Flutter app. Applad's functions and automation layer is fully polyglot — Dart, Node.js, Python, Go, PHP, Ruby, etc. Each runtime runs in an isolated Docker container.
+Dart for the core — auth, database engine, storage, realtime, CLI, admin Flutter app. Polyglot for functions — Dart, Node.js, Python, Go, PHP, Ruby, etc., each in an isolated Docker container.
 
-The CLI synthesizes Docker Compose configurations from your project config and orchestrates them via Docker. You never write Docker Compose files by hand. Applad generates the correct service definitions, networking, volume mounts, and environment injection for each environment target automatically.
-
----
-
-## Dart First, Pragmatic Where It Matters
-
-Applad is not "Dart only" — it's **Dart first**. For infrastructure-heavy pieces, Applad composes rather than reinvents:
-
-- **Docker and Docker Compose** — the universal runtime model at every level, synthesized by Applad's CLI from project config
-- **Caddy** — reverse proxy, SSL, web deployment hosting layer
-- **NATS or Redis** — realtime and pub/sub
-- **Rclone** — storage adapters across dozens of providers
-- **Buildkit** — polyglot function runtime container builds
-- **Cloud provider SDKs** — AWS, GCP, Azure adapters for on-demand resource provisioning
-
-Operations teams can inspect and reason about everything Applad provisions using tools they already know. Standard Docker containers. Standard Caddy config. Standard Docker Compose files on the target machines. Nothing is a black box.
+Composing proven open source tools: Docker Compose for orchestration, Caddy for reverse proxy and SSL, NATS or Redis for realtime and pub/sub, Rclone for storage adapters, Buildkit for container builds, cloud provider SDKs for on-demand resources. Nothing is a black box. Everything inspectable with standard tools.
 
 ---
 
 ## Bidirectional Infrastructure as Code
 
-In Applad, **the UI and config files are always the same thing**. Every developer-driven action — creating a table, defining a permission rule, setting up a deployment pipeline, adding an auth provider — immediately generates or updates the corresponding `.yaml` file and regenerates the relevant `.env.example` if new `${VAR}` references were introduced.
-
-- **UI → Config:** Create a web deployment visually and `deployments/web.yaml` appears in your repo. Add a table and `database/tables/<name>.yaml` is written with schema and permission rules together. Add a storage bucket and `storage/buckets/<name>.yaml` appears.
-- **Config → UI:** Edit any config file, merge a PR, and the UI reflects it immediately.
-- **`applad instruct` → Config:** Every instruction that changes structure writes config, updates `.env.example` if needed, updates the synthesized Docker Compose configuration, and records the prompt in the audit trail.
-- **`applad up`** reconciles everything — reads the config, synthesizes Docker Compose, makes reality match.
+Every developer-driven action in the UI immediately generates or updates the corresponding `.yaml` file. Every config file change reflects in the UI immediately. `applad instruct` writes config, updates `.env.example`, updates Docker Compose synthesis, records the prompt. `applad up` reconciles everything. No gap, no drift, no manual translation.
 
 ---
 
 ## Applad as Your Lad — AI-Powered Infrastructure Assistant
 
-Applad is your **lad** — an active collaborator deeply integrated into every layer of the platform. In the CLI this surfaces as `applad instruct`. In the admin UI the lad has a more characterful presence — the same intelligence, a more conversational interface.
+`applad instruct` is the CLI surface of the lad. Self-documenting, professional, always `--dry-run` capable, access-aware, every prompt recorded in the audit trail attributed to the invoking SSH key identity. The lad tells you when an instruction would require elevated scope before attempting it.
 
-The lad reads your config files, your operational database, your live runtime data, your security event log, your logs, your analytics, and your deployment history — and acts on all layers appropriately. Every instruction is attributed to your SSH key identity in the audit trail, with the exact prompt recorded alongside every change made.
+When it creates a function, it creates `functions/<n>.yaml` with a source block. When it creates a table, it creates `database/tables/<n>.yaml` with schema and permission rules together. When it provisions infrastructure, it updates `project.yaml`, regenerates `.env.example`, synthesizes updated Docker Compose, and runs `--dry-run` for review before applying.
 
-`applad instruct` is:
-
-- **Self-documenting** — the verb tells you exactly what it does
-- **Professional in context** — reads cleanly in documentation, CI logs, and team runbooks
-- **Consistent with the CLI's tone** — `applad deploy run`, `applad db migrate`, `applad config push`, `applad instruct`
-- **Always `--dry-run` capable** — show the full plan — config files that would change, migrations that would be generated, Docker Compose changes, infrastructure that would be provisioned — without executing anything
-- **Always attributed** — the audit trail records the developer's key identity, the exact prompt, and every change made
-- **Access-aware** — the lad knows what your current identity can and cannot do and will tell you when an instruction would require elevated scope before attempting it
-
-When `applad instruct` creates a new function, it creates `functions/<name>.yaml` with a source block. When it creates a table, it creates `database/tables/<name>.yaml` with schema and permission rules together. When it creates a storage bucket, it creates `storage/buckets/<name>.yaml`. When it creates a deployment pipeline, it creates `deployments/<name>.yaml` with the right type and source block. When it provisions infrastructure, it updates `project.yaml`, regenerates `.env.example`, synthesizes the updated Docker Compose config, and runs `applad up --dry-run` so you can review before applying.
-
-**AI Provider Agnosticism:** AI features are powered by your own API keys — stored encrypted in the admin-managed operational database, never in config files. Choose OpenAI, Gemini, Claude, Mistral, or any compatible provider. Swap through the admin UI. Disable entirely in `applad.yaml`.
+**AI Provider Agnosticism:** Your own API keys, stored encrypted in the admin database. Choose any compatible provider. Swap through the admin UI. Disable entirely in `applad.yaml`.
 
 ---
 
 ## Instance → Organization → Project Hierarchy
 
-Every resource belongs to a **project**. Projects belong to **organisations**. Organisations live on an **instance**. Nothing floats free of this hierarchy.
-
 ```
 Instance
-└── Organisation (e.g. acme-corp)         — orgs/acme-corp/org.yaml
-    ├── Project (e.g. mobile-app)         — orgs/acme-corp/mobile-app/project.yaml
-    │   ├── Auth, Database, Storage
-    │   ├── Functions, Workflows, Messaging
-    │   ├── Flags, Deployments (all types)
-    │   └── Realtime, Analytics, Observability
-    └── Project (e.g. internal-dashboard) — orgs/acme-corp/internal-dashboard/project.yaml
-        ├── Auth, Database, Storage
-        └── Messaging, Observability
+└── Organisation (e.g. acme-corp)
+    ├── Project (e.g. mobile-app)
+    └── Project (e.g. internal-dashboard)
 ```
 
-The path structure is intentionally lean. `org.yaml` marks an org. `project.yaml` marks a project. No `projects/` wrapper folder — it was a redundant level of nesting that added noise without adding clarity. Every path in the config tree, every CLI output, every error message, every `applad instruct` file reference is one level shorter as a result.
-
-Infrastructure targets are defined per project and per environment in `project.yaml`. Each environment specifies whether it runs locally via Docker Compose, on a VPS via SSH + Docker Compose, or with cloud adapters layered on top. The same project config works at every level of the continuum.
-
-One Applad instance is viable for:
-
-- **Agencies and freelancers** — all clients as isolated orgs, each with their own infrastructure targets
-- **Enterprises** — departments as orgs with their own cloud accounts and VPS infrastructure
-- **SaaS builders** — customers as organisations
-- **Managed cloud** — one fleet, many isolated tenants
+Nothing floats free of this hierarchy. `org.yaml` marks an org. `project.yaml` marks a project. Infrastructure targets defined per project and per environment. The same config works at every level of the continuum.
 
 ---
 
-## Database Agnosticism
+## Database Agnosticism, Multi-Tenancy, Functions, Deployments
 
-No database lock-in. Multiple named connections supported per project, each targeting a different adapter, with per-connection migration directories. Tables reference connections by id — tables without an explicit `database:` field use whichever connection is marked `default: true`.
+Multiple named connections per project, each with its own `migrations.dir`. Tables reference connections via `database:` field. Cross-database relations flagged at validation time with actionable errors. Adapters: PostgreSQL, MySQL, SQLite, MongoDB, Redis, libSQL, RDS, Cloud SQL, extensible via custom adapters.
 
-Adapters:
+Three multi-tenancy models in `auth/auth.yaml`: row (shared schema, tenant field, row-level filters), schema (separate Postgres schemas per tenant), database (separate connection per tenant). Choose once, configured in one place.
 
-- **Relational:** PostgreSQL, MySQL, MariaDB, SQLite
-- **NoSQL:** MongoDB, CouchDB, Firestore-compatible
-- **Embedded/Edge:** SQLite, libSQL (Turso)
-- **Managed cloud:** AWS RDS, Google Cloud SQL, Azure Database
-- **Cache:** Redis
-- **Time-series or specialized:** extensible via custom adapters
-
-Cross-database relations are flagged at validation time — they are resolved at the application layer, not the database layer. Moving from SQLite locally to Postgres on a VPS to RDS in production is a one-line config change per connection. `applad env generate` picks up any new `${VAR}` references. `applad up` synthesizes the correct Docker Compose service configuration for the new adapter. Application code never changes.
-
----
-
-## Multi-Tenancy
-
-Three models, configured in `auth/auth.yaml`. The right choice depends on the product.
-
-**Row-level (`model: "row"`)** — shared database, shared schema. A `tenant_field` column is added to every table. Row-level permission filters enforce isolation. Best for most SaaS products — lowest cost, simplest to operate.
-
-**Schema-level (`model: "schema"`)** — shared database, separate Postgres schemas. Each tenant gets their own schema. Tables are identical in structure but physically isolated. Stronger isolation without per-tenant infrastructure cost. Best for regulated industries. `schema_pattern` controls naming.
-
-**Database-level (`model: "database"`)** — separate database connection per tenant. Maximum isolation. Can be on the same server or different servers. Required for enterprise with strict data residency or contractual isolation requirements. The connection string for each tenant is stored in the admin database and fetched at runtime.
-
----
-
-## Functions — Flat Files, Flexible Source
-
-Each function is a single `.yaml` file in `functions/`. No nested folders. The file defines the function's runtime, resource limits, container security settings, and triggers — and points to the function code via a `source` block.
-
-The source block supports three patterns:
-
-```yaml
-# Local — relative to project root
-source:
-  type: "local"
-  path: "./src/functions/process-payment/index.js"
-
-# GitHub — fetched at deploy time
-source:
-  type: "github"
-  repo: "myorg/myapp"
-  branch: "main"
-  path: "src/functions/process-payment/index.js"
-  ssh_key: "ci-github-actions"
-
-# Registry — pre-built container image
-source:
-  type: "registry"
-  image: "ghcr.io/myorg/process-payment:latest"
-  credentials: "ghcr-credentials"
-```
-
-Teams with a monorepo point all their function source blocks at different paths within the same repo. Teams with microservices point each function at a different repo entirely. Teams that pre-build containers point at a registry. The Applad config tree is identical in structure regardless.
-
-The same `source` block pattern applies consistently to deployment pipelines — `deployments/web.yaml`, `deployments/android-production.yaml`, and every other deployment type all use the same shape.
-
----
-
-## Tables (Not Collections)
-
-`tables` is the universal term for data structures throughout config and CLI, regardless of the underlying adapter. Neutral, understood by everyone. Each table in its own file under `database/tables/`. Permission rules live alongside the schema — always reviewed in the same diff, by the same people, at the same time.
-
-An optional `database:` field on each table targets a named connection from `database.yaml`. Omitting it uses the default connection. This is how you route specific tables to specific databases — analytics events to the analytics connection, application data to the primary connection — without any coupling in the directory structure.
-
----
-
-## Storage — Adapter and Buckets Separated
-
-Storage config is split into two levels that mirror the UI navigation exactly.
-
-`storage/storage.yaml` defines the adapter — which backend to use, credentials, environment overrides. Switching from local to S3 to R2 is a one-line change here.
-
-`storage/buckets/<name>.yaml` defines each bucket — public or private, size limits, allowed types, virus scanning, encryption at rest, and permission rules. Buckets are discovered automatically from the `buckets/` directory. You never list them explicitly.
-
-This mirrors Storage > Buckets in the admin UI. Adding a bucket is adding a file. Reviewing a bucket's access rules is reviewing the file. The directory is the UI.
-
----
-
-## Messaging (Not Just Email)
-
-`messaging` is the umbrella for all communication channels. Provider config in `messaging/messaging.yaml`. Template content in the admin-managed database so non-developers can edit copy without a git commit or deployment.
-
-Channels: Email (Resend, SMTP, SendGrid, SES), SMS (Twilio, Vonage, Africa's Talking), Push (FCM, APNS), In-app, Slack, Discord, Teams.
-
-One unified SDK call. One unified `applad messaging` CLI namespace. One unified admin panel. All provider API keys referenced via `${VAR}` and documented in the project's `.env.example`.
-
----
-
-## Deployments — Unified Across All Types
-
-Applad uses a single `deployments/` directory and a single `applad deploy` CLI namespace for all deployment types. A web deployment to a domain and an Android deployment to the Play Store are both deployments. Each file is flat — one yaml file per pipeline — with a `type` field and a `source` block.
-
-- **`web`** — deploys a static or dynamic site to a domain via Caddy. Applad synthesizes the Caddy configuration from the deployment yaml. Automatic SSL. Git-connected via source block. Preview environments per PR.
-- **`play-store`** — builds an Android app and submits it to the Google Play Store. Build runs in Docker on the configured build VPS.
-- **`app-store`** — builds and submits an iOS app. Spins up an AWS Mac instance via cloud-on-demand, builds in Docker, submits, tears down.
-- **`desktop`** — packages and distributes Windows, macOS, and Linux applications.
-- **`ota`** — pushes over-the-air updates to existing installs. Gradual rollout with adoption tracking.
-
-**The deploy/release distinction is encoded in the type system.** `deployments/` contains pipelines. `flags/` contains release controls. They are separate directories, separate config files, separate CLI namespaces, separate concerns.
-
-Every deployment is attributed to the SSH key identity that triggered it in the audit trail.
-
----
-
-## Feature Flags
-
-Feature flag skeletons live in individual files under `flags/` — version controlled like code. Targeting rules live in the admin-managed database. Evaluation logs in the runtime database.
-
-Deploy puts the code on the server. The flag releases it to users. A developer deploys new code continuously. A product manager releases it to 10% of users when ready. Increases to 50% when metrics look good. Rolls back instantly if something is wrong. No deployment required for any of this.
+Functions are flat yaml files with source blocks pointing anywhere — local path, GitHub repo, container registry. Deployments are the same: flat yaml files in `deployments/`, one per pipeline, covering web, Play Store, App Store, desktop, and OTA. `applad deploy` covers all of them. `flags/` controls release. They never touch.
 
 ---
 
 ## You Scale It Your Way
 
-Single Docker Compose stack to start. The full continuum:
-
-- **Local** — Docker Compose on your laptop, SQLite, full production-equivalent environment from day one
-- **VPS** — SSH in, Docker Compose synthesized and applied, full control, predictable flat-rate costs
-- **Kubernetes / Helm charts** — official Helm charts for horizontal scaling
-- **Cloud on-demand** — resources when you need them, gone when you don't, billed only for duration
-- **Managed cloud** — hosted Applad for teams that don't want to manage infrastructure
-
-Stateless at the core — config holds structure, database holds state, Docker containers hold nothing beyond what they need to run. `applad up` anywhere with the same config tree and database connection produces an identical stack.
+Single Docker Compose stack to start. Full continuum to Kubernetes. Stateless at the core. `applad up` anywhere with the same config tree and database connection produces an identical stack.
 
 ---
 
 ## No Lock-in, At Any Layer
 
-- **Portable by design** — REST and GraphQL first, SDK second
-- **Your config is yours** — `.yaml` files you own, version control, and take anywhere
-- **Your runtime is yours** — standard Docker containers, standard Docker Compose, inspectable with standard tools
-- **Your data is yours** — all state in your configured database
-- **Your infrastructure is yours** — VPS, cloud, local, or mixed
-- **Your secrets are yours** — encrypted in your database, documented in `.env.example`
-- **No database lock-in** — swap adapters with one config line
-- **No runtime lock-in** — any language for functions, any container for execution
-- **No AI lock-in** — your keys, your provider
-- **No cloud lock-in** — cloud as utility, not platform
-- **No feature lock-in** — enable only what you need
-- **No scaling lock-in** — local Docker Compose to Kubernetes cluster
-- **No pricing lock-in** — self-hosting is predictable. Cloud billed only when used.
-- **No tool lock-in** — replaces BaaS, IaC, CI/CD, feature flags, analytics, AI assistant
+Config, data, secrets, AI keys, infrastructure, runtime, database, cloud, features, tools. The `.yaml` files you own, version control, and take anywhere. Standard Docker containers inspectable with standard tools. Your data in your database. Your secrets in your encrypted database or your existing secret manager. Never locked in at any layer.
 
 ---
 
@@ -784,45 +624,35 @@ Stateless at the core — config holds structure, database holds state, Docker c
 
 **Vendor lock-in** → Portable config, database agnosticism, cloud as utility, standard Docker everywhere
 
-**Environment parity** → Docker Compose at every level — local, VPS, cloud. The same containers run everywhere. "Works on my machine" is eliminated by design.
+**Environment parity** → Docker Compose at every level. The same containers run everywhere. "Works on my machine" eliminated by design.
 
-**Scaling surprises** → Stateless core, connection pooling from day one, clear paths from local to cloud
+**No idempotency guarantee** → Every operation idempotent. Running `applad up` twice is the same as running it once. Guaranteed.
 
-**Pricing cliffs** → Docker Compose self-hosting on a VPS, cloud billed only when used, transparent managed cloud pricing
+**No drift detection** → `applad status --drift` shows exactly what has drifted in every environment, without changing anything.
 
-**Limited customisation** → Everything opt-in, plugins and adapters first-class, last 20% gets same polish
+**Unpredictable reconciliation** → `--dry-run --diff` first, `applad up` second, recap third. No surprises. Ever.
 
-**Auth edge cases** → Multi-tenancy (row/schema/database), RBAC, SSO, MFA, custom flows — first-class from day one
+**Redundant restarts** → Handler pattern. Services restart exactly once per reconciliation run.
 
-**Debugging and observability** → Core feature. Clear errors, structured logs, security event log, deployment logs, instruct history. Standard Docker tooling for inspecting containers.
+**No dry-run on subcommands** → `--dry-run` on every command that produces side effects. Always.
 
-**Security as an afterthought** → Security policies in config alongside the resources they govern, reviewed in the same PR. Container security enforced uniformly at every level.
+**Unhelpful error messages** → Every error: file, line, problem, fix. Never just "what."
 
-**No audit trail** → Every change attributed to an SSH key identity with cryptographic proof. Every instruct prompt recorded. Every deployment attributed. Every access grant and revocation recorded.
+**YAML as a programming language** → Config is purely declarative. Always. Logic goes in functions and workflows.
 
-**Config files as security enforcement** → Access controls live in the admin database, not config files. A developer cannot edit their way to elevated privileges. Config files describe intent; the database enforces it.
+**Secrets bolted on** → First-class secrets: scoped hierarchy, safe injection, external provider adapters, rotation with transition windows, emergency revocation, full audit trail.
 
-**Deploy/release conflation** → Deploy is technical and goes through `applad deploy`. Release is a business decision and goes through feature flags. Never mixed.
+**No machine-readable output** → `--output json` everywhere. Well-defined exit codes 0–5. Pipelines can act on the difference between success-no-changes and success-with-changes.
 
-**Environment variable chaos** → `.env.example` auto-generated from config, scoped per org and project, annotated, always in sync, always committed.
+**Config files as security enforcement** → Access controls in the admin database. A developer cannot edit their way to elevated privileges.
 
-**Agent overhead** → Agentless like Ansible. SSH in, synthesize Docker Compose, apply, leave.
+**No audit trail** → Every change attributed to an SSH key identity. Every instruct prompt recorded. Every secret access logged.
 
-**Cloud complexity** → Cloud as utility. Spin up when needed, tear down when done.
+**Agent overhead** → Agentless. SSH in, synthesize Docker Compose, apply, leave.
 
-**iOS build infrastructure** → Spin up an AWS Mac instance per build, tear it down when done. Pay only for build duration.
+**Deploy/release conflation** → Deploy is technical. Release is a business decision. Separate commands, separate config, separate people.
 
-**Function code location assumptions** → Source blocks point anywhere — local path, GitHub repo, container registry. The config tree is independent of where code lives.
-
-**Onboarding friction** → `applad init`, fill in `.env`, `applad login`, `applad up`. Four steps. Every variable documented. Full production-equivalent stack running locally.
-
-**Developer joins existing project** → Clone repo, fill in `.env`, `applad login`, `applad up`. The approval flow is non-blocking for local development.
-
-**Directory structure verbosity** → `org.yaml` marks an org. `project.yaml` marks a project. No redundant wrapper folders. One level shorter everywhere.
-
-**Directory structure disconnect from UI** → The directory path is the UI breadcrumb. `database/tables/users.yaml` maps to Database > Tables > users. No translation required.
-
-**Multi-database complexity** → Multiple named connections in `database.yaml`. Tables opt into a connection via `database:` field. Per-connection migration directories. Routing is explicit and file-level, not a hidden layer.
+**Onboarding friction** → `cp .env.example .env`, fill in values, `applad login`, `applad up`.
 
 **The 80/20 problem** → The last 20% is where Applad competes.
 
@@ -832,156 +662,115 @@ Stateless at the core — config holds structure, database holds state, Docker c
 
 ### AD-001: Docker Compose as the Universal Runtime Model
 
-**Status:** Accepted
-
-Applad uses Docker Compose for service orchestration at every level — local development, VPS staging, and VPS production. The CLI synthesizes `docker-compose.yml` from project config and applies it via Docker. Users only need Docker installed.
-
-**Why it matters:**
-
-- Local is production — the same containers, SDK versions, OS libraries, and service configuration run everywhere
-- Onboarding requires only Docker — no language toolchains, no version management, no path resolution
-- The CLI manages complexity — Applad synthesizes correct Docker Compose configurations from project config rather than requiring users to write or understand them
-- Standard tooling for debugging — `docker logs`, `docker exec`, `docker compose ps` work everywhere
-- `applad up --dry-run` shows the synthesized Docker Compose configuration before applying it
+**Status:** Accepted — Same containers at every level. Local is production from day one. Only Docker required.
 
 ### AD-002: `org.yaml` and `project.yaml` as Discovery Markers
 
-**Status:** Accepted
-
-Applad discovers orgs and projects by scanning the `orgs/` directory for subdirectories containing `org.yaml`, then scanning each org's subdirectories for `project.yaml`. No explicit listing anywhere. No `projects/` wrapper folder.
-
-**Why it matters:**
-
-- Every path in the config tree is one level shorter
-- The structure is self-describing
-- Consistency with how config files already work — a file's presence is the signal
-- Error messages, CLI output, and `applad instruct` file references are all shorter and more readable
+**Status:** Accepted — File presence is the signal. No explicit listing. No `projects/` wrapper. Every path shorter.
 
 ### AD-003: Directory Structure Mirrors UI Navigation
 
-**Status:** Accepted
-
-Config files are organised so that the directory path matches the breadcrumb in the admin UI. `database/tables/users.yaml` maps to Database > Tables > users. `storage/buckets/avatars.yaml` maps to Storage > Buckets > avatars. The two are the same thing expressed differently.
-
-**Why it matters:**
-
-- No mental translation between "where is this in the UI" and "where is this in the repo"
-- Error messages and audit log entries reference file paths that are immediately navigable in the UI
-- New team members understand the config structure by navigating the UI, and vice versa
-- `applad instruct` file references are self-explanatory
+**Status:** Accepted — `database/tables/users.yaml` is Database > Tables > users. Always. Error messages, audit entries, and `applad instruct` references are self-navigable.
 
 ### AD-004: Config Files Describe, Admin Database Enforces
 
-**Status:** Accepted
+**Status:** Accepted — Role definitions are declarative documentation. Actual grants live in the admin database, managed only via `applad access`. Editing config files cannot change what anyone can do.
 
-Role definitions and environment descriptions in config files are declarative documentation. Actual access grants, scope assignments, and environment-level protections live in the admin database and are managed exclusively via `applad access` commands and the admin UI.
+### AD-005: Bootstrap is Inline in `applad up`
 
-**Why it matters:**
-
-- Config files cannot enforce security over themselves — that's circular
-- A developer cannot edit their way to elevated privileges
-- Access controls are tamper-proof regardless of what anyone pushes to git
-- `applad access` operations require `access:manage` scope and are fully audited
-- Key scopes in `org.yaml` serve as hard ceilings on what a key can ever do, which is a legitimate file-based constraint because it restricts rather than grants
-
-### AD-005: Bootstrap is Inline in `applad up`, Not a Separate Command
-
-**Status:** Accepted
-
-First-run setup is handled inline by `applad up` when it detects an uninitialised database. There is no separate `applad bootstrap` command.
-
-**Why it matters:**
-
-- `applad up` is already "make reality match config" — first run is just a special case of that
-- Fewer commands to learn and document
-- The bootstrap path is permanently closed after first use, which `applad up` enforces naturally
-- `applad init` keeps its single, clear meaning: scaffold files
+**Status:** Accepted — First-run setup is a special case of reconciliation. No separate command. `applad init` keeps its single meaning.
 
 ### AD-006: `applad init`, `applad up`, and `applad login` Have Non-Overlapping Intent
 
-**Status:** Accepted
-
-`applad init` scaffolds a new project and fails if `applad.yaml` already exists. `applad up` reconciles infrastructure and handles bootstrap on first run. `applad login` authenticates a developer to an existing instance.
-
-**Why it matters:**
-
-- No command does double duty
-- Each command's name accurately describes what it does in every context it's used
-- Developers joining an existing project have a clear, correct entry point that doesn't risk re-initialising anything
-- The mental model is clean: init creates, up runs, login connects
+**Status:** Accepted — Three commands, three jobs, no overlap, no double duty.
 
 ### AD-007: Tables Inside `database/`, Buckets Inside `storage/`
 
-**Status:** Accepted
-
-Table definitions live at `database/tables/`. Bucket definitions live at `storage/buckets/`. Both mirror the UI navigation hierarchy exactly.
-
-**Why it matters:**
-
-- In the UI, Tables is a subsection of Database. Buckets is a subsection of Storage. The directory structure matches.
-- When you navigate to a table in the UI, you know exactly where its config file is
-- `applad tables generate` and `applad db migrate` operate in the same logical space
-- Multiple databases per project is cleanly handled by a `database:` field on each table, not by physically nesting tables under connection-named directories
+**Status:** Accepted — Mirrors UI navigation. Directory path equals UI breadcrumb.
 
 ### AD-008: Multiple Database Connections with Per-Connection Migration Dirs
 
-**Status:** Accepted
+**Status:** Accepted — Named connections, per-connection `migrations.dir`, table-level routing via `database:` field, cross-database relations flagged at validation time.
 
-`database.yaml` supports multiple named connections. Each connection has its own `migrations.dir`. Tables opt into a connection via an optional `database:` field. Tables without the field use whichever connection has `default: true`.
+### AD-009: Idempotency is a Guaranteed Contract
 
-**Why it matters:**
+**Status:** Accepted — Every operation idempotent by explicit strategy per resource type. CI/CD pipelines can rely on it absolutely.
 
-- Multiple databases is a real requirement — analytics databases, cache layers, read replicas
-- Per-connection migration directories keep migration history clean and independently deployable
-- The `database:` field on a table is explicit and visible in code review
-- Cross-database relations are flagged at validation time rather than failing silently at runtime
+### AD-010: `--dry-run` is Available on Every Side-Effecting Command
+
+**Status:** Accepted — Design requirement, not convenience. `--diff` available alongside. Canonical pre-production workflow is always `--dry-run --diff` first.
+
+### AD-011: Config is Purely Declarative — No YAML Logic
+
+**Status:** Accepted — Hard line, never crossed. No templating, no conditionals, no loops. Logic goes in functions and workflows. Config is always readable by anyone.
+
+### AD-012: Handler Pattern for Efficient Reconciliation
+
+**Status:** Accepted — Services restart exactly once per run regardless of how many changes triggered them. Applied to restarts, migrations, config reloads, health checks, `.env.example` regeneration.
+
+### AD-013: Secrets are First-Class, Not Bolted On
+
+**Status:** Accepted — Scoped hierarchy. Safe injection via SSH session. External provider adapters. Rotation with transition windows. Emergency revocation with visible blast radius. Full audit trail.
+
+### AD-014: Actionable Errors — File, Line, Problem, Fix
+
+**Status:** Accepted — Every error names the file, line, problem, and fix. Error messages are a first-class product surface.
+
+### AD-015: Well-Defined Exit Codes and Machine-Readable Output
+
+**Status:** Accepted — Exit codes 0–5, stable and well-defined. `--output json` on every command. Pipelines differentiate success-no-changes from success-with-changes.
 
 ---
 
 ## Key Principles
 
 - **Applad is your lad** — an active AI-powered collaborator for your entire stack
-- **`applad instruct`** — the CLI surface of the lad. Self-documenting, professional, `--dry-run` always available, every prompt recorded in the audit trail, access-aware
+- **`applad instruct`** — self-documenting, professional, `--dry-run` always available, every prompt recorded, access-aware
 - **Applad is the IaC tool for your entire backend** — config files and the UI are always the same thing
-- **Deploy ≠ Release** — `applad deploy` puts artifacts somewhere. Feature flags release functionality to users. Separate concerns, separate commands, separate config directories, separate people.
-- **`applad up` is the single reconciliation command** — like terraform apply, for your entire backend. Bootstrap on first run. Reads config, synthesizes Docker Compose, makes reality match.
+- **Deploy ≠ Release** — separate commands, separate config, separate people
+- **`applad up` is the single reconciliation command** — reads config, synthesizes Docker Compose, makes reality match. Bootstrap on first run. Idempotent always.
 - **`applad init` scaffolds. `applad up` runs. `applad login` connects.** Three commands, three jobs, no overlap.
-- **Docker Compose everywhere** — local, VPS, cloud. The same runtime model at every level. No environment parity surprises. Ever.
+- **Predictability is the contract** — `--dry-run --diff` first, `applad up` second, recap third. No surprises, ever.
+- **Idempotency is guaranteed, not incidental** — running `applad up` twice is the same as running it once, always
+- **`--dry-run` everywhere** — every command that writes anything supports it
+- **Drift detection is built in** — `applad status --drift` shows what has drifted in every environment
+- **Handler pattern** — services restart exactly once per reconciliation run
+- **Errors are actionable** — file, line, problem, fix. Never just "what."
+- **Config is purely declarative** — no templating, no conditionals, no loops. Logic goes in functions and workflows.
+- **Composable config** — shared roles and templates. Compose, don't copy.
+- **Well-defined exit codes** — pipelines differentiate success-no-changes from success-with-changes
+- **`--output json` everywhere** — machine-readable output on every command
+- **Docker Compose everywhere** — local, VPS, cloud. Same runtime model. No environment parity surprises. Ever.
 - **Runs anywhere** — local, VPS, cloud on-demand, or all three at once
 - **Cloud as utility, not platform** — draw from cloud providers when they make sense
-- **Agentless like Ansible** — SSH in, synthesize Docker Compose, apply, leave
-- **Internally familiar** — Docker, Docker Compose, Caddy, NATS, Redis. No black boxes.
-- **SSH keys are identity** — every change cryptographically attributed to a named developer. Every instruct prompt recorded. No anonymous changes, ever.
+- **Agentless like Ansible** — SSH in, synthesize Docker Compose, apply, leave. No persistent footprint.
+- **Internally familiar** — Docker, Caddy, NATS, Redis. No black boxes.
+- **SSH keys are identity** — every change cryptographically attributed. Every prompt recorded. No anonymous changes, ever.
 - **Config files describe. The admin database enforces.** A developer cannot edit their way to elevated privileges. Ever.
-- **`applad access` is the only way to change access control** — authenticated, privileged, fully audited, writes to the database not files
-- **`.env.example` is always generated, always annotated, always in sync** — onboarding is `cp .env.example .env`, fill in values, `applad login`, `applad up`
+- **`applad access` is the only way to change access control** — authenticated, privileged, fully audited
+- **Secrets are first-class** — scoped hierarchy, safe injection, external adapters, rotation, emergency revocation, full audit trail
+- **`.env.example` is always generated, always annotated, always in sync**
 - **Four layers, clean separation** — structural intent in config, access control in access database, operational state in admin database, runtime data in runtime database
-- **The directory path is the UI breadcrumb** — `database/tables/users.yaml` is Database > Tables > users. Always.
+- **The directory path is the UI breadcrumb** — always
 - **The config tree IS the backend** — one focused file per resource, directory structure encodes the hierarchy
 - **`org.yaml` marks an org. `project.yaml` marks a project.** No redundant wrapper folders.
-- **Flat files, flexible source** — functions and deployments are flat yaml files with source blocks that point anywhere
+- **Flat files, flexible source** — functions and deployments are flat yaml files with source blocks pointing anywhere
 - **Security lives alongside what it protects** — reviewed in the same PR
 - **Self-hosting shouldn't require a DevOps PhD** — Docker, fill in `.env`, `applad login`, `applad up`
 - **Configuration visual and code-friendly simultaneously** — always bidirectionally in sync
 - **Admins and marketers are first-class operators** — no deployments for operational changes
 - **Instance → Organisation → Project → Everything else** — nothing floats free of this hierarchy
-- **Tables, not collections** — neutral terminology for everyone
+- **Tables, not collections** — neutral terminology
 - **Messaging, not email** — one unified channel abstraction
-- **Deployments unified** — `deployments/` covers web, mobile, desktop, and OTA. `applad deploy` covers all of them.
-- **Multi-tenancy is a first-class choice** — row, schema, or database isolation, configured once in `auth/auth.yaml`
-- **Multiple databases per project** — named connections, per-connection migrations, table-level routing via `database:` field
+- **Deployments unified** — web, mobile, desktop, OTA. One directory, one CLI namespace.
+- **Multi-tenancy is a first-class choice** — row, schema, or database isolation
+- **Multiple databases per project** — named connections, per-connection migrations, table-level routing
 - **Extending it should feel native** — plugins, adapters, functions, workflows all first-class
 - **Scaling is the developer's choice** — local Docker Compose to Kubernetes cluster
 - **The admin UI is a Flutter app** — desktop, mobile, and web, but optional
-- **Workflow automation is built-in** — no duct-taping a separate service
-- **AI-assisted scaffolding** — generative, layer-aware, file-aware, access-aware, always with `--dry-run` available
 - **AI provider agnosticism** — your keys, your provider, encrypted in your database
-- **Multi-organisation support** — one instance, many isolated orgs and projects
-- **Auth that grows with you** — multi-tenancy, RBAC, SSO, MFA, custom flows
-- **Observability and security by default** — you and your lad know exactly why anything breaks or anything suspicious happens
 - **Feature flags without a third-party tool** — skeletons in config, targeting in admin database
 - **Analytics without leaving the platform** — with escape hatches when you need them
-- **Complete deployment platform** — web to domain, mobile to app stores, desktop distribution, OTA updates, cloud compute jobs
 - **Portable by design** — config, data, secrets, AI keys, infrastructure. Never locked in.
 - **The last 20% is where we compete**
 - **Compose, don't reinvent** — Dart orchestrates, proven open source tools do the heavy lifting
