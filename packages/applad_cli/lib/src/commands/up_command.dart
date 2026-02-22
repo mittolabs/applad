@@ -113,78 +113,21 @@ final class UpCommand extends Command<void> {
       return;
     }
 
-    var appladRepoRoot = Platform.environment['APPLAD_REPO_ROOT'];
-    if (appladRepoRoot == null ||
-        !Directory(p.join(appladRepoRoot, 'packages', 'applad_core'))
-            .existsSync()) {
-      appladRepoRoot = Directory.current.path;
-      if (!Directory(p.join(appladRepoRoot, 'packages', 'applad_core'))
-          .existsSync()) {
-        // 1. Try parent
-        final parent = Directory.current.parent.path;
-        if (Directory(p.join(parent, 'packages', 'applad_core')).existsSync()) {
-          appladRepoRoot = parent;
-        } else {
-          // 2. Try discovery relative to the CLI script
-          try {
-            final scriptPath = Platform.script.toFilePath();
-            var dir = Directory(p.dirname(scriptPath));
-            for (int i = 0; i < 6; i++) {
-              if (Directory(p.join(dir.path, 'packages', 'applad_core'))
-                  .existsSync()) {
-                appladRepoRoot = dir.path;
-                break;
-              }
-              if (dir.path == dir.parent.path) break;
-              dir = dir.parent;
-            }
-          } catch (_) {}
-        }
-      }
-    }
-
-    // Verify we actually found it
-    if (!Directory(p.join(appladRepoRoot!, 'packages', 'applad_core'))
-        .existsSync()) {
-      Output.error('Could not find Applad repository root.');
-      Output.info(
-          'Please set the APPLAD_REPO_ROOT environment variable to the path of your Applad clone.');
-      return;
-    }
-
     final localStagingDir =
         Directory(p.join(workspaceRoot, '.applad', 'local'));
     if (!localStagingDir.existsSync()) {
       localStagingDir.createSync(recursive: true);
     }
 
-    final filteredPubspecYml = '''
-name: applad_workspace
-environment:
-  sdk: ">=3.5.0 <4.0.0"
-
-workspace:
-  - packages/applad_core
-  - packages/applad_cli
-  - packages/applad_server
-''';
-    File(p.join(localStagingDir.path, 'root_pubspec.yaml'))
-        .writeAsStringSync(filteredPubspecYml);
-
     final composeYml = '''
 version: '3.8'
 
 services:
   applad_server:
-    image: dart:stable
+    image: ghcr.io/mittolabs/applad-server:latest
     container_name: applad_server_local
-    tty: true
-    working_dir: /app/packages/applad_server
-    command: /bin/sh -c "dart pub get && dart pub global activate dart_frog_cli && dart pub global run dart_frog_cli:dart_frog dev --port 8080 --hostname 0.0.0.0"
     volumes:
-      - $appladRepoRoot:/app
       - $workspaceRoot:/app/config
-      - ${p.join(localStagingDir.path, 'root_pubspec.yaml')}:/app/pubspec.yaml
     environment:
       - APPLAD_WORKSPACE_ROOT=/app/config
     ports:
@@ -240,12 +183,6 @@ services:
     }
     deployStagingDir.createSync(recursive: true);
 
-    var appladRepoRoot = Directory.current.path;
-    if (!Directory(p.join(appladRepoRoot, 'packages', 'applad_core'))
-        .existsSync()) {
-      appladRepoRoot = Directory.current.parent.path;
-    }
-
     Output.info('Synthesizing Docker Compose Payload for Ubuntu VPS...');
 
     final composeYml = '''
@@ -253,13 +190,9 @@ version: '3.8'
 
 services:
   applad_server:
-    image: dart:stable
+    image: ghcr.io/mittolabs/applad-server:latest
     container_name: applad_server
-    working_dir: /app/packages/applad_server
-    command: /bin/sh -c "dart pub get && dart pub global activate dart_frog_cli && dart_frog build && dart build/bin/server.dart"
     volumes:
-      - ./packages/applad_server:/app/packages/applad_server
-      - ./packages/applad_core:/app/packages/applad_core
       - ./config:/app/config
     environment:
       - APPLAD_WORKSPACE_ROOT=/app/config
@@ -272,25 +205,20 @@ services:
         .writeAsStringSync(composeYml);
 
     Output.info(
-        'Establishing secure SSH pipeline to $user@$host and syncing payloads...');
+        'Establishing secure SSH pipeline to \$user@\$host and syncing payloads...');
 
     final mkdirProc = await Process.start(
         'ssh',
         [
           '-o',
           'StrictHostKeyChecking=no',
-          '$user@$host',
-          'mkdir -p /opt/applad/packages /opt/applad/config'
+          '\$user@\$host',
+          'mkdir -p /opt/applad/config'
         ],
         mode: ProcessStartMode.inheritStdio);
     await mkdirProc.exitCode;
 
-    await _rsync(p.join(appladRepoRoot, 'packages', 'applad_core'),
-        '$user@$host:/opt/applad/packages/applad_core');
-    await _rsync(p.join(appladRepoRoot, 'packages', 'applad_server'),
-        '$user@$host:/opt/applad/packages/applad_server');
-
-    await _rsync(rootPath, '$user@$host:/opt/applad/config', excludes: [
+    await _rsync(rootPath, '\$user@\$host:/opt/applad/config', excludes: [
       '--exclude=node_modules',
       '--exclude=.applad',
       '--exclude=.git',
@@ -299,7 +227,7 @@ services:
     ]);
 
     await _rsync(p.join(deployStagingDir.path, 'docker-compose.yml'),
-        '$user@$host:/opt/applad/docker-compose.yml',
+        '\$user@\$host:/opt/applad/docker-compose.yml',
         isFile: true);
 
     Output.info('Triggering native Docker orchestration on the remote host...');
@@ -308,8 +236,8 @@ services:
         [
           '-o',
           'StrictHostKeyChecking=no',
-          '$user@$host',
-          'sed -i "s/resolution: workspace//g" /opt/applad/packages/applad_server/pubspec.yaml && cd /opt/applad && docker compose up -d applad_server'
+          '\$user@\$host',
+          'cd /opt/applad && docker compose pull applad_server && docker compose up -d applad_server'
         ],
         mode: ProcessStartMode.inheritStdio);
 
