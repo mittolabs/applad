@@ -74,7 +74,7 @@ final class UpCommand extends Command<void> {
     }
 
     if (envConfig.infraTarget == 'local') {
-      await _runLocal(rootPath, dryRun);
+      await _runLocal(envConfig, rootPath, dryRun);
     } else if (envConfig.infraTarget == 'vps') {
       await _runVps(envConfig, config, rootPath, dryRun);
     } else {
@@ -104,12 +104,13 @@ final class UpCommand extends Command<void> {
     }
   }
 
-  Future<void> _runLocal(String workspaceRoot, bool dryRun) async {
+  Future<void> _runLocal(ProjectEnvironmentConfig envConfig,
+      String workspaceRoot, bool dryRun) async {
     Output.info('\x1b[32mBooting Applad Core Server Locally...\x1b[0m');
 
     if (dryRun) {
       Output.info(
-          'DRY-RUN: Would boot Applad Core Server via Docker Compose in workspace $workspaceRoot');
+          'DRY-RUN: Would boot Applad Core Server via Docker Compose in workspace \$workspaceRoot');
       return;
     }
 
@@ -124,10 +125,11 @@ version: '3.8'
 
 services:
   applad_server:
-    image: ghcr.io/mittolabs/applad-server:latest
+    image: ghcr.io/mittolabs/applad-server:${envConfig.engineVersion}
     container_name: applad_server_local
     volumes:
       - $workspaceRoot:/app/config
+      - ./data:/data
     environment:
       - APPLAD_WORKSPACE_ROOT=/app/config
     ports:
@@ -190,19 +192,56 @@ version: '3.8'
 
 services:
   applad_server:
-    image: ghcr.io/mittolabs/applad-server:latest
+    image: ghcr.io/mittolabs/applad-server:${envConfig.engineVersion}
     container_name: applad_server
     volumes:
       - ./config:/app/config
+      - ./data:/data
     environment:
       - APPLAD_WORKSPACE_ROOT=/app/config
     ports:
       - "8080:8080"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      update_config:
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+
+  caddy:
+    image: caddy:alpine
+    container_name: caddy_proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - applad_server
+
+volumes:
+  caddy_data:
+  caddy_config:
 ''';
 
     File(p.join(deployStagingDir.path, 'docker-compose.yml'))
         .writeAsStringSync(composeYml);
+
+    final caddyFileStr = '''
+\$host {
+    reverse_proxy applad_server:8080
+}
+''';
+    File(p.join(deployStagingDir.path, 'Caddyfile'))
+        .writeAsStringSync(caddyFileStr);
 
     Output.info(
         'Establishing secure SSH pipeline to \$user@\$host and syncing payloads...');
@@ -230,6 +269,10 @@ services:
         '\$user@\$host:/opt/applad/docker-compose.yml',
         isFile: true);
 
+    await _rsync(p.join(deployStagingDir.path, 'Caddyfile'),
+        '\$user@\$host:/opt/applad/Caddyfile',
+        isFile: true);
+
     Output.info('Triggering native Docker orchestration on the remote host...');
     final upProc = await Process.start(
         'ssh',
@@ -237,7 +280,7 @@ services:
           '-o',
           'StrictHostKeyChecking=no',
           '\$user@\$host',
-          'cd /opt/applad && docker compose pull applad_server && docker compose up -d applad_server'
+          'cd /opt/applad && docker compose pull applad_server && docker compose up -d caddy applad_server'
         ],
         mode: ProcessStartMode.inheritStdio);
 

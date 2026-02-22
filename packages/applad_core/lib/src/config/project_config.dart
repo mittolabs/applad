@@ -70,6 +70,7 @@ final class ProjectEnvironmentConfig {
     this.infraTarget,
     this.host,
     this.user,
+    this.engineVersion = 'latest',
     this.variables = const {},
   });
 
@@ -91,6 +92,7 @@ final class ProjectEnvironmentConfig {
       infraTarget: map['infra_target']?.toString() ?? expectedType,
       host: expectedHost,
       user: expectedUser,
+      engineVersion: map['engine_version']?.toString() ?? 'latest',
       variables: parseEnvironment(map['variables'] ?? map['environment']),
     );
   }
@@ -98,12 +100,14 @@ final class ProjectEnvironmentConfig {
   final String? infraTarget;
   final String? host;
   final String? user;
+  final String engineVersion;
   final Map<String, String> variables;
 
   Map<String, dynamic> toJson() => {
         'infra_target': infraTarget,
         'host': host,
         'user': user,
+        'engine_version': engineVersion,
         'variables': variables,
       };
 }
