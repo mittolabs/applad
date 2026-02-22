@@ -113,29 +113,43 @@ final class UpCommand extends Command<void> {
       return;
     }
 
-    var appladRepoRoot = Directory.current.path;
-    if (!Directory(p.join(appladRepoRoot, 'packages', 'applad_core'))
-        .existsSync()) {
-      // 1. Try parent
-      final parent = Directory.current.parent.path;
-      if (Directory(p.join(parent, 'packages', 'applad_core')).existsSync()) {
-        appladRepoRoot = parent;
-      } else {
-        // 2. Try discovery relative to the CLI script
-        try {
-          final scriptPath = Platform.script.toFilePath();
-          var dir = Directory(p.dirname(scriptPath));
-          for (int i = 0; i < 5; i++) {
-            if (Directory(p.join(dir.path, 'packages', 'applad_core'))
-                .existsSync()) {
-              appladRepoRoot = dir.path;
-              break;
+    var appladRepoRoot = Platform.environment['APPLAD_REPO_ROOT'];
+    if (appladRepoRoot == null ||
+        !Directory(p.join(appladRepoRoot, 'packages', 'applad_core'))
+            .existsSync()) {
+      appladRepoRoot = Directory.current.path;
+      if (!Directory(p.join(appladRepoRoot, 'packages', 'applad_core'))
+          .existsSync()) {
+        // 1. Try parent
+        final parent = Directory.current.parent.path;
+        if (Directory(p.join(parent, 'packages', 'applad_core')).existsSync()) {
+          appladRepoRoot = parent;
+        } else {
+          // 2. Try discovery relative to the CLI script
+          try {
+            final scriptPath = Platform.script.toFilePath();
+            var dir = Directory(p.dirname(scriptPath));
+            for (int i = 0; i < 6; i++) {
+              if (Directory(p.join(dir.path, 'packages', 'applad_core'))
+                  .existsSync()) {
+                appladRepoRoot = dir.path;
+                break;
+              }
+              if (dir.path == dir.parent.path) break;
+              dir = dir.parent;
             }
-            if (dir.path == dir.parent.path) break;
-            dir = dir.parent;
-          }
-        } catch (_) {}
+          } catch (_) {}
+        }
       }
+    }
+
+    // Verify we actually found it
+    if (!Directory(p.join(appladRepoRoot!, 'packages', 'applad_core'))
+        .existsSync()) {
+      Output.error('Could not find Applad repository root.');
+      Output.info(
+          'Please set the APPLAD_REPO_ROOT environment variable to the path of your Applad clone.');
+      return;
     }
 
     final localStagingDir =
