@@ -13,6 +13,7 @@ final class InteractiveShell {
   final ApplAdCommandRunner runner;
   ShellMode _mode = ShellMode.repl;
   int _activeTab = 0; // 0: Dashboard, 1: Projects, 2: Resources
+  List<String> _currentTabs = [' DASHBOARD ', ' PROJECTS '];
 
   InteractiveShell(this.runner);
 
@@ -110,8 +111,29 @@ final class InteractiveShell {
         if (input == 'dashboard' || input == 'ui') {
           final hasOrg = context['org'] != '-' && context['org'] != 'error';
           if (!hasOrg) {
-            Output.error(
-                'Navigate into a project directory first to enter Dashboard.');
+            Output.blank();
+            Output.info('Dashboard requires an active project.');
+            final choice = Output.prompt(
+                'Would you like to (1) Select a project or (2) Create a new one?',
+                defaultValue: '1');
+            if (choice == '1') {
+              final root = ConfigFinder.discoverProjectRoot();
+              if (root != null) {
+                Directory.current = root.path;
+                _mode = ShellMode.tui;
+              }
+            } else if (choice == '2') {
+              try {
+                await runner.run(['init']);
+                final root = ConfigFinder.discoverProjectRoot();
+                if (root != null) {
+                  Directory.current = root.path;
+                  _mode = ShellMode.tui;
+                }
+              } catch (e) {
+                Output.error('Failed to init project: $e');
+              }
+            }
           } else {
             _mode = ShellMode.tui;
           }
@@ -208,10 +230,17 @@ final class InteractiveShell {
     stdout.writeln();
   }
 
-  Map<String, String> _resolveContext() {
+  Map<String, dynamic> _resolveContext() {
     final finder = const ConfigFinder();
     final root = finder.findRoot();
-    if (root == null) return {'org': '-', 'project': '-', 'env': 'local'};
+    if (root == null) {
+      return {
+        'org': '-',
+        'project': '-',
+        'env': 'local',
+        'features': <String>[]
+      };
+    }
 
     try {
       final merger = ConfigMerger();
@@ -220,13 +249,19 @@ final class InteractiveShell {
         'org': config.project.orgId,
         'project': config.project.id,
         'env': 'local', // Default in shell for now
+        'features': config.project.enabledFeatures,
       };
     } catch (_) {
-      return {'org': 'error', 'project': 'error', 'env': 'local'};
+      return {
+        'org': 'error',
+        'project': 'error',
+        'env': 'local',
+        'features': <String>[]
+      };
     }
   }
 
-  void _printContextBar(Map<String, String> context) {
+  void _printContextBar(Map<String, dynamic> context) {
     final org = context['org']!;
     final project = context['project']!;
     final env = context['env']!;
@@ -264,7 +299,7 @@ final class InteractiveShell {
     return args;
   }
 
-  Future<void> _renderTui(Map<String, String> context) async {
+  Future<void> _renderTui(Map<String, dynamic> context) async {
     TuiUtils.clear();
     final width = stdout.terminalColumns;
     final height = stdout.terminalLines;
@@ -278,18 +313,38 @@ final class InteractiveShell {
         color: '${TuiUtils.bgSurface}${TuiUtils.textPrimary}');
     stdout.write(TuiUtils.reset);
 
+    // Calculate Dynamic Tabs
+    final features =
+        (context['features'] as List<dynamic>?)?.cast<String>() ?? [];
+    _currentTabs = [' DASHBOARD ', ' PROJECTS '];
+    if (features.contains('functions')) {
+      _currentTabs.add(' FUNCTIONS ');
+    }
+    if (features.contains('storage')) {
+      _currentTabs.add(' STORAGE ');
+    }
+    if (features.contains('messaging')) {
+      _currentTabs.add(' MESSAGING ');
+    }
+    if (features.contains('realtime')) {
+      _currentTabs.add(' REALTIME ');
+    }
+    if (features.contains('database') || features.contains('graphql')) {
+      _currentTabs.add(' DATABASE ');
+    }
+
     // Tabs - Compact Posting Style
-    final tabs = [' DASHBOARD ', ' PROJECTS ', ' RESOURCES '];
     var currentX = 2;
-    for (var i = 0; i < tabs.length; i++) {
+    for (var i = 0; i < _currentTabs.length; i++) {
       final isActive = i == _activeTab;
       if (isActive) {
-        TuiUtils.printAt(currentX, 3, tabs[i],
+        TuiUtils.printAt(currentX, 3, _currentTabs[i],
             bold: true, color: '${TuiUtils.bgSurface}${TuiUtils.accentCyan}');
       } else {
-        TuiUtils.printAt(currentX, 3, tabs[i], color: TuiUtils.textMuted);
+        TuiUtils.printAt(currentX, 3, _currentTabs[i],
+            color: TuiUtils.textMuted);
       }
-      currentX += tabs[i].length + 2;
+      currentX += _currentTabs[i].length + 2;
     }
     TuiUtils.drawLine(1, 4, width, color: TuiUtils.borderNormal);
 
@@ -298,18 +353,20 @@ final class InteractiveShell {
       _renderDashboardTab(context, width, height);
     } else if (_activeTab == 1) {
       _renderProjectsTab(context, width, height);
-    } else {
-      _renderResourcesTab(context, width, height);
+    } else if (_activeTab < _currentTabs.length) {
+      _renderFeatureTab(
+          context, width, height, _currentTabs[_activeTab].trim());
     }
 
     // Lower Shortcut Bar (Posting style)
     final shortcuts = [
       '^q Quit',
       '^r REPL',
-      '1 Home',
-      '2 Proj',
-      '3 Res',
     ];
+    for (var i = 0; i < _currentTabs.length; i++) {
+      shortcuts.add('${i + 1} ${_currentTabs[i].trim().substring(0, 4)}');
+    }
+
     var sx = 2;
 
     // Fill the footer background
@@ -331,7 +388,8 @@ final class InteractiveShell {
         '${TuiUtils.bgSurface}${TuiUtils.accentCyan}❯${TuiUtils.reset} ');
   }
 
-  void _renderDashboardTab(Map<String, String> context, int width, int height) {
+  void _renderDashboardTab(
+      Map<String, dynamic> context, int width, int height) {
     final colWidth = (width ~/ 2) - 3;
     TuiUtils.drawBox(2, 6, colWidth, 8,
         title: 'Environment Status', borderColor: TuiUtils.borderActive);
@@ -358,7 +416,7 @@ final class InteractiveShell {
         color: TuiUtils.textMuted, maxWidth: width - 8);
   }
 
-  void _renderProjectsTab(Map<String, String> context, int width, int height) {
+  void _renderProjectsTab(Map<String, dynamic> context, int width, int height) {
     TuiUtils.printAt(4, 6, 'Project List for ${context['org']}:',
         bold: true, color: TuiUtils.accentCyan);
     TuiUtils.printAt(6, 8, '• ${context['project']} (Current)',
@@ -372,49 +430,38 @@ final class InteractiveShell {
         color: TuiUtils.textMuted);
   }
 
-  void _renderResourcesTab(Map<String, String> context, int width, int height) {
-    final colWidth = (width ~/ 3) - 2;
-    // Active box outline on Functions
-    TuiUtils.drawBox(2, 6, colWidth, 8,
-        title: 'Functions', borderColor: TuiUtils.borderActive);
-    TuiUtils.printAt(4, 7, '• login-user',
+  void _renderFeatureTab(
+      Map<String, dynamic> context, int width, int height, String featureName) {
+    final colWidth = width - 4;
+    TuiUtils.drawBox(2, 6, colWidth, height - 10,
+        title: featureName, borderColor: TuiUtils.borderActive);
+    TuiUtils.printAt(4, 7, '• Managing $featureName resources',
         color: TuiUtils.accentCyan, maxWidth: colWidth - 4);
-    TuiUtils.printAt(4, 8, '• process-payment',
-        color: TuiUtils.accentCyan, maxWidth: colWidth - 4);
-
-    TuiUtils.drawBox(colWidth + 3, 6, colWidth, 8, title: 'Database');
-    TuiUtils.printAt(colWidth + 5, 7, '• users',
-        color: TuiUtils.textPrimary, maxWidth: colWidth - 4);
-    TuiUtils.printAt(colWidth + 5, 8, '• sessions',
-        color: TuiUtils.textPrimary, maxWidth: colWidth - 4);
-
-    TuiUtils.drawBox((colWidth * 2) + 4, 6, colWidth, 8, title: 'Storage');
-    TuiUtils.printAt((colWidth * 2) + 6, 7, '• profile-pics',
-        color: TuiUtils.textPrimary, maxWidth: colWidth - 4);
+    TuiUtils.printAt(4, 8, 'Details pending implementation...',
+        color: TuiUtils.textMuted, maxWidth: colWidth - 4);
   }
 
   void _handleTuiMouse(TuiMouseEvent event) {
     if (!event.isDown) return;
 
-    // Detect click on tabs (Row 3, coordinated X positions based on new compact layout)
+    // Detect click on tabs (Row 3, coordinated X positions based on active dynamic tabs)
     if (event.y == 3) {
-      if (event.x >= 2 && event.x <= 13) {
-        _activeTab = 0;
-      } else if (event.x >= 15 && event.x <= 25) {
-        _activeTab = 1;
-      } else if (event.x >= 27 && event.x <= 38) {
-        _activeTab = 2;
+      var currentX = 2;
+      for (var i = 0; i < _currentTabs.length; i++) {
+        final tabWidth = _currentTabs[i].length;
+        if (event.x >= currentX && event.x <= currentX + tabWidth) {
+          _activeTab = i;
+          return;
+        }
+        currentX += tabWidth + 2;
       }
     }
   }
 
   Future<void> _handleTuiInput(String input) async {
-    if (input == '1') {
-      _activeTab = 0;
-    } else if (input == '2') {
-      _activeTab = 1;
-    } else if (input == '3') {
-      _activeTab = 2;
+    final parsed = int.tryParse(input);
+    if (parsed != null && parsed >= 1 && parsed <= _currentTabs.length) {
+      _activeTab = parsed - 1;
     } else if (input == '\n' || input == '\r') {
       // Enter key could trigger something eventually
     }

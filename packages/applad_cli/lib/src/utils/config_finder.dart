@@ -76,7 +76,9 @@ final class ConfigFinder {
           name == 'node_modules' ||
           name == 'vendor' ||
           name == 'build' ||
-          name == 'bin') return;
+          name == 'bin') {
+        return;
+      }
 
       try {
         for (final entity in dir.listSync(followLinks: false)) {

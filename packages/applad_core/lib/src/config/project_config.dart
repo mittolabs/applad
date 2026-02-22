@@ -11,6 +11,7 @@ final class ProjectConfig {
     required this.orgId,
     this.environments = const {},
     this.defaultEnvironment = Environment.development,
+    this.enabledFeatures = const [],
   });
 
   factory ProjectConfig.fromMap(Map<String, dynamic> map) {
@@ -38,6 +39,18 @@ final class ProjectConfig {
       }
     }
 
+    final rawFeatures = map['features'] ?? map['enabled_features'];
+    final featuresList = <String>[];
+    if (rawFeatures is Map) {
+      for (final entry in rawFeatures.entries) {
+        if (entry.value == true) {
+          featuresList.add(entry.key.toString());
+        }
+      }
+    } else if (rawFeatures is List) {
+      featuresList.addAll(rawFeatures.map((e) => e.toString()));
+    }
+
     return ProjectConfig(
       id: map['id']?.toString() ?? '',
       name: map['name']?.toString() ?? '',
@@ -46,6 +59,7 @@ final class ProjectConfig {
       defaultEnvironment: map['default_environment'] != null
           ? Environment.fromString(map['default_environment'].toString())
           : Environment.development,
+      enabledFeatures: featuresList,
     );
   }
 
@@ -54,6 +68,7 @@ final class ProjectConfig {
   final String orgId;
   final Map<Environment, ProjectEnvironmentConfig> environments;
   final Environment defaultEnvironment;
+  final List<String> enabledFeatures;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -62,6 +77,7 @@ final class ProjectConfig {
         'environments':
             environments.map((k, v) => MapEntry(k.name, v.toJson())),
         'default_environment': defaultEnvironment.name,
+        'features': enabledFeatures,
       };
 }
 

@@ -10,14 +10,15 @@ name: "{{project_name}}"
 org: "{{org_id}}"
 description: "Primary application"
 
-features: # Override instance-level feature toggles
-  graphql: true
-  realtime: true
-  messaging: true
-  flags: true
-  analytics: true
-  deployments: true
-  instruct: true
+features: # Override instance-level feature toggles{{#enable_functions}}
+  functions: true{{/enable_functions}}{{#enable_storage}}
+  storage: true{{/enable_storage}}{{#enable_messaging}}
+  messaging: true{{/enable_messaging}}{{#enable_realtime}}
+  realtime: true{{/enable_realtime}}{{#enable_analytics}}
+  analytics: true{{/enable_analytics}}{{#enable_deployments}}
+  deployments: true{{/enable_deployments}}{{#enable_workflows}}
+  workflows: true{{/enable_workflows}}{{#enable_flags}}
+  flags: true{{/enable_flags}}
 
 environments:
   - name: "development"
