@@ -121,12 +121,16 @@ final class ConfigValidator {
   void _validateDatabase(
       ApplAdConfig config, List<ValidationViolation> violations) {
     final db = config.database!;
-    if (db.adapter != DatabaseAdapter.sqlite) {
-      if (db.connectionStringRef == null && db.host == null) {
-        violations.add(const ValidationViolation(
-          path: 'database/database.yaml',
-          message: 'Non-SQLite database requires connection_string or host',
-        ));
+    for (final entry in db.connections.entries) {
+      final connName = entry.key;
+      final conn = entry.value;
+      if (conn.adapter != DatabaseAdapter.sqlite) {
+        if (conn.connectionStringRef == null && conn.host == null) {
+          violations.add(ValidationViolation(
+            path: 'database/database.yaml > connections > $connName',
+            message: 'Non-SQLite database requires connection_string or host',
+          ));
+        }
       }
     }
   }

@@ -5,6 +5,7 @@ final class TableConfig {
   const TableConfig({
     required this.name,
     required this.fields,
+    this.database,
     this.indexes = const [],
     this.permissions = const [],
     this.timestamps = true,
@@ -19,6 +20,7 @@ final class TableConfig {
                   FieldConfig.fromMap(Map<String, dynamic>.from(f as Map)))
               .toList() ??
           [],
+      database: map['database']?.toString(),
       indexes: (map['indexes'] as List?)
               ?.map((i) =>
                   IndexConfig.fromMap(Map<String, dynamic>.from(i as Map)))
@@ -36,6 +38,7 @@ final class TableConfig {
 
   final String name;
   final List<FieldConfig> fields;
+  final String? database;
   final List<IndexConfig> indexes;
   final List<TablePermissionRule> permissions;
   final bool timestamps;
@@ -44,6 +47,7 @@ final class TableConfig {
   Map<String, dynamic> toJson() => {
         'name': name,
         'fields': fields.map((f) => f.toJson()).toList(),
+        if (database != null) 'database': database,
         'indexes': indexes.map((i) => i.toJson()).toList(),
         'permissions': permissions.map((p) => p.toJson()).toList(),
         'timestamps': timestamps,

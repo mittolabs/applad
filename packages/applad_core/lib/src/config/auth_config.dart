@@ -8,6 +8,7 @@ final class AuthConfig {
     this.sso,
     this.sessionDurationSeconds = 86400,
     this.rbac,
+    this.multiTenancy,
   });
 
   factory AuthConfig.fromMap(Map<String, dynamic> map) {
@@ -31,6 +32,10 @@ final class AuthConfig {
       rbac: map['rbac'] != null
           ? RbacConfig.fromMap(Map<String, dynamic>.from(map['rbac'] as Map))
           : null,
+      multiTenancy: map['multi_tenancy'] != null
+          ? MultiTenancyConfig.fromMap(
+              Map<String, dynamic>.from(map['multi_tenancy'] as Map))
+          : null,
     );
   }
 
@@ -39,6 +44,7 @@ final class AuthConfig {
   final SsoConfig? sso;
   final int sessionDurationSeconds;
   final RbacConfig? rbac;
+  final MultiTenancyConfig? multiTenancy;
 
   Map<String, dynamic> toJson() => {
         'providers': providers.map((p) => p.toJson()).toList(),
@@ -46,7 +52,45 @@ final class AuthConfig {
         'sso': sso?.toJson(),
         'session_duration_seconds': sessionDurationSeconds,
         'rbac': rbac?.toJson(),
+        'multi_tenancy': multiTenancy?.toJson(),
       };
+}
+
+final class MultiTenancyConfig {
+  const MultiTenancyConfig({
+    required this.model,
+    this.tenantField = 'org_id',
+  });
+
+  factory MultiTenancyConfig.fromMap(Map<String, dynamic> map) {
+    return MultiTenancyConfig(
+      model: MultiTenancyModel.fromString(map['model']?.toString() ?? 'row'),
+      tenantField: map['tenant_field']?.toString() ?? 'org_id',
+    );
+  }
+
+  final MultiTenancyModel model;
+  final String tenantField;
+
+  Map<String, dynamic> toJson() => {
+        'model': model.name,
+        'tenant_field': tenantField,
+      };
+}
+
+enum MultiTenancyModel {
+  row,
+  schema,
+  database;
+
+  static MultiTenancyModel fromString(String value) {
+    return switch (value.toLowerCase()) {
+      'row' => MultiTenancyModel.row,
+      'schema' => MultiTenancyModel.schema,
+      'database' => MultiTenancyModel.database,
+      _ => throw ArgumentError('Unknown multi-tenancy model: $value'),
+    };
+  }
 }
 
 final class AuthProvider {

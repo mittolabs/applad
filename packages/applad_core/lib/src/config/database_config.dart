@@ -5,6 +5,58 @@ import '../models/secret_ref.dart';
 /// Database configuration (`database/database.yaml`).
 final class DatabaseConfig {
   const DatabaseConfig({
+    this.connections = const {},
+    this.defaultConnection = 'default',
+  });
+
+  factory DatabaseConfig.fromMap(Map<String, dynamic> map) {
+    String defConn = map['default']?.toString() ?? 'default';
+    Map<String, DatabaseConnection> conns = {};
+
+    if (map['connections'] is Map) {
+      final cmap = map['connections'] as Map;
+      for (final entry in cmap.entries) {
+        final val = entry.value;
+        if (val is Map) {
+          conns[entry.key.toString()] =
+              DatabaseConnection.fromMap(Map<String, dynamic>.from(val));
+        }
+      }
+    } else if (map['connections'] is List) {
+      final clist = map['connections'] as List;
+      for (final item in clist) {
+        if (item is Map) {
+          final id = item['id']?.toString() ?? 'default';
+          conns[id] =
+              DatabaseConnection.fromMap(Map<String, dynamic>.from(item));
+        }
+      }
+    } else {
+      // Fallback: If it's a flat struct or old format
+      conns[defConn] = DatabaseConnection.fromMap(map);
+    }
+
+    if (conns.isEmpty) {
+      conns[defConn] = DatabaseConnection.fromMap(map);
+    }
+
+    return DatabaseConfig(
+      connections: conns,
+      defaultConnection: defConn,
+    );
+  }
+
+  final Map<String, DatabaseConnection> connections;
+  final String defaultConnection;
+
+  Map<String, dynamic> toJson() => {
+        'default': defaultConnection,
+        'connections': connections.map((k, v) => MapEntry(k, v.toJson())),
+      };
+}
+
+final class DatabaseConnection {
+  const DatabaseConnection({
     required this.adapter,
     this.connectionStringRef,
     this.host,
@@ -16,37 +68,23 @@ final class DatabaseConfig {
     this.migrations,
   });
 
-  factory DatabaseConfig.fromMap(Map<String, dynamic> map) {
-    // If it has connections list, pick the primary one or the first one
-    Map<String, dynamic> target = map;
-    if (map['connections'] is List && (map['connections'] as List).isNotEmpty) {
-      final connections = map['connections'] as List;
-      final primary = connections.firstWhere(
-        (c) => c is Map && (c['id'] == 'primary' || c['id'] == map['default']),
-        orElse: () => connections.first,
-      );
-      if (primary is Map) {
-        target = Map<String, dynamic>.from(primary);
-      }
-    }
-
-    return DatabaseConfig(
+  factory DatabaseConnection.fromMap(Map<String, dynamic> map) {
+    return DatabaseConnection(
       adapter:
-          DatabaseAdapter.fromString(target['adapter']?.toString() ?? 'sqlite'),
+          DatabaseAdapter.fromString(map['adapter']?.toString() ?? 'sqlite'),
       connectionStringRef:
-          _maybeSecretRef(target['connection_string'] ?? target['url']),
-      host: target['host']?.toString(),
-      port: target['port'] as int?,
-      database:
-          (target['database'] ?? target['db'] ?? target['path'])?.toString(),
-      username: (target['username'] ?? target['user'])?.toString(),
-      passwordRef: _maybeSecretRef(target['password'] ?? target['pass']),
-      pool: target['pool'] != null
-          ? PoolConfig.fromMap(Map<String, dynamic>.from(target['pool'] as Map))
+          _maybeSecretRef(map['connection_string'] ?? map['url']),
+      host: map['host']?.toString(),
+      port: map['port'] as int?,
+      database: (map['database'] ?? map['db'] ?? map['path'])?.toString(),
+      username: (map['username'] ?? map['user'])?.toString(),
+      passwordRef: _maybeSecretRef(map['password'] ?? map['pass']),
+      pool: map['pool'] != null
+          ? PoolConfig.fromMap(Map<String, dynamic>.from(map['pool'] as Map))
           : null,
-      migrations: target['migrations'] != null
+      migrations: map['migrations'] != null
           ? MigrationsConfig.fromMap(
-              Map<String, dynamic>.from(target['migrations'] as Map))
+              Map<String, dynamic>.from(map['migrations'] as Map))
           : null,
     );
   }

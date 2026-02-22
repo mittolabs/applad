@@ -1,8 +1,4 @@
-Here's the fully updated spec:
-
----
-
-## `applad.yaml` Spec
+# `applad.yaml` Spec
 
 ```yaml
 # ============================================================
@@ -115,12 +111,14 @@ env:
   validate_on_push: true
 
 # Applad discovers orgs and projects by scanning the orgs/
-# directory. The directory structure IS the config.
+# directory. Inside each org, any subdirectory containing a
+# project.yaml is treated as a project. The directory
+# structure IS the config — no explicit listing required.
 ```
 
 ---
 
-### `.env.example` (instance-level)
+## `.env.example` (instance-level)
 
 ```bash
 # ============================================================
@@ -147,36 +145,123 @@ GRAFANA_API_KEY=
 
 ---
 
-### `orgs/acme-corp/org.yaml`
+## `orgs/acme-corp/org.yaml`
 
 ```yaml
 # ============================================================
 # ORG DEFINITION
-# Structure and roles only. Member records, invitations,
-# usage metrics, and audit logs live in the runtime database.
+# Lives at orgs/<org-name>/org.yaml.
+# Any subdirectory alongside this file that contains a
+# project.yaml is automatically treated as a project.
+# No explicit project listing required.
+#
+# ROLES AND PERMISSIONS — IMPORTANT
+# Role definitions here are declarative documentation.
+# They describe the intended shape of each role and serve
+# as defaults when a new member is granted a role.
+# Actual access grants live in the admin database and are
+# managed via `applad access` commands or the admin UI.
+# Editing this file does not change what any developer
+# can actually do — only `applad access` commands do that.
 # ============================================================
 
 id: "acme-corp"
 name: "Acme Corp"
 description: "Main organization"
 
+# ── ROLE DEFINITIONS ─────────────────────────────────────────
+# Declarative — defines what each role means in this org.
+# Actual grants are in the admin database, not here.
 roles:
   - name: "owner"
+    description: "Full access to everything including billing and org deletion"
     permissions: ["*"]
 
   - name: "admin"
-    permissions: ["read", "write", "delete", "invite", "manage_projects"]
+    description: "Full project access, member management, no billing"
+    permissions:
+      - "projects:*"
+      - "config:*"
+      - "infrastructure:apply:*"
+      - "schema:*"
+      - "schema:destructive"
+      - "permissions:write"
+      - "access:manage"
+      - "functions:*"
+      - "deployments:*"
+      - "db:*"
+      - "tables:*"
+      - "storage:*"
+      - "flags:*"
+      - "messaging:*"
+      - "analytics:*"
+      - "security:*"
+      - "members:invite"
+      - "members:remove"
 
   - name: "developer"
-    permissions: ["read", "write", "manage_projects"]
+    description: "Full read/write on config and code. Cannot apply to production or manage access."
+    permissions:
+      - "projects:read"
+      - "config:read"
+      - "config:write"
+      - "schema:read"
+      - "schema:write"
+      - "tables:read"
+      - "tables:write"
+      - "functions:*"
+      - "deployments:run"
+      - "deployments:logs"
+      - "db:migrate:staging"
+      - "db:shell:development"
+      - "storage:read"
+      - "storage:write"
+      - "flags:read"
+      - "flags:write"
+      - "messaging:read"
+      - "messaging:write"
+      - "analytics:read"
+      - "logs:read"
+      - "infrastructure:apply:development"
+      - "infrastructure:apply:staging"
+      # No infrastructure:apply:production
+      # No schema:destructive
+      # No permissions:write
+      # No access:manage
+
+  - name: "contractor"
+    description: "Scoped read/write. No infrastructure access. No production."
+    permissions:
+      - "config:read"
+      - "functions:deploy"
+      - "functions:logs"
+      - "functions:invoke"
+      - "deployments:logs"
+      - "logs:read"
 
   - name: "viewer"
-    permissions: ["read"]
+    description: "Read-only across everything"
+    permissions: ["*:read"]
 
-# SSH keys for developers registered to this org.
-# Public keys only — private keys never leave the developer's machine.
-# Key fingerprints attribute every CLI, UI, and applad instruct
-# action in the audit trail.
+  - name: "ci"
+    description: "Scoped automation key — deployment and function pipelines only"
+    permissions:
+      - "deployments:run"
+      - "functions:deploy"
+      - "infrastructure:apply:staging"
+      - "infrastructure:apply:production"
+
+# ── SSH KEYS ─────────────────────────────────────────────────
+# Public keys only — private keys never leave the developer's
+# machine. Key fingerprints attribute every CLI, UI, and
+# applad instruct action in the audit trail.
+#
+# scopes here are the maximum the key can ever exercise.
+# Effective permission = intersection of role grants (from
+# admin database) AND key scopes (from here).
+#
+# This file is updated automatically by applad orgs keys add
+# and applad orgs keys revoke — do not edit manually.
 ssh_keys:
   - label: "alice@macbook-pro"
     fingerprint: "SHA256:abc123..."
@@ -188,7 +273,18 @@ ssh_keys:
     fingerprint: "SHA256:def456..."
     identity: "bob@acme-corp"
     role: "developer"
-    scopes: ["*"]
+    scopes:
+      - "config:*"
+      - "functions:*"
+      - "deployments:run"
+      - "deployments:logs"
+      - "db:migrate:staging"
+      - "db:shell:development"
+      - "tables:*"
+      - "infrastructure:apply:development"
+      - "infrastructure:apply:staging"
+      # Explicitly no infrastructure:apply:production on this key
+      # Even if granted the scope in the database, this key cannot use it
 
   # Scoped CI/CD key — limited permissions, clearly
   # distinguishable from human actions in the audit trail
@@ -199,6 +295,8 @@ ssh_keys:
     scopes:
       - "deployments:run"
       - "functions:deploy"
+      - "infrastructure:apply:staging"
+      - "infrastructure:apply:production"
 
 security:
   mfa:
@@ -221,14 +319,23 @@ billing:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/project.yaml`
+## `orgs/acme-corp/mobile-app/project.yaml`
 
 ```yaml
 # ============================================================
 # PROJECT DEFINITION
+# Lives at orgs/<org-name>/<project-name>/project.yaml.
+# The presence of this file is what tells Applad that this
+# directory is a project — no "projects/" wrapper needed.
 # Defines environments and infrastructure targets.
-# applad up reads these targets, SSHes in, reconciles state,
-# and leaves. Infrastructure is just config.
+# applad up reads these targets, SSHes in, synthesizes
+# Docker Compose, reconciles state, and leaves.
+#
+# MEMBER ACCESS
+# Project-level role overrides and time-limited access live
+# in the admin database, managed via `applad access` commands
+# or the admin UI. They are not defined here.
+# Editing this file does not change what anyone can do.
 # ============================================================
 
 id: "mobile-app"
@@ -250,6 +357,10 @@ environments:
     url: "http://localhost:8080"
     infrastructure:
       type: "local"
+      # applad up synthesizes a docker-compose.yml and runs
+      # it locally. Same containers as staging and production.
+      # Only Docker required — no Dart tooling needed.
+      # No authentication required to run locally.
 
   - name: "staging"
     url: "https://staging-api.myapp.com"
@@ -269,6 +380,9 @@ environments:
       ssh_key: "ci-github-actions"
       docker_host: "unix:///var/run/docker.sock"
 
+    # Cloud resources used on-demand alongside the VPS.
+    # Provisioned by applad up when first referenced.
+    # Torn down explicitly via applad cloud tear-down <id>.
     cloud_adapters:
       - provider: "aws"
         region: "eu-west-1"
@@ -287,7 +401,7 @@ environments:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/.env.example`
+## `orgs/acme-corp/mobile-app/.env.example`
 
 ```bash
 # ============================================================
@@ -305,12 +419,15 @@ environments:
 # ── DATABASE ─────────────────────────────────────────────────
 # Used by: database/database.yaml (primary connection)
 # Format: postgres://user:password@host:port/dbname
-MOBILE_APP_DATABASE_URL=
+DATABASE_URL=
 
 # Used by: database/database.yaml (staging override)
 STAGING_DATABASE_URL=
 
-# Used by: database/database.yaml (cache)
+# Used by: database/database.yaml (analytics connection)
+ANALYTICS_DATABASE_URL=
+
+# Used by: database/database.yaml (cache connection)
 # Format: redis://user:password@host:port
 REDIS_URL=
 
@@ -361,6 +478,7 @@ GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=                # [SECRET] applad secrets set GITHUB_CLIENT_SECRET
 
 # Used by: auth/auth.yaml (saml — okta)
+# Optional — only needed if okta provider is enabled
 OKTA_METADATA_URL=
 
 # ── FUNCTIONS ────────────────────────────────────────────────
@@ -393,21 +511,29 @@ OTEL_ENDPOINT=
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/database/database.yaml`
+## `orgs/acme-corp/mobile-app/database/database.yaml`
 
 ```yaml
 # ============================================================
 # DATABASE ADAPTER CONFIGURATION
 # applad up reconciles the database connection on each run.
 # Per-environment overrides for local/VPS/cloud continuum.
+# Changing adapter is a one-line change — applad up handles
+# the rest, including Docker Compose service synthesis.
+#
+# Multiple connections are supported. Tables reference a
+# connection by id via their database: field. Tables without
+# a database: field use the connection marked default: true.
+#
+# Cross-database relations are flagged at validation time —
+# they are resolved at the application layer, not the db layer.
 # ============================================================
-
-default: "primary"
 
 connections:
   - id: "primary"
+    default: true
     adapter: "postgres"
-    url: ${MOBILE_APP_DATABASE_URL}
+    url: ${DATABASE_URL}
     pool:
       min: 2
       max: 20
@@ -415,7 +541,7 @@ connections:
       queue_timeout: 10
     migrations:
       auto: false
-      dir: "./migrations"
+      dir: "./migrations/primary"
     ssl:
       required: true
       verify_cert: true
@@ -427,19 +553,22 @@ connections:
       required: true
 
   - id: "analytics"
-    adapter: "sqlite"
-    path: "./data/analytics.db"
-
-routing:
-  app_data: "primary"
-  cache: "cache"
-  analytics: "analytics"
+    adapter: "postgres"
+    url: ${ANALYTICS_DATABASE_URL}
+    migrations:
+      auto: false
+      dir: "./migrations/analytics"
+    ssl:
+      required: true
 
 environment_overrides:
   development:
     primary:
       adapter: "sqlite"
       path: "./data/dev.db"
+    analytics:
+      adapter: "sqlite"
+      path: "./data/analytics-dev.db"
 
   staging:
     primary:
@@ -452,17 +581,22 @@ environment_overrides:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/tables/users.yaml`
+## `orgs/acme-corp/mobile-app/database/tables/users.yaml`
 
 ```yaml
 # ============================================================
 # TABLE DEFINITION
-# "tables" is the universal term regardless of adapter.
-# Permission rules live here alongside the schema.
-# Security reviewed in the same PR as the table it protects.
+# Lives at database/tables/<name>.yaml.
+# Mirrors the UI: Database > Tables > users.
+#
+# database: field targets a named connection from
+# database.yaml. Omit to use the default connection.
+# Permission rules live here alongside the schema —
+# always reviewed in the same PR as the table it protects.
 # ============================================================
 
 name: "users"
+database: "primary" # Optional — defaults to connection with default: true
 timestamps: true
 soft_delete: true
 
@@ -519,10 +653,11 @@ permissions:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/tables/posts.yaml`
+## `orgs/acme-corp/mobile-app/database/tables/posts.yaml`
 
 ```yaml
 name: "posts"
+database: "primary"
 timestamps: true
 soft_delete: false
 
@@ -570,7 +705,58 @@ permissions:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/auth/auth.yaml`
+## `orgs/acme-corp/mobile-app/database/tables/events.yaml`
+
+```yaml
+# ============================================================
+# Example table targeting a non-default connection.
+# database: "analytics" routes this table to the analytics
+# connection defined in database.yaml.
+# Applad warns at validation time if any relation field
+# points across database boundaries — cross-database joins
+# are resolved at the application layer.
+# ============================================================
+
+name: "events"
+database: "analytics"
+timestamps: true
+soft_delete: false
+
+fields:
+  - name: "type"
+    type: "string"
+    required: true
+    indexed: true
+
+  - name: "user_id"
+    type: "string" # Plain string, not a relation — cross-database
+    required: false
+    indexed: true
+
+  - name: "payload"
+    type: "json"
+    required: false
+
+  - name: "session_id"
+    type: "string"
+    required: false
+
+indexes:
+  - fields: ["type", "created_at"]
+  - fields: ["user_id", "created_at"]
+
+permissions:
+  - role: "admin"
+    actions: ["*"]
+
+  - role: "user"
+    actions: ["read"]
+    filter: "user_id == $user.id"
+```
+
+---
+
+## `orgs/acme-corp/mobile-app/auth/auth.yaml`
 
 ```yaml
 session:
@@ -640,10 +826,43 @@ providers:
     metadata_url: ${OKTA_METADATA_URL}
     signed_requests: true
 
+# ============================================================
+# MULTI-TENANCY
+# Three models supported. Choose one per project.
+#
+# row      — shared database, shared schema. A tenant_field
+#            column is added to every table. Row-level
+#            permission filters enforce isolation. Best for
+#            most SaaS products — lowest cost, simplest to
+#            operate.
+#
+# schema   — shared database, separate schemas. Each tenant
+#            gets their own Postgres schema. Tables are
+#            identical in structure but physically isolated.
+#            Stronger isolation without per-tenant infra cost.
+#            Best for regulated industries.
+#            schema_pattern controls naming: "tenant_{id}"
+#            or "tenant_{slug}".
+#
+# database — separate database per tenant. Each tenant gets
+#            their own connection. Maximum isolation. Can be
+#            on the same server or different servers. Required
+#            for enterprise with strict data residency or
+#            contractual isolation requirements.
+#            database_url_field names the field on the tenant
+#            record that holds the connection string, fetched
+#            at runtime from the admin database.
+# ============================================================
 multi_tenancy:
   enabled: true
-  isolation: "strict"
-  tenant_field: "org_id"
+  model: "row" # row | schema | database
+  tenant_field: "org_id" # Used when model is "row"
+
+  # model: "schema" options:
+  # schema_pattern: "tenant_{slug}"  # tenant_{id} | tenant_{slug} | custom pattern
+
+  # model: "database" options:
+  # database_url_field: "database_url"  # Field on the tenant record in admin database
 
 tokens:
   access_token_expiry: 900
@@ -655,9 +874,17 @@ tokens:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/storage/storage.yaml`
+## `orgs/acme-corp/mobile-app/storage/storage.yaml`
 
 ```yaml
+# ============================================================
+# STORAGE ADAPTER CONFIGURATION
+# applad up reconciles the storage adapter on each run.
+# Switching from local to s3 to r2 is a one-line change.
+# Bucket definitions live in storage/buckets/.
+# Mirrors the UI: Storage > Buckets.
+# ============================================================
+
 adapter: "s3"
 
 config:
@@ -685,9 +912,15 @@ environment_overrides:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/storage/avatars.yaml`
+## `orgs/acme-corp/mobile-app/storage/buckets/avatars.yaml`
 
 ```yaml
+# ============================================================
+# BUCKET DEFINITION
+# Lives at storage/buckets/<name>.yaml.
+# Mirrors the UI: Storage > Buckets > avatars.
+# ============================================================
+
 name: "avatars"
 public: true
 max_file_size: "5mb"
@@ -711,7 +944,7 @@ permissions:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/storage/documents.yaml`
+## `orgs/acme-corp/mobile-app/storage/buckets/documents.yaml`
 
 ```yaml
 name: "documents"
@@ -737,14 +970,15 @@ permissions:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/functions/send-welcome-message.yaml`
+## `orgs/acme-corp/mobile-app/functions/send-welcome-message.yaml`
 
 ```yaml
 # ============================================================
 # FUNCTION DEFINITION
 # One file per function — flat, not a folder.
-# source block points to wherever the code lives:
-# local path, github repo, container registry.
+# source block points to wherever the function code lives:
+# local path (relative to project root), github repo and
+# path within it, or a pre-built container registry image.
 # Applad fetches from source at deploy time.
 # Function code is never assumed to live alongside config.
 # ============================================================
@@ -754,26 +988,22 @@ runtime: "dart"
 timeout: 30
 memory: "256mb"
 
-# Source block — points to wherever the function code lives.
-# local: relative to the project root
-# github: fetched from a specific repo, branch, and path
-# registry: pulls a pre-built container image directly
 source:
   type: "local"
   path: "./src/functions/send-welcome-message/main.dart"
 
-# Alternative sources — uncomment to use:
+# Alternative sources:
 # source:
 #   type: "github"
 #   repo: "myorg/myapp"
 #   branch: "main"
 #   path: "src/functions/send-welcome-message/main.dart"
-#   ssh_key: "ci-github-actions"     # For private repos
+#   ssh_key: "ci-github-actions"
 
 # source:
 #   type: "registry"
 #   image: "ghcr.io/myorg/send-welcome-message:latest"
-#   credentials: "ghcr-credentials" # Reference to credential in admin database
+#   credentials: "ghcr-credentials"
 
 container:
   readonly_filesystem: true
@@ -793,7 +1023,7 @@ environment:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/functions/process-payment.yaml`
+## `orgs/acme-corp/mobile-app/functions/process-payment.yaml`
 
 ```yaml
 name: "process-payment"
@@ -832,7 +1062,7 @@ environment:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/functions/daily-report.yaml`
+## `orgs/acme-corp/mobile-app/functions/daily-report.yaml`
 
 ```yaml
 name: "daily-report"
@@ -847,9 +1077,9 @@ source:
   path: "src/functions/daily-report/daily.py"
   ssh_key: "ci-github-actions"
 
-# This function bursts to cloud compute when needed.
-# applad up provisions the VM, runs the container, tears it
-# down when done. Listed in applad cloud list while running.
+# Bursts to cloud compute when needed.
+# applad up provisions the VM, runs the container, tears
+# it down when done. Listed in applad cloud list while running.
 cloud_burst:
   enabled: true
   provider: "aws"
@@ -872,7 +1102,7 @@ triggers:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/workflows/user-onboarding.yaml`
+## `orgs/acme-corp/mobile-app/workflows/user-onboarding.yaml`
 
 ```yaml
 name: "user-onboarding"
@@ -906,7 +1136,7 @@ steps:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/workflows/payment-failed-recovery.yaml`
+## `orgs/acme-corp/mobile-app/workflows/payment-failed-recovery.yaml`
 
 ```yaml
 name: "payment-failed-recovery"
@@ -949,7 +1179,7 @@ steps:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/messaging/messaging.yaml`
+## `orgs/acme-corp/mobile-app/messaging/messaging.yaml`
 
 ```yaml
 email:
@@ -1016,7 +1246,7 @@ integrations:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/messaging/templates/welcome.yaml`
+## `orgs/acme-corp/mobile-app/messaging/templates/welcome.yaml`
 
 ```yaml
 key: "welcome"
@@ -1036,7 +1266,7 @@ defaults:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/messaging/templates/password-reset.yaml`
+## `orgs/acme-corp/mobile-app/messaging/templates/password-reset.yaml`
 
 ```yaml
 key: "password-reset"
@@ -1052,7 +1282,7 @@ defaults:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/messaging/templates/payment-failed.yaml`
+## `orgs/acme-corp/mobile-app/messaging/templates/payment-failed.yaml`
 
 ```yaml
 key: "payment-failed"
@@ -1075,9 +1305,17 @@ defaults:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/flags/new-dashboard.yaml`
+## `orgs/acme-corp/mobile-app/flags/new-dashboard.yaml`
 
 ```yaml
+# ============================================================
+# FEATURE FLAG SKELETON
+# Deploy puts code on the server via applad deploy.
+# The flag releases it to users — a separate decision
+# made by a product manager through the admin UI,
+# without a deployment or a git commit.
+# ============================================================
+
 key: "new-dashboard"
 type: "boolean"
 default: false
@@ -1091,7 +1329,7 @@ environments:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/flags/checkout-flow.yaml`
+## `orgs/acme-corp/mobile-app/flags/checkout-flow.yaml`
 
 ```yaml
 key: "checkout-flow"
@@ -1108,17 +1346,9 @@ environments:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/deployments/web.yaml`
+## `orgs/acme-corp/mobile-app/deployments/web.yaml`
 
 ```yaml
-# ============================================================
-# DEPLOYMENT — WEB
-# type: web — deploys a site to a domain via Caddy.
-# source block points to wherever the site code lives.
-# applad up provisions Caddy on the target infrastructure.
-# Deploy = putting code somewhere. Release = flags.
-# ============================================================
-
 name: "web"
 type: "web"
 
@@ -1126,8 +1356,6 @@ domain: "myapp.com"
 www_redirect: true
 ssl: true
 
-# Source block — same pattern as functions.
-# local, github, or registry. Build command runs at deploy time.
 source:
   type: "github"
   repo: "myorg/myapp-web"
@@ -1135,13 +1363,6 @@ source:
   build_command: "flutter build web"
   output_dir: "build/web"
   ssh_key: "ci-github-actions"
-
-# Alternative — local source for development
-# source:
-#   type: "local"
-#   path: "./src/web"
-#   build_command: "flutter build web"
-#   output_dir: "build/web"
 
 headers:
   - path: "/*"
@@ -1172,7 +1393,7 @@ triggers:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/deployments/docs.yaml`
+## `orgs/acme-corp/mobile-app/deployments/docs.yaml`
 
 ```yaml
 name: "docs"
@@ -1203,18 +1424,9 @@ triggers:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/deployments/android-production.yaml`
+## `orgs/acme-corp/mobile-app/deployments/android-production.yaml`
 
 ```yaml
-# ============================================================
-# DEPLOYMENT — ANDROID / PLAY STORE
-# type: play-store — builds, signs, submits to Play Store.
-# source block points to the app repository.
-# applad up SSHes into the build VPS, fetches source,
-# runs the build container, submits artifact, and leaves.
-# Signing credentials in admin database — never in config.
-# ============================================================
-
 name: "android-production"
 type: "play-store"
 
@@ -1225,13 +1437,6 @@ source:
   repo: "myorg/myapp"
   branch: "main"
   ssh_key: "ci-github-actions"
-
-# Pin to a specific tag or commit for production builds
-# source:
-#   type: "github"
-#   repo: "myorg/myapp"
-#   tag: "v2.1.0"
-#   ssh_key: "ci-github-actions"
 
 build:
   command: "flutter build appbundle --release"
@@ -1247,7 +1452,7 @@ signing:
 
 store_metadata:
   package_name: "com.acme.myapp"
-  release_notes: "auto" # Auto-generated from git commits
+  release_notes: "auto"
 
 triggers:
   - type: "git_tag"
@@ -1257,18 +1462,9 @@ triggers:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/deployments/ios-production.yaml`
+## `orgs/acme-corp/mobile-app/deployments/ios-production.yaml`
 
 ```yaml
-# ============================================================
-# DEPLOYMENT — IOS / APP STORE
-# type: app-store — iOS builds require macOS.
-# source block points to the app repository.
-# applad up spins up an AWS Mac instance, SSHes in,
-# fetches source, builds, submits, tears down.
-# Listed in applad cloud list while running.
-# ============================================================
-
 name: "ios-production"
 type: "app-store"
 
@@ -1305,7 +1501,7 @@ triggers:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/deployments/ota.yaml`
+## `orgs/acme-corp/mobile-app/deployments/ota.yaml`
 
 ```yaml
 name: "ota"
@@ -1329,7 +1525,7 @@ triggers:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/realtime/realtime.yaml`
+## `orgs/acme-corp/mobile-app/realtime/realtime.yaml`
 
 ```yaml
 adapter: "nats"
@@ -1356,7 +1552,7 @@ channels:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/analytics/analytics.yaml`
+## `orgs/acme-corp/mobile-app/analytics/analytics.yaml`
 
 ```yaml
 enabled: true
@@ -1390,7 +1586,7 @@ export:
 
 ---
 
-### `orgs/acme-corp/projects/mobile-app/observability/observability.yaml`
+## `orgs/acme-corp/mobile-app/observability/observability.yaml`
 
 ```yaml
 logging:
@@ -1515,79 +1711,90 @@ my-project/
 │
 ├── orgs/
 │   └── acme-corp/
-│       ├── org.yaml
-│       ├── .env.example                # Org-level — auto-generated
+│       ├── org.yaml                    # Marks this directory as an org
+│       ├── .env.example                # Org-level vars — auto-generated
 │       ├── .env
 │       │
-│       └── projects/
-│           ├── mobile-app/
-│           │   ├── project.yaml
-│           │   ├── .env.example        # Project-level — auto-generated, annotated
-│           │   ├── .env
-│           │   │
-│           │   ├── auth/
-│           │   │   └── auth.yaml
-│           │   │
-│           │   ├── database/
-│           │   │   ├── database.yaml
-│           │   │   └── migrations/
-│           │   │       ├── 001_create_users.sql
-│           │   │       └── 002_create_posts.sql
-│           │   │
-│           │   ├── tables/
-│           │   │   ├── users.yaml
-│           │   │   ├── posts.yaml
-│           │   │   └── comments.yaml
-│           │   │
-│           │   ├── storage/
-│           │   │   ├── storage.yaml
-│           │   │   ├── avatars.yaml
-│           │   │   └── documents.yaml
-│           │   │
-│           │   ├── functions/          # Flat — one file per function
-│           │   │   ├── send-welcome-message.yaml  # source: local or github or registry
-│           │   │   ├── process-payment.yaml
-│           │   │   └── daily-report.yaml
-│           │   │
-│           │   ├── workflows/
-│           │   │   ├── user-onboarding.yaml
-│           │   │   └── payment-failed-recovery.yaml
-│           │   │
-│           │   ├── messaging/
-│           │   │   ├── messaging.yaml
-│           │   │   └── templates/
-│           │   │       ├── welcome.yaml
-│           │   │       ├── password-reset.yaml
-│           │   │       └── payment-failed.yaml
-│           │   │
-│           │   ├── flags/
-│           │   │   ├── new-dashboard.yaml
-│           │   │   └── checkout-flow.yaml
-│           │   │
-│           │   ├── deployments/        # Flat — one file per deployment, all types
-│           │   │   ├── web.yaml        # type: web,        source: github
-│           │   │   ├── docs.yaml       # type: web,        source: github
-│           │   │   ├── android-production.yaml  # type: play-store, source: github
-│           │   │   ├── ios-production.yaml      # type: app-store,  source: github
-│           │   │   └── ota.yaml        # type: ota,        source: github
-│           │   │
-│           │   ├── realtime/
-│           │   │   └── realtime.yaml
-│           │   │
-│           │   ├── analytics/
-│           │   │   └── analytics.yaml
-│           │   │
-│           │   └── observability/
-│           │       └── observability.yaml
-│           │
-│           └── internal-dashboard/
-│               ├── project.yaml
-│               ├── .env.example
-│               ├── .env
-│               ├── auth/
-│               ├── database/
-│               ├── tables/
-│               └── messaging/
+│       ├── mobile-app/                 # project.yaml marks this as a project
+│       │   ├── project.yaml
+│       │   ├── .env.example            # Project-level vars — auto-generated, annotated
+│       │   ├── .env
+│       │   │
+│       │   ├── auth/
+│       │   │   └── auth.yaml           # Auth config + multi-tenancy model
+│       │   │
+│       │   ├── database/               # UI: Database
+│       │   │   ├── database.yaml       # Connections, routing, environment overrides
+│       │   │   ├── migrations/
+│       │   │   │   ├── primary/        # Per-connection migration dirs
+│       │   │   │   │   ├── 001_create_users.sql
+│       │   │   │   │   └── 002_create_posts.sql
+│       │   │   │   └── analytics/
+│       │   │   │       └── 001_create_events.sql
+│       │   │   └── tables/             # UI: Database > Tables
+│       │   │       ├── users.yaml      # database: "primary" (or omit — uses default)
+│       │   │       ├── posts.yaml      # database: "primary"
+│       │   │       ├── comments.yaml   # database: "primary"
+│       │   │       └── events.yaml     # database: "analytics"
+│       │   │
+│       │   ├── storage/                # UI: Storage
+│       │   │   ├── storage.yaml        # Adapter config, environment overrides
+│       │   │   └── buckets/            # UI: Storage > Buckets
+│       │   │       ├── avatars.yaml
+│       │   │       └── documents.yaml
+│       │   │
+│       │   ├── functions/              # UI: Functions — flat, one file per function
+│       │   │   ├── send-welcome-message.yaml
+│       │   │   ├── process-payment.yaml
+│       │   │   └── daily-report.yaml
+│       │   │
+│       │   ├── workflows/              # UI: Workflows
+│       │   │   ├── user-onboarding.yaml
+│       │   │   └── payment-failed-recovery.yaml
+│       │   │
+│       │   ├── messaging/              # UI: Messaging
+│       │   │   ├── messaging.yaml      # Provider config per channel
+│       │   │   └── templates/          # UI: Messaging > Templates
+│       │   │       ├── welcome.yaml
+│       │   │       ├── password-reset.yaml
+│       │   │       └── payment-failed.yaml
+│       │   │
+│       │   ├── flags/                  # UI: Flags
+│       │   │   ├── new-dashboard.yaml
+│       │   │   └── checkout-flow.yaml
+│       │   │
+│       │   ├── deployments/            # UI: Deployments — flat, one file per pipeline
+│       │   │   ├── web.yaml            # type: web
+│       │   │   ├── docs.yaml           # type: web
+│       │   │   ├── android-production.yaml  # type: play-store
+│       │   │   ├── ios-production.yaml      # type: app-store
+│       │   │   └── ota.yaml            # type: ota
+│       │   │
+│       │   ├── realtime/               # UI: Realtime
+│       │   │   └── realtime.yaml
+│       │   │
+│       │   ├── analytics/              # UI: Analytics
+│       │   │   └── analytics.yaml
+│       │   │
+│       │   └── observability/          # UI: Observability
+│       │       └── observability.yaml
+│       │
+│       └── internal-dashboard/         # Another project in the same org
+│           ├── project.yaml
+│           ├── .env.example
+│           ├── .env
+│           ├── auth/
+│           │   └── auth.yaml
+│           ├── database/
+│           │   ├── database.yaml
+│           │   ├── migrations/
+│           │   └── tables/
+│           ├── storage/
+│           │   ├── storage.yaml
+│           │   └── buckets/
+│           └── messaging/
+│               ├── messaging.yaml
+│               └── templates/
 │
 └── shared/
     ├── roles/
@@ -1598,6 +1805,157 @@ my-project/
         └── utils/
 ```
 
+**Directory → UI navigation mapping:**
+
+| Directory path         | UI breadcrumb         |
+| ---------------------- | --------------------- |
+| `database/`            | Database              |
+| `database/tables/`     | Database > Tables     |
+| `database/migrations/` | Database > Migrations |
+| `storage/`             | Storage               |
+| `storage/buckets/`     | Storage > Buckets     |
+| `functions/`           | Functions             |
+| `workflows/`           | Workflows             |
+| `messaging/`           | Messaging             |
+| `messaging/templates/` | Messaging > Templates |
+| `flags/`               | Flags                 |
+| `deployments/`         | Deployments           |
+| `realtime/`            | Realtime              |
+| `analytics/`           | Analytics             |
+| `observability/`       | Observability         |
+
+**How Applad discovers the structure:**
+
+1. Load `applad.yaml` at the root
+2. Scan `orgs/` — any subdirectory containing `org.yaml` is an org
+3. For each org, scan subdirectories — any subdirectory containing `project.yaml` is a project
+4. For each project, load all `.yaml` files in all subdirectories recursively
+5. Merge into a single resolved config tree
+6. Validate, synthesize Docker Compose, start — or error with the exact file and line
+
+No explicit listing of orgs or projects anywhere. The directory structure and the presence of `org.yaml` / `project.yaml` is the entire discovery mechanism.
+
+---
+
+## Access Control Model
+
+**Config files describe intent. The admin database enforces it.**
+
+This is the foundational rule of Applad's access control. Role definitions in `org.yaml` and environment definitions in `project.yaml` are declarative documentation — they describe the intended shape of the system and serve as defaults. But they are not the enforcement layer. A developer editing `org.yaml` or `project.yaml` and pushing to git does not change what anyone can actually do.
+
+Actual access grants live in the admin database and are managed exclusively via `applad access` commands or the admin UI. Both require an SSH key with `access:manage` scope, which is only grantable by an owner. Both are recorded in the audit trail.
+
+**Why config files cannot be the enforcement layer:**
+
+If `require_approval: true` lived in `project.yaml`, any developer with repo access could change it to `false` and push. The file they would need to edit to bypass the control is the same file that holds the control. Config files cannot guard themselves.
+
+**The three-layer permission model:**
+
+Every operation is checked against three things. The effective permission is the intersection of all three.
+
+```
+org role grants     — what your role allows, stored in admin database
+project role grants — your role in this specific project, stored in admin database
+SSH key scopes      — the maximum your key can ever exercise, stored in org.yaml
+```
+
+A developer might have `infrastructure:apply:production` granted via their role, but if their SSH key's scopes don't include it, the operation is rejected. Key scopes are a hard ceiling that role grants cannot exceed.
+
+**What `applad up` actually checks:**
+
+When `applad up --env production` runs, Applad checks the admin database — not `project.yaml` — to verify the invoking SSH key has `infrastructure:apply:production`. If not, it rejects immediately before touching anything. Pushing a config change to git has no effect on running infrastructure by itself. `applad up` is the only gate, and that gate checks the database.
+
+**Destructive operations require explicit elevation:**
+
+Some operations require a scope that no default role grants. They must be explicitly granted to specific identities:
+
+- Dropping a table or removing a field → `schema:destructive`
+- Changing permission rules on a table → `permissions:write`
+- Applying to production → `infrastructure:apply:production`
+- Managing access grants → `access:manage`
+
+These cannot be performed accidentally. They require a key that has been explicitly granted the scope, and every use is recorded in the audit trail.
+
+---
+
+## First Run — Bootstrap via `applad up`
+
+`applad init` scaffolds project files. It does not touch the database and does not handle authentication.
+
+`applad up` is where bootstrap happens. On first run it detects an uninitialised database and enters bootstrap mode before starting the instance:
+
+```
+$ applad up
+
+  Applad is starting for the first time.
+
+  ? Instance URL: https://api.myapp.com
+  ? Your email: alice@acme-corp.com
+  ? SSH public key path: ~/.ssh/id_ed25519.pub
+  ? Organisation name: Acme Corp
+
+  ✓ Database initialised
+  ✓ Owner identity registered — alice@acme-corp
+  ✓ Organisation created — acme-corp
+  ✓ SSH key registered — SHA256:abc123...
+  ✓ Bootstrap closed permanently
+
+  Starting instance...
+```
+
+Key properties of the bootstrap sequence:
+
+- **Inline in `applad up`** — no separate bootstrap command
+- **Localhost only during bootstrap** — the instance does not accept external connections until bootstrap is complete
+- **One-time and permanent** — once an owner SSH key is registered, the bootstrap path is closed forever. Re-opening it requires direct database access, which is intentional friction.
+- **`applad up` on an already-bootstrapped instance** — skips the sequence entirely and reconciles normally
+
+---
+
+## Developer Onboarding — `applad login`
+
+A developer who clones an existing repo does not run `applad init` — that would fail immediately on detecting an existing `applad.yaml`. They run `applad login`.
+
+`applad login` reads the instance URL from `applad.yaml`, registers their SSH key, and sends an access request to the administrators of that instance:
+
+```
+$ applad login
+
+  ✓ Instance found — https://api.myapp.com (acme-corp)
+
+  ? Your email: bob@acme-corp.com
+  ? SSH public key path: ~/.ssh/id_ed25519.pub
+
+  ✓ Access request sent — SHA256:def456...
+
+  Waiting for an administrator to approve your request.
+  Once approved, run applad up to start your local environment.
+```
+
+If the key is already registered:
+
+```
+$ applad login
+
+  ✓ Instance found — https://api.myapp.com (acme-corp)
+  ✓ SSH key recognised — bob@acme-corp (developer)
+  ✓ Logged in
+```
+
+An administrator approves the request via the admin UI or:
+
+```bash
+applad access approve bob@acme-corp.com \
+  --role developer \
+  --org acme-corp
+```
+
+Once approved, Bob can run `applad up` locally immediately — no further approval needed for local environments. Staging and production require the access grants that an administrator explicitly assigns.
+
+**Local development requires no approval:**
+
+`applad up` with `infrastructure.type: "local"` runs immediately without checking the admin database for environment-level grants. Local is Docker Compose on the developer's machine — there is nothing sensitive to protect. The approval and grant model only applies to shared environments (staging, production).
+
 ---
 
 ## Applad CLI Commands
@@ -1605,31 +1963,111 @@ my-project/
 ```bash
 # ============================================================
 # INSTANCE
-# applad up is the single reconciliation command.
-# Reads config tree, makes reality match it, stops.
-# Like terraform apply but for your entire backend.
 # ============================================================
 
+# Scaffolds a new Applad project in the current directory.
+# Generates applad.yaml, orgs/ directory, .gitignore, and
+# an initial .env.example at the instance level.
+# Fails immediately if applad.yaml already exists.
 applad init
 applad init --template saas           # saas | api | cms | minimal
 
-applad up                             # Reconcile all environments
-applad up --env production            # Reconcile a specific environment
-applad up --watch                     # Watch and reconcile on config change (dev only)
-applad up --dry-run                   # Preview what would change — like terraform plan
-                                      # Shows: SSH connections, Docker ops, source fetches,
-                                      # cloud resources, config diffs, pending migrations
+# Reads the entire config tree, validates it, synthesizes
+# docker-compose.yml for each environment, and makes reality
+# match config. On first run against an uninitialised database,
+# runs bootstrap inline before starting.
+applad up
+applad up --env production
+applad up --watch                      # Local development only
+applad up --dry-run
 
 applad down
 applad down --env staging
-
 applad status
 applad status --env production
-
 applad --version
 applad -v
 applad upgrade
-applad audit
+
+# ============================================================
+# AUTHENTICATION
+# ============================================================
+
+# Authenticates to the instance described in applad.yaml.
+# Run this after cloning an existing repo — not applad init.
+# Reads instance URL from applad.yaml, registers SSH key,
+# sends access request to administrators if key is unknown.
+applad login
+
+# Revokes the local session. Does not remove the SSH key
+# from the instance — use applad orgs keys revoke for that.
+applad logout
+
+# Shows the currently authenticated identity — email,
+# key fingerprint, role, and effective scopes.
+applad whoami
+
+# ============================================================
+# ACCESS CONTROL
+# Access grants live in the admin database — not in config
+# files. These commands are the only way to change who can
+# do what. All require access:manage scope. All are audited.
+# ============================================================
+
+# Lists all access grants for an org — identities, roles,
+# project-level overrides, key scopes, expiry dates.
+applad access list --org <org-id>
+
+# Lists all access grants for a specific project.
+applad access list --project <project-id>
+
+# Grants a scope to an identity. Writes to admin database.
+# The identity must already have a registered SSH key.
+applad access grant <identity> \
+  --scope "infrastructure:apply:production" \
+  --org acme-corp
+
+# Grants a scope scoped to a specific project only.
+applad access grant <identity> \
+  --scope "infrastructure:apply:production" \
+  --project mobile-app
+
+# Grants a role to an identity at the project level,
+# overriding their org-level role for this project only.
+applad access grant <identity> \
+  --role admin \
+  --project mobile-app
+
+# Grants time-limited access. Automatically revoked at expiry.
+applad access grant contractor@external.com \
+  --role contractor \
+  --project mobile-app \
+  --expires "2026-06-01"
+
+# Revokes a scope from an identity. Takes effect immediately.
+applad access revoke <identity> \
+  --scope "infrastructure:apply:production" \
+  --org acme-corp
+
+# Revokes all grants for an identity across an org.
+# Use when a developer leaves. SSH key should also be revoked.
+applad access revoke <identity> --org acme-corp --all
+
+# Approves a pending access request from applad login.
+# Grants the specified role and registers the SSH key.
+applad access approve <email> \
+  --role developer \
+  --org acme-corp
+
+# Rejects a pending access request.
+applad access reject <email>
+
+# Lists pending access requests awaiting approval.
+applad access requests list
+
+# Shows the full set of effective permissions for an identity
+# — the intersection of role grants and key scopes.
+applad access show <identity>
 
 # ============================================================
 # CONFIG
@@ -1637,7 +2075,7 @@ applad audit
 
 applad config validate
 applad config diff
-applad config push                    # Signed with developer's SSH key
+applad config push
 applad config pull
 applad config export
 applad config merge --dry-run
@@ -1650,7 +2088,6 @@ applad env generate
 applad env generate --org acme-corp
 applad env generate --all
 applad env generate --env production
-
 applad env validate
 applad env validate --env production
 applad env diff
@@ -1663,19 +2100,12 @@ applad env push
 
 # ============================================================
 # CLOUD
-# Visibility and explicit management of ephemeral on-demand
-# cloud resources. Provisioning is always via applad up or
-# applad instruct — never via this namespace.
 # ============================================================
 
-applad cloud list                     # All cloud resources currently provisioned
-                                      # Includes burst VMs, Mac build instances
-                                      # Shows: provider, type, region, cost/hr, age, status
-
+applad cloud list
 applad cloud cost
 applad cloud cost --month 2026-02
-
-applad cloud tear-down <resource-id>  # For stuck or orphaned resources only
+applad cloud tear-down <resource-id>
 
 # ============================================================
 # ORGANIZATIONS
@@ -1691,6 +2121,8 @@ applad orgs members invite <org-id> \
   --role developer
 applad orgs members remove <org-id> <user-id>
 applad orgs members role <org-id> <user-id> --role admin
+
+# ── SSH KEY MANAGEMENT ────────────────────────────────────────
 
 applad orgs keys list <org-id>
 applad orgs keys add <org-id> \
@@ -1727,24 +2159,34 @@ applad projects clone <project-id> \
 applad db migrate
 applad db migrate --project <id>
 applad db migrate --env production
+applad db migrate --connection analytics
 applad db migrate --dry-run
 applad db rollback
 applad db rollback --steps 3
+applad db rollback --connection analytics
 applad db status
+applad db status --connection analytics
 applad db generate "add_avatar_to_users"
+applad db generate "add_avatar_to_users" --connection primary
 applad db seed
-applad db reset
+applad db reset                              # Development only
 applad db shell
-applad db shell --connection cache
+applad db shell --connection analytics
 applad db export --format sql
+applad db export --format sql --connection analytics
 applad db import ./dump.sql
+applad db import ./dump.sql --connection analytics
 
 # ============================================================
 # TABLES
+# Lives at database/tables/<name>.yaml.
+# Mirrors the UI: Database > Tables.
 # ============================================================
 
 applad tables list
+applad tables list --connection analytics
 applad tables generate <name>
+applad tables generate <name> --connection analytics
 applad tables validate
 applad tables show <name>
 applad tables diff <name>
@@ -1778,20 +2220,16 @@ applad storage scan <bucket>
 
 # ============================================================
 # FUNCTIONS
-# One file per function in functions/.
-# source block in each file points to local path, github
-# repo and path, or container registry image.
-# applad up fetches from source and deploys.
 # ============================================================
 
 applad functions list
-applad functions deploy <name>        # Fetches from source, builds, deploys
+applad functions deploy <name>
 applad functions deploy --all
 applad functions logs <name>
 applad functions invoke <name>
 applad functions invoke <name> --data '{"key":"value"}'
-applad functions build <name>         # Fetch and build without deploying
-applad functions scan <name>          # Scan built container for vulnerabilities
+applad functions build <name>
+applad functions scan <name>
 applad functions delete <name>
 
 # ============================================================
@@ -1840,10 +2278,6 @@ applad flags logs <key>
 
 # ============================================================
 # DEPLOYMENTS
-# One file per deployment in deployments/.
-# source block in each file points to the code repository.
-# applad up fetches from source at deploy time.
-# type: web | play-store | app-store | desktop | ota
 # ============================================================
 
 applad deploy list
@@ -1851,27 +2285,31 @@ applad deploy list --type web
 applad deploy list --type play-store
 applad deploy list --type app-store
 applad deploy list --type ota
-
-applad deploy run <name>              # Fetches from source, builds, deploys
+applad deploy run <name>
 applad deploy run web
 applad deploy run android-production
-applad deploy run ios-production      # Spins up AWS Mac, builds, tears down
+applad deploy run ios-production
 applad deploy run ota
 applad deploy run <name> --env staging
-
 applad deploy logs <name>
 applad deploy status <name>
 applad deploy rollback <name>
 applad deploy open <name>
 
+# ── DOMAIN MANAGEMENT ─────────────────────────────────────────
+
 applad deploy domains list
 applad deploy domains verify <domain>
 applad deploy domains add <name> --domain "newdomain.com"
+
+# ── OTA ROLLOUT MANAGEMENT ────────────────────────────────────
 
 applad deploy ota status <name>
 applad deploy ota pause <name>
 applad deploy ota resume <name>
 applad deploy ota rollback <name>
+
+# ── PREVIEW ENVIRONMENTS ──────────────────────────────────────
 
 applad deploy preview list <name>
 applad deploy preview open <name> --pr 42
@@ -1930,27 +2368,20 @@ applad alerts status
 
 # ============================================================
 # INSTRUCT
-# AI-powered infrastructure assistant.
-# Every instruction attributed to initiating SSH key identity.
-# Exact prompt recorded in audit trail alongside every change.
-# --dry-run always available — shows source fetches, config
-# changes, migrations, and applad up operations that would run.
 # ============================================================
+
+# ── SCAFFOLD AND CONFIGURE ────────────────────────────────────
 
 applad instruct "create a users table with email, name, avatar, and soft delete"
 applad instruct "add fulltext search to posts"
 applad instruct "create a function that sends a welcome message on user signup"
-                                      # Creates functions/send-welcome-message.yaml
-                                      # with source block pointing to local path
 applad instruct "set up a Play Store deployment pipeline for my Flutter app"
-                                      # Creates deployments/android-production.yaml
-                                      # with source block pointing to github repo
 applad instruct "set up a web deployment for myapp.com"
-                                      # Creates deployments/web.yaml
-                                      # with source block pointing to github repo
 applad instruct "add rate limiting to the payments endpoint"
 applad instruct "create a workflow that sends push and email when a post is published"
 applad instruct "add a messaging template for order confirmation across email, sms and push"
+
+# ── INFRASTRUCTURE ────────────────────────────────────────────
 
 applad instruct "provision a Postgres instance on AWS RDS for production"
 applad instruct "set up staging to mirror production on a Hetzner VPS"
@@ -1958,6 +2389,8 @@ applad instruct "migrate our storage adapter from local to S3"
 applad instruct "switch email provider to SES for production"
 applad instruct "spin up a cloud VM for this data processing job and tear it down when done"
 applad instruct "what cloud resources can we safely tear down?"
+
+# ── DEBUG AND DIAGNOSE ────────────────────────────────────────
 
 applad instruct "why is my API error rate high?"
 applad instruct "what failed in the last web deployment?"
@@ -1967,6 +2400,8 @@ applad instruct "is this permission rule safe?"
 applad instruct "are there any security anomalies in the last 24 hours?"
 applad instruct "how much are we spending on cloud resources this month?"
 
+# ── CONTEXT FLAGS ─────────────────────────────────────────────
+
 applad instruct --context logs "what failed in the last hour?"
 applad instruct --context tables "suggest indexes for better query performance"
 applad instruct --context security "are there any anomalous access patterns?"
@@ -1975,10 +2410,14 @@ applad instruct --context deployments "why did the iOS build fail?"
 applad instruct --context functions "which functions have the highest error rate?"
 applad instruct --context instruct-history "what did alice change yesterday?"
 
+# ── DRY RUN ───────────────────────────────────────────────────
+
 applad instruct --dry-run "add fulltext search to posts"
 applad instruct --dry-run "provision RDS for production"
 applad instruct --dry-run "set up staging to mirror production"
 applad instruct --dry-run "create a function that processes payments"
+
+# ── SCOPING ───────────────────────────────────────────────────
 
 applad instruct --project mobile-app "why is staging slow?"
 applad instruct --env production "show me anomalous access patterns"
@@ -1994,6 +2433,8 @@ applad audit list --via ci
 applad audit list --action db.migrate
 applad audit list --action deployments.run
 applad audit list --action functions.deploy
+applad audit list --action access.grant
+applad audit list --action access.revoke
 applad audit list --since "2026-02-01"
 applad audit show <entry-id>
 applad audit verify <entry-id>
@@ -2020,13 +2461,3 @@ applad migrate-from supabase --project <id>
 applad migrate-from firebase --project <id>
 applad migrate-from pocketbase --data-dir ./pb_data
 ```
-
----
-
-**The key change woven throughout:**
-
-**Flat files with source blocks** — functions and deployments are now both flat directories of `.yaml` files. No nested folders. Each file has a `source` block that points to wherever the code lives — `local` for a path relative to the project root, `github` for a specific repo, branch, and path within that repo, or `registry` for a pre-built container image. Applad fetches from source at deploy time. The config tree knows nothing about where code lives except what the source block says. A team with a monorepo points all their function source blocks at different paths within the same repo. A team with microservices points each function at a different repo entirely. Either way, the Applad config tree is identical in structure.
-
-**Consistent source block pattern** — the same `source` block shape appears in `functions/*.yaml`, `deployments/web.yaml`, `deployments/android-production.yaml`, and every other deployment type. `type`, `repo`, `branch`, `path`, `ssh_key` for private repos. Tag or commit SHA for pinned production builds. `applad instruct "create a function..."` generates the yaml file with the source block pre-filled based on the project's existing source conventions.
-
-**`applad up --dry-run`** now explicitly notes source fetches in its preview output — showing which repos would be cloned, which paths fetched, which images pulled — alongside the infrastructure changes, config diffs, and pending migrations.

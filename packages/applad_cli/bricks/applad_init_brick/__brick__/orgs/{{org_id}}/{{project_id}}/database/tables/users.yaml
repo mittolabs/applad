@@ -10,6 +10,7 @@
 # ============================================================
 
 name: "users"
+database: "primary"
 timestamps: true
 soft_delete: true
 

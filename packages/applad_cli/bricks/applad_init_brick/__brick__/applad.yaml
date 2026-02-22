@@ -57,7 +57,7 @@ ai:
 # ============================================================
 # OBSERVABILITY (INSTANCE-LEVEL)
 # Applies across all orgs and projects.
-# Per-project overrides in orgs/<org>/projects/<project>/observability/
+# Per-project overrides in orgs/<org>/<project>/observability/
 # ============================================================
 observability:
   logging:
@@ -83,7 +83,7 @@ observability:
 # ============================================================
 # SECURITY (INSTANCE-LEVEL)
 # Global security defaults. Per-project overrides in
-# orgs/<org>/projects/<project>/observability/observability.yaml
+# orgs/<org>/<project>/observability/observability.yaml
 # ============================================================
 security:
   ssh:

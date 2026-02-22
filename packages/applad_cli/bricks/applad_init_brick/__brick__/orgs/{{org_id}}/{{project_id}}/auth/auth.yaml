@@ -67,8 +67,7 @@ providers:
 #    pkce: true
 
 multi_tenancy:
-  enabled: true
-  isolation: "strict" # strict | shared
+  model: "row" # row | schema | database
   tenant_field: "org_id"
 
 tokens:

@@ -106,10 +106,13 @@ final class ConfigMerger {
     final orgDir = orgDirs.first;
     final org = OrgConfig.fromMap(_loader.loadFile(p.join(orgDir, 'org.yaml')));
 
-    final projectsDir = p.join(orgDir, 'projects');
-    final projectDirs = _listSubdirs(projectsDir);
+    final projectDirs = _listSubdirs(orgDir).where((dir) {
+      final projectName = p.basename(dir);
+      return !projectName.startsWith('.') &&
+          File(p.join(dir, 'project.yaml')).existsSync();
+    }).toList();
     if (projectDirs.isEmpty) {
-      throw StateError('No project directories found in $projectsDir');
+      throw StateError('No project directories found in $orgDir');
     }
 
     final projectDir = projectDirs.first;
@@ -125,8 +128,8 @@ final class ConfigMerger {
           DatabaseConfig.fromMap),
       storage: _opt(
           p.join(projectDir, 'storage', 'storage.yaml'), StorageConfig.fromMap),
-      tables:
-          _loadNamedFiles(p.join(projectDir, 'tables'), TableConfig.fromMap),
+      tables: _loadNamedFiles(
+          p.join(projectDir, 'database', 'tables'), TableConfig.fromMap),
       functions: _loadNamedFiles(
           p.join(projectDir, 'functions'), FunctionConfig.fromMap),
       workflows: _loadNamedFiles(
