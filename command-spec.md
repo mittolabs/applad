@@ -124,11 +124,12 @@ applad status
 
 applad status --env production
 
-# applad version
+# applad --version
 
 # Prints the currently installed Applad version.
 
-applad version
+applad --version
+applad -v
 
 # applad upgrade
 

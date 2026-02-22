@@ -1626,7 +1626,8 @@ applad down --env staging
 applad status
 applad status --env production
 
-applad version
+applad --version
+applad -v
 applad upgrade
 applad audit
 
