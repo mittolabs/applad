@@ -126,17 +126,23 @@ final class InteractiveShell {
         final borderColor = '\x1b[36m'; // Cyan
         final reset = '\x1b[0m';
 
-        // interaction box around the input only
+        // 1. Top Border
         stdout.write('\n$borderColor┌── Applad Repl ' +
             ('─' * (width - 16)) +
             '┐$reset\n');
+
+        // 2. Prompt and Input
         final promptPrefix = _getPromptPrefix();
         stdout.write('$promptPrefix ');
         final input = stdin.readLineSync()?.trim() ?? '';
-        stdout.write('\x1b[0m'); // Reset formatting after input
 
-        // Close the box
+        // 3. Right Border
+        // Move cursor up 1 line, move to horizontal position [width], print |, then move back
+        stdout.write('\x1b[1A\x1b[${width}G${borderColor}│$reset\n');
+
+        // 4. Bottom Border
         stdout.write('$borderColor└' + ('─' * (width - 2)) + '┘$reset\n');
+        stdout.write(reset); // Ensure formatting is fully cleared
 
         if (input.isEmpty) continue;
 
