@@ -23,7 +23,7 @@ WORKDIR /app/packages/applad_server
 RUN dart pub global activate dart_frog_cli
 RUN dart_frog build
 RUN mkdir -p /app/build_bin
-RUN dart compile exe build/bin/server.dart -o /app/build_bin/applad_server
+RUN dart compile exe build/bin/server.dart -o /app/build_bin/applad-server
 
 # Build the CLI
 WORKDIR /app/packages/applad_cli
@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy compiled binaries
-COPY --from=build /app/build_bin/applad_server /usr/local/bin/applad-server
+COPY --from=build /app/build_bin/applad-server /usr/local/bin/applad-server
 COPY --from=build /app/build_bin/applad /usr/local/bin/applad
 
 # Create data directory for SQLite

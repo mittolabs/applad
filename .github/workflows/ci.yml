@@ -6,6 +6,8 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  release:
+    types: [published]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -110,7 +112,7 @@ jobs:
       packages: write
       contents: read
     needs: [test-dart, test-flutter]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'release'
     steps:
       - uses: actions/checkout@v4
 
@@ -133,5 +135,6 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ${{ github.event_name == 'release' && format('ghcr.io/{0}:{1}', github.repository, github.event.release.tag_name) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

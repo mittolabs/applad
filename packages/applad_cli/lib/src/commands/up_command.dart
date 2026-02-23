@@ -180,7 +180,7 @@ version: '3.8'
 
 services:
   applad_server:
-    image: ghcr.io/mittolabs/applad-server:${envConfig.engineVersion}
+    image: ghcr.io/mittolabs/applad:${envConfig.engineVersion}
     container_name: applad_server_local
     volumes:
       - $workspaceRoot:/app/config
@@ -254,7 +254,7 @@ version: '3.8'
 
 services:
   applad_server:
-    image: ghcr.io/mittolabs/applad-server:${envConfig.engineVersion}
+    image: ghcr.io/mittolabs/applad:${envConfig.engineVersion}
     container_name: applad_server
     volumes:
       - ./config:/app/config
