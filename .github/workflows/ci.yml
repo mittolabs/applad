@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DART_VERSION: "3.5.0"
-  FLUTTER_VERSION: "3.24.0"
+  DART_VERSION: "3.6.0"
+  FLUTTER_VERSION: "3.27.0"
 
 jobs:
   # ─── Analyze Dart packages ────────────────────────────────────────────────
@@ -23,9 +23,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: subosito/flutter-action@v2
         with:
-          sdk: ${{ env.DART_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
 
       - name: Install Melos
         run: dart pub global activate melos
@@ -44,9 +45,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: subosito/flutter-action@v2
         with:
-          sdk: ${{ env.DART_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
 
       - name: Install Melos
         run: dart pub global activate melos
