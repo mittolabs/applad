@@ -70,10 +70,20 @@ class WorkspaceManager {
     if (!dir.existsSync()) return [];
 
     final results = <String>[];
-    await for (final entity in dir.list(recursive: true, followLinks: false)) {
-      if (entity is File && p.basename(entity.path) == 'applad.yaml') {
-        results.add(p.dirname(p.absolute(entity.path)));
+    try {
+      final stream = dir.list(recursive: true, followLinks: false);
+      await for (final entity in stream.handleError((error) {
+        // Skip paths we don't have permission to access (common on macOS)
+        if (error is FileSystemException) {
+          // ignore error
+        }
+      })) {
+        if (entity is File && p.basename(entity.path) == 'applad.yaml') {
+          results.add(p.dirname(p.absolute(entity.path)));
+        }
       }
+    } catch (_) {
+      // Handle any other catastrophic listing failures
     }
     return results;
   }
