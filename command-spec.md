@@ -131,19 +131,23 @@ applad status --env production
 applad --version
 applad -v
 
+# applad upgrade
+
+# Upgrades the Applad binary to the latest stable release.
+
 applad upgrade
 
 # applad uninstall
 
 # Permanently removes Applad's local and global configuration
 
-# data. Deletes ~/.applad (global trust and session state)
+# data and removes the Applad binary itself from the system.
+
+# Deletes ~/.applad (global trust and session state)
 
 # and optionally ./.applad in the current directory.
 
-# Does not delete the Applad binary itself, but provides
-
-# instructions for removal.
+# Runs `dart pub global deactivate applad`.
 
 applad uninstall
 

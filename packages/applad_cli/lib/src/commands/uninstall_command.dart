@@ -63,17 +63,30 @@ final class UninstallCommand extends Command<void> {
       }
     }
 
+    // 3. Uninstall the binary
+    Output.info('Attempting to uninstall the Applad binary...');
+    try {
+      final process = await Process.start(
+        'dart',
+        ['pub', 'global', 'deactivate', 'applad'],
+        mode: ProcessStartMode.inheritStdio,
+      );
+      final exitCode = await process.exitCode;
+      if (exitCode == 0) {
+        Output.success('Applad binary deactivated successfully.');
+      } else {
+        Output.warning(
+            'Failed to deactivate via pub. You might have installed it manually.');
+      }
+    } catch (e) {
+      Output.warning('Could not run `dart pub global deactivate`.');
+    }
+
     Output.blank();
     Output.success('Cleanup complete!');
     Output.blank();
-    Output.header('Next steps to complete uninstallation:');
     Output.info(
-        'The Applad binary itself is still on your system. To remove it:');
-    Output.blank();
-    Output.step(
-        1, 'If installed via pub: run `dart pub global deactivate applad`');
-    Output.step(
-        2, 'If installed manually: delete the `applad` binary from your PATH');
+        'If you installed Applad manually, please delete the binary from your PATH.');
     Output.blank();
   }
 }

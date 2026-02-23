@@ -30,7 +30,7 @@ Applad's reconciliation model is **fully idempotent**. Running `applad up` twice
 Applad prioritizes operational trust over raw power.
 - **`applad up --dry-run --diff`**: Tells you exactly what will change.
 - **`applad up`**: Changes exactly that and nothing else.
-- **`applad uninstall`**: Removes local and global Applad configuration data.
+- **`applad uninstall`**: Removes the Applad CLI and its local and global configuration data.
 - **Run Recap**: Provides a clean summary of what happened.
 - **Audit Trail**: Records who did it and when.
 
