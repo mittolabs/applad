@@ -729,7 +729,7 @@ Config, data, secrets, AI keys, infrastructure, runtime, database, cloud, featur
 - **Applad is the IaC tool for your entire backend** — config files and the UI are always the same thing
 - **Deploy ≠ Release** — separate commands, separate config, separate people
 - **`applad up` is the single reconciliation command** — reads config, synthesizes Docker Compose, makes reality match. Bootstrap on first run. Idempotent always.
-- **`applad init` scaffolds. `applad up` runs. `applad login` connects.** Three commands, three jobs, no overlap.
+- **`applad init` scaffolds. `applad up` runs. `applad login` connects. `applad uninstall` cleans up.** Four core jobs, no overlap.
 - **Predictability is the contract** — `--dry-run --diff` first, `applad up` second, recap third. No surprises, ever.
 - **Idempotency is guaranteed, not incidental** — running `applad up` twice is the same as running it once, always
 - **`--dry-run` everywhere** — every command that writes anything supports it
