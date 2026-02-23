@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.jpg" alt="Applad Logo" width="300" />
+</p>
+
 # Applad
 
 **The open-source BaaS where everything is config, everything is visual, and everything is assisted by AI.**
