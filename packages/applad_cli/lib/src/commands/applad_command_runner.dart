@@ -92,8 +92,8 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
      ██║  ██║██║     ██║     ███████╗██║  ██║██████╔╝
      ╚═╝  ╚═╝╚═╝     ╚═╝     ╚══════╝╚═╝  ╚═╝╚═════╝ ''';
 
-    // Standard, no-color logo
-    return '$logo\n';
+    // Simple, clean cyan foreground text color
+    return '\x1b[36m$logo\x1b[0m\n';
   }
 
   @override
