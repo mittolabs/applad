@@ -79,7 +79,21 @@ class WorkspaceManager {
         }
       })) {
         if (entity is File && p.basename(entity.path) == 'applad.yaml') {
-          results.add(p.dirname(p.absolute(entity.path)));
+          final absolutePath = p.absolute(entity.path);
+          final segments = p.split(absolutePath);
+
+          // Filter out hidden directories (starting with .) and common noise
+          bool isNoise = segments.any((s) =>
+              (s.startsWith('.') && s != '.' && s != '..') ||
+              s == 'node_modules' ||
+              s == 'build' ||
+              s == 'dist' ||
+              s == 'vendor' ||
+              s == '__brick__');
+
+          if (!isNoise) {
+            results.add(p.dirname(absolutePath));
+          }
         }
       }
     } catch (_) {

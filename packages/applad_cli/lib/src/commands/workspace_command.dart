@@ -82,6 +82,14 @@ class WorkspaceRemoveCommand extends Command<void> {
 }
 
 class WorkspaceDiscoverCommand extends Command<void> {
+  WorkspaceDiscoverCommand() {
+    argParser.addOption(
+      'path',
+      abbr: 'p',
+      help: 'Root directory to scan (skips prompt).',
+    );
+  }
+
   @override
   String get name => 'discover';
 
@@ -90,8 +98,10 @@ class WorkspaceDiscoverCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final root = Output.prompt('Enter root directory to scan',
-        defaultValue: Platform.environment['HOME'] ?? '');
+    final pathArg = argResults?['path'] as String?;
+    final root = pathArg ??
+        Output.prompt('Enter root directory to scan',
+            defaultValue: Platform.environment['HOME'] ?? '');
 
     Output.info('Scanning $root for Applad projects...');
     final results = await WorkspaceManager.discover(root);
