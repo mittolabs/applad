@@ -28,7 +28,7 @@ class WorkspaceManager {
     }
   }
 
-  /// Returns a list of all registered workspace paths.
+  /// Returns a list of all registered workspace paths, purging invalid ones.
   static List<String> list() {
     final file = File(_workspacesFile);
     if (!file.existsSync()) return [];
@@ -37,7 +37,25 @@ class WorkspaceManager {
       final content = file.readAsStringSync();
       final data = json.decode(content);
       if (data is List) {
-        return data.cast<String>();
+        final paths = data.cast<String>();
+        final validPaths = <String>[];
+        bool changed = false;
+
+        for (final path in paths) {
+          final dir = Directory(path);
+          final appladYaml = File(p.join(path, 'applad.yaml'));
+
+          if (dir.existsSync() && appladYaml.existsSync()) {
+            validPaths.add(path);
+          } else {
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          _save(validPaths);
+        }
+        return validPaths;
       }
     } catch (_) {
       // Corrupted file, reset
