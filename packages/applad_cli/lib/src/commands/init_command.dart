@@ -77,49 +77,63 @@ final class InitCommand extends Command<void> {
     Output.blank();
     Output.info('Select features to enable:');
 
+    final selectAll = !useDefaults &&
+        Output.confirm(
+          'Enable all features?',
+          defaultValue: true,
+        );
+
     final enableFunctions = useDefaults ||
+        selectAll ||
         Output.confirmWithDescription(
           'Enable Functions?',
           'Serverless Dart/Node/Python functions with auto-scaling and isolated runtimes.',
           defaultValue: true,
         );
     final enableStorage = useDefaults ||
+        selectAll ||
         Output.confirmWithDescription(
           'Enable Storage?',
           'Secure file storage buckets with role-based access control and CDN support.',
           defaultValue: true,
         );
     final enableMessaging = useDefaults ||
+        selectAll ||
         Output.confirmWithDescription(
           'Enable Messaging?',
           'Unified Email, SMS, and Push notifications via a single provider-agnostic API.',
           defaultValue: true,
         );
     final enableRealtime = useDefaults ||
+        selectAll ||
         Output.confirmWithDescription(
           'Enable Realtime?',
           'Live database subscriptions and pub/sub messaging for instant UI updates.',
           defaultValue: true,
         );
     final enableAnalytics = useDefaults ||
+        selectAll ||
         Output.confirmWithDescription(
           'Enable Analytics?',
           'Built-in event tracking and usage metrics with zero-config dashboards.',
           defaultValue: true,
         );
     final enableDeployments = useDefaults ||
+        selectAll ||
         Output.confirmWithDescription(
           'Enable Deployments?',
           'CI/CD pipelines for Flutter apps and static sites with zero-downtime releases.',
           defaultValue: true,
         );
     final enableWorkflows = useDefaults ||
+        selectAll ||
         Output.confirmWithDescription(
           'Enable Workflows?',
           'Visual automation and long-running business logic orchestration.',
           defaultValue: true,
         );
     final enableFlags = useDefaults ||
+        selectAll ||
         Output.confirmWithDescription(
           'Enable Feature Flags?',
           'Remote config and percentage rollouts to decouple code from releases.',

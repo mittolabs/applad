@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy the monorepo
 COPY . .
 
-# Remove applad_admin from workspace to prevent Flutter SDK errors
-RUN sed -i -e '/- packages\/applad_admin/d' pubspec.yaml
+# Remove applad_console from workspace to prevent Flutter SDK errors
+RUN sed -i -e '/- packages\/applad_console/d' pubspec.yaml
 
 # Install melos and bootstrap packages
 RUN dart pub global activate melos

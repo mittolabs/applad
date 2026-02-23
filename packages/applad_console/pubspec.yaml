@@ -1,4 +1,4 @@
-name: applad_admin
+name: applad_console
 description: Flutter admin dashboard for Applad.
 version: 0.1.0
 publish_to: none

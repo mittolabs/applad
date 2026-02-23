@@ -8,7 +8,7 @@ workspace:
   - packages/applad_core
   - packages/applad_cli
   - packages/applad_server
-  - packages/applad_admin
+  - packages/applad_console
   - packages/applad_client
 
 dev_dependencies:

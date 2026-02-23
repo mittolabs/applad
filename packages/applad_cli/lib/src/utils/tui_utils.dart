@@ -16,6 +16,16 @@ final class TuiUtils {
   static void clear() {
     if (!_supportsAnsi) return;
     stdout.write('$bgBase\x1b[2J\x1b[3J\x1b[H$reset');
+
+    // Explicitly flood the screen with absolute black empty strings
+    // to combat macOS terminal transparent tearing.
+    final width = stdout.terminalColumns;
+    final height = stdout.terminalLines;
+    for (var i = 1; i <= height; i++) {
+      moveTo(1, i);
+      stdout.write(bgBase + (' ' * width) + reset);
+    }
+    moveTo(1, 1);
   }
 
   /// Draw a box with a [title] and [borderColor].
@@ -68,36 +78,38 @@ final class TuiUtils {
       result = '\x1b[1m$result\x1b[22m';
     }
     if (color != null) {
-      result = '$color$result\x1b[39m\x1b[49m'; // Reset colors but keep styles
+      result =
+          '$color$result\x1b[39m\x1b[40m'; // Reset to default FG, force Black BG
     }
     stdout.write(result);
   }
 
-  static const String reset = '\x1b[0m';
+  static const String reset =
+      '\x1b[0m\x1b[40m'; // Reset formatting, force Black BG
 
-  // Posting aesthetic True Colors
-  static const String textPrimary = '\x1b[38;2;248;250;252m'; // White #F8FAFC
-  static const String textMuted = '\x1b[38;2;148;163;184m'; // Slate #94A3B8
+  // Posting aesthetic Standard 16-Color approximations
+  static const String textPrimary = '\x1b[37m'; // White
+  static const String textMuted = '\x1b[90m'; // Slate
 
-  static const String accentCyan = '\x1b[38;2;56;189;248m'; // Neon Cyan #38BDF8
-  static const String accentMagenta =
-      '\x1b[38;2;232;121;249m'; // Magenta #E879F9
-  static const String accentGreen = '\x1b[38;2;52;211;153m'; // Emerald #34D399
+  static const String accentCyan = '\x1b[36m'; // Neon Cyan
+  static const String accentMagenta = '\x1b[35m'; // Magenta
+  static const String accentGreen = '\x1b[32m'; // Emerald
 
-  static const String bgBase = '\x1b[48;2;15;23;42m'; // Deep Navy #0F172A
-  static const String bgSurface = '\x1b[48;2;30;41;59m'; // Surface #1E293B
+  static const String bgBase = '\x1b[40m'; // Black Background
+  static const String bgSurface = '\x1b[40m'; // Black Background
+  static const String bgActiveTab = '\x1b[46m'; // Cyan Background
+  static const String bgMagenta = '\x1b[45m';
 
-  static const String borderNormal =
-      '\x1b[38;2;51;65;85m'; // Slate border #334155
-  static const String borderActive = '\x1b[38;2;56;189;248m'; // Active border
+  static const String borderNormal = '\x1b[90m'; // Slate border
+  static const String borderActive = '\x1b[35m'; // Active border (Magenta)
 
   // Legacy mappings for existing code
   static const String cyan = accentCyan;
   static const String magenta = accentMagenta;
   static const String green = accentGreen;
-  static const String yellow = '\x1b[38;2;250;204;21m';
-  static const String blue = '\x1b[38;2;59;130;246m';
-  static const String black = '\x1b[38;2;15;23;42m';
+  static const String yellow = '\x1b[33m';
+  static const String blue = '\x1b[34m';
+  static const String black = '\x1b[30m';
   static const String white = textPrimary;
   static const String bgBlue = bgSurface;
   static const String bgBlack = bgBase;
@@ -105,6 +117,9 @@ final class TuiUtils {
   static const String enableMouse =
       '\x1b[?1000h\x1b[?1006h'; // Basic buttons + SGR
   static const String disableMouse = '\x1b[?1000l\x1b[?1006l';
+
+  static const String enterAltScreen = '\x1b[?1049h';
+  static const String exitAltScreen = '\x1b[?1049l';
 
   /// Parse an SGR mouse event escape sequence (e.g., \x1b[<0;20;10M).
   /// Returns a [TuiMouseEvent] or null if not a mouse event.

@@ -1,5 +1,6 @@
 import 'package:args/command_runner.dart';
 import '../utils/output.dart';
+import '../security/session_manager.dart';
 
 /// `applad logout` — Removes local session / credentials for the instance.
 final class LogoutCommand extends Command<void> {
@@ -20,6 +21,7 @@ final class LogoutCommand extends Command<void> {
     await Future.delayed(const Duration(milliseconds: 600));
 
     Output.success('Logged out successfully.');
+    SessionManager.logout();
     Output.info('Run `applad login` to reconnect to an instance.');
   }
 }

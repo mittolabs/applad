@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import '../utils/output.dart';
 import '../utils/config_finder.dart';
+import '../security/session_manager.dart';
 
 /// `applad login` — Connects the local CLI to an Applad instance.
 /// Registers the developer's SSH key and sends an access request.
@@ -57,6 +58,7 @@ final class LoginCommand extends Command<void> {
     await Future.delayed(const Duration(milliseconds: 1000));
 
     Output.success('Access request submitted successfully.');
+    SessionManager.login();
     Output.blank();
     Output.info('Your request is pending administrator approval.');
     Output.info(

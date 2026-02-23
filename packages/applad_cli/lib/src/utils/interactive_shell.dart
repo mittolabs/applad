@@ -1,19 +1,40 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:applad_core/applad_core.dart';
+import 'package:path/path.dart' as p;
 import 'output.dart';
 import '../commands/applad_command_runner.dart';
 import '../security/trust_manager.dart';
+import '../security/session_manager.dart';
 import '../utils/config_finder.dart';
 import '../utils/tui_utils.dart';
 
 enum ShellMode { repl, tui }
 
+enum TuiScope { org, project }
+
 /// An interactive REPL and TUI Dashboard for the Applad CLI.
 final class InteractiveShell {
   final ApplAdCommandRunner runner;
   ShellMode _mode = ShellMode.repl;
-  int _activeTab = 0; // 0: Dashboard, 1: Projects, 2: Resources
-  List<String> _currentTabs = [' DASHBOARD ', ' PROJECTS '];
+  TuiScope _tuiScope = TuiScope.org;
+  bool _tuiActive = false;
+
+  // Org Scope State
+  int _activeOrgTab = 0; // 0: Projects, 1: Domains, etc.
+  List<String> _orgTabs = [
+    ' Projects ',
+    ' Domains ',
+    ' Members ',
+    ' Usage ',
+    ' Billing ',
+    ' Settings '
+  ];
+
+  // Project Scope State
+  String? _selectedProject;
+  int _activeTab = 0; // Sidebar selections
+  List<String> _currentTabs = [' Overview '];
 
   InteractiveShell(this.runner);
 
@@ -28,11 +49,24 @@ final class InteractiveShell {
     TrustManager.ensureTrusted();
     Output.blank();
 
+    late final StreamSubscription sigIntSub;
+    late final StreamSubscription sigTermSub;
+
     try {
+      if (Platform.isMacOS || Platform.isLinux) {
+        sigIntSub = ProcessSignal.sigint.watch().listen((_) => _exitCleanly());
+        sigTermSub =
+            ProcessSignal.sigterm.watch().listen((_) => _exitCleanly());
+      }
+
       while (true) {
         final context = _resolveContext();
 
         if (_mode == ShellMode.tui) {
+          if (!_tuiActive) {
+            stdout.write(TuiUtils.enterAltScreen);
+            _tuiActive = true;
+          }
           stdout.write(TuiUtils.enableMouse);
           await _renderTui(context);
 
@@ -49,11 +83,11 @@ final class InteractiveShell {
               // If it's a typical escape sequence, keep reading until complete
               if (bytes.length == 1 && bytes[0] == 27) continue;
               if (bytes.length > 1 && bytes[0] == 27) {
-                // Simple check for end of escape sequence (M or m for mouse, or just a character)
+                // Simple check for end of escape sequence (M or m for mouse, or roughly a max length)
                 final str = String.fromCharCodes(bytes);
                 if (str.endsWith('M') ||
                     str.endsWith('m') ||
-                    bytes.length > 10) {
+                    bytes.length > 20) {
                   break;
                 }
                 continue;
@@ -66,6 +100,10 @@ final class InteractiveShell {
             if (input == 'r' || input == 'repl' || input == '\x1b') {
               _mode = ShellMode.repl;
               stdout.write(TuiUtils.disableMouse);
+              if (_tuiActive) {
+                stdout.write(TuiUtils.exitAltScreen);
+                _tuiActive = false;
+              }
               _clearScreen();
               _printWelcome();
               continue;
@@ -73,7 +111,7 @@ final class InteractiveShell {
 
             final mouseEvent = TuiUtils.parseSgrMouse(input);
             if (mouseEvent != null) {
-              _handleTuiMouse(mouseEvent);
+              await _handleTuiMouse(mouseEvent);
             } else {
               await _handleTuiInput(input);
             }
@@ -83,8 +121,6 @@ final class InteractiveShell {
           }
           continue;
         }
-
-        _printContextBar(context);
 
         final promptPrefix = _getPromptPrefix();
         stdout.write('$promptPrefix ');
@@ -108,11 +144,11 @@ final class InteractiveShell {
           continue;
         }
 
-        if (input == 'dashboard' || input == 'ui') {
+        if (input == 'console' || input == 'ui' || input == 'dashboard') {
           final hasOrg = context['org'] != '-' && context['org'] != 'error';
           if (!hasOrg) {
             Output.blank();
-            Output.info('Dashboard requires an active project.');
+            Output.info('Console requires an active project.');
             final choice = Output.prompt(
                 'Would you like to (1) Select a project or (2) Create a new one?',
                 defaultValue: '1');
@@ -169,9 +205,24 @@ final class InteractiveShell {
         Output.blank();
       }
     } finally {
-      // Always disable mouse on exit
-      stdout.write(TuiUtils.disableMouse);
+      if (Platform.isMacOS || Platform.isLinux) {
+        sigIntSub.cancel();
+        sigTermSub.cancel();
+      }
+      _exitCleanly();
     }
+  }
+
+  void _exitCleanly() {
+    stdout.write(TuiUtils.disableMouse);
+    if (_tuiActive) {
+      stdout.write(TuiUtils.exitAltScreen);
+      _tuiActive = false;
+    }
+    stdout.write('\x1b[0m'); // Absolute system formatting reset
+    stdout.write('\x1b[?25h'); // Ensure cursor is visible
+    _clearScreen();
+    exit(0);
   }
 
   void _handleCd(List<String> args) {
@@ -223,8 +274,16 @@ final class InteractiveShell {
         '\x1b[2mType a command below to manage your backend. Use "help" for more info.\x1b[0m');
     stdout.writeln('\x1b[2m  1. Run "init" to scaffold a project.\x1b[0m');
     stdout.writeln('\x1b[2m  2. Use "up" to apply changes.\x1b[0m');
-    stdout
-        .writeln('\x1b[2m  3. Type "dashboard" to enter the Admin TUI.\x1b[0m');
+
+    final context = _resolveContext();
+    final hasProject = context['org'] != '-' && context['org'] != 'error';
+    final isLoggedIn = SessionManager.isLoggedIn();
+
+    if (hasProject && isLoggedIn) {
+      stdout
+          .writeln('\x1b[2m  3. Type "console" to enter the Admin TUI.\x1b[0m');
+    }
+
     stdout.writeln(
         '\x1b[2m  4. Type "exit" to leave the interactive shell.\x1b[0m');
     stdout.writeln();
@@ -238,40 +297,46 @@ final class InteractiveShell {
         'org': '-',
         'project': '-',
         'env': 'local',
-        'features': <String>[]
+        'features': <String>[],
+        'allProjects': <String>[],
       };
     }
 
     try {
       final merger = ConfigMerger();
       final config = merger.merge(root);
+
+      // Discover all projects in the org
+      final orgsDir = Directory(p.join(root, 'orgs', config.org.id));
+      final allProjects = <String>[];
+      if (orgsDir.existsSync()) {
+        for (final entity in orgsDir.listSync()) {
+          if (entity is Directory) {
+            final projectName = p.basename(entity.path);
+            if (!projectName.startsWith('.') &&
+                File(p.join(entity.path, 'project.yaml')).existsSync()) {
+              allProjects.add(projectName);
+            }
+          }
+        }
+      }
+
       return {
-        'org': config.project.orgId,
-        'project': config.project.id,
-        'env': 'local', // Default in shell for now
+        'org': config.org.id,
+        'project': _selectedProject ?? config.project.id,
+        'env': 'local',
         'features': config.project.enabledFeatures,
+        'allProjects': allProjects,
       };
     } catch (_) {
       return {
         'org': 'error',
         'project': 'error',
         'env': 'local',
-        'features': <String>[]
+        'features': <String>[],
+        'allProjects': <String>[],
       };
     }
-  }
-
-  void _printContextBar(Map<String, dynamic> context) {
-    final org = context['org']!;
-    final project = context['project']!;
-    final env = context['env']!;
-
-    final bar = '\x1b[46m\x1b[30m ORG: $org \x1b[0m '
-        '\x1b[45m\x1b[30m PROJECT: $project \x1b[0m '
-        '\x1b[42m\x1b[30m ENV: $env \x1b[0m';
-
-    stdout.writeln(bar);
-    stdout.writeln();
   }
 
   String _getPromptPrefix() {
@@ -304,58 +369,176 @@ final class InteractiveShell {
     final width = stdout.terminalColumns;
     final height = stdout.terminalLines;
 
-    // Header bar (Full width surface background)
-    stdout.write(TuiUtils.bgSurface);
-    stdout.write(' ' * width);
-    TuiUtils.printAt(2, 1, 'APPLAD ADMIN',
+    if (_tuiScope == TuiScope.org) {
+      _renderOrgDashboard(context, width, height);
+    } else {
+      _renderProjectDashboard(context, width, height);
+    }
+  }
+
+  void _renderOrgDashboard(
+      Map<String, dynamic> context, int width, int height) {
+    // Org Header
+    TuiUtils.moveTo(1, 1);
+    stdout.write(TuiUtils.bgSurface + (' ' * width) + TuiUtils.reset);
+    TuiUtils.printAt(2, 1, 'APPLAD CONSOLE // ${context['org']}',
         bold: true, color: '${TuiUtils.bgSurface}${TuiUtils.accentCyan}');
-    TuiUtils.printAt(width - 30, 1, 'ctx: ${context['org']} @local',
-        color: '${TuiUtils.bgSurface}${TuiUtils.textPrimary}');
-    stdout.write(TuiUtils.reset);
+    TuiUtils.printAt(width - 15, 1, 'Free Tier',
+        color: '${TuiUtils.bgSurface}${TuiUtils.textMuted}');
 
-    // Calculate Dynamic Tabs
-    final features =
-        (context['features'] as List<dynamic>?)?.cast<String>() ?? [];
-    _currentTabs = [' DASHBOARD ', ' PROJECTS '];
-    if (features.contains('functions')) {
-      _currentTabs.add(' FUNCTIONS ');
-    }
-    if (features.contains('storage')) {
-      _currentTabs.add(' STORAGE ');
-    }
-    if (features.contains('messaging')) {
-      _currentTabs.add(' MESSAGING ');
-    }
-    if (features.contains('realtime')) {
-      _currentTabs.add(' REALTIME ');
-    }
-    if (features.contains('database') || features.contains('graphql')) {
-      _currentTabs.add(' DATABASE ');
-    }
-
-    // Tabs - Compact Posting Style
+    // Horizontal Tabs
     var currentX = 2;
-    for (var i = 0; i < _currentTabs.length; i++) {
-      final isActive = i == _activeTab;
+    for (var i = 0; i < _orgTabs.length; i++) {
+      final isActive = i == _activeOrgTab;
       if (isActive) {
-        TuiUtils.printAt(currentX, 3, _currentTabs[i],
-            bold: true, color: '${TuiUtils.bgSurface}${TuiUtils.accentCyan}');
+        TuiUtils.printAt(currentX, 3, _orgTabs[i],
+            bold: true, color: '${TuiUtils.bgMagenta}${TuiUtils.black}');
       } else {
-        TuiUtils.printAt(currentX, 3, _currentTabs[i],
-            color: TuiUtils.textMuted);
+        TuiUtils.printAt(currentX, 3, _orgTabs[i],
+            color: '${TuiUtils.bgBase}${TuiUtils.textMuted}');
       }
-      currentX += _currentTabs[i].length + 2;
+      currentX += _orgTabs[i].length + 2;
     }
     TuiUtils.drawLine(1, 4, width, color: TuiUtils.borderNormal);
 
+    // Tab Content
+    if (_activeOrgTab == 0) {
+      // Projects
+      final allProjects =
+          (context['allProjects'] as List<dynamic>?)?.cast<String>() ?? [];
+
+      TuiUtils.printAt(4, 6, 'Projects',
+          bold: true, color: TuiUtils.textPrimary);
+
+      // Top Right: Create Project Action Button
+      final btnLabel = ' + Create project ';
+      final btnX = width - btnLabel.length - 4;
+      TuiUtils.printAt(btnX, 6, btnLabel,
+          color: '${TuiUtils.bgBase}${TuiUtils.accentMagenta}');
+
+      var cardX = 4;
+      var cardY = 8;
+      final cardWidth = (width ~/ 3) - 4;
+
+      if (allProjects.isEmpty) {
+        TuiUtils.drawBox(cardX, cardY, cardWidth, 8,
+            title: 'No Projects Found');
+        TuiUtils.printAt(cardX + 2, cardY + 2, 'Run `applad init`',
+            color: TuiUtils.textMuted);
+      } else {
+        for (var i = 0; i < allProjects.length; i++) {
+          final pName = allProjects[i];
+          TuiUtils.drawBox(cardX, cardY, cardWidth, 8,
+              title: pName, borderColor: TuiUtils.borderNormal);
+          TuiUtils.printAt(cardX + 2, cardY + 2, pName,
+              bold: true, color: TuiUtils.textPrimary);
+          TuiUtils.printAt(cardX + 2, cardY + 4, '</> Web',
+              color: TuiUtils.accentCyan);
+          TuiUtils.printAt(cardX + cardWidth - 12, cardY + 6, 'Local',
+              color: TuiUtils.textMuted);
+
+          cardX += cardWidth + 2;
+          if (cardX + cardWidth > width) {
+            // wrap
+            cardX = 4;
+            cardY += 10;
+          }
+        }
+      }
+
+      // Always draw the + Create project card at the end of the list
+      TuiUtils.drawBox(cardX, cardY, cardWidth, 8,
+          title: 'New Project', borderColor: TuiUtils.borderNormal);
+      TuiUtils.printAt(
+          cardX + cardWidth ~/ 2 - 8, cardY + 4, '+ Create project',
+          color: TuiUtils.accentMagenta, bold: true);
+    } else {
+      TuiUtils.printAt(4, 8, 'Feature pending implementation',
+          color: TuiUtils.textMuted);
+    }
+
+    // Lower Shortcut Bar (Posting style)
+    final shortcuts = ['^q Quit', '^r REPL'];
+    var sx = 2;
+    TuiUtils.moveTo(1, height);
+    stdout.write(TuiUtils.bgSurface + (' ' * width) + TuiUtils.reset);
+    for (final s in shortcuts) {
+      final key = s.split(' ')[0];
+      final label = s.split(' ')[1];
+      TuiUtils.printAt(sx, height, key,
+          color: '${TuiUtils.bgSurface}${TuiUtils.accentMagenta}');
+      TuiUtils.printAt(sx + key.length + 1, height, label,
+          color: '${TuiUtils.bgSurface}${TuiUtils.textMuted}');
+      sx += s.length + 3;
+    }
+    TuiUtils.moveTo(width - 5, height);
+    stdout.write(
+        '${TuiUtils.bgSurface}${TuiUtils.accentCyan}❯${TuiUtils.reset} ');
+  }
+
+  void _renderProjectDashboard(
+      Map<String, dynamic> context, int width, int height) {
+    TuiUtils.moveTo(1, 1);
+    stdout.write(TuiUtils.bgSurface + (' ' * width) + TuiUtils.reset);
+    TuiUtils.printAt(2, 1, 'APPLAD CONSOLE',
+        bold: true, color: '${TuiUtils.bgSurface}${TuiUtils.accentCyan}');
+    TuiUtils.printAt(20, 1, 'ctx: ${context['org']} / ${context['project']}',
+        color: '${TuiUtils.bgSurface}${TuiUtils.textPrimary}');
+    TuiUtils.printAt(width - 40, 1, 'API Endpoint: http://localhost:8080',
+        color: '${TuiUtils.bgSurface}${TuiUtils.textMuted}');
+
+    // Calculate Dynamic Sidebar Items
+    final features =
+        (context['features'] as List<dynamic>?)?.cast<String>() ?? [];
+    _currentTabs = [' Overview '];
+    _currentTabs.add(' Auth '); // Standard for most apps
+
+    if (features.contains('database') || features.contains('graphql')) {
+      _currentTabs.add(' Databases ');
+    }
+    if (features.contains('functions')) {
+      _currentTabs.add(' Functions ');
+    }
+    if (features.contains('messaging')) {
+      _currentTabs.add(' Messaging ');
+    }
+    if (features.contains('storage')) {
+      _currentTabs.add(' Storage ');
+    }
+    if (features.contains('realtime')) {
+      _currentTabs.add(' Realtime ');
+    }
+    _currentTabs.add(' Settings ');
+
+    // Vertical Sidebar Render
+    final sidebarWidth = 22;
+    var currentY = 4;
+    for (var i = 0; i < _currentTabs.length; i++) {
+      final isActive = i == _activeTab;
+      final label = _currentTabs[i];
+      final paddedLabel = label.padRight(sidebarWidth - 4);
+
+      if (isActive) {
+        TuiUtils.printAt(2, currentY, '  $paddedLabel',
+            bold: true, color: '${TuiUtils.bgMagenta}${TuiUtils.black}');
+      } else {
+        TuiUtils.printAt(2, currentY, '  $paddedLabel',
+            color: '${TuiUtils.bgBase}${TuiUtils.textMuted}');
+      }
+      currentY += 2;
+    }
+
     // Content area
+    final contentX = sidebarWidth + 2;
+    final contentWidth = width - contentX - 2;
+
     if (_activeTab == 0) {
-      _renderDashboardTab(context, width, height);
-    } else if (_activeTab == 1) {
-      _renderProjectsTab(context, width, height);
-    } else if (_activeTab < _currentTabs.length) {
-      _renderFeatureTab(
-          context, width, height, _currentTabs[_activeTab].trim());
+      _renderOverviewTab(context, contentX, contentWidth, height);
+    } else if (_currentTabs[_activeTab].trim() == 'Settings') {
+      _renderSettingsTab(context, contentX, contentWidth, height);
+    } else {
+      _renderFeatureTab(context, contentX, contentWidth, height,
+          _currentTabs[_activeTab].trim());
     }
 
     // Lower Shortcut Bar (Posting style)
@@ -388,72 +571,193 @@ final class InteractiveShell {
         '${TuiUtils.bgSurface}${TuiUtils.accentCyan}❯${TuiUtils.reset} ');
   }
 
-  void _renderDashboardTab(
-      Map<String, dynamic> context, int width, int height) {
-    final colWidth = (width ~/ 2) - 3;
-    TuiUtils.drawBox(2, 6, colWidth, 8,
-        title: 'Environment Status', borderColor: TuiUtils.borderActive);
-    TuiUtils.printAt(4, 7, '• Infrastructure: Docker',
-        color: TuiUtils.accentCyan, maxWidth: colWidth - 4);
-    TuiUtils.printAt(4, 8, '• API Gateway: http://localhost:8080',
-        color: TuiUtils.textPrimary, maxWidth: colWidth - 4);
-    TuiUtils.printAt(4, 10, 'Health: ', color: TuiUtils.textMuted);
-    TuiUtils.printAt(12, 10, 'ONLINE', color: TuiUtils.accentGreen, bold: true);
+  void _renderOverviewTab(
+      Map<String, dynamic> context, int startX, int width, int height) {
+    // Top Row Cards (Bandwidth / Requests)
+    final topCardWidth = (width ~/ 2) - 2;
+    TuiUtils.drawBox(startX, 4, topCardWidth, 8,
+        title: 'Bandwidth', borderColor: TuiUtils.borderNormal);
+    TuiUtils.printAt(startX + 2, 6, '340 KB',
+        color: TuiUtils.textPrimary, bold: true);
+    TuiUtils.printAt(startX + 2, 10, 'Last 30 days', color: TuiUtils.textMuted);
 
-    TuiUtils.drawBox(colWidth + 4, 6, colWidth, 8, title: 'Active Context');
-    TuiUtils.printAt(colWidth + 6, 7, '• Active Org: ${context['org']}',
-        color: TuiUtils.accentCyan, maxWidth: colWidth - 4);
-    TuiUtils.printAt(colWidth + 6, 8, '• Project: ${context['project']}',
-        color: TuiUtils.textPrimary, maxWidth: colWidth - 4);
-    TuiUtils.printAt(colWidth + 6, 9, '• Env: @local',
-        color: TuiUtils.textPrimary, maxWidth: colWidth - 4);
+    TuiUtils.drawBox(startX + topCardWidth + 2, 4, topCardWidth, 8,
+        title: 'Requests', borderColor: TuiUtils.borderNormal);
+    TuiUtils.printAt(startX + topCardWidth + 4, 6, '171',
+        color: TuiUtils.textPrimary, bold: true);
+    TuiUtils.printAt(startX + topCardWidth + 4, 10, 'Last 30 days',
+        color: TuiUtils.textMuted);
 
-    TuiUtils.drawBox(2, 15, width - 4, height - 20, title: 'System Logs');
-    TuiUtils.printAt(
-        4, 16, 'Welcome to Applad Dashboard. Select a tab to explore.',
-        color: TuiUtils.textMuted, maxWidth: width - 8);
-    TuiUtils.printAt(4, 17, 'Run "up" to apply configuration changes.',
-        color: TuiUtils.textMuted, maxWidth: width - 8);
-  }
+    // Grid Cards
+    var currentX = startX;
+    final gridY = 13;
+    final colWidth = (width ~/ 4) - 2;
 
-  void _renderProjectsTab(Map<String, dynamic> context, int width, int height) {
-    TuiUtils.printAt(4, 6, 'Project List for ${context['org']}:',
-        bold: true, color: TuiUtils.accentCyan);
-    TuiUtils.printAt(6, 8, '• ${context['project']} (Current)',
-        color: TuiUtils.accentGreen, bold: true);
-    TuiUtils.printAt(6, 9, '• marketing-site', color: TuiUtils.textMuted);
-    TuiUtils.printAt(6, 10, '• analytics-api', color: TuiUtils.textMuted);
+    TuiUtils.drawBox(currentX, gridY, colWidth, 6,
+        title: 'Database', borderColor: TuiUtils.borderNormal);
+    TuiUtils.printAt(currentX + 2, gridY + 2, '0',
+        color: TuiUtils.textPrimary, bold: true);
+    TuiUtils.printAt(currentX + 2, gridY + 4, 'Rows',
+        color: TuiUtils.textMuted);
+    currentX += colWidth + 2;
 
-    TuiUtils.printAt(4, 13, 'Quick Actions:',
-        bold: true, color: TuiUtils.accentCyan);
-    TuiUtils.printAt(6, 15, 'Run "init" to scaffold a new project.',
+    TuiUtils.drawBox(currentX, gridY, colWidth, 6,
+        title: 'Storage', borderColor: TuiUtils.borderNormal);
+    TuiUtils.printAt(currentX + 2, gridY + 2, '0 B',
+        color: TuiUtils.textPrimary, bold: true);
+    TuiUtils.printAt(currentX + 2, gridY + 4, 'Storage',
+        color: TuiUtils.textMuted);
+    currentX += colWidth + 2;
+
+    TuiUtils.drawBox(currentX, gridY, colWidth, 6,
+        title: 'Auth', borderColor: TuiUtils.borderNormal);
+    TuiUtils.printAt(currentX + 2, gridY + 2, '1',
+        color: TuiUtils.textPrimary, bold: true);
+    TuiUtils.printAt(currentX + 2, gridY + 4, 'Users',
+        color: TuiUtils.textMuted);
+    currentX += colWidth + 2;
+
+    TuiUtils.drawBox(currentX, gridY, colWidth, 6,
+        title: 'Functions', borderColor: TuiUtils.borderNormal);
+    TuiUtils.printAt(currentX + 2, gridY + 2, '1.3K',
+        color: TuiUtils.textPrimary, bold: true);
+    TuiUtils.printAt(currentX + 2, gridY + 4, 'Executions',
         color: TuiUtils.textMuted);
   }
 
-  void _renderFeatureTab(
-      Map<String, dynamic> context, int width, int height, String featureName) {
-    final colWidth = width - 4;
-    TuiUtils.drawBox(2, 6, colWidth, height - 10,
-        title: featureName, borderColor: TuiUtils.borderActive);
-    TuiUtils.printAt(4, 7, '• Managing $featureName resources',
-        color: TuiUtils.accentCyan, maxWidth: colWidth - 4);
-    TuiUtils.printAt(4, 8, 'Details pending implementation...',
-        color: TuiUtils.textMuted, maxWidth: colWidth - 4);
+  void _renderSettingsTab(
+      Map<String, dynamic> context, int startX, int width, int height) {
+    TuiUtils.drawBox(startX, 4, width, height - 10,
+        title: 'Settings', borderColor: TuiUtils.borderNormal);
+    TuiUtils.printAt(startX + 2, 6, 'Project Settings:',
+        bold: true, color: TuiUtils.accentCyan);
+    TuiUtils.printAt(startX + 2, 8, '• Project ID: ${context['project']}',
+        color: TuiUtils.textPrimary);
+    TuiUtils.printAt(startX + 2, 9, '• Organization: ${context['org']}',
+        color: TuiUtils.textPrimary);
   }
 
-  void _handleTuiMouse(TuiMouseEvent event) {
+  void _renderFeatureTab(Map<String, dynamic> context, int startX, int width,
+      int height, String featureName) {
+    TuiUtils.drawBox(startX, 4, width, height - 10,
+        title: featureName, borderColor: TuiUtils.borderActive);
+    TuiUtils.printAt(startX + 2, 6, '• Managing $featureName resources',
+        color: TuiUtils.accentCyan);
+    TuiUtils.printAt(startX + 2, 7, 'Details pending implementation...',
+        color: TuiUtils.textMuted);
+  }
+
+  Future<void> _startProjectCreationFlow() async {
+    // Suspend TUI
+    stdout.write(TuiUtils.disableMouse);
+    if (_tuiActive) {
+      stdout.write(TuiUtils.exitAltScreen);
+      _tuiActive = false;
+    }
+    _clearScreen();
+
+    // Run the interactive CLI creation flow
+    stdout.writeln('\x1b[35mStarting Project Creation Flow...\x1b[0m\n');
+
+    try {
+      // Drop terminal back to standard line buffering for prompts
+      stdin.lineMode = true;
+      stdin.echoMode = true;
+      await runner.run(['init']);
+    } catch (e) {
+      Output.error('Failed to init project: $e');
+      // Pause so the user can see the error
+      await Future.delayed(Duration(seconds: 2));
+    } finally {
+      // Restore TUI mode settings
+      stdin.lineMode = false;
+      stdin.echoMode = false;
+    }
+
+    // Restart TUI state
+    _tuiScope = TuiScope.org;
+  }
+
+  Future<void> _handleTuiMouse(TuiMouseEvent event) async {
     if (!event.isDown) return;
 
-    // Detect click on tabs (Row 3, coordinated X positions based on active dynamic tabs)
-    if (event.y == 3) {
-      var currentX = 2;
-      for (var i = 0; i < _currentTabs.length; i++) {
-        final tabWidth = _currentTabs[i].length;
-        if (event.x >= currentX && event.x <= currentX + tabWidth) {
-          _activeTab = i;
+    if (_tuiScope == TuiScope.org) {
+      // Handle Org horizontal tabs
+      if (event.y == 3) {
+        var currentX = 2;
+        for (var i = 0; i < _orgTabs.length; i++) {
+          final tabWidth = _orgTabs[i].length;
+          if (event.x >= currentX && event.x <= currentX + tabWidth) {
+            _activeOrgTab = i;
+            return;
+          }
+          currentX += tabWidth + 2;
+        }
+      }
+
+      // Handle Project Card Clicks
+      if (_activeOrgTab == 0) {
+        final width = stdout.terminalColumns;
+
+        // Detect '+ Create project' button click
+        if (event.y == 6 && event.x >= width - 25) {
+          await _startProjectCreationFlow();
           return;
         }
-        currentX += tabWidth + 2;
+
+        if (event.y >= 8) {
+          final context = _resolveContext();
+          final allProjects =
+              (context['allProjects'] as List<dynamic>?)?.cast<String>() ?? [];
+          final cardWidth = (width ~/ 3) - 4;
+
+          var cardX = 4;
+          var cardY = 8;
+
+          for (var i = 0; i <= allProjects.length; i++) {
+            if (event.x >= cardX &&
+                event.x <= cardX + cardWidth &&
+                event.y >= cardY &&
+                event.y <= cardY + 8) {
+              if (i == allProjects.length) {
+                // Clicked the [+ Create project] card at the end
+                await _startProjectCreationFlow();
+                return;
+              } else {
+                // Clicked an existing project
+                _selectedProject = allProjects[i];
+                _tuiScope = TuiScope.project;
+                _activeTab = 0; // Reset sidebar
+                return;
+              }
+            }
+            cardX += cardWidth + 2;
+            if (cardX + cardWidth > width) {
+              cardX = 4;
+              cardY += 10;
+            }
+          }
+        }
+      }
+    } else {
+      // Breadcrumb click to go back
+      if (event.y == 1 && event.x < 15) {
+        _tuiScope = TuiScope.org;
+        return;
+      }
+
+      // Detect Project sidebar clicks
+      final sidebarWidth = 22;
+      if (event.x >= 2 && event.x <= sidebarWidth) {
+        if (event.y >= 4 && event.y < 4 + (_currentTabs.length * 2)) {
+          final index = (event.y - 4) ~/ 2;
+          if (index >= 0 && index < _currentTabs.length) {
+            if ((event.y - 4) % 2 == 0) {
+              _activeTab = index;
+              return;
+            }
+          }
+        }
       }
     }
   }

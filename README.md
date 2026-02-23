@@ -82,7 +82,7 @@ applad/
 │   ├── applad_core/     # Shared models, config engine, YAML merge
 │   ├── applad_cli/      # The `applad` CLI binary
 │   ├── applad_server/   # Dart Frog API server
-│   ├── applad_admin/    # Flutter admin dashboard
+│   ├── applad_console/  # Flutter admin dashboard
 │   └── applad_client/   # Dart/Flutter client SDK
 ├── examples/
 │   └── starter-project/ # Full working example
