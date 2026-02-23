@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>The open-source BaaS where everything is config, everything is visual, and everything is assisted by AI.</b>
+  <b>Config-driven, AI-Native Backend Engine. Visually managed. Open source.</b>
 </p>
 
 > More than just a BaaS, Applad is the Infrastructure-as-Code (IaC) tool for your entire backend. It replaces disjointed tools for database, auth, CI/CD, feature flags, and analytics with a single, agentless, coherent system. Your config files are the backend, the admin UI is a friendly lens into them. Built with Dart & Flutter.
