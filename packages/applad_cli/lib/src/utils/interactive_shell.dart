@@ -195,8 +195,11 @@ final class InteractiveShell {
           if (isAppladCommand) {
             await runner.run(args);
           } else {
-            // Pass through to system shell
-            await _runSystemCommand(args);
+            // Restriction: No system commands allowed as per user request
+            stdout
+                .writeln('\x1b[31m✗\x1b[0m Unknown command: "${args.first}".');
+            stdout.writeln(
+                '\x1b[2mType "help" to see all available Applad commands.\x1b[0m');
           }
         } catch (e) {
           Output.error('Error executing command: $e');
@@ -241,24 +244,6 @@ final class InteractiveShell {
     }
   }
 
-  Future<void> _runSystemCommand(List<String> args) async {
-    try {
-      final process = await Process.start(
-        args.first,
-        args.sublist(1),
-        mode: ProcessStartMode.inheritStdio,
-      );
-      final exitCode = await process.exitCode;
-      if (exitCode != 0 && args.first == 'ls' && Platform.isMacOS) {
-        // Subtle hint for common mistakes
-      }
-    } catch (e) {
-      stdout.writeln(
-          '\x1b[31m✗\x1b[0m Could not find a command named "${args.first}".');
-      stdout.writeln('\x1b[2mTry "help" for a list of Applad commands.\x1b[0m');
-    }
-  }
-
   void _clearScreen() {
     if (Platform.isWindows) {
       stdout.write('\x1B[2J\x1B[0;0H');
@@ -268,24 +253,42 @@ final class InteractiveShell {
   }
 
   void _printWelcome() {
-    stdout.writeln(runner.getLogo());
-    stdout.writeln('\x1b[1m* Welcome back to your Applad Environment!\x1b[0m');
-    stdout.writeln(
-        '\x1b[2mType a command below to manage your backend. Use "help" for more info.\x1b[0m');
-    stdout.writeln('\x1b[2m  1. Run "init" to scaffold a project.\x1b[0m');
-    stdout.writeln('\x1b[2m  2. Use "up" to apply changes.\x1b[0m');
+    final width = stdout.terminalColumns;
+    TuiUtils.clear();
+
+    // 1. Logo and Header
+    final logoLines = runner.getLogo().split('\n');
+    for (final line in logoLines) {
+      stdout.writeln('\x1b[1m$line\x1b[0m');
+    }
 
     final context = _resolveContext();
-    final hasProject = context['org'] != '-' && context['org'] != 'error';
     final isLoggedIn = SessionManager.isLoggedIn();
+    final userEmail = SessionManager.currentUserEmail ?? 'unknown';
 
-    if (hasProject && isLoggedIn) {
-      stdout
-          .writeln('\x1b[2m  3. Type "console" to enter the Admin TUI.\x1b[0m');
+    // 2. Status Information
+    stdout.writeln();
+    if (isLoggedIn) {
+      stdout.writeln(
+          '  \x1b[1mLogged in as:\x1b[0m \x1b[36m$userEmail\x1b[0m \x1b[90m/auth\x1b[0m');
+    } else {
+      stdout.writeln('  \x1b[1mStatus:\x1b[0m \x1b[31mNot logged in\x1b[0m');
     }
 
     stdout.writeln(
-        '\x1b[2m  4. Type "exit" to leave the interactive shell.\x1b[0m');
+        '  \x1b[1mContext:\x1b[0m \x1b[35m${context['org']} / ${context['project']}\x1b[0m');
+
+    // 3. Tips
+    stdout.writeln();
+    stdout.writeln('  \x1b[1mTips for getting started:\x1b[0m');
+    stdout.writeln('  1. Run \x1b[36minit\x1b[0m to scaffold a new project.');
+    stdout.writeln(
+        '  2. Use \x1b[36mup\x1b[0m to apply changes to your environment.');
+    stdout
+        .writeln('  3. Type \x1b[36mhelp\x1b[0m for a full list of commands.');
+
+    // 4. Separator
+    stdout.writeln('\x1b[90m' + ('─' * width) + '\x1b[0m');
     stdout.writeln();
   }
 
@@ -340,12 +343,7 @@ final class InteractiveShell {
   }
 
   String _getPromptPrefix() {
-    final cwd = Directory.current.path;
-    final home = Platform.environment['HOME'] ?? '';
-    final displayCwd =
-        cwd.startsWith(home) ? '~${cwd.substring(home.length)}' : cwd;
-
-    return '\x1b[35m$displayCwd\x1b[0m \x1b[36m❯\x1b[0m';
+    return '\x1b[34m❯\x1b[0m';
   }
 
   /// Simple command line parser that handles quotes.

@@ -14,13 +14,22 @@ final class SessionManager {
     return File(_sessionFile).existsSync();
   }
 
+  /// Returns the current user's email if logged in.
+  static String? get currentUserEmail {
+    final file = File(_sessionFile);
+    if (!file.existsSync()) return null;
+    final content = file.readAsStringSync();
+    if (content == 'authenticated') return 'guest@applad.dev';
+    return content;
+  }
+
   /// Creates a mock session file.
-  static void login() {
+  static void login({String email = 'guest@applad.dev'}) {
     final file = File(_sessionFile);
     if (!file.parent.existsSync()) {
       file.parent.createSync(recursive: true);
     }
-    file.writeAsStringSync('authenticated');
+    file.writeAsStringSync(email);
   }
 
   /// Deletes the session file.
