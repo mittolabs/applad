@@ -19,6 +19,7 @@ import 'database_command.dart';
 import 'storage_command.dart';
 import 'flags_command.dart';
 import 'workflows_command.dart';
+import 'workspace_command.dart';
 import 'uninstall_command.dart';
 import '../utils/interactive_shell.dart';
 import '../utils/output.dart';
@@ -80,6 +81,7 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
     addCommand(LogoutCommand());
     addCommand(AccessCommand());
     addCommand(UninstallCommand());
+    addCommand(WorkspaceCommand());
   }
 
   /// Returns the ASCII logo for Applad.

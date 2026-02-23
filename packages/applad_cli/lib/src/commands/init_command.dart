@@ -3,6 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:mason/mason.dart';
 import '../utils/output.dart';
 import '../templates/applad_init_brick_bundle.dart';
+import '../utils/workspace_manager.dart';
 
 /// `applad init` — scaffolds a new Applad project config tree using Mason.
 final class InitCommand extends Command<void> {
@@ -165,6 +166,8 @@ final class InitCommand extends Command<void> {
       'enable_workflows': enableWorkflows,
       'enable_flags': enableFlags,
     });
+
+    WorkspaceManager.register(Directory.current.path);
 
     Output.blank();
     Output.success('Project initialized successfully!');

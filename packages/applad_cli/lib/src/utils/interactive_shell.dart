@@ -286,15 +286,28 @@ final class InteractiveShell {
   }
 
   void _printWelcome() {
-    stdout.writeln(runner.getLogo());
-    stdout.writeln('\x1b[1m* Welcome back to your Applad Environment!\x1b[0m');
-    stdout.writeln(
-        '\x1b[2mType a command below to manage your backend. Use "help" for more info.\x1b[0m');
-    stdout.writeln('\x1b[2m  1. Run "init" to scaffold a project.\x1b[0m');
-    stdout.writeln('\x1b[2m  2. Use "up" to apply changes.\x1b[0m');
-
     final context = _resolveContext();
     final hasProject = context['org'] != '-' && context['org'] != 'error';
+
+    stdout.writeln(runner.getLogo());
+    if (hasProject) {
+      stdout
+          .writeln('\x1b[1m* Welcome back to your Applad Environment!\x1b[0m');
+    } else {
+      stdout.writeln('\x1b[1m* Welcome to Applad AI-Native CLI!\x1b[0m');
+    }
+
+    stdout.writeln(
+        '\x1b[2mType a command below to manage your backend. Use "help" for more info.\x1b[0m');
+
+    if (!hasProject) {
+      stdout.writeln('\x1b[2m  1. Run "init" to scaffold a project.\x1b[0m');
+      stdout.writeln(
+          '\x1b[2m  2. Run "workspace list" to switch to an existing project.\x1b[0m');
+    } else {
+      stdout.writeln('\x1b[2m  1. Use "up" to apply changes.\x1b[0m');
+    }
+
     final isLoggedIn = SessionManager.isLoggedIn();
 
     if (hasProject && isLoggedIn) {
