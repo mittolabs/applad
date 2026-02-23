@@ -176,6 +176,8 @@ final class UpCommand extends Command<void> {
     }
 
     final composeYml = '''
+version: '3.8'
+
 services:
   applad_server:
     image: ghcr.io/mittolabs/applad:${envConfig.engineVersion}

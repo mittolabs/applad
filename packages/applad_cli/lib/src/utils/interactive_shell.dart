@@ -269,25 +269,53 @@ final class InteractiveShell {
   }
 
   void _printWelcome() {
-    stdout.writeln(runner.getLogo());
-    stdout.writeln('\x1b[1m* Welcome back to your Applad Environment!\x1b[0m');
+    final width = stdout.terminalColumns;
+    final borderColor = '\x1b[36m'; // Cyan
+    final reset = '\x1b[0m';
+
+    // 1. Box Top Border
+    stdout.write(
+        '\n$borderColor┌── Applad Repl ' + ('─' * (width - 16)) + '┐$reset\n');
+
+    // 2. Logo and Content
+    final logoLines = runner.getLogo().split('\n');
+    for (final line in logoLines) {
+      if (line.trim().isEmpty) continue;
+      // Adjust logo color to stay within cyan box if needed, or just keep as is
+      stdout.writeln('$borderColor│$reset $line'.padRight(width + 8) +
+          '$borderColor│$reset');
+    }
+
     stdout.writeln(
-        '\x1b[2mType a command below to manage your backend. Use "help" for more info.\x1b[0m');
-    stdout.writeln('\x1b[2m  1. Run "init" to scaffold a project.\x1b[0m');
-    stdout.writeln('\x1b[2m  2. Use "up" to apply changes.\x1b[0m');
+        '$borderColor│$reset'.padRight(width + 8) + '$borderColor│$reset');
+    stdout.writeln(
+        '$borderColor│$reset \x1b[1m* Welcome back to your Applad Environment!\x1b[0m'
+                .padRight(width + 17) +
+            '$borderColor│$reset');
+    stdout.writeln(
+        '$borderColor│$reset \x1b[2mType a command below to manage your backend. Use "help" for more info.\x1b[0m'
+                .padRight(width + 17) +
+            '$borderColor│$reset');
 
     final context = _resolveContext();
     final hasProject = context['org'] != '-' && context['org'] != 'error';
     final isLoggedIn = SessionManager.isLoggedIn();
 
     if (hasProject && isLoggedIn) {
-      stdout
-          .writeln('\x1b[2m  3. Type "console" to enter the Admin TUI.\x1b[0m');
+      stdout.writeln(
+          '$borderColor│$reset \x1b[2m  • Type "console" to enter the Admin TUI.\x1b[0m'
+                  .padRight(width + 17) +
+              '$borderColor│$reset');
     }
 
     stdout.writeln(
-        '\x1b[2m  4. Type "exit" to leave the interactive shell.\x1b[0m');
-    stdout.writeln();
+        '$borderColor│$reset \x1b[2m  • Type "exit" to leave the interactive shell.\x1b[0m'
+                .padRight(width + 17) +
+            '$borderColor│$reset');
+    stdout.writeln(
+        '$borderColor│$reset'.padRight(width + 8) + '$borderColor│$reset');
+
+    // We don't close the box here because the interaction area is "within the box"
   }
 
   Map<String, dynamic> _resolveContext() {
@@ -345,10 +373,12 @@ final class InteractiveShell {
     final home = Platform.environment['HOME'] ?? '';
     final displayCwd =
         cwd.startsWith(home) ? '~${cwd.substring(home.length)}' : cwd;
-    // Gemini-style grey bar
-    const greyBg = '\x1b[48;5;238m';
 
-    return '$greyBg \x1b[35m$displayCwd\x1b[39m \x1b[30m❯\x1b[39m ';
+    final borderColor = '\x1b[36m'; // Cyan
+    final reset = '\x1b[0m';
+
+    // Within the box: prefix with │
+    return '$borderColor│$reset \x1b[35m$displayCwd\x1b[0m \x1b[36m❯\x1b[0m';
   }
 
   /// Simple command line parser that handles quotes.
