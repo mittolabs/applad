@@ -74,19 +74,20 @@ final class UninstallCommand extends Command<void> {
       final exitCode = await process.exitCode;
       if (exitCode == 0) {
         Output.success('Applad binary deactivated successfully.');
-      } else {
-        Output.warning(
-            'Failed to deactivate via pub. You might have installed it manually.');
       }
-    } catch (e) {
-      Output.warning('Could not run `dart pub global deactivate`.');
-    }
+    } catch (_) {}
 
     Output.blank();
     Output.success('Cleanup complete!');
     Output.blank();
-    Output.info(
-        'If you installed Applad manually, please delete the binary from your PATH.');
-    Output.blank();
+
+    final path = Platform.environment['PATH'] ?? '';
+    if (path.contains('.applad/bin')) {
+      Output.header('Next steps to complete uninstallation:');
+      Output.info('It looks like `~/.applad/bin` is still in your PATH.');
+      Output.info(
+          'Please remove it from your shell profile (~/.zshrc, ~/.bashrc, etc.).');
+      Output.blank();
+    }
   }
 }
