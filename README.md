@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="Applad Logo" width="600" />
+  <img src="assets/logo.jpg" alt="Applad Logo" width="200" />
 </p>
 
 <p align="center">
