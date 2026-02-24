@@ -56,7 +56,7 @@ _Your API is now live at `http://localhost:8080`_
 
 ---
 
-### 核心 Core & 智能 AI
+### Core & AI
 
 | Command           | Description                                           |
 | ----------------- | ----------------------------------------------------- |
@@ -66,7 +66,7 @@ _Your API is now live at `http://localhost:8080`_
 | `applad status`   | Check service health and identify configuration drift |
 | `applad instruct` | Give natural language instructions to "The Lad"       |
 
-### 接口 & 权限 API & Access
+### API & Access
 
 | Command          | Description                                            |
 | ---------------- | ------------------------------------------------------ |
@@ -75,7 +75,7 @@ _Your API is now live at `http://localhost:8080`_
 | `applad auth`    | Authenticate and manage identity (login/logout/whoami) |
 | `applad secrets` | Manage encrypted vault credentials and keys            |
 
-### 资源 & 开发 Resources & Dev
+### Resources & Dev
 
 | Command            | Description                                      |
 | ------------------ | ------------------------------------------------ |
