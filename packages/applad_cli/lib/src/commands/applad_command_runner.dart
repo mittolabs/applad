@@ -11,15 +11,18 @@ import 'deploy_command.dart';
 import 'down_command.dart';
 import 'status_command.dart';
 import 'version_command.dart';
-import 'login_command.dart';
-import 'logout_command.dart';
+import 'instruct_command.dart';
+import 'auth_commands.dart';
+import 'api_command.dart';
 import 'access_command.dart';
 import 'functions_command.dart';
-import 'database_command.dart';
 import 'storage_command.dart';
 import 'flags_command.dart';
 import 'workflows_command.dart';
 import 'workspace_command.dart';
+import 'tables_command.dart';
+import 'secrets_command.dart';
+import 'env_command.dart';
 import 'uninstall_command.dart';
 import '../utils/interactive_shell.dart';
 import '../utils/output.dart';
@@ -63,10 +66,10 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
 
     addCommand(InitCommand());
     addCommand(UpCommand());
+    addCommand(InstructCommand());
     addCommand(ConfigCommand());
     addCommand(DbCommand());
     addCommand(FunctionsCommand());
-    addCommand(DatabaseCommand());
     addCommand(StorageCommand());
     addCommand(MessagingCommand());
     addCommand(FlagsCommand());
@@ -79,8 +82,13 @@ final class ApplAdCommandRunner extends CommandRunner<void> {
     addCommand(VersionCommand());
     addCommand(LoginCommand());
     addCommand(LogoutCommand());
+    addCommand(WhoamiCommand());
+    addCommand(ApiCommand());
     addCommand(AccessCommand());
     addCommand(UninstallCommand());
+    addCommand(EnvCommand());
+    addCommand(SecretsCommand());
+    addCommand(TablesCommand());
     addCommand(WorkspaceCommand());
   }
 

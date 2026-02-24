@@ -32,5 +32,9 @@ export 'src/models/hierarchy.dart';
 export 'src/models/environment.dart';
 export 'src/models/secret_ref.dart';
 
+// Utils
+export 'src/utils/env_parser.dart';
+export 'src/utils/vvar_extractor.dart';
+
 // Errors
 export 'src/errors/applad_error.dart';

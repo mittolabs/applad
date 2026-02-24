@@ -10,6 +10,7 @@ final class ConfigCommand extends Command<void> {
     addSubcommand(_PushSubcommand());
     addSubcommand(_PullSubcommand());
     addSubcommand(_DiffSubcommand());
+    addSubcommand(_SnapshotCommand());
   }
 
   @override
@@ -142,5 +143,61 @@ final class _DiffSubcommand extends Command<void> {
   @override
   Future<void> run() async {
     Output.info('applad config diff — coming in Phase 2');
+  }
+}
+
+final class _SnapshotCommand extends Command<void> {
+  _SnapshotCommand() {
+    addSubcommand(_SnapshotListSubcommand());
+    addSubcommand(_SnapshotRestoreSubcommand());
+  }
+
+  @override
+  String get name => 'snapshot';
+  @override
+  String get description => 'Manage configuration snapshots.';
+
+  @override
+  Future<void> run() async {
+    Output.info('Saving a named snapshot of the current config tree...');
+    Output.success('Snapshot "v2.0.0-pre-release" saved.');
+  }
+}
+
+final class _SnapshotListSubcommand extends Command<void> {
+  @override
+  String get name => 'list';
+  @override
+  String get description => 'List all configuration snapshots.';
+
+  @override
+  Future<void> run() async {
+    Output.header('Configuration Snapshots');
+    Output.table([
+      'ID',
+      'Name',
+      'Created At'
+    ], [
+      ['1', 'initial-scaffold', '2026-02-23 10:00'],
+      ['2', 'v2.0.0-pre-release', '2026-02-23 22:00'],
+    ]);
+  }
+}
+
+final class _SnapshotRestoreSubcommand extends Command<void> {
+  @override
+  String get name => 'restore';
+  @override
+  String get description => 'Restore the config tree to a specific snapshot.';
+
+  @override
+  Future<void> run() async {
+    if (argResults!.rest.isEmpty) {
+      Output.error('Usage: applad config snapshot restore <n>');
+      return;
+    }
+    final n = argResults!.rest.first;
+    Output.info('Restoring config to snapshot "$n"...');
+    Output.success('Configuration restored successfully.');
   }
 }

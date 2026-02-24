@@ -104,11 +104,24 @@ final class ConfigMerger {
     final orgDir = orgDirs.first;
     final org = OrgConfig.fromMap(_loader.loadFile(p.join(orgDir, 'org.yaml')));
 
-    final projectDirs = _listSubdirs(orgDir).where((dir) {
+    var projectDirs = _listSubdirs(orgDir).where((dir) {
       final projectName = p.basename(dir);
       return !projectName.startsWith('.') &&
           File(p.join(dir, 'project.yaml')).existsSync();
     }).toList();
+
+    // Support optional "projects/" subdirectory
+    if (projectDirs.isEmpty) {
+      final nestedProjectsDir = p.join(orgDir, 'projects');
+      if (Directory(nestedProjectsDir).existsSync()) {
+        projectDirs = _listSubdirs(nestedProjectsDir).where((dir) {
+          final projectName = p.basename(dir);
+          return !projectName.startsWith('.') &&
+              File(p.join(dir, 'project.yaml')).existsSync();
+        }).toList();
+      }
+    }
+
     if (projectDirs.isEmpty) {
       throw StateError('No project directories found in $orgDir');
     }

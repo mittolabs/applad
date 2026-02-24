@@ -97,6 +97,20 @@ final class Output {
     return input.isEmpty && defaultValue != null ? defaultValue : input;
   }
 
+  /// Prompt the user for sensitive input (echo disabled).
+  static String secretPrompt(String question) {
+    stdout.write('${_cyan('?')} $question: ');
+    final oldEchoMode = stdin.echoMode;
+    try {
+      stdin.echoMode = false;
+      final input = stdin.readLineSync() ?? '';
+      stdout.writeln(); // Move to next line after input
+      return input;
+    } finally {
+      stdin.echoMode = oldEchoMode;
+    }
+  }
+
   /// Prompt the user for a yes/no answer.
   static bool confirm(String question, {bool defaultValue = false}) {
     final hint = defaultValue ? '[Y/n]' : '[y/N]';

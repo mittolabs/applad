@@ -12,38 +12,6 @@ version: "1.0"
 name: "my-applad-instance"
 description: "My Applad instance"
 
----
-
-## Core Contracts
-
-Every component and operation in Applad adheres to these fundamental contracts.
-
-### Idempotency — Guaranteed Reconciliation
-Applad's reconciliation model is **fully idempotent**. Running `applad up` twice produces the same result as running it once. Running it against an already-reconciled environment is a no-op that produces a clean recap confirming nothing changed.
-
-- **Containers**: Compared by image digest and environment hash.
-- **Migrations**: Tracked by checksum in the migration history table.
-- **Config**: Compared against the last-applied config signature.
-- **Cloud resources**: Checked for existence before provisioning.
-
-### Predictability — The Operational Contract
-Applad prioritizes operational trust over raw power.
-- **`applad up --dry-run --diff`**: Tells you exactly what will change.
-- **`applad up`**: Changes exactly that and nothing else.
-- **`applad uninstall`**: Removes the Applad CLI and its local and global configuration data.
-- **Run Recap**: Provides a clean summary of what happened.
-- **Audit Trail**: Records who did it and when.
-
-### Declarative Config — No YAML Logic
-Applad config files are **purely declarative**. They describe structure and intent—schemas, adapters, pipelines, providers. They do not describe logic.
-- No loops, no conditionals, no templating syntax in `.yaml` files.
-- Logic lives in **Functions** and **Workflows**.
-
-### Actionable Errors — "Why and How", Never Just "What"
-Every error in Applad names the file, the line, the exact problem, and whenever possible the fix. Error messages are treated as a first-class product surface.
-
----
-
 # ============================================================
 # INSTANCE
 # ============================================================
@@ -345,8 +313,9 @@ security:
     max_duration: 28800
     idle_timeout: 3600
 
-billing:
-  plan: "team"
+# billing is managed via the admin UI and Applad dashboard,
+# not through config files. Changing your plan never requires
+# a git commit or a config deploy.
 ```
 
 ---
@@ -500,6 +469,14 @@ APNS_PRIVATE_KEY=                    # [SECRET] Format: base64-encoded .p8 file
 # Used by: messaging/messaging.yaml (slack)
 SLACK_WEBHOOK_URL=                   # [SECRET] applad secrets set SLACK_WEBHOOK_URL
 
+# Used by: messaging/messaging.yaml (discord — disabled by default)
+# Optional — only needed if discord integration is enabled
+DISCORD_WEBHOOK_URL=                 # [SECRET] applad secrets set DISCORD_WEBHOOK_URL
+
+# Used by: messaging/messaging.yaml (teams — disabled by default)
+# Optional — only needed if teams integration is enabled
+TEAMS_WEBHOOK_URL=                   # [SECRET] applad secrets set TEAMS_WEBHOOK_URL
+
 # ── AUTH ─────────────────────────────────────────────────────
 # Used by: auth/auth.yaml (oauth — google)
 GOOGLE_CLIENT_ID=
@@ -528,6 +505,10 @@ NATS_URL=
 BQ_DATASET=
 BQ_CREDENTIALS=                      # [SECRET] Format: base64-encoded service account JSON
 
+# Used by: analytics/analytics.yaml (export — amplitude)
+# Optional — only needed if amplitude export is enabled
+AMPLITUDE_API_KEY=                   # [SECRET] applad secrets set AMPLITUDE_API_KEY
+
 # ── CLOUD ADAPTERS ───────────────────────────────────────────
 # Used by: project.yaml (production cloud adapters)
 # Managed through admin UI — stored encrypted in admin database.
@@ -539,6 +520,26 @@ BQ_CREDENTIALS=                      # [SECRET] Format: base64-encoded service a
 # Used by: observability/observability.yaml
 # Optional — only needed if otlp export is enabled
 OTEL_ENDPOINT=
+
+# ── WEBHOOK VERIFICATION ─────────────────────────────────────
+# Used by: functions/handle-stripe-event.yaml (verify.secret)
+STRIPE_WEBHOOK_SECRET=               # [SECRET] applad secrets set STRIPE_WEBHOOK_SECRET
+
+# Used by: functions/handle-github-push.yaml (verify.secret)
+# Optional — only needed if a GitHub webhook function is defined
+GITHUB_WEBHOOK_SECRET=               # [SECRET] applad secrets set GITHUB_WEBHOOK_SECRET
+
+# Used by: functions/handle-custom-webhook.yaml (verify.secret)
+# Optional — only needed if a custom webhook function is defined
+CUSTOM_WEBHOOK_SECRET=               # [SECRET] applad secrets set CUSTOM_WEBHOOK_SECRET
+
+# TWILIO_AUTH_TOKEN is already listed under MESSAGING — SMS.
+# It doubles as the Twilio webhook verification secret.
+
+# API keys are not in .env. They are created via:
+#   applad api keys create <label>
+# Values are shown once at creation and stored encrypted
+# in the admin database. There is no config file for API keys.
 ```
 
 ---
@@ -1048,9 +1049,9 @@ triggers:
   - type: "event"
     event: "auth.user.created"
 
-environment:
-  - key: "MESSAGING_PROVIDER"
-    value: ${MESSAGING_PROVIDER}
+# No environment vars needed — the function invokes the
+# messaging system via the Applad SDK, which is configured
+# by messaging/messaging.yaml.
 ```
 
 ---
@@ -1090,6 +1091,75 @@ triggers:
 environment:
   - key: "STRIPE_SECRET"
     value: ${STRIPE_SECRET}
+```
+
+---
+
+## `orgs/acme-corp/mobile-app/functions/handle-stripe-event.yaml`
+
+```yaml
+# ============================================================
+# INBOUND WEBHOOK FUNCTION
+# Receives events from a third-party service (Stripe).
+# Uses an HTTP trigger with a verify: block for provider-
+# specific signature verification.
+#
+# There is no separate webhook config file. Inbound webhooks
+# are HTTP-triggered functions with a verify: block. Applad
+# performs signature verification before invoking the function
+# — the function never receives an unverified payload.
+# ============================================================
+
+name: "handle-stripe-event"
+runtime: "dart"
+timeout: 30
+memory: "256mb"
+
+source:
+  type: "github"
+  repo: "myorg/myapp"
+  branch: "main"
+  path: "src/functions/handle-stripe-event/main.dart"
+  ssh_key: "ci-github-actions"
+
+container:
+  readonly_filesystem: true
+  no_new_privileges: true
+  network: "restricted"
+  allowed_hosts:
+    - "api.stripe.com"
+
+triggers:
+  - type: "http"
+    method: "POST"
+    path: "/webhooks/stripe"
+    auth_required:
+      false # Third-party services cannot send session tokens.
+      # Security is handled by verify: below.
+    verify:
+      provider: "stripe" # Built-in provider: stripe | github | twilio | generic
+      secret: ${STRIPE_WEBHOOK_SECRET}
+      # provider: "github"
+      #   secret: ${GITHUB_WEBHOOK_SECRET}
+      #   header: "X-Hub-Signature-256"   # default for github — can be overridden
+      # provider: "twilio"
+      #   secret: ${TWILIO_AUTH_TOKEN}
+      # provider: "generic"
+      #   secret: ${CUSTOM_WEBHOOK_SECRET}
+      #   header: "X-Webhook-Signature"
+      #   algorithm: "hmac-sha256"        # default — can be hmac-sha1, hmac-sha512
+
+    # Optional: filter to specific event types before invocation.
+    # Applad drops events not in this list — the function is
+    # never invoked for them.
+    events:
+      - "payment_intent.succeeded"
+      - "payment_intent.payment_failed"
+      - "customer.subscription.deleted"
+
+environment:
+  - key: "STRIPE_WEBHOOK_SECRET"
+    value: ${STRIPE_WEBHOOK_SECRET}
 ```
 
 ---
@@ -1775,9 +1845,16 @@ my-project/
 │       │   │       ├── avatars.yaml
 │       │   │       └── documents.yaml
 │       │   │
+│       │   ├── api/                            # UI: API
+│       │   │   ├── api.yaml                    # REST + GraphQL config
+│       │   │   ├── versions.yaml               # API versioning
+│       │   │   └── sdk.yaml                    # SDK + docs generation
+│       │   │
 │       │   ├── functions/              # UI: Functions — flat, one file per function
 │       │   │   ├── send-welcome-message.yaml
 │       │   │   ├── process-payment.yaml
+│       │   │   ├── handle-stripe-event.yaml    # HTTP trigger with verify: block
+│       │   │   ├── create-workspace.yaml
 │       │   │   └── daily-report.yaml
 │       │   │
 │       │   ├── workflows/              # UI: Workflows
@@ -1837,61 +1914,11 @@ my-project/
         └── utils/
 ```
 
-**Discovery Mechanism:**
-Applad discovers the project hierarchy by scanning for marker files.
-
-1. Load `applad.yaml` at the root.
-2. Scan `orgs/` — any subdirectory containing `org.yaml` is an **Organisation**.
-3. Scan org subdirectories — any subdirectory containing `project.yaml` is a **Project**.
-4. Load and merge all `.yaml` files recursively within each project.
-
-No explicit listing of orgs or projects is required. The directory structure and marker files are the entire discovery signal.
-
----
-
-## Secrets Management
-
-Applad uses a scoped, pointer-based secrets model. Secrets never live in config files.
-
-### The Pointer Model
-
-Config files contain `${VAR_NAME}` references. These are pointers resolved at operation time.
-
-- **Local development**: Resolved from `.env` files.
-- **Shared environments**: Resolved from the admin operational database or external providers.
-
-### Scoped Resolution
-
-Variables are resolved from the most specific scope to the least:
-
-1. **Environment-level**: Specific to a target (e.g., `production`).
-2. **Project-level**: Shared across all environments in a project.
-3. **Org-level**: Shared across all projects in an organisation.
-4. **Instance-level**: Global defaults.
-
-### Secure Injection
-
-Secrets are injected at runtime (e.g., via SSH session environment variables) and are never written to disk on targets. The synthesized `docker-compose.yml` contains references, not values.
-
----
-
-## Data Layers
-
-Applad differentiates between four distinct layers of data to ensure security and operational clarity.
-
-| Layer                | Content                                                                               | Storage                    |
-| -------------------- | ------------------------------------------------------------------------------------- | -------------------------- |
-| **Config Files**     | Structural intent: schemas, pipelines, adapters, roles (intent only), SSH key scopes. | Git repository (`.yaml`)   |
-| **Access Control**   | Enforcement: role grants, scope assignments, approvals, apply grants.                 | Admin Database             |
-| **Operational Data** | Admin-managed runtime settings: flag targeting, messaging templates, secret values.   | Admin Database (Encrypted) |
-| **Runtime Data**     | Application state: users, rows, logs, audit trail, analytics.                         | Runtime Database           |
-
----
-
-## Directory → UI navigation mapping:
+**Directory → UI navigation mapping:**
 
 | Directory path         | UI breadcrumb         |
 | ---------------------- | --------------------- |
+| `api/`                 | API                   |
 | `database/`            | Database              |
 | `database/tables/`     | Database > Tables     |
 | `database/migrations/` | Database > Migrations |
@@ -1988,82 +2015,10 @@ $ applad up
 
 Key properties of the bootstrap sequence:
 
-- **Inline in `applad up`** — no separate bootstrap command.
-- **Localhost only during bootstrap** — the instance does not accept external connections until bootstrap is complete.
-- **One-time and permanent** — once an owner SSH key is registered, the bootstrap path is closed forever.
-- **`applad up` on an already-bootstrapped instance** — skips the sequence entirely and reconciles normally.
-
-### The Reconciliation Lifecycle
-
-`applad up` is the primary command for matching reality to your config tree.
-
-1. **Bootstrap**: (If first run) Initialize database and identity.
-2. **Merge**: Read the entire config tree and satisfying `${VAR}` references.
-3. **Validate**: Perform cross-reference and schema validation.
-4. **Plan**: Compare desired state against current state to determine changes.
-5. **Authorize**: Check the invoking SSH key for required scopes (`infrastructure:apply:<env>`).
-6. **Apply**: Apply changes in dependency order, using **Handlers** for efficiency.
-7. **Recap**: Produce a summary of the operation.
-
-### The Handler Pattern — Efficient Reconciliation
-
-Applad uses a handler pattern to batch restarts and reloads. If multiple config changes would each trigger a service restart, Applad batches them and restarts the service exactly once at the end of the run.
-
-- **Restarts**: Triggered by image or environment changes.
-- **Migrations**: Batch all pending migrations for a connection into one transaction.
-- **Reloads**: Hot-reload Caddy config once after all web deployment changes.
-
-### The Run Recap
-
-After every `applad up`, a summary provides immediate clarity on the outcome:
-
-```
-RECAP ─────────────────────────────────────────────
-  environment   production
-  duration      14.2s
-  actor         alice@acme-corp (SHA256:abc123...)
-
-  ok            12    already correct, no changes
-  changed        3    database, functions, messaging
-  skipped        0
-  failed         0
-
-  ✓ 2 pending migrations applied (primary)
-  ✓ send-welcome-message redeployed (source updated)
-  ✓ messaging config reconciled (provider changed to ses)
-─────────────────────────────────────────────────────
-```
-
----
-
-## CLI Standards
-
-### Dry-Run and Diff
-
-Every command that produces side effects supports `--dry-run` and `--diff`.
-
-- **`--dry-run`**: Shows the plan without executing.
-- **`--diff`**: Shows the exact delta between current and desired state.
-- **Mandatory Workflow**: `applad up --env production --dry-run --diff` before any production apply.
-
-### Exit Codes
-
-Exit codes are stable and machine-readable for CI/CD integration.
-
-| Code | Meaning                                                        |
-| ---- | -------------------------------------------------------------- |
-| `0`  | **Success** — No changes needed.                               |
-| `1`  | **Error** — Operational failure.                               |
-| `2`  | **Changed** — Success with one or more changes applied.        |
-| `3`  | **Validation** — Config is invalid, aborted.                   |
-| `4`  | **Unreachable** — Target host or service could not be reached. |
-| `5`  | **Drift** — Drift detected (during `applad status --drift`).   |
-
-### Machine-Readable Output
-
-All commands support `--output json` for parsing by automated systems.
-
----
+- **Inline in `applad up`** — no separate bootstrap command
+- **Localhost only during bootstrap** — the instance does not accept external connections until bootstrap is complete
+- **One-time and permanent** — once an owner SSH key is registered, the bootstrap path is closed forever. Re-opening it requires direct database access, which is intentional friction.
+- **`applad up` on an already-bootstrapped instance** — skips the sequence entirely and reconciles normally
 
 ---
 
@@ -2121,26 +2076,11 @@ Once approved, Bob can run `applad up` locally immediately — no further approv
 # ============================================================
 
 # Scaffolds a new Applad project in the current directory.
-# Prompts interactively for features to enable (functions, storage, etc.)
-# and creates the corresponding directory structure.
-applad init [--template <name>]
-
-# ============================================================
-# CREATE COMMANDS (GUIDED)
-# ============================================================
-
-# Guided creation of a new serverless function.
-# Prompts for: name, runtime, trigger type, memory, timeout, etc.
-# Generates: functions/<name>.yaml and source stub if local.
-applad functions create [<name>]
-
-# Guided creation of a database table.
-# Prompts for: name, database connection, fields, and base permissions.
-applad database tables create [<name>]
-
-# Guided creation of a storage bucket.
-# Prompts for: name, public/private access, and file type restrictions.
-applad storage buckets create [<name>]
+# Generates applad.yaml, orgs/ directory, .gitignore, and
+# an initial .env.example at the instance level.
+# Fails immediately if applad.yaml already exists.
+applad init
+applad init --template saas           # saas | api | cms | minimal
 
 # Reads the entire config tree, validates it, synthesizes
 # docker-compose.yml for each environment, and makes reality
@@ -2150,14 +2090,24 @@ applad up
 applad up --env production
 applad up --watch                      # Local development only
 applad up --dry-run
+applad up --dry-run --diff             # Canonical pre-production workflow
+applad up --only database             # Reconcile only resources matching tag
+applad up --only functions,messaging  # Multiple tags
+applad up --skip deployments          # Reconcile everything except tagged resources
+applad up -v                          # Per-resource status lines
+applad up -vv                         # + synthesized Docker Compose and SSH commands
+applad up -vvv                        # + full request/response detail
 
 applad down
 applad down --env staging
 applad status
 applad status --env production
+applad status --drift                 # Compare running state against config tree
+applad status --drift --env production  # Drift detection for a specific environment
 applad --version
 applad -v
 applad upgrade
+applad uninstall                       # Removes the Applad CLI and its local config
 
 # ============================================================
 # AUTHENTICATION
@@ -2244,9 +2194,10 @@ applad access show <identity>
 # ============================================================
 
 applad config validate
-applad config diff
-applad config push
-applad config pull
+applad config diff                     # Diff config tree against last-applied snapshot
+applad config snapshot                 # Save a named snapshot of the current config tree
+applad config snapshot list
+applad config snapshot restore <n>     # Restore config tree to a named snapshot
 applad config export
 applad config merge --dry-run
 
@@ -2398,6 +2349,8 @@ applad functions deploy --all
 applad functions logs <name>
 applad functions invoke <name>
 applad functions invoke <name> --data '{"key":"value"}'
+applad functions test <n>             # Send a test payload to an HTTP-triggered function
+applad functions test <n> --webhook   # Send a signed test payload (for verify: triggers)
 applad functions build <name>
 applad functions scan <name>
 applad functions delete <name>
@@ -2516,10 +2469,24 @@ applad security events list --type failed_auth
 applad security events list --since "2026-02-01"
 applad security keys list
 applad security keys audit
-applad security secrets list
-applad security secrets set <key>
-applad security secrets rotate <key>
-applad security secrets delete <key>
+
+# ============================================================
+# SECRETS
+# First-class secrets management. Secrets live in the admin
+# database (or external provider) — never in config files.
+# All operations are audited.
+# ============================================================
+
+applad secrets list
+applad secrets list --env production
+applad secrets set <key>               # Prompts for value — never passed as argument
+applad secrets set <key> --env production
+applad secrets unset <key>
+applad secrets rotate <key>            # Enters transition window (default 15 min)
+applad secrets rotate <key> --window 30m
+applad secrets revoke <key>            # Immediate invalidation — shows blast radius first
+applad secrets show <key>              # Metadata only — never shows value
+applad secrets audit <key>             # Full access history for this secret
 
 # ============================================================
 # OBSERVABILITY
@@ -2631,3 +2598,321 @@ applad migrate-from supabase --project <id>
 applad migrate-from firebase --project <id>
 applad migrate-from pocketbase --data-dir ./pb_data
 ```
+
+---
+
+## `orgs/acme-corp/mobile-app/api/api.yaml`
+
+```yaml
+# ============================================================
+# API CONFIGURATION
+# Applad auto-generates a REST API and GraphQL schema from
+# your table definitions. This file controls how those APIs
+# are exposed — versioning, authentication requirements,
+# pagination defaults, and which tables are surfaced.
+#
+# Rate limiting lives in observability/observability.yaml.
+# CORS lives in observability/observability.yaml.
+# Auth providers live in auth/auth.yaml.
+# Table-level permissions live in database/tables/<name>.yaml.
+# This file does not duplicate any of those concerns.
+# ============================================================
+
+rest:
+  enabled: true
+  # base_path is derived from versions.yaml — the version
+  # marked status: "current" determines the active base path.
+  # Do not set base_path here when versions.yaml is present.
+  # If no versions.yaml exists, set base_path directly:
+  # base_path: "/api/v1"
+
+  # Tables exposed here. Omit a table to exclude it from the
+  # auto-generated API entirely. The table's permission rules
+  # still apply — this is additive filtering, not a security
+  # override. A table with no matching entry here is not
+  # reachable via the auto-generated REST API regardless of
+  # its permission rules.
+  tables:
+    - name: "users"
+      expose: true
+      operations: ["read", "create", "update", "delete"]
+      # Operations not listed are not exposed, even if the
+      # table's permission rules would allow them.
+
+    - name: "posts"
+      expose: true
+      operations: ["read", "create", "update", "delete"]
+
+    - name: "events"
+      expose: true
+      operations: ["read"]
+      # Analytics table — read-only via API.
+
+  pagination:
+    default_limit: 20
+    max_limit: 100
+    style: "cursor" # cursor | offset
+
+  # Response envelope wraps all auto-generated REST responses.
+  # Disable to return naked arrays/objects (not recommended —
+  # breaks pagination metadata).
+  response_envelope: true
+
+graphql:
+  enabled: true
+  path: "/graphql"
+
+  # Tables included in the auto-generated GraphQL schema.
+  # Same opt-in model as REST. Permission rules on the table
+  # still apply — this is schema inclusion, not authorization.
+  tables:
+    - name: "users"
+    - name: "posts"
+    - name: "events"
+
+  # Introspection should be disabled in production.
+  introspection:
+    enabled: true
+    environment_overrides:
+      production:
+        enabled: false
+
+  # Custom resolvers wire a GraphQL field to a function.
+  # The function receives the parent object and args as input.
+  # This is the extension point for business logic in the
+  # GraphQL schema — not YAML logic (see AD-011).
+  custom_resolvers:
+    - field: "Query.featuredPosts"
+      function: "get-featured-posts"
+
+    - field: "Mutation.publishPost"
+      function: "publish-post"
+
+  # Depth limit prevents catastrophically nested queries.
+  max_depth: 10
+  max_complexity: 100
+```
+
+---
+
+## `orgs/acme-corp/mobile-app/api/versions.yaml`
+
+```yaml
+# ============================================================
+# API VERSIONING
+# Applad supports path-based API versioning. The base_path
+# in api.yaml defines the current version. Older versions
+# can be maintained in parallel with per-version config
+# overrides and deprecation windows.
+#
+# Version config here controls which tables and operations
+# were exposed in that version, so Applad can serve the old
+# API correctly while you evolve the new one. The table
+# permission rules at the version the request targets are
+# what apply — not the current table config.
+# ============================================================
+
+current: "v2"
+
+versions:
+  - version: "v1"
+    base_path: "/api/v1"
+    status: "deprecated"
+    sunset: "2027-01-01"
+    # Clients get a Deprecation and Sunset header on every
+    # response from this version. After the sunset date,
+    # Applad returns 410 Gone for all v1 requests.
+    tables:
+      - name: "users"
+        operations: ["read", "create", "update"]
+        # v1 did not expose delete — maintained here so
+        # Applad rejects DELETE /api/v1/users/:id with 405
+        # rather than silently routing it to v2 behavior.
+      - name: "posts"
+        operations: ["read", "create"]
+
+  - version: "v2"
+    base_path: "/api/v2"
+    status: "current"
+    # Inherits from api.yaml rest.tables — no override needed.
+```
+
+---
+
+## `orgs/acme-corp/mobile-app/api/sdk.yaml`
+
+```yaml
+# ============================================================
+# SDK AND DOCS GENERATION
+# Applad generates client SDKs and API documentation from
+# your config tree. The generated SDK wraps the auto-generated
+# REST API, GraphQL API, realtime channels, and storage
+# buckets into a single typed client.
+#
+# Generated SDKs are output to the paths defined here.
+# Run `applad api sdk generate` to regenerate after config
+# changes. Generated files are committed to your repo —
+# Applad does not fetch them at runtime.
+# ============================================================
+
+sdks:
+  - language: "dart"
+    output: "../mobile-app-sdk/lib/applad_client.dart"
+    package_name: "applad_client"
+    # Dart SDK wraps REST, GraphQL, realtime, and storage.
+    # Generated as a single file for easy vendoring into
+    # Flutter projects.
+    includes:
+      - rest
+      - graphql
+      - realtime
+      - storage
+
+  - language: "typescript"
+    output: "../web-client/src/lib/applad-client.ts"
+    package_name: "@acme/applad-client"
+    includes:
+      - rest
+      - graphql
+      - realtime
+      - storage
+
+docs:
+  openapi:
+    enabled: true
+    output: "./api/openapi.yaml"
+    title: "Mobile App API"
+    version: "2.0.0"
+    servers:
+      - url: "https://api.myapp.com"
+        description: "Production"
+      - url: "https://staging-api.myapp.com"
+        description: "Staging"
+    # Regenerated by `applad api docs generate`.
+    # Served at /api/docs when features.api is enabled.
+```
+
+---
+
+## `applad api` CLI Commands
+
+```bash
+# ============================================================
+# API
+# ============================================================
+
+# ── REST AND GRAPHQL ──────────────────────────────────────────
+
+# Validates api.yaml, versions.yaml, and sdk.yaml against
+# the current config tree.
+applad api validate
+
+# Shows the routes Applad would generate from the current
+# config tree, without applying anything.
+applad api routes list
+applad api routes list --env production
+
+# Opens the auto-generated API docs in your browser.
+applad api docs open
+applad api docs open --env staging
+
+# Regenerates the OpenAPI spec from the current config tree.
+# Output path defined in api/sdk.yaml.
+applad api docs generate
+applad api docs generate --output ./openapi.yaml
+
+# ── API KEYS ──────────────────────────────────────────────────
+# API keys live entirely in the admin database — no config
+# file. These commands are the only way to manage them.
+
+# Lists all API keys — label, scopes, environments, expiry.
+# Never shows key values.
+applad api keys list
+applad api keys list --env production
+
+# Creates a new API key. Prompts for label, scopes, and
+# environments. Prints the key value exactly once — it cannot
+# be retrieved again. Store it immediately.
+applad api keys create
+applad api keys create --label ios-app
+
+# Rotates a key. Both old and new keys are accepted during
+# the transition window (default 15 minutes, same as secrets
+# rotation). After the window, the old key is invalidated.
+applad api keys rotate <label>
+applad api keys rotate ios-app
+
+# Revokes a key immediately. No transition window.
+# Shows the blast radius — every function and service that
+# would be affected — before confirming.
+applad api keys revoke <label>
+applad api keys revoke ios-app
+
+# Shows the full scope list for a key.
+applad api keys show <label>
+
+# ── SDK GENERATION ────────────────────────────────────────────
+
+# Generates client SDKs for all languages defined in sdk.yaml.
+applad api sdk generate
+applad api sdk generate --language dart
+applad api sdk generate --language typescript
+
+# ── VERSIONING ────────────────────────────────────────────────
+
+# Lists all API versions, their status, and sunset dates.
+applad api versions list
+
+# Shows which tables and operations were exposed in a version.
+applad api versions show v1
+```
+
+---
+
+## Architectural Decisions
+
+### AD-016: Auto-Generated REST and GraphQL from Table Definitions
+
+**Status:** Accepted — Every table in `database/tables/` is automatically reachable via REST and GraphQL without writing any code. Opt-in exposure is configured in `api/api.yaml`. Table-level permission rules are the authorization layer — `api.yaml` controls surface area, not security. Tables not listed in `api.yaml` are not reachable via the auto-generated API regardless of their permission rules.
+
+### AD-017: API Keys Live Entirely in the Admin Database — No Config File
+
+**Status:** Accepted — API keys are operational credentials, not structural decisions. Creating, rotating, and revoking them must not require a git commit or a deploy. They are created via `applad api keys create`, stored encrypted in the admin database, and shown exactly once at creation. There is no `api/keys.yaml`. This contrasts deliberately with SSH key scopes in `org.yaml`, which are structural security ceilings that belong in version control.
+
+### AD-018: Inbound Webhooks are HTTP-Triggered Functions with a `verify:` Block
+
+**Status:** Accepted — There is no separate webhook concept. A function that receives a Stripe event is an HTTP-triggered function whose trigger includes a `verify:` block. Applad performs provider-specific signature verification before the function is invoked — the function never sees an unverified payload. This keeps one mental model (functions with HTTP triggers) and avoids a redundant config file.
+
+### AD-019: API Versioning is Opt-In and Path-Based
+
+**Status:** Accepted — Path-based versioning (`/api/v1`, `/api/v2`) is the only supported model. No header-based or query-param versioning. Deprecated versions get `Deprecation` and `Sunset` headers on every response. After the sunset date, Applad returns 410 Gone. Version config preserves what tables and operations were exposed at that version so the old API can be served correctly without relying on the current config.
+
+### AD-020: SDK Generation is Config-Driven and Output to Your Repo
+
+**Status:** Accepted — SDKs are generated by `applad api sdk generate` and committed to your repo. They are not fetched at runtime. The generated SDK wraps REST, GraphQL, realtime, and storage into a single typed client per language. Output paths are defined in `api/sdk.yaml`. No Applad runtime dependency in generated code — the SDK talks directly to your instance URL.
+
+---
+
+## Updated `applad.yaml` feature flag
+
+```yaml
+instance:
+  features:
+    # ... existing features ...
+    api: true # already exists — REST API auto-generation
+    graphql: true # already exists — GraphQL schema auto-generation
+    # webhooks: removed — inbound webhooks are HTTP-triggered
+    # functions with a verify: block. No separate feature flag needed.
+```
+
+---
+
+## Additional Key Principles (API Layer)
+
+- **API surface area is config, authorization is table rules** — `api/api.yaml` controls what is reachable; `database/tables/*.yaml` controls what is permitted. These are separate concerns.
+- **API keys are operational, not structural** — they live in the admin database, not in config files. Creating or revoking a key never requires a git commit.
+- **Inbound webhooks are functions** — an HTTP-triggered function with a `verify:` block. One mental model, no redundant config file.
+- **Webhook signature verification is built in** — the function never sees an unverified payload. Provider-specific verification (Stripe, GitHub, Twilio, generic HMAC) is declared in the trigger, not implemented in function code.
+- **SDK generation is a CLI operation, not a runtime dependency** — generate, commit, ship. The generated SDK has no dependency on Applad at runtime.
+- **GraphQL introspection off in production** — explicit in `api/api.yaml` environment overrides.
+- **API docs are auto-generated and always in sync** — `applad api docs generate` regenerates from the current config tree. The OpenAPI spec is committed to your repo alongside your config.

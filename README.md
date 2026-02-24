@@ -3,107 +3,109 @@
 </p>
 
 <p align="center">
+  <img src="https://github.com/mittolabs/applad/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
+  <img src="https://github.com/mittolabs/applad/actions/workflows/release_binaries.yaml/badge.svg" alt="Release Status" />
+</p>
+
+<p align="center">
   <b>Config-driven, AI-Native Backend Engine. Visually managed. Open source.</b>
 </p>
 
-> More than just a BaaS, Applad is the Infrastructure-as-Code (IaC) tool for your entire backend. It replaces disjointed tools for database, auth, CI/CD, feature flags, and analytics with a single, agentless, coherent system. Your config files are the backend, the admin UI is a friendly lens into them. Built with Dart & Flutter.
+> More than just a BaaS, Applad is the Infrastructure-as-Code (IaC) tool for your entire backend. It replaces disjointed tools for database, auth, CI/CD, feature flags, and analytics with a single, agentless, coherent system. Built with Dart & Flutter.
 
 ---
 
 ## Features
 
-- **Config-driven backend** — define tables, auth, storage, functions, workflows, messaging, and hosting in version-controlled YAML.
-- **Multi-environment** — dev, staging, prod from a single config tree with per-environment overrides.
-- **Dynamic API Gateway** — your configuration is automatically exposed as a live REST API.
-- **Zero-Dependency Deploy** — `applad up` provisions local servers or matches production VPS environments natively.
-- **Open source** — Apache 2.0, own your data and infrastructure.
+- **YAML-Defined Backend** — declare tables, auth, storage, and logic in version-controlled config.
+- **Agentless Operation** — connects, provisions, and disconnects. No resident agents on your servers.
+- **Environment Parity** — single config tree with native Docker Compose & SSH orchestration.
+- **AI-Native** — includes "The Lad," an assistant that understands and modifies your infrastructure.
 
-## Quick Start
+## Quick Start (3 Minutes)
+
+Get a live backend running in three steps:
+
+### 1. Install
 
 ```bash
-# Install universally without Dart (macOS / Linux / Windows WSL)
+# Install the Applad CLI (macOS / Linux / WSL)
 curl -fsSL https://raw.githubusercontent.com/mittolabs/applad/main/scripts/install.sh | bash
-
-# OR build from source (recommended for contributors)
-./scripts/build_local.sh
-
-# To remove the local build:
-rm ~/.applad/bin/applad
-
-# Scaffold a new project natively using Mason templates
-applad init
-
-# Start the Applad server (Local Development)
-applad up
-
-# Deploy to VPS (Remote Infrastructure)
-# 1. Update project.yaml with your VPS host/user
-# 2. Run:
-applad up --env staging
 ```
+
+### 2. Initialize
+
+```bash
+# Scaffold a new project starter
+applad init --template minimal
+```
+
+### 3. Go Live
+
+```bash
+# Boot your API server and local infrastructure
+applad up
+```
+
+_Your API is now live at `http://localhost:8080`_
+
+---
 
 ## CLI Reference
 
-Applad provides a rich CLI mapping directly to your YAML configuration.
+Applad mapping directly to your YAML configuration. Use `applad --help` for full details.
 
-### Core Commands
+### 核心 Core
 
-```bash
-applad init                           # Scaffold applad.yaml and orgs/ directory structure
-applad up                             # Start local API server or provision VPS
-applad config validate                # Validate full config tree logic
-```
+| Command         | Description                          |
+| --------------- | ------------------------------------ |
+| `applad init`   | Scaffold a new instance structure    |
+| `applad up`     | Reconcile config with infrastructure |
+| `applad down`   | Stop the local running instance      |
+| `applad status` | Check service health and drift       |
 
-### Discovery & Inspection
+### 智能 Assistance
 
-```bash
-applad orgs list                      # List organizations in the current workspace
-applad projects list                  # List projects in the current workspace
-applad tables list                    # List all database tables defined in config
-```
+| Command           | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| `applad instruct` | Give natural language instructions to "The Lad" |
+| `applad config`   | Validate and merge the configuration tree       |
 
-### Modules
+### 运营 Operations
 
-```bash
-applad messaging test                 # Test channel connectivity (Email/SMS/Push)
-applad db migrate                     # Trigger migrations based on config state
-```
+| Command          | Description                                 |
+| ---------------- | ------------------------------------------- |
+| `applad env`     | Sync `${VAR}` from config to `.env.example` |
+| `applad secrets` | Manage encrypted credentials and keys       |
+| `applad db`      | Run migrations or open a database shell     |
+| `applad tables`  | List and inspect schema definitions         |
 
-## API Gateway
-
-When you run `applad up`, a Dart Frog server boots living at `http://localhost:8080`. This server provides a live lens into your configuration patterns.
-
-- `GET /v1/config` - Full merged configuration JSON.
-- `GET /v1/orgs` - Current organization details.
-- `GET /v1/projects/database` - Active database adapter and connection specs.
-- `GET /v1/projects/auth` - Configured providers and security rules.
+---
 
 ## Monorepo Structure
 
 ```
 applad/
 ├── packages/
-│   ├── applad_core/     # Shared models, config engine, YAML merge
-│   ├── applad_cli/      # The `applad` CLI binary
-│   ├── applad_server/   # Dart Frog API server
+│   ├── applad_core/     # Config engine & YAML merge
+│   ├── applad_cli/      # Binary CLI tool
+│   ├── applad_server/   # Dart Frog API gateway
 │   ├── applad_console/  # Flutter admin dashboard
-│   └── applad_client/   # Dart/Flutter client SDK
-├── examples/
-│   └── starter-project/ # Full working example
-└── docker/              # Docker + Compose for self-hosting
+├── examples/            # Working starter projects
+└── docker/              # Infrastructure orchestration
 ```
 
-## Development
+## Contributing
+
+For developers and contributors wanting to build from source:
 
 ```bash
-# Install Melos
+# Bootstrap with Melos
 dart pub global activate melos
-
-# Bootstrap the workspace
 melos bootstrap
 
-# Analyze all packages
-melos run analyze
+# Local Build
+./scripts/build_local.sh
 ```
 
 ## License
