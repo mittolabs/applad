@@ -5,6 +5,9 @@
 <p align="center">
   <img src="https://github.com/mittolabs/applad/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
   <img src="https://github.com/mittolabs/applad/actions/workflows/release_binaries.yaml/badge.svg" alt="Release Status" />
+  <img src="https://img.shields.io/badge/License-BSD_3--Clause-blue.svg" alt="License" />
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" />
+  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL-lightgrey.svg" alt="Platform Support" />
 </p>
 
 <p align="center">
@@ -110,4 +113,4 @@ melos bootstrap
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+BSD 3-Clause — see [LICENSE](LICENSE).
