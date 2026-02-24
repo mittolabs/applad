@@ -20,10 +20,12 @@
 
 ## Features
 
-- **YAML-Defined Backend** — declare tables, auth, storage, and logic in version-controlled config.
-- **Agentless Operation** — connects, provisions, and disconnects. No resident agents on your servers.
-- **Environment Parity** — single config tree with native Docker Compose & SSH orchestration.
-- **AI-Native** — includes "The Lad," an assistant that understands and modifies your infrastructure.
+- **YAML-Defined Infrastructure (IaC)** — declare tables, auth, storage, and logic in a single version-controlled config tree.
+- **Agentless Operation** — connects, provisions, and disconnects via SSH & Docker. No resident agents or background processes on your servers.
+- **Unified BaaS Environment** — auto-generated REST and GraphQL APIs, identity management, and serverless functions in one system.
+- **Declarative Access Control** — manage permissions, roles, and access request workflows directly from your admin database.
+- **Environment Parity** — maintain exact parity between local development and production with native Docker Compose & VPS orchestration.
+- **AI-Native Assistant** — integrated "The Lad" agent that can reason about, safe-check, and modify your infrastructure configuration.
 
 ## Quick Start (3 Minutes)
 
@@ -54,34 +56,33 @@ _Your API is now live at `http://localhost:8080`_
 
 ---
 
-## CLI Reference
+### 核心 Core & 智能 AI
 
-Applad mapping directly to your YAML configuration. Use `applad --help` for full details.
+| Command           | Description                                           |
+| ----------------- | ----------------------------------------------------- |
+| `applad init`     | Scaffold a new Applad instance structure              |
+| `applad up`       | Reconcile local or remote infrastructure              |
+| `applad down`     | Stop and remove the local environment                 |
+| `applad status`   | Check service health and identify configuration drift |
+| `applad instruct` | Give natural language instructions to "The Lad"       |
 
-### 核心 Core
+### 接口 & 权限 API & Access
 
-| Command         | Description                          |
-| --------------- | ------------------------------------ |
-| `applad init`   | Scaffold a new instance structure    |
-| `applad up`     | Reconcile config with infrastructure |
-| `applad down`   | Stop the local running instance      |
-| `applad status` | Check service health and drift       |
+| Command          | Description                                            |
+| ---------------- | ------------------------------------------------------ |
+| `applad api`     | Manage REST/GraphQL routes, API Keys, and SDKs         |
+| `applad access`  | Manage permissions, roles, and access requests         |
+| `applad auth`    | Authenticate and manage identity (login/logout/whoami) |
+| `applad secrets` | Manage encrypted vault credentials and keys            |
 
-### 智能 Assistance
+### 资源 & 开发 Resources & Dev
 
-| Command           | Description                                     |
-| ----------------- | ----------------------------------------------- |
-| `applad instruct` | Give natural language instructions to "The Lad" |
-| `applad config`   | Validate and merge the configuration tree       |
-
-### 运营 Operations
-
-| Command          | Description                                 |
-| ---------------- | ------------------------------------------- |
-| `applad env`     | Sync `${VAR}` from config to `.env.example` |
-| `applad secrets` | Manage encrypted credentials and keys       |
-| `applad db`      | Run migrations or open a database shell     |
-| `applad tables`  | List and inspect schema definitions         |
+| Command            | Description                                      |
+| ------------------ | ------------------------------------------------ |
+| `applad functions` | Manage serverless functions (deploy, logs, test) |
+| `applad tables`    | Manage and inspect database schema definitions   |
+| `applad config`    | Validate, diff, and snapshot the config tree     |
+| `applad env`       | Sync `${VAR}` from config to local `.env` files  |
 
 ---
 
@@ -90,13 +91,24 @@ Applad mapping directly to your YAML configuration. Use `applad --help` for full
 ```
 applad/
 ├── packages/
-│   ├── applad_core/     # Config engine & YAML merge
-│   ├── applad_cli/      # Binary CLI tool
-│   ├── applad_server/   # Dart Frog API gateway
-│   ├── applad_console/  # Flutter admin dashboard
-├── examples/            # Working starter projects
-└── docker/              # Infrastructure orchestration
+│   ├── applad_core/     # Core BaaS engine, YAML merge & validation
+│   ├── applad_cli/      # Binary CLI tool for infrastructure orchestration
+│   ├── applad_server/   # High-performance Dart Frog API Gateway
+│   ├── applad_console/  # Flutter-based admin & observability dashboard
+│   ├── applad_client/   # Type-safe Dart client SDK for applications
+│   ├── applad_function/ # Function runtime & trigger definitions
+├── examples/            # Canonical starters (e.g., minimal, auth-flow)
+└── docker/              # Base images & orchestration templates
 ```
+
+---
+
+## Documentation
+
+For a deeper dive into the architecture and operational model:
+
+- 📖 **[Vision & Principles](vision.md)**: The "Why" behind Applad.
+- 🛠️ **[Engine Specification](spec.md)**: Details on config formats, triggers, and deployment.
 
 ## Contributing
 
