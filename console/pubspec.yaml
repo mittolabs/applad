@@ -1,0 +1,30 @@
+name: applad_console
+description: Applad admin console — Flutter Web app.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  applad:
+    path: ../sdks/dart
+  go_router: ^14.0.0
+  riverpod: ^2.5.1
+  flutter_riverpod: ^2.5.1
+  dio: ^5.4.3
+  web_socket_channel: ^3.0.0
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.jpg
