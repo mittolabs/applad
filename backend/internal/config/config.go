@@ -3,17 +3,18 @@ package config
 import "os"
 
 type Config struct {
-	Port        string
-	DatabaseDSN string
-	RedisAddr   string
-	JWTSecret   string
-	StoragePath string
-	AppEnv      string
-	SMTPHost    string
-	SMTPPort    string
-	SMTPUser    string
-	SMTPPass    string
-	SMTPFrom    string
+	Port                 string
+	DatabaseDSN          string
+	RedisAddr            string
+	JWTSecret            string
+	StoragePath          string
+	AppEnv               string
+	SMTPHost             string
+	SMTPPort             string
+	SMTPUser             string
+	SMTPPass             string
+	SMTPFrom             string
+	ConsoleSignupEnabled string // "auto" (default), "true", or "false"
 }
 
 func Load() *Config {
@@ -28,7 +29,8 @@ func Load() *Config {
 		SMTPPort:    getEnv("SMTP_PORT", "587"),
 		SMTPUser:    getEnv("SMTP_USER", ""),
 		SMTPPass:    getEnv("SMTP_PASS", ""),
-		SMTPFrom:    getEnv("SMTP_FROM", "noreply@applad.local"),
+		SMTPFrom:             getEnv("SMTP_FROM", "noreply@applad.local"),
+		ConsoleSignupEnabled: getEnv("CONSOLE_SIGNUP_ENABLED", "auto"),
 	}
 }
 

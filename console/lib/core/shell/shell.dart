@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../providers/auth_provider.dart';
 import '../providers/project_provider.dart';
 
 class AppShell extends ConsumerWidget {
@@ -81,7 +82,45 @@ class AppShell extends ConsumerWidget {
             ],
           ),
           const VerticalDivider(thickness: 1, width: 1),
-          Expanded(child: child),
+          Expanded(
+            child: Column(
+              children: [
+                // Top bar with logout
+                Container(
+                  height: 48,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Consumer(builder: (context, ref, _) {
+                        final auth = ref.watch(consoleAuthProvider);
+                        final user = auth.valueOrNull;
+                        if (user == null) return const SizedBox.shrink();
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(user.email,
+                                style: Theme.of(context).textTheme.bodySmall),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.logout, size: 20),
+                              tooltip: 'Sign out',
+                              onPressed: () {
+                                ref.read(consoleAuthProvider.notifier).logout();
+                                context.go('/login');
+                              },
+                            ),
+                          ],
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(child: child),
+              ],
+            ),
+          ),
         ],
       ),
     );

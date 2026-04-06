@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../shell/shell.dart';
+import '../providers/auth_provider.dart';
+import '../../features/login/login_page.dart';
+import '../../features/onboarding/onboarding_page.dart';
 import '../../features/auth/auth_page.dart';
 import '../../features/databases/databases_page.dart';
 import '../../features/storage/storage_page.dart';
@@ -11,9 +14,29 @@ import '../../features/settings/settings_page.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: '/databases',
+    initialLocation: '/login',
+    redirect: (context, state) {
+      final token = ref.read(consoleTokenProvider);
+      final isLoginRoute = state.uri.path == '/login';
+
+      // Not authenticated → force login (except if already on login page)
+      if (token == null && !isLoginRoute) {
+        return '/login';
+      }
+
+      // Authenticated and on login page → go to onboarding check
+      if (token != null && isLoginRoute) {
+        return '/onboarding';
+      }
+
+      return null;
+    },
     routes: [
-      GoRoute(path: '/login', builder: (_, __) => const AuthPage()),
+      GoRoute(
+          path: '/login', builder: (_, __) => const LoginPage()),
+      GoRoute(
+          path: '/onboarding',
+          builder: (_, __) => const OnboardingPage()),
       ShellRoute(
         builder: (_, __, child) => AppShell(child: child),
         routes: [

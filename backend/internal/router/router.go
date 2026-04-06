@@ -6,6 +6,7 @@ import (
 	"github.com/mittolabs/applad/internal/auth"
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
+	"github.com/mittolabs/applad/internal/console"
 	"github.com/mittolabs/applad/internal/databases"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/deploy"
@@ -58,9 +59,16 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	workflowSvc := workflows.NewService(database, workflowQueue)
 	workflowHandler := workflows.NewHandler(workflowSvc)
 
+	// Console auth
+	consoleSvc := console.NewService(database, cfg.JWTSecret)
+	consoleHandler := console.NewHandler(consoleSvc, cfg.ConsoleSignupEnabled)
+
 	r.Route("/v1", func(r chi.Router) {
 		// Health — no auth required
 		r.Mount("/health", health.Routes(healthHandler))
+
+		// Console auth — system-level admin signup/login (no project header)
+		r.Mount("/console", console.Routes(consoleHandler))
 
 		// Projects — no project header needed (these manage projects)
 		r.Mount("/projects", projects.Routes(projects.NewHandler(projectSvc)))

@@ -89,6 +89,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 - `messaging` — SMTP email sending with templates (service.go + handler.go)
 - `realtime` — WebSocket pub/sub hub for live events (hub.go + client.go + handler.go)
 - `locale` — countries, currencies, languages, continents, IP locale detection (service.go)
+- `console` — system-level admin auth: signup, login, JWT validation, signup-enabled config (service.go + handler.go)
 - `health` — health check endpoints (handler.go)
 - `workflows` — native workflow engine: definitions, DAG executor, execution history (service.go + handler.go + engine.go)
 - `worker` — background worker implementations (deletes.go, webhooks.go, executions.go, + stubs)
@@ -98,6 +99,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 | Route | Auth | Description |
 |---|---|---|
 | `/health`, `/health/db`, `/health/cache` | None | Health checks |
+| `/console` (signup, login, me, signup-status) | None (console JWT for /me) | Admin console auth |
 | `/projects` (CRUD + keys) | None | Project management |
 | `/locale` (countries, currencies, etc.) | None | Locale data |
 | `/account` (CRUD + sessions) | Project header, some public | Client-side auth |
@@ -132,7 +134,8 @@ Migrations live at `backend/internal/db/migrations/*.sql`, embedded via `//go:em
 Current migrations:
 - `001_init.sql` — projects, api_keys, users, sessions, teams, memberships, _databases, collections, attributes, _indexes, documents, buckets, files
 - `002_deployments.sql` — deployments table
-- `003_workflows.sql` ��� workflows and workflow_executions tables
+- `003_workflows.sql` — workflows and workflow_executions tables
+- `004_console_users.sql` — console admin users table
 
 Documents (TablesDB) are stored as JSON in a `documents.data` column. `model.Document` implements `MarshalJSON` to merge data fields into the top-level JSON response, matching Appwrite's document shape.
 
@@ -159,6 +162,8 @@ Shell layout with NavigationRail sidebar (`console/lib/core/shell/shell.dart`). 
 
 | Feature | Status | Description |
 |---|---|---|
+| `login` | Complete | Console admin signup/login with auto-disable signup after first user |
+| `onboarding` | Complete | Post-login stepper: create project → generate API key → SDK snippets |
 | `auth` | Complete | User management table with create/delete |
 | `databases` | Complete | 3-panel layout: databases → collections → documents as DataTable with dynamic columns |
 | `storage` | Complete | Buckets panel + files list with download/delete |
@@ -168,11 +173,11 @@ Shell layout with NavigationRail sidebar (`console/lib/core/shell/shell.dart`). 
 | `workflows` | Complete | Native workflow engine: CRUD, node editor, manual execute, execution history with step logs |
 
 Core infra at `console/lib/core/`:
-- `router/` — GoRouter with ShellRoute wrapping all feature pages
+- `router/` — GoRouter with ShellRoute, auth guard redirect, login/onboarding routes
 - `theme/` — Material 3 theme (seed color #6C47FF)
 - `api/` — Dio-based API client as Riverpod provider (base URL `/v1` for proxy)
 - `shell/` — NavigationRail layout with 7 destinations
-- `providers/` — Project and API key Riverpod providers
+- `providers/` — Project, API key, and console auth Riverpod providers
 
 `sdks/dart/` is a path dependency of `console/` (`path: ../sdks/dart`). Always run `melos bootstrap` after pulling to keep symlinks current.
 
@@ -222,3 +227,4 @@ Go Dockerfiles run `go mod tidy` inside the builder (no `go.sum` is committed).
 | `SMTP_USER` | (empty) | SMTP username |
 | `SMTP_PASS` | (empty) | SMTP password |
 | `SMTP_FROM` | `noreply@applad.local` | Sender email address |
+| `CONSOLE_SIGNUP_ENABLED` | `auto` | Console signup: `auto` (disabled after first user), `true`, or `false` |
