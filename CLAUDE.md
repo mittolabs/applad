@@ -85,6 +85,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 - `avatars` — generated avatars: initials, QR codes, credit card icons, country flags, favicons (handler.go)
 - `databases` — databases, collections, attributes, indexes, documents with query operators (service.go + handler.go)
 - `functions` — serverless function management: CRUD, execution, build queue integration (service.go + handler.go)
+- `runtime` — container-based function execution engine: Docker Engine API client, warm container pool, runtime templates for Node/Python/Go/Dart/Bun/Rust/Ruby/PHP, custom Dockerfile support (docker.go + pool.go + executor.go + templates.go)
 - `storage` — buckets, files, chunked uploads, image transformations, antivirus scanning, S3/local driver (service.go + handler.go + driver.go + antivirus.go)
 - `teams` — teams and memberships (service.go + handler.go)
 - `projects` — project and API key management (service.go + handler.go)

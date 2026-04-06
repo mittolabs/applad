@@ -60,15 +60,32 @@ func (s *Service) Create(ctx context.Context, projectID, name, runtime, entrypoi
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO functions (id, project_id, name, runtime, entrypoint, timeout, env_vars, source, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'building', ?, ?)`,
 		id, projectID, name, runtime, entrypoint, timeout, envJSON, source, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("functions: create: %w", err)
 	}
+
+	// Pre-warm: push a build job so the image + warm container are ready before first invocation
+	if s.queue != nil && source != "" {
+		s.queue.Push(ctx, "builds", queue.Job{
+			ID:   uid.New("unique()"),
+			Type: "function_build",
+			Payload: map[string]interface{}{
+				"functionId": id,
+				"projectId":  projectID,
+				"runtime":    runtime,
+				"entrypoint": entrypoint,
+				"source":     source,
+			},
+			CreatedAt: now,
+		})
+	}
+
 	return &Function{
 		ID: id, ProjectID: projectID, Name: name,
 		Runtime: runtime, Entrypoint: entrypoint, Timeout: timeout,
-		EnvVars: envVars, Source: source, Status: "active",
+		EnvVars: envVars, Source: source, Status: "building",
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
@@ -124,12 +141,29 @@ func (s *Service) Update(ctx context.Context, id, projectID string, name, runtim
 	envJSON, _ := json.Marshal(envVars)
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE functions SET name = ?, runtime = ?, entrypoint = ?, timeout = ?, env_vars = ?, source = ?, updated_at = ?
+		`UPDATE functions SET name = ?, runtime = ?, entrypoint = ?, timeout = ?, env_vars = ?, source = ?, status = 'building', updated_at = ?
 		 WHERE id = ? AND project_id = ?`,
 		name, runtime, entrypoint, timeout, envJSON, source, now, id, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("functions: update: %w", err)
 	}
+
+	// Re-build and pre-warm on source/runtime change
+	if s.queue != nil && source != "" {
+		s.queue.Push(ctx, "builds", queue.Job{
+			ID:   uid.New("unique()"),
+			Type: "function_build",
+			Payload: map[string]interface{}{
+				"functionId": id,
+				"projectId":  projectID,
+				"runtime":    runtime,
+				"entrypoint": entrypoint,
+				"source":     source,
+			},
+			CreatedAt: now,
+		})
+	}
+
 	return s.Get(ctx, id, projectID)
 }
 

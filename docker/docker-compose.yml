@@ -70,7 +70,9 @@ services:
       args:
         WORKER_TYPE: builds
     environment: *worker-env
-    volumes: *worker-volumes
+    volumes:
+      - storage_data:/var/applad/storage
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on: *worker-deps
     restart: unless-stopped
 

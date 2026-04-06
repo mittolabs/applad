@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
 	"github.com/mittolabs/applad/internal/middleware"
+	"github.com/mittolabs/applad/internal/runtime"
 )
 
 // Handler handles HTTP requests for functions.
@@ -29,6 +30,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 // Routes returns the functions router.
 func Routes(h *Handler) http.Handler {
 	r := chi.NewRouter()
+	r.Get("/runtimes", h.listRuntimes)
 	r.Post("/", h.create)
 	r.Get("/", h.list)
 	r.Get("/{functionId}", h.get)
@@ -38,6 +40,14 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/{functionId}/executions", h.listExecutions)
 	r.Get("/{functionId}/executions/{executionId}", h.getExecution)
 	return r
+}
+
+func (h *Handler) listRuntimes(w http.ResponseWriter, r *http.Request) {
+	runtimes := runtime.SupportedRuntimes()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":    len(runtimes),
+		"runtimes": runtimes,
+	})
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
