@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/client.dart';
+import '../../core/widgets/app_dialog.dart';
 
 final functionsProvider =
     FutureProvider<Map<String, dynamic>>((ref) async {
@@ -177,82 +178,159 @@ class FunctionsPage extends ConsumerWidget {
 
     showDialog(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Create Function'),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
+        builder: (ctx, setState) => Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 500,
+              constraints: const BoxConstraints(maxHeight: 600),
+              decoration: BoxDecoration(
+                color: const Color(0xFF16171B),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.5),
+                    blurRadius: 32,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextField(
-                    controller: nameCtrl,
-                    decoration:
-                        const InputDecoration(labelText: 'Name'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedRuntime,
-                    decoration:
-                        const InputDecoration(labelText: 'Runtime'),
-                    items: _runtimes
-                        .map((r) =>
-                            DropdownMenuItem(value: r, child: Text(r)))
-                        .toList(),
-                    onChanged: (v) =>
-                        setState(() => selectedRuntime = v ?? 'node-20'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: entrypointCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Entrypoint',
-                      hintText: 'index.js',
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text('Create Function',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              )),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.of(ctx).pop(),
+                          child: Icon(Icons.close,
+                              size: 16, color: Colors.white.withOpacity(0.3)),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: timeoutCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Timeout (seconds)',
-                    ),
-                    keyboardType: TextInputType.number,
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                        height: 1, color: Colors.white.withOpacity(0.06)),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: sourceCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Source Code',
-                      alignLabelWithHint: true,
+                  const SizedBox(height: 16),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppDialogField(
+                            controller: nameCtrl,
+                            label: 'Name',
+                            hint: 'Function name',
+                            autofocus: true,
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: selectedRuntime,
+                            dropdownColor: const Color(0xFF16171B),
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13),
+                            decoration: InputDecoration(
+                              labelText: 'Runtime',
+                              labelStyle: TextStyle(
+                                  color: Colors.white.withOpacity(0.5),
+                                  fontSize: 12),
+                              filled: true,
+                              fillColor: Colors.white.withOpacity(0.04),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(
+                                    color: Colors.white.withOpacity(0.1)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(
+                                    color: Colors.white.withOpacity(0.1)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(
+                                    color: Color(0xFF3472A4)),
+                              ),
+                            ),
+                            items: _runtimes
+                                .map((r) => DropdownMenuItem(
+                                    value: r, child: Text(r)))
+                                .toList(),
+                            onChanged: (v) => setState(
+                                () => selectedRuntime = v ?? 'node-20'),
+                          ),
+                          const SizedBox(height: 12),
+                          AppDialogField(
+                            controller: entrypointCtrl,
+                            label: 'Entrypoint',
+                            hint: 'index.js',
+                          ),
+                          const SizedBox(height: 12),
+                          AppDialogField(
+                            controller: timeoutCtrl,
+                            label: 'Timeout (seconds)',
+                            hint: '15',
+                            keyboardType: TextInputType.number,
+                          ),
+                          const SizedBox(height: 12),
+                          AppDialogField(
+                            controller: sourceCtrl,
+                            label: 'Source Code',
+                            hint: '',
+                            maxLines: 8,
+                          ),
+                        ],
+                      ),
                     ),
-                    maxLines: 8,
-                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        const AppDialogCancel(),
+                        AppDialogAction(
+                          label: 'Create',
+                          onTap: () async {
+                            final api = ref.read(apiClientProvider);
+                            await api.post('/functions', data: {
+                              'name': nameCtrl.text,
+                              'runtime': selectedRuntime,
+                              'entrypoint': entrypointCtrl.text,
+                              'timeout':
+                                  int.tryParse(timeoutCtrl.text) ?? 15,
+                              'source': sourceCtrl.text,
+                            });
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            ref.invalidate(functionsProvider);
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel')),
-            FilledButton(
-              onPressed: () async {
-                final api = ref.read(apiClientProvider);
-                await api.post('/functions', data: {
-                  'name': nameCtrl.text,
-                  'runtime': selectedRuntime,
-                  'entrypoint': entrypointCtrl.text,
-                  'timeout': int.tryParse(timeoutCtrl.text) ?? 15,
-                  'source': sourceCtrl.text,
-                });
-                if (ctx.mounted) Navigator.pop(ctx);
-                ref.invalidate(functionsProvider);
-              },
-              child: const Text('Create'),
-            ),
-          ],
         ),
       ),
     );
@@ -272,82 +350,159 @@ class FunctionsPage extends ConsumerWidget {
 
     showDialog(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Edit Function'),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
+        builder: (ctx, setState) => Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 500,
+              constraints: const BoxConstraints(maxHeight: 600),
+              decoration: BoxDecoration(
+                color: const Color(0xFF16171B),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.5),
+                    blurRadius: 32,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextField(
-                    controller: nameCtrl,
-                    decoration:
-                        const InputDecoration(labelText: 'Name'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedRuntime,
-                    decoration:
-                        const InputDecoration(labelText: 'Runtime'),
-                    items: _runtimes
-                        .map((r) =>
-                            DropdownMenuItem(value: r, child: Text(r)))
-                        .toList(),
-                    onChanged: (v) =>
-                        setState(() => selectedRuntime = v ?? 'node-20'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: entrypointCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Entrypoint',
-                      hintText: 'index.js',
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text('Edit Function',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              )),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.of(ctx).pop(),
+                          child: Icon(Icons.close,
+                              size: 16, color: Colors.white.withOpacity(0.3)),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: timeoutCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Timeout (seconds)',
-                    ),
-                    keyboardType: TextInputType.number,
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                        height: 1, color: Colors.white.withOpacity(0.06)),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: sourceCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Source Code',
-                      alignLabelWithHint: true,
+                  const SizedBox(height: 16),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppDialogField(
+                            controller: nameCtrl,
+                            label: 'Name',
+                            hint: 'Function name',
+                            autofocus: true,
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: selectedRuntime,
+                            dropdownColor: const Color(0xFF16171B),
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13),
+                            decoration: InputDecoration(
+                              labelText: 'Runtime',
+                              labelStyle: TextStyle(
+                                  color: Colors.white.withOpacity(0.5),
+                                  fontSize: 12),
+                              filled: true,
+                              fillColor: Colors.white.withOpacity(0.04),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(
+                                    color: Colors.white.withOpacity(0.1)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(
+                                    color: Colors.white.withOpacity(0.1)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(
+                                    color: Color(0xFF3472A4)),
+                              ),
+                            ),
+                            items: _runtimes
+                                .map((r) => DropdownMenuItem(
+                                    value: r, child: Text(r)))
+                                .toList(),
+                            onChanged: (v) => setState(
+                                () => selectedRuntime = v ?? 'node-20'),
+                          ),
+                          const SizedBox(height: 12),
+                          AppDialogField(
+                            controller: entrypointCtrl,
+                            label: 'Entrypoint',
+                            hint: 'index.js',
+                          ),
+                          const SizedBox(height: 12),
+                          AppDialogField(
+                            controller: timeoutCtrl,
+                            label: 'Timeout (seconds)',
+                            hint: '15',
+                            keyboardType: TextInputType.number,
+                          ),
+                          const SizedBox(height: 12),
+                          AppDialogField(
+                            controller: sourceCtrl,
+                            label: 'Source Code',
+                            hint: '',
+                            maxLines: 8,
+                          ),
+                        ],
+                      ),
                     ),
-                    maxLines: 8,
-                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        const AppDialogCancel(),
+                        AppDialogAction(
+                          label: 'Save',
+                          onTap: () async {
+                            final api = ref.read(apiClientProvider);
+                            await api.put('/functions/$id', data: {
+                              'name': nameCtrl.text,
+                              'runtime': selectedRuntime,
+                              'entrypoint': entrypointCtrl.text,
+                              'timeout':
+                                  int.tryParse(timeoutCtrl.text) ?? 15,
+                              'source': sourceCtrl.text,
+                            });
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            ref.invalidate(functionsProvider);
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel')),
-            FilledButton(
-              onPressed: () async {
-                final api = ref.read(apiClientProvider);
-                await api.put('/functions/$id', data: {
-                  'name': nameCtrl.text,
-                  'runtime': selectedRuntime,
-                  'entrypoint': entrypointCtrl.text,
-                  'timeout': int.tryParse(timeoutCtrl.text) ?? 15,
-                  'source': sourceCtrl.text,
-                });
-                if (ctx.mounted) Navigator.pop(ctx);
-                ref.invalidate(functionsProvider);
-              },
-              child: const Text('Save'),
-            ),
-          ],
         ),
       ),
     );
@@ -368,6 +523,7 @@ class FunctionsPage extends ConsumerWidget {
       BuildContext context, WidgetRef ref, String functionId) {
     showDialog(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => _ExecutionsDialog(
           functionId: functionId, ref: ref),
     );
@@ -422,68 +578,133 @@ class _ExecutionsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Execution History'),
-      content: SizedBox(
-        width: 600,
-        height: 400,
-        child: FutureBuilder<dynamic>(
-          future: ref
-              .read(apiClientProvider)
-              .get('/functions/$functionId/executions')
-              .then((r) => r.data),
-          builder: (ctx, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snap.hasError) {
-              return Center(child: Text('Error: ${snap.error}'));
-            }
-            final execs = List<Map<String, dynamic>>.from(
-                (snap.data as Map)['executions'] ?? []);
-            if (execs.isEmpty) {
-              return const Center(child: Text('No executions yet'));
-            }
-            return ListView.builder(
-              itemCount: execs.length,
-              itemBuilder: (ctx, i) {
-                final e = execs[i];
-                final status = e['status'] ?? 'pending';
-                final dur = e['duration'] ?? 0;
-                return ExpansionTile(
-                  leading: _execIcon(status),
-                  title: Text('${e['\$id'] ?? ''} — $status'),
-                  subtitle: Text('${dur}ms'),
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: 600,
+          constraints: const BoxConstraints(maxHeight: 520),
+          decoration: BoxDecoration(
+            color: const Color(0xFF16171B),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 32,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                child: Row(
                   children: [
-                    if (e['output'] != null &&
-                        (e['output'] as String).isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: SelectableText(
-                          e['output'] as String,
-                          style: const TextStyle(
-                              fontFamily: 'monospace', fontSize: 13),
-                        ),
-                      ),
-                    if (e['error'] != null &&
-                        (e['error'] as String).isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text('Error: ${e['error']}',
-                            style: const TextStyle(color: Colors.red)),
-                      ),
+                    const Expanded(
+                      child: Text('Execution History',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          )),
+                    ),
+                    GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Icon(Icons.close,
+                          size: 16, color: Colors.white.withOpacity(0.3)),
+                    ),
                   ],
-                );
-              },
-            );
-          },
+                ),
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                    height: 1, color: Colors.white.withOpacity(0.06)),
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: SizedBox(
+                  height: 400,
+                  child: FutureBuilder<dynamic>(
+                    future: ref
+                        .read(apiClientProvider)
+                        .get('/functions/$functionId/executions')
+                        .then((r) => r.data),
+                    builder: (ctx, snap) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snap.hasError) {
+                        return Center(child: Text('Error: ${snap.error}',
+                            style: TextStyle(color: Colors.white.withOpacity(0.7))));
+                      }
+                      final execs = List<Map<String, dynamic>>.from(
+                          (snap.data as Map)['executions'] ?? []);
+                      if (execs.isEmpty) {
+                        return Center(child: Text('No executions yet',
+                            style: TextStyle(color: Colors.white.withOpacity(0.4))));
+                      }
+                      return ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        itemCount: execs.length,
+                        itemBuilder: (ctx, i) {
+                          final e = execs[i];
+                          final status = e['status'] ?? 'pending';
+                          final dur = e['duration'] ?? 0;
+                          return ExpansionTile(
+                            leading: _execIcon(status),
+                            title: Text('${e['\$id'] ?? ''} — $status',
+                                style: const TextStyle(color: Colors.white)),
+                            subtitle: Text('${dur}ms',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.4))),
+                            children: [
+                              if (e['output'] != null &&
+                                  (e['output'] as String).isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: SelectableText(
+                                    e['output'] as String,
+                                    style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 13,
+                                        color: Colors.white),
+                                  ),
+                                ),
+                              if (e['error'] != null &&
+                                  (e['error'] as String).isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Text('Error: ${e['error']}',
+                                      style: const TextStyle(color: Colors.red)),
+                                ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    const AppDialogCancel(label: 'Close'),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close')),
-      ],
     );
   }
 

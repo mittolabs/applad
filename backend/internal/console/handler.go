@@ -2,6 +2,7 @@ package console
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -32,7 +33,11 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/signup", h.signup)
 	r.Post("/login", h.login)
 	r.Get("/signup-status", h.signupStatus)
-	r.Get("/me", h.getMe) // requires console JWT in Authorization header
+	r.Get("/me", h.getMe)
+	r.Patch("/me/name", h.updateName)
+	r.Patch("/me/email", h.updateEmail)
+	r.Patch("/me/password", h.updatePassword)
+	r.Delete("/me", h.deleteAccount)
 	return r
 }
 
@@ -156,4 +161,81 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
+}
+
+func (h *Handler) extractUserID(r *http.Request) (string, error) {
+	auth := r.Header.Get("Authorization")
+	if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+		return "", fmt.Errorf("no token")
+	}
+	return h.svc.ValidateToken(strings.TrimPrefix(auth, "Bearer "))
+}
+
+func (h *Handler) updateName(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if err := h.svc.UpdateName(r.Context(), userID, body.Name); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) updateEmail(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	var body struct {
+		Email string `json:"email"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if err := h.svc.UpdateEmail(r.Context(), userID, body.Email); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	var body struct {
+		OldPassword string `json:"oldPassword"`
+		Password    string `json:"password"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Password == "" {
+		apperr.BadRequest(w, "password is required")
+		return
+	}
+	if err := h.svc.UpdatePassword(r.Context(), userID, body.OldPassword, body.Password); err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	if err := h.svc.DeleteUser(r.Context(), userID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

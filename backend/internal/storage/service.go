@@ -10,8 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -334,8 +337,34 @@ func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID
 	return s.GetFile(ctx, fileID, bucketID, projectID)
 }
 
-// TransformImage resizes and converts an image.
+// ImageTransformOpts holds all image transformation parameters.
+type ImageTransformOpts struct {
+	Width        int
+	Height       int
+	Quality      int
+	OutputFormat string
+	Gravity      string // center, top, bottom, left, right, top-left, top-right, bottom-left, bottom-right
+	BorderWidth  int
+	BorderColor  string // hex color e.g. "ff0000"
+	BorderRadius int
+	Opacity      int    // 0-100
+	Rotation     int    // 0, 90, 180, 270
+	Background   string // hex color for background fill
+}
+
+// TransformImage resizes, rotates, borders, and converts an image.
 func (s *Service) TransformImage(content []byte, mimeType string, width, height, quality int, outputFormat string) ([]byte, string, error) {
+	return s.TransformImageAdvanced(content, mimeType, ImageTransformOpts{
+		Width:        width,
+		Height:       height,
+		Quality:      quality,
+		OutputFormat: outputFormat,
+	})
+}
+
+// TransformImageAdvanced applies the full set of image transformations.
+// Order: resize (with gravity crop) -> rotate -> border radius -> border -> opacity -> background fill -> encode.
+func (s *Service) TransformImageAdvanced(content []byte, mimeType string, opts ImageTransformOpts) ([]byte, string, error) {
 	if !strings.HasPrefix(mimeType, "image/") {
 		return nil, "", fmt.Errorf("not an image")
 	}
@@ -345,33 +374,65 @@ func (s *Service) TransformImage(content []byte, mimeType string, width, height,
 		return nil, "", fmt.Errorf("decode image: %w", err)
 	}
 
-	// Resize if requested
-	if width > 0 || height > 0 {
-		img = resizeImage(img, width, height)
+	// 1. Resize (with gravity-based cropping)
+	if opts.Width > 0 || opts.Height > 0 {
+		if opts.Gravity != "" && opts.Gravity != "center" && opts.Width > 0 && opts.Height > 0 {
+			img = cropToGravity(img, opts.Width, opts.Height, opts.Gravity)
+		}
+		img = resizeImage(img, opts.Width, opts.Height)
+	}
+
+	// 2. Rotate
+	if opts.Rotation == 90 || opts.Rotation == 180 || opts.Rotation == 270 {
+		img = rotateImage(img, opts.Rotation)
+	}
+
+	// 3. Border radius (round corners)
+	if opts.BorderRadius > 0 {
+		img = applyBorderRadius(img, opts.BorderRadius)
+	}
+
+	// 4. Border
+	if opts.BorderWidth > 0 {
+		borderCol := parseHexColor(opts.BorderColor)
+		img = applyBorder(img, opts.BorderWidth, borderCol)
+	}
+
+	// 5. Opacity
+	if opts.Opacity > 0 && opts.Opacity < 100 {
+		img = applyOpacity(img, opts.Opacity)
+	}
+
+	// 6. Background fill (useful after rotation or border-radius with transparency)
+	if opts.Background != "" {
+		bgCol := parseHexColor(opts.Background)
+		img = applyBackground(img, bgCol)
 	}
 
 	// Determine output format
-	if outputFormat == "" {
+	outFmt := opts.OutputFormat
+	if outFmt == "" {
 		if strings.Contains(mimeType, "png") {
-			outputFormat = "png"
+			outFmt = "png"
 		} else {
-			outputFormat = "jpg"
+			outFmt = "jpg"
 		}
 	}
 
-	if quality <= 0 {
-		quality = 85
+	q := opts.Quality
+	if q <= 0 {
+		q = 85
 	}
 
 	var buf bytes.Buffer
 	var outMime string
 
-	switch outputFormat {
+	switch outFmt {
 	case "png":
 		err = png.Encode(&buf, img)
 		outMime = "image/png"
 	default: // jpg/jpeg
-		err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
+		err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: q})
 		outMime = "image/jpeg"
 	}
 	if err != nil {
@@ -379,6 +440,215 @@ func (s *Service) TransformImage(content []byte, mimeType string, width, height,
 	}
 
 	return buf.Bytes(), outMime, nil
+}
+
+// parseHexColor parses a hex color string (with or without #) into a color.RGBA.
+func parseHexColor(hex string) color.RGBA {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) == 3 {
+		// Expand shorthand: "f00" -> "ff0000"
+		hex = string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]})
+	}
+	if len(hex) != 6 {
+		return color.RGBA{0, 0, 0, 255}
+	}
+	var r, g, b uint8
+	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+	return color.RGBA{r, g, b, 255}
+}
+
+// rotateImage rotates an image by 90, 180, or 270 degrees.
+func rotateImage(src image.Image, degrees int) image.Image {
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	switch degrees {
+	case 90:
+		dst := image.NewRGBA(image.Rect(0, 0, h, w))
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				dst.Set(h-1-y, x, src.At(x+bounds.Min.X, y+bounds.Min.Y))
+			}
+		}
+		return dst
+	case 180:
+		dst := image.NewRGBA(image.Rect(0, 0, w, h))
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				dst.Set(w-1-x, h-1-y, src.At(x+bounds.Min.X, y+bounds.Min.Y))
+			}
+		}
+		return dst
+	case 270:
+		dst := image.NewRGBA(image.Rect(0, 0, h, w))
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				dst.Set(y, w-1-x, src.At(x+bounds.Min.X, y+bounds.Min.Y))
+			}
+		}
+		return dst
+	}
+	return src
+}
+
+// applyBorder draws a border of the given width and color around the image.
+func applyBorder(src image.Image, borderWidth int, borderColor color.RGBA) image.Image {
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	newW := w + 2*borderWidth
+	newH := h + 2*borderWidth
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	// Fill entire image with border color
+	draw.Draw(dst, dst.Bounds(), &image.Uniform{borderColor}, image.Point{}, draw.Src)
+	// Draw the original image centered
+	draw.Draw(dst, image.Rect(borderWidth, borderWidth, borderWidth+w, borderWidth+h), src, bounds.Min, draw.Src)
+	return dst
+}
+
+// applyBorderRadius rounds the corners of the image by making pixels outside
+// the rounded rectangle transparent.
+func applyBorderRadius(src image.Image, radius int) image.Image {
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(dst, dst.Bounds(), src, bounds.Min, draw.Src)
+
+	if radius > w/2 {
+		radius = w / 2
+	}
+	if radius > h/2 {
+		radius = h / 2
+	}
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if !insideRoundedRect(x, y, w, h, radius) {
+				dst.SetRGBA(x, y, color.RGBA{0, 0, 0, 0})
+			}
+		}
+	}
+	return dst
+}
+
+// insideRoundedRect checks whether (x,y) is inside a rounded rectangle.
+func insideRoundedRect(x, y, w, h, r int) bool {
+	// Check the four corner regions
+	corners := [][2]int{
+		{r, r},         // top-left
+		{w - r, r},     // top-right
+		{r, h - r},     // bottom-left
+		{w - r, h - r}, // bottom-right
+	}
+	for _, c := range corners {
+		cx, cy := c[0], c[1]
+		// Determine if (x,y) is in this corner's quadrant
+		inCorner := false
+		switch {
+		case x < r && y < r: // top-left
+			inCorner = (cx == r && cy == r)
+		case x >= w-r && y < r: // top-right
+			inCorner = (cx == w-r && cy == r)
+		case x < r && y >= h-r: // bottom-left
+			inCorner = (cx == r && cy == h-r)
+		case x >= w-r && y >= h-r: // bottom-right
+			inCorner = (cx == w-r && cy == h-r)
+		}
+		if inCorner {
+			dx := float64(x - cx)
+			dy := float64(y - cy)
+			if math.Sqrt(dx*dx+dy*dy) > float64(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// applyOpacity blends the image with transparency (0 = fully transparent, 100 = opaque).
+func applyOpacity(src image.Image, opacity int) image.Image {
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+
+	alpha := float64(opacity) / 100.0
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			r, g, b, a := src.At(x+bounds.Min.X, y+bounds.Min.Y).RGBA()
+			newA := uint8(float64(a>>8) * alpha)
+			dst.SetRGBA(x, y, color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), newA})
+		}
+	}
+	return dst
+}
+
+// applyBackground composites the source image over a solid background color.
+func applyBackground(src image.Image, bg color.RGBA) image.Image {
+	bounds := src.Bounds()
+	dst := image.NewRGBA(bounds)
+	draw.Draw(dst, bounds, &image.Uniform{bg}, image.Point{}, draw.Src)
+	draw.Draw(dst, bounds, src, bounds.Min, draw.Over)
+	return dst
+}
+
+// cropToGravity crops the source image based on gravity before resizing.
+func cropToGravity(src image.Image, targetW, targetH int, gravity string) image.Image {
+	bounds := src.Bounds()
+	srcW, srcH := bounds.Dx(), bounds.Dy()
+
+	// Calculate the crop rectangle that matches the target aspect ratio
+	targetRatio := float64(targetW) / float64(targetH)
+	srcRatio := float64(srcW) / float64(srcH)
+
+	var cropW, cropH int
+	if srcRatio > targetRatio {
+		// Source is wider — crop width
+		cropH = srcH
+		cropW = int(float64(cropH) * targetRatio)
+	} else {
+		// Source is taller — crop height
+		cropW = srcW
+		cropH = int(float64(cropW) / targetRatio)
+	}
+
+	// Determine crop origin based on gravity
+	var x0, y0 int
+	switch gravity {
+	case "top":
+		x0 = (srcW - cropW) / 2
+		y0 = 0
+	case "bottom":
+		x0 = (srcW - cropW) / 2
+		y0 = srcH - cropH
+	case "left":
+		x0 = 0
+		y0 = (srcH - cropH) / 2
+	case "right":
+		x0 = srcW - cropW
+		y0 = (srcH - cropH) / 2
+	case "top-left":
+		x0 = 0
+		y0 = 0
+	case "top-right":
+		x0 = srcW - cropW
+		y0 = 0
+	case "bottom-left":
+		x0 = 0
+		y0 = srcH - cropH
+	case "bottom-right":
+		x0 = srcW - cropW
+		y0 = srcH - cropH
+	default: // center
+		x0 = (srcW - cropW) / 2
+		y0 = (srcH - cropH) / 2
+	}
+
+	x0 += bounds.Min.X
+	y0 += bounds.Min.Y
+
+	cropped := image.NewRGBA(image.Rect(0, 0, cropW, cropH))
+	draw.Draw(cropped, cropped.Bounds(), src, image.Pt(x0, y0), draw.Src)
+	return cropped
 }
 
 // resizeImage scales an image to fit within the given dimensions, preserving aspect ratio.

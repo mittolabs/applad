@@ -33,86 +33,36 @@ type Provider struct {
 	ParseUser    func(body []byte) (*UserInfo, error)
 }
 
-// Providers returns the known OAuth2 providers.
-func Providers(google, github, apple ProviderConfig) map[string]*Provider {
+// Providers returns the known OAuth2 providers configured via environment variables.
+// It accepts a map of provider name to ProviderConfig credentials. Only providers
+// with a non-empty ClientID are included.
+func Providers(configs map[string]ProviderConfig) map[string]*Provider {
+	defs := AllProviderDefinitions()
 	providers := map[string]*Provider{}
 
-	if google.ClientID != "" {
-		providers["google"] = &Provider{
-			Name:         "google",
-			ClientID:     google.ClientID,
-			ClientSecret: google.ClientSecret,
-			AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
-			TokenURL:     "https://oauth2.googleapis.com/token",
-			UserInfoURL:  "https://www.googleapis.com/oauth2/v2/userinfo",
-			Scopes:       []string{"openid", "email", "profile"},
-			ParseUser: func(body []byte) (*UserInfo, error) {
-				var u struct {
-					ID    string `json:"id"`
-					Email string `json:"email"`
-					Name  string `json:"name"`
-				}
-				if err := json.Unmarshal(body, &u); err != nil {
-					return nil, err
-				}
-				return &UserInfo{ID: u.ID, Email: u.Email, Name: u.Name, Provider: "google"}, nil
-			},
+	for name, cfg := range configs {
+		if cfg.ClientID == "" {
+			continue
+		}
+		if def, ok := defs[name]; ok {
+			providers[name] = def.ToProvider(cfg.ClientID, cfg.ClientSecret)
 		}
 	}
 
-	if github.ClientID != "" {
-		providers["github"] = &Provider{
-			Name:         "github",
-			ClientID:     github.ClientID,
-			ClientSecret: github.ClientSecret,
-			AuthURL:      "https://github.com/login/oauth/authorize",
-			TokenURL:     "https://github.com/login/oauth/access_token",
-			UserInfoURL:  "https://api.github.com/user",
-			Scopes:       []string{"user:email"},
-			ParseUser: func(body []byte) (*UserInfo, error) {
-				var u struct {
-					ID    int    `json:"id"`
-					Email string `json:"email"`
-					Name  string `json:"name"`
-					Login string `json:"login"`
-				}
-				if err := json.Unmarshal(body, &u); err != nil {
-					return nil, err
-				}
-				name := u.Name
-				if name == "" {
-					name = u.Login
-				}
-				return &UserInfo{
-					ID:       fmt.Sprintf("%d", u.ID),
-					Email:    u.Email,
-					Name:     name,
-					Provider: "github",
-				}, nil
-			},
-		}
-	}
+	return providers
+}
 
-	if apple.ClientID != "" {
-		providers["apple"] = &Provider{
-			Name:         "apple",
-			ClientID:     apple.ClientID,
-			ClientSecret: apple.ClientSecret,
-			AuthURL:      "https://appleid.apple.com/auth/authorize",
-			TokenURL:     "https://appleid.apple.com/auth/token",
-			UserInfoURL:  "", // Apple returns info in the ID token
-			Scopes:       []string{"name", "email"},
-			ParseUser: func(body []byte) (*UserInfo, error) {
-				// Apple's user info comes from the ID token, handled separately
-				var u struct {
-					Sub   string `json:"sub"`
-					Email string `json:"email"`
-				}
-				if err := json.Unmarshal(body, &u); err != nil {
-					return nil, err
-				}
-				return &UserInfo{ID: u.Sub, Email: u.Email, Provider: "apple"}, nil
-			},
+// ProvidersWithDomain returns providers including domain-dependent ones (Auth0, Okta, OIDC).
+func ProvidersWithDomain(configs map[string]ProviderConfig, auth0Domain, oktaDomain, oidcAuthURL, oidcTokenURL, oidcUserInfoURL string) map[string]*Provider {
+	defs := AllProviderDefinitionsWithDomain(auth0Domain, oktaDomain, oidcAuthURL, oidcTokenURL, oidcUserInfoURL)
+	providers := map[string]*Provider{}
+
+	for name, cfg := range configs {
+		if cfg.ClientID == "" {
+			continue
+		}
+		if def, ok := defs[name]; ok {
+			providers[name] = def.ToProvider(cfg.ClientID, cfg.ClientSecret)
 		}
 	}
 

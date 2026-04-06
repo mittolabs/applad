@@ -115,6 +115,42 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*ConsoleUser, error
 	return &u, nil
 }
 
+// UpdateName updates a console user's name.
+func (s *Service) UpdateName(ctx context.Context, userID, name string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE console_users SET name = ? WHERE id = ?", name, userID)
+	return err
+}
+
+// UpdateEmail updates a console user's email.
+func (s *Service) UpdateEmail(ctx context.Context, userID, email string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE console_users SET email = ? WHERE id = ?", email, userID)
+	return err
+}
+
+// UpdatePassword updates a console user's password after verifying the old one.
+func (s *Service) UpdatePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
+	var hash string
+	err := s.db.QueryRowContext(ctx, "SELECT password_hash FROM console_users WHERE id = ?", userID).Scan(&hash)
+	if err != nil {
+		return fmt.Errorf("console: user not found")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(oldPassword)); err != nil {
+		return fmt.Errorf("console: invalid current password")
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "UPDATE console_users SET password_hash = ? WHERE id = ?", string(newHash), userID)
+	return err
+}
+
+// DeleteUser removes a console user.
+func (s *Service) DeleteUser(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM console_users WHERE id = ?", userID)
+	return err
+}
+
 // CountUsers returns the total number of console users.
 func (s *Service) CountUsers(ctx context.Context) (int, error) {
 	var count int

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/client.dart';
+import '../../core/widgets/app_dialog.dart';
 
 final deploymentsProvider =
     FutureProvider<Map<String, dynamic>>((ref) async {
@@ -140,58 +141,140 @@ class DeployPage extends ConsumerWidget {
 
     showDialog(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Create Deployment'),
-          content: SizedBox(
-            width: 400,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'Name'),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: selectedType,
-                  decoration:
-                      const InputDecoration(labelText: 'Type'),
-                  items: const [
-                    DropdownMenuItem(
-                        value: 'web', child: Text('Web')),
-                    DropdownMenuItem(
-                        value: 'function',
-                        child: Text('Function')),
-                    DropdownMenuItem(
-                        value: 'container',
-                        child: Text('Container')),
-                  ],
-                  onChanged: (v) =>
-                      setState(() => selectedType = v ?? 'web'),
-                ),
-              ],
+        builder: (ctx, setState) => Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 440,
+              constraints: const BoxConstraints(maxHeight: 600),
+              decoration: BoxDecoration(
+                color: const Color(0xFF16171B),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.5),
+                    blurRadius: 32,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text('Create Deployment',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              )),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.of(ctx).pop(),
+                          child: Icon(Icons.close,
+                              size: 16, color: Colors.white.withOpacity(0.3)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                        height: 1, color: Colors.white.withOpacity(0.06)),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AppDialogField(
+                          controller: nameCtrl,
+                          label: 'Name',
+                          hint: 'Deployment name',
+                          autofocus: true,
+                        ),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          value: selectedType,
+                          dropdownColor: const Color(0xFF16171B),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13),
+                          decoration: InputDecoration(
+                            labelText: 'Type',
+                            labelStyle: TextStyle(
+                                color: Colors.white.withOpacity(0.5),
+                                fontSize: 12),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.04),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                  color: Colors.white.withOpacity(0.1)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                  color: Colors.white.withOpacity(0.1)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(
+                                  color: Color(0xFF3472A4)),
+                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                                value: 'web', child: Text('Web')),
+                            DropdownMenuItem(
+                                value: 'function',
+                                child: Text('Function')),
+                            DropdownMenuItem(
+                                value: 'container',
+                                child: Text('Container')),
+                          ],
+                          onChanged: (v) =>
+                              setState(() => selectedType = v ?? 'web'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        const AppDialogCancel(),
+                        AppDialogAction(
+                          label: 'Create',
+                          onTap: () async {
+                            final api = ref.read(apiClientProvider);
+                            await api.post('/deploy', data: {
+                              'name': nameCtrl.text,
+                              'type': selectedType,
+                              'config': <String, dynamic>{},
+                            });
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            ref.invalidate(deploymentsProvider);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel')),
-            FilledButton(
-              onPressed: () async {
-                final api = ref.read(apiClientProvider);
-                await api.post('/deploy', data: {
-                  'name': nameCtrl.text,
-                  'type': selectedType,
-                  'config': <String, dynamic>{},
-                });
-                if (ctx.mounted) Navigator.pop(ctx);
-                ref.invalidate(deploymentsProvider);
-              },
-              child: const Text('Create'),
-            ),
-          ],
         ),
       ),
     );

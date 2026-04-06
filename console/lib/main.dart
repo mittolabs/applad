@@ -3,5 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 
 void main() {
+  configureUrlStrategy();
   runApp(const ProviderScope(child: ApplAdApp()));
 }

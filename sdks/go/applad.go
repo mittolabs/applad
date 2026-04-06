@@ -197,43 +197,43 @@ func (s *DatabasesService) DeleteDatabase(databaseID string) (map[string]interfa
 	return s.client.call("DELETE", "/databases/"+databaseID, nil)
 }
 
-func (s *DatabasesService) CreateCollection(databaseID, name string) (map[string]interface{}, error) {
-	return s.client.call("POST", fmt.Sprintf("/databases/%s/collections", databaseID), map[string]interface{}{
+func (s *DatabasesService) CreateTable(databaseID, name string) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/databases/%s/tables", databaseID), map[string]interface{}{
 		"name":             name,
-		"collectionId":     "unique()",
+		"tableId":          "unique()",
 		"permissions":      []string{},
 		"documentSecurity": false,
 	})
 }
 
-func (s *DatabasesService) ListCollections(databaseID string) (map[string]interface{}, error) {
-	return s.client.call("GET", fmt.Sprintf("/databases/%s/collections", databaseID), nil)
+func (s *DatabasesService) ListTables(databaseID string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables", databaseID), nil)
 }
 
-func (s *DatabasesService) CreateDocument(databaseID, collectionID string, data map[string]interface{}) (map[string]interface{}, error) {
-	return s.client.call("POST", fmt.Sprintf("/databases/%s/collections/%s/documents", databaseID, collectionID), map[string]interface{}{
-		"documentId":  "unique()",
+func (s *DatabasesService) CreateRow(databaseID, tableID string, data map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/databases/%s/tables/%s/rows", databaseID, tableID), map[string]interface{}{
+		"rowId":       "unique()",
 		"data":        data,
 		"permissions": []string{},
 	})
 }
 
-func (s *DatabasesService) ListDocuments(databaseID, collectionID string) (map[string]interface{}, error) {
-	return s.client.call("GET", fmt.Sprintf("/databases/%s/collections/%s/documents", databaseID, collectionID), nil)
+func (s *DatabasesService) ListRows(databaseID, tableID string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables/%s/rows", databaseID, tableID), nil)
 }
 
-func (s *DatabasesService) GetDocument(databaseID, collectionID, documentID string) (map[string]interface{}, error) {
-	return s.client.call("GET", fmt.Sprintf("/databases/%s/collections/%s/documents/%s", databaseID, collectionID, documentID), nil)
+func (s *DatabasesService) GetRow(databaseID, tableID, rowID string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables/%s/rows/%s", databaseID, tableID, rowID), nil)
 }
 
-func (s *DatabasesService) UpdateDocument(databaseID, collectionID, documentID string, data map[string]interface{}) (map[string]interface{}, error) {
-	return s.client.call("PATCH", fmt.Sprintf("/databases/%s/collections/%s/documents/%s", databaseID, collectionID, documentID), map[string]interface{}{
+func (s *DatabasesService) UpdateRow(databaseID, tableID, rowID string, data map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("PATCH", fmt.Sprintf("/databases/%s/tables/%s/rows/%s", databaseID, tableID, rowID), map[string]interface{}{
 		"data": data,
 	})
 }
 
-func (s *DatabasesService) DeleteDocument(databaseID, collectionID, documentID string) (map[string]interface{}, error) {
-	return s.client.call("DELETE", fmt.Sprintf("/databases/%s/collections/%s/documents/%s", databaseID, collectionID, documentID), nil)
+func (s *DatabasesService) DeleteRow(databaseID, tableID, rowID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", fmt.Sprintf("/databases/%s/tables/%s/rows/%s", databaseID, tableID, rowID), nil)
 }
 
 // ---------------------------------------------------------------------------

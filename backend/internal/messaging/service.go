@@ -34,6 +34,23 @@ type Config struct {
 	TwilioFrom  string
 	// FCM push notifications
 	FCMServerKey string
+	// Mailgun
+	MailgunAPIKey string
+	MailgunDomain string
+	// Resend
+	ResendAPIKey string
+	// Vonage SMS
+	VonageAPIKey    string
+	VonageAPISecret string
+	VonageFrom      string
+	// MSG91 SMS
+	MSG91AuthKey  string
+	MSG91SenderID string
+	// APNS push notifications
+	APNSKeyID    string
+	APNSTeamID   string
+	APNSKeyPath  string
+	APNSBundleID string
 }
 
 // Service handles email, SMS, and push notification sending.
@@ -197,6 +214,199 @@ func (s *Service) SendPush(ctx context.Context, token, title, body string) error
 		return fmt.Errorf("messaging: fcm error %d: %s", resp.StatusCode, string(respBody))
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Email (Mailgun)
+// ---------------------------------------------------------------------------
+
+// SendEmailMailgun sends an email via the Mailgun API.
+func (s *Service) SendEmailMailgun(ctx context.Context, to []string, subject, htmlBody string) error {
+	if s.cfg.MailgunAPIKey == "" || s.cfg.MailgunDomain == "" {
+		return fmt.Errorf("messaging: Mailgun not configured")
+	}
+
+	apiURL := fmt.Sprintf("https://api.mailgun.net/v3/%s/messages", s.cfg.MailgunDomain)
+
+	form := url.Values{}
+	form.Set("from", s.cfg.From)
+	form.Set("to", strings.Join(to, ", "))
+	form.Set("subject", subject)
+	form.Set("html", htmlBody)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("messaging: create mailgun request: %w", err)
+	}
+	req.SetBasicAuth("api", s.cfg.MailgunAPIKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("messaging: mailgun request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("messaging: mailgun error %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Email (Resend)
+// ---------------------------------------------------------------------------
+
+// SendEmailResend sends an email via the Resend API.
+func (s *Service) SendEmailResend(ctx context.Context, to []string, subject, htmlBody string) error {
+	if s.cfg.ResendAPIKey == "" {
+		return fmt.Errorf("messaging: Resend not configured")
+	}
+
+	payload := map[string]interface{}{
+		"from":    s.cfg.From,
+		"to":      to,
+		"subject": subject,
+		"html":    htmlBody,
+	}
+
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("messaging: marshal resend payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.resend.com/emails", bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("messaging: create resend request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+s.cfg.ResendAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("messaging: resend request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("messaging: resend error %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// SMS (Vonage)
+// ---------------------------------------------------------------------------
+
+// SendSMSVonage sends an SMS via the Vonage (Nexmo) API.
+func (s *Service) SendSMSVonage(ctx context.Context, to, text string) error {
+	if s.cfg.VonageAPIKey == "" || s.cfg.VonageAPISecret == "" {
+		return fmt.Errorf("messaging: Vonage not configured")
+	}
+
+	payload := map[string]string{
+		"api_key":    s.cfg.VonageAPIKey,
+		"api_secret": s.cfg.VonageAPISecret,
+		"from":       s.cfg.VonageFrom,
+		"to":         to,
+		"text":       text,
+	}
+
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("messaging: marshal vonage payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://rest.nexmo.com/sms/json", bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("messaging: create vonage request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("messaging: vonage request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("messaging: vonage error %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// SMS (MSG91)
+// ---------------------------------------------------------------------------
+
+// SendSMSMSG91 sends an SMS via the MSG91 API.
+func (s *Service) SendSMSMSG91(ctx context.Context, to, body string) error {
+	if s.cfg.MSG91AuthKey == "" {
+		return fmt.Errorf("messaging: MSG91 not configured")
+	}
+
+	payload := map[string]interface{}{
+		"sender":  s.cfg.MSG91SenderID,
+		"route":   "4", // transactional route
+		"country": "91",
+		"sms": []map[string]interface{}{
+			{
+				"message": body,
+				"to":      []string{to},
+			},
+		},
+	}
+
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("messaging: marshal msg91 payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://control.msg91.com/api/v5/flow/", bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("messaging: create msg91 request: %w", err)
+	}
+	req.Header.Set("authkey", s.cfg.MSG91AuthKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("messaging: msg91 request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("messaging: msg91 error %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Push notifications (APNS) — stub
+// ---------------------------------------------------------------------------
+
+// SendPushAPNS is a stub for Apple Push Notification Service.
+// Full implementation requires loading a .p8 key file and signing a JWT.
+// This stub validates the configuration and returns an error indicating
+// that real delivery is not yet implemented.
+func (s *Service) SendPushAPNS(ctx context.Context, deviceToken, title, body string) error {
+	if s.cfg.APNSKeyID == "" || s.cfg.APNSTeamID == "" || s.cfg.APNSKeyPath == "" || s.cfg.APNSBundleID == "" {
+		return fmt.Errorf("messaging: APNS not configured (key_id=%q, team_id=%q, key_path=%q, bundle_id=%q)",
+			s.cfg.APNSKeyID, s.cfg.APNSTeamID, s.cfg.APNSKeyPath, s.cfg.APNSBundleID)
+	}
+
+	// TODO: implement full APNS delivery:
+	// 1. Load the .p8 key from APNSKeyPath
+	// 2. Sign a JWT with ES256 using APNSKeyID and APNSTeamID
+	// 3. POST to https://api.push.apple.com/3/device/{deviceToken}
+	//    with headers: authorization (bearer JWT), apns-topic (APNSBundleID)
+	//    and JSON payload: {"aps":{"alert":{"title":..,"body":..}}}
+	return fmt.Errorf("messaging: APNS delivery not yet implemented (stub); config valid: key_id=%s, team_id=%s, bundle_id=%s",
+		s.cfg.APNSKeyID, s.cfg.APNSTeamID, s.cfg.APNSBundleID)
 }
 
 // ---------------------------------------------------------------------------

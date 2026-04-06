@@ -10,28 +10,27 @@ Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go back
 
 ### Local dev stack
 ```bash
-make up          # docker compose up -d (all services)
-make down        # docker compose down
+docker compose up -d       # all services
+docker compose down        # stop all
+make up / make down        # shortcuts
 ```
 
 To bring up only the backend (skips the slow Flutter console build):
 ```bash
-docker compose up api mariadb redis proxy
+docker compose up api mariadb redis proxy -d
 ```
 
-### Backend (Go)
+### Backend (Go 1.22+)
 ```bash
 cd backend
-go build ./...          # build all binaries
-go test ./...           # all tests (unit)
+go build ./...          # build all binaries (202 tests, 19 suites)
+go test ./...           # all unit tests
 go test -tags=integration ./tests/...  # integration tests (requires running services)
-go test ./internal/auth/...   # single package
 gofmt -w .              # format
 go vet ./...            # vet
 ```
 
 ### Flutter/Dart workspace (console + sdks/dart)
-Managed by [Melos](https://melos.codes). Run from repo root:
 ```bash
 make bootstrap          # first time: activates melos, bootstraps workspace, npm install
 melos analyze           # dart analyze across all packages
@@ -40,12 +39,10 @@ melos format            # dart format across all packages
 melos build:web         # flutter build web --release (console only)
 ```
 
-### TypeScript SDK
+### TypeScript SDKs
 ```bash
-cd sdks/js
-npm install
-npm run build
-npm test
+cd sdks/js && npm install && npm run build && npm test    # client SDK
+cd sdks/node && npm install && npm run build               # server SDK
 ```
 
 ## Architecture
@@ -55,202 +52,179 @@ npm test
 backend/        Go backend — single Go module (github.com/mittolabs/applad)
   api/          OpenAPI spec (openapi.yaml)
   cmd/api/      API server entry point
-  cmd/workers/  10 worker binaries (builds, certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks)
-  internal/     All packages (see below)
+  cmd/workers/  10 worker binaries
+  internal/     26 packages (see below)
   tests/        Integration tests (build-tag gated: integration)
-console/        Flutter Web admin app
-sdks/dart/      Flutter/Dart client SDK (console depends on this as a path dep)
+console/        Flutter Web admin app (Lucide icons, dark Railway-style UI)
+sdks/dart/      Flutter/Dart client SDK
+sdks/dart-server/  Dart server SDK (http package, no Flutter dep)
 sdks/js/        TypeScript client SDK
+sdks/node/      Node.js server SDK
+sdks/go/        Go server SDK (zero deps)
+sdks/python/    Python server SDK (stdlib only)
 docker/         Docker Compose + per-service Dockerfiles + nginx config
 ```
 
 ### Backend structure
 
-`cmd/api/` — entry point: connects MariaDB + Redis, runs migrations, starts HTTP server.
+`cmd/api/` — entry point: connects MariaDB + Redis, runs migrations, starts HTTP server. Validates JWT_SECRET is not default in production.
 
-`cmd/workers/{type}/` — 10 independent worker binaries. Each is a separate process, scaled independently via Docker Compose. All workers have full Redis queue consumers.
+`cmd/workers/{type}/` — 10 independent worker binaries. All have full Redis queue consumers.
 
-`internal/` packages:
-- `config` — env-var config loader (includes SMTP settings)
+`internal/` packages (26 total):
+- `config` — env-var config loader (SMTP, OAuth, Twilio, FCM settings)
 - `db` — MariaDB connection + embedded migration runner (`db/migrations/*.sql`)
 - `cache` — Redis client
 - `queue` — Redis-backed job queue (BRPOP-based, used by workers)
-- `model` — all shared struct types with Appwrite-compatible JSON tags (`$id`, `$createdAt`, etc.)
-- `middleware` — CORS, `ProjectContext`, `Authenticate` (JWT or API key), `RequireAuth`, `RateLimit`, `SecurityHeaders`, `MaxBodySize`, `ParsePagination`, input validators (`ValidateEmail`, `ValidatePassword`, `SanitizeString`)
-- `apperr` — standard error response helpers matching Appwrite's error shape
-- `uid` — ID generation (UUID without hyphens, matching Appwrite style)
+- `model` — shared struct types: `Table` (alias `Collection`), `Row` (alias `Document`), `Column` (alias `Attribute`), `Index`, `User`, `Session`, `Project`, etc.
+- `middleware` — CORS, `ProjectContext`, `Authenticate`, `RequireAuth`, `RateLimit`, `SecurityHeaders`, `MaxBodySize`, `ParsePagination` (with cursor support), validators
+- `apperr` — standard error response helpers
+- `uid` — ID generation (UUID without hyphens)
 - `router` — wires all services into a single chi router
-- `auth` — accounts, sessions, OAuth2 (Google/GitHub/Apple), MFA (TOTP), magic link, email verification, password reset (service.go + handler.go)
-- `oauth` — OAuth2 provider integration: authorization URL, code exchange, user info fetching (provider.go)
-- `avatars` — generated avatars: initials, QR codes, credit card icons, country flags, favicons (handler.go)
-- `databases` — databases, collections, attributes, indexes, documents with query operators (service.go + handler.go)
-- `functions` — serverless function management: CRUD, execution, build queue integration (service.go + handler.go)
-- `runtime` — container-based function execution engine: Docker Engine API client, warm container pool, runtime templates for Node/Python/Go/Dart/Bun/Rust/Ruby/PHP, custom Dockerfile support (docker.go + pool.go + executor.go + templates.go)
-- `storage` — buckets, files, chunked uploads, image transformations, antivirus scanning, S3/local driver (service.go + handler.go + driver.go + antivirus.go)
-- `teams` — teams and memberships (service.go + handler.go)
-- `projects` — project and API key management (service.go + handler.go)
-- `deploy` — deployment management with status lifecycle (service.go + handler.go)
-- `messaging` — email (SMTP), SMS (Twilio), push notifications (FCM), topics/subscribers (service.go + handler.go)
-- `realtime` — WebSocket pub/sub hub for live events (hub.go + client.go + handler.go)
-- `locale` — 195 countries, 50+ currencies, 50+ languages, continents, phone codes, IP locale detection (service.go)
-- `console` — system-level admin auth: signup, login, JWT validation, signup-enabled config (service.go + handler.go)
-- `health` — health check endpoints (handler.go)
-- `workflows` — native workflow engine: definitions, DAG executor, execution history (service.go + handler.go + engine.go)
-- `worker` — 10 background workers: builds, certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks
+- `auth` — accounts, sessions, OAuth2 (15 providers), MFA (TOTP), magic link, email verification, password reset
+- `oauth` — OAuth2 provider definitions (Google, GitHub, Apple, Facebook, Discord, Twitter, Microsoft, Slack, Spotify, LinkedIn, GitLab, Bitbucket, Twitch, Notion, Stripe) + per-project config
+- `organizations` — multi-org support: CRUD, members, invites, project linking
+- `avatars` — generated images: initials PNG, QR SVG, credit card icons, country flags, favicon proxy
+- `databases` — databases, tables, columns, indexes, relationships, rows with 12 query operators (equal, notEqual, lessThan, greaterThan, contains, search, isNull, between, etc.)
+- `functions` — serverless function management with pre-warming on create/update
+- `runtime` — container-based execution engine: Docker Engine API client, warm container pool (5min idle reaper), 8 runtime templates + custom Dockerfile, pre-built base images
+- `storage` — buckets, files, chunked uploads, image transformations (resize, format conversion), antivirus (ClamAV), S3/local drivers
+- `teams` — teams and memberships
+- `projects` — project and API key management, usage stats aggregation
+- `deploy` — deployment management with Docker-based executor
+- `messaging` — email (SMTP), SMS (Twilio), push (FCM), topics/subscribers
+- `realtime` — WebSocket pub/sub hub with auto-publishing from databases + storage services
+- `locale` — 196 countries, 50+ currencies, 50+ languages, phone codes
+- `console` — system-level admin auth: signup/login/me, name/email/password update, account deletion, signup-enabled config
+- `health` — health check endpoints
+- `workflows` — native DAG workflow engine: definitions, topological executor, 6 node types, execution history
+- `worker` — 10 background workers (all fully implemented)
 
 ### API routes (all under /v1)
 
 | Route | Auth | Description |
 |---|---|---|
-| `/health`, `/health/db`, `/health/cache` | None | Health checks |
-| `/console` (signup, login, me, signup-status) | None (console JWT for /me) | Admin console auth |
-| `/projects` (CRUD + keys) | None | Project management |
-| `/locale` (countries, currencies, etc.) | None | Locale data (195 countries, 50+ currencies, 50+ languages) |
-| `/avatars` (initials, qr, flags, etc.) | None | Generated avatars and icons |
-| `/account` (CRUD + sessions + OAuth + MFA) | Project header, some public | Client-side auth with OAuth2, MFA, magic link, verification |
-| `/realtime` (WebSocket) | Project header, optional JWT | Live events |
-| `/users` (CRUD + sessions) | Project + Auth | Server-side user management |
-| `/teams` (CRUD + memberships) | Project + Auth | Team management |
-| `/databases` (full nested CRUD + queries) | Project + Auth | Databases → collections → attributes/indexes → documents with query operators |
-| `/storage` (buckets + files + chunked + preview) | Project + Auth | File storage with chunked upload, image transformations |
-| `/messaging` (email + SMS + push + topics) | Project + Auth | Email (SMTP), SMS (Twilio), push (FCM), topics/subscribers |
-| `/functions` (CRUD + executions) | Project + Auth | Serverless functions with execution tracking |
-| `/deploy` (CRUD + status) | Project + Auth | Deployment management |
+| `/health` | None | Health checks (server, DB, cache) |
+| `/console` (signup, login, me, me/name, me/email, me/password) | None / Console JWT | Admin console auth + profile management |
+| `/organizations` (CRUD + members + invites) | Console JWT | Multi-org management |
+| `/projects` (CRUD + keys + usage) | None | Project management |
+| `/locale` | None | 196 countries, currencies, languages |
+| `/avatars` | None | Generated images |
+| `/account` (CRUD + sessions + OAuth + MFA + magic link + verification + recovery) | Project header | Client-side auth |
+| `/users` | Project + Auth | Server-side user management |
+| `/teams` | Project + Auth | Teams and memberships |
+| `/databases` | Project + Auth | databases → tables → columns/indexes/relationships → rows with query operators |
+| `/storage` | Project + Auth | Buckets, files, chunked upload, image preview |
+| `/functions` (CRUD + executions + runtimes) | Project + Auth | Serverless functions with pre-warming |
+| `/messaging` (email + SMS + push + topics) | Project + Auth | Multi-provider messaging |
+| `/deploy` | Project + Auth | Deployment management |
 | `/workflows` (CRUD + execute + executions) | Project + Auth | Native workflow engine |
-| `/workflows/webhooks/{workflowId}` | Project header only | Public webhook trigger |
-
-### Request authentication flow
-
-Every API call (except `/v1/health`, `/v1/projects`, `/v1/locale`) requires `X-Applad-Project: <projectId>` header. Auth is then one of:
-- `X-Applad-Key: applad_key_<hex>` — API key (server-side)
-- `Authorization: Bearer <jwt>` — session JWT (client-side)
-
-Public account endpoints (`POST /v1/account`, `POST /v1/account/sessions/email`, `POST /v1/account/sessions/anonymous`) skip `RequireAuth` — they live inside the project-context group but outside the `RequireAuth` group. See `internal/router/router.go` for the exact grouping.
-
-JWT claims carry `sub` (userID), `sid` (sessionID), `pid` (projectID). Signed with `JWT_SECRET` env var using HS256.
-
-### Security middleware stack
-
-Applied globally in this order: RequestID → RealIP → Logger → Recoverer → CORS → SecurityHeaders → RateLimit(100/min per IP) → MaxBodySize(10MB).
+| `/workflows/webhooks/{id}` | Project header | Public webhook trigger |
+| `/realtime` | Project header | WebSocket connection |
 
 ### Database / migrations
 
-Migrations live at `backend/internal/db/migrations/*.sql`, embedded via `//go:embed`. The runner (`db.Migrate()`) bootstraps `schema_migrations` before running any files, so a fresh database works on first start. Add new migrations as `NNN_description.sql` — they run in filename order.
+10 migrations in `backend/internal/db/migrations/`:
+- `001_init.sql` — core tables (projects, api_keys, users, sessions, teams, memberships, _databases, collections, attributes, _indexes, documents, buckets, files)
+- `002_deployments.sql` — deployments
+- `003_workflows.sql` — workflows, workflow_executions
+- `004_console_users.sql` — console admin users
+- `005_oauth.sql` — OAuth provider/ID columns on users
+- `006_auth_extras.sql` — MFA (TOTP), auth tokens (magic link, verification, reset)
+- `007_functions.sql` — functions, function_executions
+- `008_project_oauth.sql` — per-project OAuth provider config
+- `009_relationships.sql` — collection relationships
+- `010_organizations.sql` — organizations, organization_members, project org_id
 
-Current migrations:
-- `001_init.sql` — projects, api_keys, users, sessions, teams, memberships, _databases, collections, attributes, _indexes, documents, buckets, files
-- `002_deployments.sql` — deployments table
-- `003_workflows.sql` — workflows and workflow_executions tables
-- `004_console_users.sql` — console admin users table
-- `005_oauth.sql` — OAuth provider and ID columns on users
-- `006_auth_extras.sql` — MFA (TOTP secret, recovery codes), auth tokens (magic link, verification, password reset)
-- `007_functions.sql` — functions and function_executions tables
-
-Documents (TablesDB) are stored as JSON in a `documents.data` column. `model.Document` implements `MarshalJSON` to merge data fields into the top-level JSON response, matching Appwrite's document shape.
-
-### Storage drivers
-
-`internal/storage/driver.go` defines a `Driver` interface with `Write`, `Read`, `Delete` methods. Two implementations:
-- `LocalDriver` — writes to local filesystem (default, configured via `STORAGE_PATH`)
-- `S3Driver` — S3-compatible object storage (MinIO, AWS S3)
-
-ClamAV antivirus scanning is available via `antivirus.go` — connects to clamd via TCP and uses INSTREAM protocol.
-
-### Worker queue system
-
-`internal/queue/queue.go` provides a Redis list-based job queue (LPUSH to enqueue, BRPOP to dequeue with 5s timeout). Workers connect to Redis and poll for jobs.
-
-Workers:
-- `builds` — processes deployment builds: transitions deployments through building → deploying → active status
-- `certificates` — generates self-signed SSL/TLS certificates for custom domains
-- `databases` — database maintenance: attribute status updates, index builds, collection stats
-- `deletes` — cascade-deletes resources (users, projects, databases, collections, buckets, workflows) with all related data
-- `executions` — runs workflow DAGs: loads workflow definition, executes nodes in topological order, updates execution status/logs
-- `mails` — transactional email delivery via SMTP (password resets, welcome emails)
-- `messaging` — user-initiated messaging: batch emails and notifications from the /messaging API
-- `migrations` — async schema migrations, table optimization, expired session cleanup
-- `usage` — aggregates per-project usage statistics (users, docs, files, storage) into Redis
-- `webhooks` — delivers webhook payloads with HMAC-SHA256 signing, 3 retries with exponential backoff
+API uses tables/rows/columns terminology; MySQL tables are named `collections`/`documents`/`attributes` internally. Type aliases maintain backward compatibility.
 
 ### Flutter console
 
-Shell layout with NavigationRail sidebar (`console/lib/core/shell/shell.dart`). Feature-first layout under `console/lib/features/`:
+**Design system**: Dark Railway-style UI (`#0B0B0F` bg, `#16171B` surfaces, `#6C47FF` accent). Lucide icons. 8px border radius globally. Path-based routing (not hash). No slide animations — instant page swap for sidebar nav, subtle fade for full-page transitions. Web-native scroll physics (clamping, no bounce).
 
-| Feature | Status | Description |
-|---|---|---|
-| `login` | Complete | Console admin signup/login with auto-disable signup after first user |
-| `onboarding` | Complete | Post-login stepper: create project → generate API key → SDK snippets |
-| `auth` | Complete | User management table with create/delete |
-| `databases` | Complete | 3-panel layout: databases → collections → documents as DataTable with dynamic columns |
-| `storage` | Complete | Buckets panel + files list with download/delete |
-| `settings` | Complete | Project management + API key creation with copy-to-clipboard |
-| `deploy` | Complete | Deployment list with status chips, create dialog, status management |
-| `messaging` | Complete | Email send form (to, subject, HTML body) with SMTP config info |
-| `workflows` | Complete | Native workflow engine: CRUD, node editor, manual execute, execution history with step logs |
+**Session**: Console JWT token persisted to `localStorage`. Survives page refresh.
 
-Core infra at `console/lib/core/`:
-- `router/` — GoRouter with ShellRoute, auth guard redirect, login/onboarding routes
-- `theme/` — Material 3 theme (seed color #6C47FF)
-- `api/` — Dio-based API client as Riverpod provider (base URL `/v1` for proxy)
-- `shell/` — NavigationRail layout with 7 destinations
-- `providers/` — Project, API key, and console auth Riverpod providers
+**Route structure**:
+- `/login` — split layout: branding panel (left) + form (right), responsive (stacks on <900px)
+- `/onboarding` — stepper: create project → API key → SDK snippets
+- `/projects` — org-level page (NO sidebar): org heading, project cards grid, members tab, settings tab, org switcher dropdown
+- `/account` — profile page (NO sidebar): name/email/password update, MFA toggle, delete account
+- `/overview`, `/databases`, `/storage`, `/auth`, `/deploy`, `/functions`, `/messaging`, `/workflows`, `/settings` — project-scoped pages (WITH sidebar)
 
-`sdks/dart/` is a path dependency of `console/` (`path: ../sdks/dart`). Always run `melos bootstrap` after pulling to keep symlinks current.
+**Sidebar** (220px, labeled): Org dropdown at top → Get started / Overview → BUILD section (Auth, Databases, Functions, Messaging, Storage) → DEPLOY section (Deploy) → WORKFLOWS section (Workflows) → Settings pinned to bottom.
 
-### SDKs
+**Shared widgets**: `PageTabs` (horizontal tab bar), `SearchListHeader` (search + total + trailing button), `SearchListFooter` (per-page dropdown + pagination).
 
-**Dart SDK** (`sdks/dart/`): Full client with service classes — `Auth`, `Users`, `Databases`, `Storage`, `Deploy`, `Functions`, `Messaging`, `Realtime`, `Workflows`. Main entry: `Applad(endpoint:, projectId:)` exposes all services.
+Feature pages: `console/lib/features/`:
 
-**TypeScript SDK** (`sdks/js/`): Full client with service classes — `Auth`, `Avatars`, `Databases`, `Functions`, `Locale`, `Messaging`, `Realtime`, `Storage`, `Deploy`, `Workflows`. Uses native `fetch()`. Main entry: `new Applad({endpoint, projectId})` exposes all services.
+| Feature | Description |
+|---|---|
+| `login` | Split-layout sign in/up with branding, responsive |
+| `onboarding` | 3-step stepper (project → API key → SDK snippets) |
+| `projects` | Org-level: project cards grid, members, settings, org switcher |
+| `account` | Console user profile management |
+| `overview` | Railway-style interactive canvas showing project resources |
+| `auth` | Users/Teams/Settings tabs with search + pagination |
+| `databases` | 3-panel: databases → tables → rows with search |
+| `storage` | Buckets/Usage tabs with search + pagination |
+| `functions` | Function list, runtime picker, source editor, execution history |
+| `deploy` | Deployment list with status chips |
+| `messaging` | Email/SMS/push send forms |
+| `workflows` | DAG builder: node editor, manual execute, step-by-step logs |
+| `settings` | Project management + API keys |
+
+### SDKs (6 total)
+
+| SDK | Path | Auth | Services |
+|---|---|---|---|
+| Dart client | `sdks/dart/` | Session/JWT | Auth, Users, Databases, Storage, Deploy, Functions, Messaging, Realtime, Workflows |
+| JS/TS client | `sdks/js/` | Session/JWT | Auth, Avatars, Databases, Functions, Locale, Messaging, Realtime, Storage, Deploy, Workflows |
+| Node.js server | `sdks/node/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy |
+| Dart server | `sdks/dart-server/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy |
+| Go server | `sdks/go/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy |
+| Python server | `sdks/python/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy |
 
 ### Testing
 
-**Backend unit tests** — 12 test files across: uid, apperr, model, config, middleware (including rate limit and validation), auth handler, projects handler, databases handler, storage handler, teams handler.
-
-**Backend integration tests** — `backend/tests/integration_test.go` (build tag: `integration`). Tests health, project CRUD, auth flow, database+document flow against a live API.
-
-**Dart SDK tests** — `sdks/dart/test/applad_test.dart` — client instantiation, service exposure, header setting.
-
-**TypeScript SDK tests** — `sdks/js/src/__tests__/client.test.ts` — client creation, URL building, error handling, auth headers (Jest with fetch mocks).
+**202 unit tests** across 19 packages using `go-sqlmock` for database mocking:
+- `auth` — signup, login, sessions, JWT, bcrypt, MFA/TOTP, auth tokens, password reset (16 tests)
+- `databases` — table/row CRUD, 12 query operators, relationships, cursor pagination (17 tests)
+- `storage` — bucket/file CRUD, disk I/O, image resize/format conversion, chunked upload assembly (12 tests)
+- `workflows` — DAG execution, HTTP mock server, condition branching, context cancellation, all operators (22 tests)
+- `console` — signup/login with DB mock, JWT roundtrip, signup-enabled auto/true/false (15 tests)
+- `oauth` — auth URL generation, user parsers (Google/GitHub/Discord/generic), provider definitions (12 tests)
+- `realtime` — hub pub/sub, unsubscribe, multi-channel, event formatting (6 tests)
+- `messaging` — config validation, SMTP/Twilio/FCM not-configured errors, topic CRUD (10 tests)
+- `functions`, `deploy`, `avatars`, `locale`, `middleware`, `model`, `apperr`, `config`, `projects`, `teams`, `uid` — validation, data completeness, JSON tags
 
 ### Docker services
 
 | Service | Port | Notes |
 |---|---|---|
 | `proxy` (openresty) | 80 | Routes `/v1/` → api, `/` → console |
-| `api` | 8080 (internal) | Go API server (includes native workflow engine) |
-| `console` | 3000 (also via proxy at `/`) | Flutter Web, served by nginx |
+| `api` | 8080 (internal) | Go API server |
+| `console` | 3000 (internal) | Flutter Web, served by nginx with SPA fallback |
 | `mariadb` | internal | Primary store |
 | `redis` | internal | Cache + pub/sub + job queues |
+| `10 workers` | internal | builds (with Docker socket), certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks |
 | `clamav` | — | Off by default; enable with `--profile antivirus` |
 
-Workers are built from a single parameterised Dockerfile (`docker/worker/Dockerfile`) using `ARG WORKER_TYPE`. Each worker service in compose passes a different `WORKER_TYPE` build arg.
-
-Go Dockerfiles run `go mod tidy` inside the builder (no `go.sum` is committed).
+Root-level `docker-compose.yml` — run from repo root with `docker compose up -d`.
 
 ### Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `PORT` | `8080` | API server port |
+| `JWT_SECRET` | `change-me-in-production` | **Required.** HS256 signing key. Fatal error in production if unchanged. |
 | `DATABASE_DSN` | `applad:applad@tcp(mariadb:3306)/applad?parseTime=true` | MariaDB DSN |
 | `REDIS_ADDR` | `redis:6379` | Redis address |
-| `JWT_SECRET` | `change-me-in-production` | HS256 signing key |
 | `STORAGE_PATH` | `/var/applad/storage` | Local file storage path |
-| `APP_ENV` | `development` | Environment name |
-| `SMTP_HOST` | (empty) | SMTP server host |
-| `SMTP_PORT` | `587` | SMTP port |
-| `SMTP_USER` | (empty) | SMTP username |
-| `SMTP_PASS` | (empty) | SMTP password |
-| `SMTP_FROM` | `noreply@applad.local` | Sender email address |
-| `CONSOLE_SIGNUP_ENABLED` | `auto` | Console signup: `auto` (disabled after first user), `true`, or `false` |
-| `OAUTH_GOOGLE_CLIENT_ID` | (empty) | Google OAuth2 client ID |
-| `OAUTH_GOOGLE_CLIENT_SECRET` | (empty) | Google OAuth2 client secret |
-| `OAUTH_GITHUB_CLIENT_ID` | (empty) | GitHub OAuth2 client ID |
-| `OAUTH_GITHUB_CLIENT_SECRET` | (empty) | GitHub OAuth2 client secret |
-| `OAUTH_APPLE_CLIENT_ID` | (empty) | Apple OAuth2 client ID |
-| `OAUTH_APPLE_CLIENT_SECRET` | (empty) | Apple OAuth2 client secret |
-| `TWILIO_SID` | (empty) | Twilio account SID for SMS |
-| `TWILIO_TOKEN` | (empty) | Twilio auth token |
-| `TWILIO_FROM` | (empty) | Twilio sender phone number |
-| `FCM_SERVER_KEY` | (empty) | Firebase Cloud Messaging server key |
+| `APP_ENV` | `development` | `development` or `production` |
+| `PORT` | `8080` | API server port |
+| `CONSOLE_SIGNUP_ENABLED` | `auto` | `auto` (disabled after first user), `true`, or `false` |
+| `SMTP_HOST/PORT/USER/PASS/FROM` | (empty) | SMTP config for email |
+| `OAUTH_GOOGLE_CLIENT_ID/SECRET` | (empty) | Google OAuth2 |
+| `OAUTH_GITHUB_CLIENT_ID/SECRET` | (empty) | GitHub OAuth2 |
+| `OAUTH_APPLE_CLIENT_ID/SECRET` | (empty) | Apple Sign-In |
+| `TWILIO_SID/TOKEN/FROM` | (empty) | Twilio SMS |
+| `FCM_SERVER_KEY` | (empty) | Firebase Cloud Messaging |

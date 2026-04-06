@@ -10,11 +10,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
   applad:
     path: ../sdks/dart
   go_router: ^14.0.0
   flutter_riverpod: ^2.5.1
   dio: ^5.4.3
+  lucide_icons: ^0.257.0
 
 dev_dependencies:
   flutter_test:
@@ -23,3 +26,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon.png
+    - assets/applad-logo.png

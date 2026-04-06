@@ -119,23 +119,45 @@ func Authenticate(jwtSecret string, _ interface{}) func(http.Handler) http.Handl
 				}
 			}
 
-			// Try JWT
+			// Try JWT from Authorization header
+			tokenStr := ""
 			if auth := r.Header.Get("Authorization"); auth != "" {
 				parts := strings.SplitN(auth, " ", 2)
 				if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
-					token, err := jwt.ParseWithClaims(parts[1], &Claims{}, func(t *jwt.Token) (interface{}, error) {
-						if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-							return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-						}
-						return []byte(jwtSecret), nil
-					})
-					if err == nil && token.Valid {
-						if claims, ok := token.Claims.(*Claims); ok {
-							ctx = context.WithValue(ctx, userKey, claims.Subject)
-							ctx = context.WithValue(ctx, sessionKey, claims.SessionID)
-							if claims.ProjectID != "" {
-								ctx = context.WithValue(ctx, projectIDKey, claims.ProjectID)
-							}
+					tokenStr = parts[1]
+				}
+			}
+
+			// Fallback: read a_session cookie if no Authorization header
+			if tokenStr == "" {
+				if cookie, err := r.Cookie("a_session"); err == nil && cookie.Value != "" {
+					tokenStr = cookie.Value
+				}
+			}
+
+			// Fallback: read project-specific a_session_{projectID} cookie
+			if tokenStr == "" {
+				projectID := r.Header.Get("X-Applad-Project")
+				if projectID != "" {
+					if cookie, err := r.Cookie("a_session_" + projectID); err == nil && cookie.Value != "" {
+						tokenStr = cookie.Value
+					}
+				}
+			}
+
+			if tokenStr != "" {
+				token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+					if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+						return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+					}
+					return []byte(jwtSecret), nil
+				})
+				if err == nil && token.Valid {
+					if claims, ok := token.Claims.(*Claims); ok {
+						ctx = context.WithValue(ctx, userKey, claims.Subject)
+						ctx = context.WithValue(ctx, sessionKey, claims.SessionID)
+						if claims.ProjectID != "" {
+							ctx = context.WithValue(ctx, projectIDKey, claims.ProjectID)
 						}
 					}
 				}

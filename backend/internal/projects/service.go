@@ -175,8 +175,8 @@ type UsageStats struct {
 	Users        int    `json:"users"`
 	Sessions     int    `json:"sessions"`
 	Databases    int    `json:"databases"`
-	Collections  int    `json:"collections"`
-	Documents    int    `json:"documents"`
+	Tables       int    `json:"tables"`
+	Rows         int    `json:"rows"`
 	Buckets      int    `json:"buckets"`
 	Files        int    `json:"files"`
 	StorageBytes int64  `json:"storageBytes"`
@@ -193,8 +193,8 @@ func (s *Service) GetUsage(ctx context.Context, projectID string) (*UsageStats, 
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&u.Users)
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = ?", projectID).Scan(&u.Sessions)
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM `_databases` WHERE project_id = ?", projectID).Scan(&u.Databases)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM collections WHERE project_id = ?", projectID).Scan(&u.Collections)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM documents WHERE project_id = ?", projectID).Scan(&u.Documents)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM collections WHERE project_id = ?", projectID).Scan(&u.Tables)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM documents WHERE project_id = ?", projectID).Scan(&u.Rows)
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = ?", projectID).Scan(&u.Buckets)
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = ?", projectID).Scan(&u.Files)
 	s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = ?", projectID).Scan(&u.StorageBytes)
@@ -204,6 +204,90 @@ func (s *Service) GetUsage(ctx context.Context, projectID string) (*UsageStats, 
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM functions WHERE project_id = ?", projectID).Scan(&u.Functions)
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM deployments WHERE project_id = ?", projectID).Scan(&u.Deployments)
 	return u, nil
+}
+
+// --- platforms ---
+
+// Platform represents a registered platform for a project.
+type Platform struct {
+	ID        string    `json:"$id"`
+	ProjectID string    `json:"projectId"`
+	Type      string    `json:"type"` // web, flutter-ios, flutter-android, flutter-web, server
+	Name      string    `json:"name"`
+	Hostname  string    `json:"hostname,omitempty"`
+	StoreID   string    `json:"storeId,omitempty"`
+	CreatedAt time.Time `json:"$createdAt"`
+}
+
+// CreatePlatform registers a new platform for a project.
+func (s *Service) CreatePlatform(ctx context.Context, projectID, pType, name, hostname, storeID string) (*Platform, error) {
+	id := uid.New("unique()")
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO platforms (id, project_id, type, name, hostname, store_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		id, projectID, pType, name, hostname, storeID, now)
+	if err != nil {
+		return nil, fmt.Errorf("platforms: create: %w", err)
+	}
+	return &Platform{
+		ID: id, ProjectID: projectID, Type: pType, Name: name,
+		Hostname: hostname, StoreID: storeID, CreatedAt: now,
+	}, nil
+}
+
+// ListPlatforms returns all platforms for a project.
+func (s *Service) ListPlatforms(ctx context.Context, projectID string) ([]*Platform, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, project_id, type, name, hostname, store_id, created_at FROM platforms WHERE project_id = ? ORDER BY created_at DESC",
+		projectID)
+	if err != nil {
+		return nil, fmt.Errorf("platforms: list: %w", err)
+	}
+	defer rows.Close()
+	var platforms []*Platform
+	for rows.Next() {
+		var p Platform
+		var hostname, storeID sql.NullString
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Type, &p.Name, &hostname, &storeID, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		p.Hostname = hostname.String
+		p.StoreID = storeID.String
+		platforms = append(platforms, &p)
+	}
+	if platforms == nil {
+		platforms = []*Platform{}
+	}
+	return platforms, nil
+}
+
+// DeletePlatform removes a platform.
+func (s *Service) DeletePlatform(ctx context.Context, projectID, platformID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM platforms WHERE id = ? AND project_id = ?", platformID, projectID)
+	return err
+}
+
+// UpdateAuthConfig updates the auth_config JSON for a project.
+func (s *Service) UpdateAuthConfig(ctx context.Context, projectID string, config map[string]interface{}) error {
+	configJSON, _ := json.Marshal(config)
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE projects SET auth_config = ? WHERE id = ?", configJSON, projectID)
+	if err != nil {
+		return fmt.Errorf("projects: update auth config: %w", err)
+	}
+	return nil
+}
+
+// UpdateServicesConfig updates the services_config JSON for a project.
+func (s *Service) UpdateServicesConfig(ctx context.Context, projectID string, config map[string]interface{}) error {
+	configJSON, _ := json.Marshal(config)
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE projects SET services_config = ? WHERE id = ?", configJSON, projectID)
+	if err != nil {
+		return fmt.Errorf("projects: update services config: %w", err)
+	}
+	return nil
 }
 
 // --- scan helpers ---

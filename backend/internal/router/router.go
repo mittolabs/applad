@@ -10,20 +10,25 @@ import (
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/console"
+	"github.com/mittolabs/applad/internal/credentials"
 	oauthpkg "github.com/mittolabs/applad/internal/oauth"
 	"github.com/mittolabs/applad/internal/databases"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/deploy"
+	"github.com/mittolabs/applad/internal/flags"
 	"github.com/mittolabs/applad/internal/functions"
 	"github.com/mittolabs/applad/internal/health"
 	"github.com/mittolabs/applad/internal/locale"
 	"github.com/mittolabs/applad/internal/messaging"
+	"github.com/mittolabs/applad/internal/organizations"
 	mw "github.com/mittolabs/applad/internal/middleware"
 	"github.com/mittolabs/applad/internal/projects"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/realtime"
 	"github.com/mittolabs/applad/internal/storage"
 	"github.com/mittolabs/applad/internal/teams"
+	"github.com/mittolabs/applad/internal/usage"
+	"github.com/mittolabs/applad/internal/webhooks"
 	"github.com/mittolabs/applad/internal/workflows"
 )
 
@@ -45,7 +50,8 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	dbSvc := databases.NewService(database)
 	storageSvc := storage.NewService(database, cfg.StoragePath)
 	teamSvc := teams.NewService(database)
-	deploySvc := deploy.NewService(database)
+	deployQueue := queue.New(cacheClient.Client())
+	deploySvc := deploy.NewService(database, deployQueue)
 	healthHandler := health.NewHandler(database, cacheClient)
 	messagingSvc := messaging.NewService(messaging.Config{
 		Host:         cfg.SMTPHost,
@@ -53,10 +59,22 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		Username:     cfg.SMTPUser,
 		Password:     cfg.SMTPPass,
 		From:         cfg.SMTPFrom,
-		TwilioSID:    cfg.TwilioSID,
-		TwilioToken:  cfg.TwilioToken,
-		TwilioFrom:   cfg.TwilioFrom,
-		FCMServerKey: cfg.FCMServerKey,
+		TwilioSID:       cfg.TwilioSID,
+		TwilioToken:     cfg.TwilioToken,
+		TwilioFrom:      cfg.TwilioFrom,
+		FCMServerKey:    cfg.FCMServerKey,
+		MailgunAPIKey:   cfg.MailgunAPIKey,
+		MailgunDomain:   cfg.MailgunDomain,
+		ResendAPIKey:    cfg.ResendAPIKey,
+		VonageAPIKey:    cfg.VonageAPIKey,
+		VonageAPISecret: cfg.VonageAPISecret,
+		VonageFrom:      cfg.VonageFrom,
+		MSG91AuthKey:    cfg.MSG91AuthKey,
+		MSG91SenderID:   cfg.MSG91SenderID,
+		APNSKeyID:       cfg.APNSKeyID,
+		APNSTeamID:      cfg.APNSTeamID,
+		APNSKeyPath:     cfg.APNSKeyPath,
+		APNSBundleID:    cfg.APNSBundleID,
 	})
 
 	// Functions
@@ -85,6 +103,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// Console auth — system-level admin signup/login (no project header)
 		r.Mount("/console", console.Routes(consoleHandler))
 
+		// Organizations — console-level (no project header needed)
+		orgSvc := organizations.NewService(database)
+		r.Mount("/organizations", organizations.Routes(organizations.NewHandler(orgSvc)))
+
 		// Projects — no project header needed (these manage projects)
 		r.Mount("/projects", projects.Routes(projects.NewHandler(projectSvc)))
 
@@ -103,10 +125,44 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			authHandler := auth.NewHandler(authSvc)
 
 			// Wire OAuth2 providers
-			oauthProviders := oauthpkg.Providers(
-				oauthpkg.ProviderConfig{ClientID: cfg.GoogleClientID, ClientSecret: cfg.GoogleClientSecret},
-				oauthpkg.ProviderConfig{ClientID: cfg.GitHubClientID, ClientSecret: cfg.GitHubClientSecret},
-				oauthpkg.ProviderConfig{ClientID: cfg.AppleClientID, ClientSecret: cfg.AppleClientSecret},
+			oauthConfigs := map[string]oauthpkg.ProviderConfig{
+				"google":      {ClientID: cfg.GoogleClientID, ClientSecret: cfg.GoogleClientSecret},
+				"github":      {ClientID: cfg.GitHubClientID, ClientSecret: cfg.GitHubClientSecret},
+				"apple":       {ClientID: cfg.AppleClientID, ClientSecret: cfg.AppleClientSecret},
+				"amazon":      {ClientID: cfg.AmazonClientID, ClientSecret: cfg.AmazonClientSecret},
+				"auth0":       {ClientID: cfg.Auth0ClientID, ClientSecret: cfg.Auth0ClientSecret},
+				"autodesk":    {ClientID: cfg.AutodeskClientID, ClientSecret: cfg.AutodeskClientSecret},
+				"bitly":       {ClientID: cfg.BitlyClientID, ClientSecret: cfg.BitlyClientSecret},
+				"box":         {ClientID: cfg.BoxClientID, ClientSecret: cfg.BoxClientSecret},
+				"dailymotion": {ClientID: cfg.DailymotionClientID, ClientSecret: cfg.DailymotionClientSecret},
+				"disqus":      {ClientID: cfg.DisqusClientID, ClientSecret: cfg.DisqusClientSecret},
+				"dropbox":     {ClientID: cfg.DropboxClientID, ClientSecret: cfg.DropboxClientSecret},
+				"etsy":        {ClientID: cfg.EtsyClientID, ClientSecret: cfg.EtsyClientSecret},
+				"figma":       {ClientID: cfg.FigmaClientID, ClientSecret: cfg.FigmaClientSecret},
+				"hubspot":     {ClientID: cfg.HubspotClientID, ClientSecret: cfg.HubspotClientSecret},
+				"kakao":       {ClientID: cfg.KakaoClientID, ClientSecret: cfg.KakaoClientSecret},
+				"line":        {ClientID: cfg.LineClientID, ClientSecret: cfg.LineClientSecret},
+				"mailchimp":   {ClientID: cfg.MailchimpClientID, ClientSecret: cfg.MailchimpClientSecret},
+				"notion":      {ClientID: cfg.NotionClientID, ClientSecret: cfg.NotionClientSecret},
+				"okta":        {ClientID: cfg.OktaClientID, ClientSecret: cfg.OktaClientSecret},
+				"oidc":        {ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret},
+				"patreon":     {ClientID: cfg.PatreonClientID, ClientSecret: cfg.PatreonClientSecret},
+				"paypal":      {ClientID: cfg.PayPalClientID, ClientSecret: cfg.PayPalClientSecret},
+				"podio":       {ClientID: cfg.PodioClientID, ClientSecret: cfg.PodioClientSecret},
+				"reddit":      {ClientID: cfg.RedditClientID, ClientSecret: cfg.RedditClientSecret},
+				"salesforce":  {ClientID: cfg.SalesforceClientID, ClientSecret: cfg.SalesforceClientSecret},
+				"tradeshift":  {ClientID: cfg.TradeshiftClientID, ClientSecret: cfg.TradeshiftClientSecret},
+				"wordpress":   {ClientID: cfg.WordPressClientID, ClientSecret: cfg.WordPressClientSecret},
+				"yahoo":       {ClientID: cfg.YahooClientID, ClientSecret: cfg.YahooClientSecret},
+				"yammer":      {ClientID: cfg.YammerClientID, ClientSecret: cfg.YammerClientSecret},
+				"yandex":      {ClientID: cfg.YandexClientID, ClientSecret: cfg.YandexClientSecret},
+				"zoho":        {ClientID: cfg.ZohoClientID, ClientSecret: cfg.ZohoClientSecret},
+				"zoom":        {ClientID: cfg.ZoomClientID, ClientSecret: cfg.ZoomClientSecret},
+			}
+			oauthProviders := oauthpkg.ProvidersWithDomain(
+				oauthConfigs,
+				cfg.Auth0Domain, cfg.OktaDomain,
+				cfg.OIDCAuthURL, cfg.OIDCTokenURL, cfg.OIDCUserInfoURL,
 			)
 			oauthAdapters := make(map[string]auth.OAuthProvider, len(oauthProviders))
 			for name, p := range oauthProviders {
@@ -134,6 +190,16 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/deploy", deploy.Routes(deploy.NewHandler(deploySvc)))
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))
+				r.Mount("/credentials", credentials.Routes(credentials.NewHandler(credentials.NewService(database))))
+				r.Mount("/flags", flags.Routes(flags.NewHandler(flags.NewService(database))))
+
+				// Webhooks
+				webhookSvc := webhooks.NewService(database)
+				r.Mount("/webhooks", webhooks.Routes(webhooks.NewHandler(webhookSvc)))
+
+				// Usage analytics
+				usageSvc := usage.NewService(database)
+				r.Mount("/usage", usage.Routes(usage.NewHandler(usageSvc)))
 			})
 		})
 	})

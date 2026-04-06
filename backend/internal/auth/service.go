@@ -63,6 +63,7 @@ func (s *Service) CreateAccount(ctx context.Context, projectID, userID, email, p
 		}
 		return nil, fmt.Errorf("auth: create account: %w", err)
 	}
+	s.logUserEvent(ctx, projectID, id, "user.create", "", "")
 	return s.GetAccount(ctx, id, projectID)
 }
 
@@ -130,6 +131,7 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, passwor
 	if err != nil {
 		return nil, fmt.Errorf("auth: update password: %w", err)
 	}
+	s.logUserEvent(ctx, projectID, userID, "user.password_change", "", "")
 	return s.GetAccount(ctx, userID, projectID)
 }
 
@@ -149,6 +151,7 @@ func (s *Service) UpdatePrefs(ctx context.Context, userID, projectID string, pre
 
 // DeleteAccount deletes a user account.
 func (s *Service) DeleteAccount(ctx context.Context, userID, projectID string) error {
+	s.logUserEvent(ctx, projectID, userID, "user.delete", "", "")
 	_, err := s.db.ExecContext(ctx,
 		"DELETE FROM users WHERE id = ? AND project_id = ?", userID, projectID)
 	return err
@@ -169,20 +172,84 @@ func (s *Service) CreateEmailSession(ctx context.Context, projectID, email, pass
 	return s.createSession(ctx, userID, projectID, "email", ip, ua)
 }
 
-// CreateAnonymousSession creates an anonymous session.
+// CreateAnonymousSession creates an anonymous user and session.
+// The anonymous user gets a generated email like anon_{uid}@anonymous.applad.local,
+// no password, and status=1 (active). The provider is recorded as "anonymous".
 func (s *Service) CreateAnonymousSession(ctx context.Context, projectID, ip, ua string) (*model.Session, string, error) {
-	// Create an anonymous user first
 	userID := uid.New("unique()")
+	anonEmail := fmt.Sprintf("anon_%s@anonymous.applad.local", userID)
 	now := time.Now().UTC()
-	labelsJSON, _ := json.Marshal([]string{})
+	labelsJSON, _ := json.Marshal([]string{"anonymous"})
 	prefsJSON, _ := json.Marshal(map[string]interface{}{})
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (id, project_id, labels, prefs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		userID, projectID, labelsJSON, prefsJSON, now, now)
+		`INSERT INTO users (id, project_id, email, name, labels, prefs, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		userID, projectID, anonEmail, "Anonymous User", labelsJSON, prefsJSON, now, now)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: create anon user: %w", err)
 	}
 	return s.createSession(ctx, userID, projectID, "anonymous", ip, ua)
+}
+
+// SendPhoneOTP generates a 6-digit OTP, stores it in auth_tokens, returns the code.
+func (s *Service) SendPhoneOTP(ctx context.Context, projectID, phone string) (string, error) {
+	if phone == "" {
+		return "", fmt.Errorf("auth: phone is required")
+	}
+	// Generate 6-digit OTP
+	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
+	code := fmt.Sprintf("%06d", n.Int64()+100000)
+
+	tokenID := uid.New("unique()")
+	expires := time.Now().UTC().Add(10 * time.Minute)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO auth_tokens (id, user_id, project_id, type, token, expires_at, created_at)
+		 VALUES (?, ?, ?, 'phone_otp', ?, ?, ?)`,
+		tokenID, phone, projectID, code, expires, time.Now().UTC())
+	if err != nil {
+		return "", fmt.Errorf("auth: store phone OTP: %w", err)
+	}
+	return code, nil
+}
+
+// VerifyPhoneOTP verifies the OTP and creates a session. Creates user if needed.
+func (s *Service) VerifyPhoneOTP(ctx context.Context, projectID, phone, code, ip, ua string) (*model.Session, string, error) {
+	var tokenID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM auth_tokens WHERE user_id=? AND project_id=? AND type='phone_otp' AND token=? AND expires_at > ?`,
+		phone, projectID, code, time.Now().UTC()).Scan(&tokenID)
+	if err != nil {
+		return nil, "", fmt.Errorf("auth: invalid or expired OTP")
+	}
+	// Delete used token
+	s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id=?", tokenID)
+
+	// Find or create user by phone
+	var userID string
+	err = s.db.QueryRowContext(ctx,
+		"SELECT id FROM users WHERE phone=? AND project_id=?", phone, projectID).Scan(&userID)
+	if err != nil {
+		// Create new user
+		userID = uid.New("unique()")
+		now := time.Now().UTC()
+		prefsJSON, _ := json.Marshal(map[string]interface{}{})
+		_, err = s.db.ExecContext(ctx,
+			`INSERT INTO users (id, project_id, phone, name, prefs, status, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+			userID, projectID, phone, "Phone User", prefsJSON, now, now)
+		if err != nil {
+			return nil, "", fmt.Errorf("auth: create phone user: %w", err)
+		}
+	}
+	return s.createSession(ctx, userID, projectID, "phone", ip, ua)
+}
+
+// logUserEvent records an audit event in the user_logs table.
+func (s *Service) logUserEvent(ctx context.Context, projectID, userID, event, ip, ua string) {
+	s.db.ExecContext(ctx,
+		`INSERT INTO user_logs (id, project_id, user_id, event, ip, user_agent, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		uid.New("unique()"), projectID, userID, event, ip, ua, time.Now().UTC())
 }
 
 func (s *Service) createSession(ctx context.Context, userID, projectID, provider, ip, ua string) (*model.Session, string, error) {
@@ -201,6 +268,9 @@ func (s *Service) createSession(ctx context.Context, userID, projectID, provider
 	if err != nil {
 		return nil, "", err
 	}
+
+	// Record audit event
+	s.logUserEvent(ctx, projectID, userID, "session.create."+provider, ip, ua)
 
 	sess := &model.Session{
 		ID:        sessionID,

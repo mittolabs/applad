@@ -1,115 +1,202 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/client.dart';
+import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/search_list.dart';
+
+// --- Providers -----------------------------------------------------------
+
+final _dbSearchProvider = StateProvider<String>((ref) => '');
+final _dbPerPageProvider = StateProvider<int>((ref) => 12);
+final _dbPageProvider = StateProvider<int>((ref) => 1);
 
 final databasesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.read(apiClientProvider);
-  final res = await api.get('/databases');
+  final search = ref.watch(_dbSearchProvider);
+  final limit = ref.watch(_dbPerPageProvider);
+  final page = ref.watch(_dbPageProvider);
+  final offset = (page - 1) * limit;
+  final params = <String, dynamic>{'limit': limit, 'offset': offset};
+  if (search.isNotEmpty) params['search'] = search;
+  final res = await api.get('/databases', params: params);
   return res.data as Map<String, dynamic>;
 });
 
 final selectedDbProvider = StateProvider<String?>((ref) => null);
 
-final collectionsProvider =
+final tablesProvider =
     FutureProvider.family<Map<String, dynamic>, String>((ref, dbId) async {
   final api = ref.read(apiClientProvider);
-  final res = await api.get('/databases/$dbId/collections');
+  final res = await api.get('/databases/$dbId/tables');
   return res.data as Map<String, dynamic>;
 });
 
-final selectedCollProvider = StateProvider<String?>((ref) => null);
+final selectedTableProvider = StateProvider<String?>((ref) => null);
 
-final documentsProvider = FutureProvider.family<Map<String, dynamic>,
-    ({String dbId, String collId})>((ref, params) async {
+final rowsProvider = FutureProvider.family<Map<String, dynamic>,
+    ({String dbId, String tableId})>((ref, params) async {
   final api = ref.read(apiClientProvider);
   final res = await api.get(
-      '/databases/${params.dbId}/collections/${params.collId}/documents',
+      '/databases/${params.dbId}/tables/${params.tableId}/rows',
       params: {'limit': 50});
   return res.data as Map<String, dynamic>;
 });
 
-class DatabasesPage extends ConsumerWidget {
+// --- Page ----------------------------------------------------------------
+
+class DatabasesPage extends ConsumerStatefulWidget {
   const DatabasesPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DatabasesPage> createState() => _DatabasesPageState();
+}
+
+class _DatabasesPageState extends ConsumerState<DatabasesPage> {
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _doSearch() {
+    ref.read(_dbSearchProvider.notifier).state = _searchCtrl.text.trim();
+    ref.read(_dbPageProvider.notifier).state = 1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final dbAsync = ref.watch(databasesProvider);
     final selectedDb = ref.watch(selectedDbProvider);
-    final selectedColl = ref.watch(selectedCollProvider);
+    final selectedTable = ref.watch(selectedTableProvider);
+    final perPage = ref.watch(_dbPerPageProvider);
+    final currentPage = ref.watch(_dbPageProvider);
+    final total =
+        dbAsync.whenOrNull(data: (d) => d['total'] as int? ?? 0) ?? 0;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Databases'),
-        actions: [
-          FilledButton.icon(
-            onPressed: () => _showCreateDbDialog(context, ref),
-            icon: const Icon(Icons.add),
-            label: const Text('Create Database'),
-          ),
-          const SizedBox(width: 16),
-        ],
-      ),
-      body: Row(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Database list panel
-          SizedBox(
-            width: 240,
-            child: dbAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
-              data: (data) {
-                final dbs = List<Map<String, dynamic>>.from(
-                    data['databases'] ?? []);
-                if (dbs.isEmpty) {
-                  return const Center(child: Text('No databases'));
-                }
-                return ListView.builder(
-                  itemCount: dbs.length,
-                  itemBuilder: (context, i) {
-                    final db = dbs[i];
-                    final id = db['\$id'] as String;
-                    return ListTile(
-                      leading: const Icon(Icons.storage),
-                      title: Text(db['name'] ?? id),
-                      selected: selectedDb == id,
-                      onTap: () {
-                        ref.read(selectedDbProvider.notifier).state = id;
-                        ref.read(selectedCollProvider.notifier).state =
-                            null;
-                      },
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        onPressed: () => _deleteDb(ref, id),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+            child: Text('Databases',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(color: Colors.white)),
+          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1, color: Color(0xFF2A2B30)),
+          Expanded(
+            child: Row(
+              children: [
+                // Database list panel with search + pagination
+                SizedBox(
+                  width: 280,
+                  child: Column(
+                    children: [
+                      // Mini search header for databases panel
+                      _PanelSearchHeader(
+                        searchController: _searchCtrl,
+                        onSearch: _doSearch,
+                        onAdd: () => _showCreateDbDialog(context, ref),
                       ),
-                    );
-                  },
-                );
-              },
+                      Expanded(
+                        child: dbAsync.when(
+                          loading: () => const Center(
+                              child: CircularProgressIndicator()),
+                          error: (e, _) =>
+                              Center(child: Text('Error: $e')),
+                          data: (data) {
+                            final dbs =
+                                List<Map<String, dynamic>>.from(
+                                    data['databases'] ?? []);
+                            if (dbs.isEmpty) {
+                              return const Center(
+                                  child: Text('No databases'));
+                            }
+                            return ListView.builder(
+                              itemCount: dbs.length,
+                              itemBuilder: (context, i) {
+                                final db = dbs[i];
+                                final id = db['\$id'] as String;
+                                return ListTile(
+                                  leading:
+                                      const Icon(Icons.storage),
+                                  title: Text(db['name'] ?? id),
+                                  selected: selectedDb == id,
+                                  onTap: () {
+                                    ref
+                                        .read(selectedDbProvider
+                                            .notifier)
+                                        .state = id;
+                                    ref
+                                        .read(selectedTableProvider
+                                            .notifier)
+                                        .state = null;
+                                  },
+                                  trailing: IconButton(
+                                    icon: const Icon(
+                                        Icons.delete_outline,
+                                        size: 18),
+                                    onPressed: () =>
+                                        _deleteDb(ref, id),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                      // Pagination footer for databases panel
+                      SearchListFooter(
+                        total: total,
+                        perPage: perPage,
+                        currentPage: currentPage,
+                        onPrev: () => ref
+                            .read(_dbPageProvider.notifier)
+                            .update((s) => s - 1),
+                        onNext: () => ref
+                            .read(_dbPageProvider.notifier)
+                            .update((s) => s + 1),
+                        onPerPageChanged: (v) {
+                          ref.read(_dbPerPageProvider.notifier).state =
+                              v;
+                          ref.read(_dbPageProvider.notifier).state = 1;
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const VerticalDivider(width: 1),
+                // Tables panel
+                if (selectedDb != null)
+                  SizedBox(
+                    width: 240,
+                    child: _TablesPanel(dbId: selectedDb),
+                  ),
+                if (selectedDb != null)
+                  const VerticalDivider(width: 1),
+                // Rows panel
+                if (selectedDb != null && selectedTable != null)
+                  Expanded(
+                    child: _RowsPanel(
+                        dbId: selectedDb, tableId: selectedTable),
+                  ),
+                if (selectedDb == null)
+                  const Expanded(
+                    child:
+                        Center(child: Text('Select a database')),
+                  ),
+                if (selectedDb != null && selectedTable == null)
+                  const Expanded(
+                    child: Center(child: Text('Select a table')),
+                  ),
+              ],
             ),
           ),
-          const VerticalDivider(width: 1),
-          // Collections panel
-          if (selectedDb != null)
-            SizedBox(
-              width: 240,
-              child: _CollectionsPanel(dbId: selectedDb),
-            ),
-          if (selectedDb != null) const VerticalDivider(width: 1),
-          // Documents panel
-          if (selectedDb != null && selectedColl != null)
-            Expanded(
-              child: _DocumentsPanel(
-                  dbId: selectedDb, collId: selectedColl),
-            ),
-          if (selectedDb == null)
-            const Expanded(
-              child: Center(child: Text('Select a database')),
-            ),
-          if (selectedDb != null && selectedColl == null)
-            const Expanded(
-              child: Center(child: Text('Select a collection')),
-            ),
         ],
       ),
     );
@@ -117,32 +204,30 @@ class DatabasesPage extends ConsumerWidget {
 
   void _showCreateDbDialog(BuildContext context, WidgetRef ref) {
     final nameCtrl = TextEditingController();
-    showDialog(
+    showAppDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create Database'),
-        content: TextField(
-          controller: nameCtrl,
-          decoration: const InputDecoration(labelText: 'Name'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final api = ref.read(apiClientProvider);
-              await api.post('/databases', data: {
-                'databaseId': 'unique()',
-                'name': nameCtrl.text,
-              });
-              if (ctx.mounted) Navigator.pop(ctx);
-              ref.invalidate(databasesProvider);
-            },
-            child: const Text('Create'),
-          ),
-        ],
+      title: 'Create Database',
+      content: AppDialogField(
+        controller: nameCtrl,
+        label: 'Name',
+        hint: 'Database name',
+        autofocus: true,
       ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Create',
+          onTap: () async {
+            final api = ref.read(apiClientProvider);
+            await api.post('/databases', data: {
+              'databaseId': 'unique()',
+              'name': nameCtrl.text,
+            });
+            if (context.mounted) Navigator.pop(context);
+            ref.invalidate(databasesProvider);
+          },
+        ),
+      ],
     );
   }
 
@@ -154,14 +239,79 @@ class DatabasesPage extends ConsumerWidget {
   }
 }
 
-class _CollectionsPanel extends ConsumerWidget {
+// --- Panel search header (compact, for side panels) ----------------------
+
+class _PanelSearchHeader extends StatelessWidget {
+  final TextEditingController searchController;
+  final VoidCallback onSearch;
+  final VoidCallback onAdd;
+
+  const _PanelSearchHeader({
+    required this.searchController,
+    required this.onSearch,
+    required this.onAdd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      color: const Color(0xFF16171B),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 32,
+              child: TextField(
+                controller: searchController,
+                onSubmitted: (_) => onSearch(),
+                style:
+                    const TextStyle(fontSize: 12, color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Search...',
+                  hintStyle: const TextStyle(
+                      color: Color(0x40FFFFFF), fontSize: 12),
+                  prefixIcon: const Icon(Icons.search,
+                      size: 16, color: Color(0x40FFFFFF)),
+                  filled: true,
+                  fillColor: const Color(0x0AFFFFFF),
+                  contentPadding: const EdgeInsets.symmetric(
+                      vertical: 0, horizontal: 8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              iconSize: 18,
+              icon: const Icon(Icons.add, color: Colors.white),
+              onPressed: onAdd,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Tables panel --------------------------------------------------------
+
+class _TablesPanel extends ConsumerWidget {
   final String dbId;
-  const _CollectionsPanel({required this.dbId});
+  const _TablesPanel({required this.dbId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final collAsync = ref.watch(collectionsProvider(dbId));
-    final selectedColl = ref.watch(selectedCollProvider);
+    final tableAsync = ref.watch(tablesProvider(dbId));
+    final selectedTable = ref.watch(selectedTableProvider);
 
     return Column(
       children: [
@@ -169,43 +319,43 @@ class _CollectionsPanel extends ConsumerWidget {
           padding: const EdgeInsets.all(8),
           child: Row(
             children: [
-              const Text('Collections'),
+              const Text('Tables'),
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.add),
                 onPressed: () =>
-                    _showCreateCollDialog(context, ref),
+                    _showCreateTableDialog(context, ref),
               ),
             ],
           ),
         ),
         Expanded(
-          child: collAsync.when(
+          child: tableAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text('Error: $e')),
             data: (data) {
-              final colls = List<Map<String, dynamic>>.from(
-                  data['collections'] ?? []);
-              if (colls.isEmpty) {
-                return const Center(child: Text('No collections'));
+              final tables = List<Map<String, dynamic>>.from(
+                  data['tables'] ?? []);
+              if (tables.isEmpty) {
+                return const Center(child: Text('No tables'));
               }
               return ListView.builder(
-                itemCount: colls.length,
+                itemCount: tables.length,
                 itemBuilder: (context, i) {
-                  final c = colls[i];
-                  final id = c['\$id'] as String;
+                  final t = tables[i];
+                  final id = t['\$id'] as String;
                   return ListTile(
                     leading: const Icon(Icons.list_alt),
-                    title: Text(c['name'] ?? id),
-                    selected: selectedColl == id,
+                    title: Text(t['name'] ?? id),
+                    selected: selectedTable == id,
                     onTap: () => ref
-                        .read(selectedCollProvider.notifier)
+                        .read(selectedTableProvider.notifier)
                         .state = id,
                     trailing: IconButton(
                       icon:
                           const Icon(Icons.delete_outline, size: 18),
-                      onPressed: () => _deleteColl(ref, id),
+                      onPressed: () => _deleteTable(ref, id),
                     ),
                   );
                 },
@@ -217,56 +367,56 @@ class _CollectionsPanel extends ConsumerWidget {
     );
   }
 
-  void _showCreateCollDialog(BuildContext context, WidgetRef ref) {
+  void _showCreateTableDialog(BuildContext context, WidgetRef ref) {
     final nameCtrl = TextEditingController();
-    showDialog(
+    showAppDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create Collection'),
-        content: TextField(
-          controller: nameCtrl,
-          decoration: const InputDecoration(labelText: 'Name'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final api = ref.read(apiClientProvider);
-              await api.post('/databases/$dbId/collections', data: {
-                'collectionId': 'unique()',
-                'name': nameCtrl.text,
-                'permissions': <String>[],
-              });
-              if (ctx.mounted) Navigator.pop(ctx);
-              ref.invalidate(collectionsProvider(dbId));
-            },
-            child: const Text('Create'),
-          ),
-        ],
+      title: 'Create Table',
+      content: AppDialogField(
+        controller: nameCtrl,
+        label: 'Name',
+        hint: 'Table name',
+        autofocus: true,
       ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Create',
+          onTap: () async {
+            final api = ref.read(apiClientProvider);
+            await api.post('/databases/$dbId/tables', data: {
+              'tableId': 'unique()',
+              'name': nameCtrl.text,
+              'permissions': <String>[],
+            });
+            if (context.mounted) Navigator.pop(context);
+            ref.invalidate(tablesProvider(dbId));
+          },
+        ),
+      ],
     );
   }
 
-  Future<void> _deleteColl(WidgetRef ref, String id) async {
+  Future<void> _deleteTable(WidgetRef ref, String id) async {
     final api = ref.read(apiClientProvider);
-    await api.delete('/databases/$dbId/collections/$id');
-    ref.read(selectedCollProvider.notifier).state = null;
-    ref.invalidate(collectionsProvider(dbId));
+    await api.delete('/databases/$dbId/tables/$id');
+    ref.read(selectedTableProvider.notifier).state = null;
+    ref.invalidate(tablesProvider(dbId));
   }
 }
 
-class _DocumentsPanel extends ConsumerWidget {
+// --- Rows panel ----------------------------------------------------------
+
+class _RowsPanel extends ConsumerWidget {
   final String dbId;
-  final String collId;
-  const _DocumentsPanel(
-      {required this.dbId, required this.collId});
+  final String tableId;
+  const _RowsPanel(
+      {required this.dbId, required this.tableId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final docsAsync = ref.watch(
-        documentsProvider((dbId: dbId, collId: collId)));
+    final rowsAsync = ref.watch(
+        rowsProvider((dbId: dbId, tableId: tableId)));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -275,34 +425,33 @@ class _DocumentsPanel extends ConsumerWidget {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              Text('Documents',
+              Text('Rows',
                   style: Theme.of(context).textTheme.titleMedium),
               const Spacer(),
               FilledButton.icon(
                 onPressed: () =>
-                    _showCreateDocDialog(context, ref),
+                    _showCreateRowDialog(context, ref),
                 icon: const Icon(Icons.add),
-                label: const Text('Add Document'),
+                label: const Text('Add Row'),
               ),
             ],
           ),
         ),
         Expanded(
-          child: docsAsync.when(
+          child: rowsAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text('Error: $e')),
             data: (data) {
-              final docs = List<Map<String, dynamic>>.from(
-                  data['documents'] ?? []);
-              if (docs.isEmpty) {
-                return const Center(child: Text('No documents'));
+              final rows = List<Map<String, dynamic>>.from(
+                  data['rows'] ?? []);
+              if (rows.isEmpty) {
+                return const Center(child: Text('No rows'));
               }
 
-              // Extract all unique data keys across all documents
               final dataKeys = <String>{};
-              for (final doc in docs) {
-                for (final key in doc.keys) {
+              for (final row in rows) {
+                for (final key in row.keys) {
                   if (!key.startsWith('\$')) {
                     dataKeys.add(key);
                   }
@@ -335,17 +484,17 @@ class _DocumentsPanel extends ConsumerWidget {
                                   fontWeight: FontWeight.bold))),
                       const DataColumn(label: Text('')),
                     ],
-                    rows: docs.map((doc) {
+                    rows: rows.map((row) {
                       return DataRow(
                         cells: [
                           DataCell(SelectableText(
-                            (doc['\$id'] ?? '').toString(),
+                            (row['\$id'] ?? '').toString(),
                             style: const TextStyle(
                                 fontFamily: 'monospace',
                                 fontSize: 12),
                           )),
                           ...columns.map((col) {
-                            final val = doc[col];
+                            final val = row[col];
                             return DataCell(
                               SelectableText(
                                 val?.toString() ?? '',
@@ -355,7 +504,7 @@ class _DocumentsPanel extends ConsumerWidget {
                           }),
                           DataCell(Text(
                             _formatTimestamp(
-                                doc['\$createdAt']?.toString() ?? ''),
+                                row['\$createdAt']?.toString() ?? ''),
                             style: const TextStyle(fontSize: 12),
                           )),
                           DataCell(
@@ -363,7 +512,7 @@ class _DocumentsPanel extends ConsumerWidget {
                               icon: const Icon(Icons.delete_outline,
                                   size: 18),
                               onPressed: () =>
-                                  _deleteDoc(ref, doc['\$id']),
+                                  _deleteRow(ref, row['\$id']),
                             ),
                           ),
                         ],
@@ -375,13 +524,12 @@ class _DocumentsPanel extends ConsumerWidget {
             },
           ),
         ),
-        // Total count footer
-        docsAsync.whenOrNull(
+        rowsAsync.whenOrNull(
               data: (data) => Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Text(
-                  '${data['total'] ?? 0} documents',
+                  '${data['total'] ?? 0} rows',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
@@ -402,54 +550,46 @@ class _DocumentsPanel extends ConsumerWidget {
     }
   }
 
-  void _showCreateDocDialog(BuildContext context, WidgetRef ref) {
+  void _showCreateRowDialog(BuildContext context, WidgetRef ref) {
     final dataCtrl = TextEditingController(text: '{}');
-    showDialog(
+    showAppDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create Document'),
-        content: SizedBox(
-          width: 400,
-          child: TextField(
-            controller: dataCtrl,
-            maxLines: 8,
-            decoration: const InputDecoration(
-              labelText: 'Data (JSON)',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final api = ref.read(apiClientProvider);
-              await api.post(
-                '/databases/$dbId/collections/$collId/documents',
-                data: {
-                  'documentId': 'unique()',
-                  'data': dataCtrl.text,
-                  'permissions': <String>[],
-                },
-              );
-              if (ctx.mounted) Navigator.pop(ctx);
-              ref.invalidate(
-                  documentsProvider((dbId: dbId, collId: collId)));
-            },
-            child: const Text('Create'),
-          ),
-        ],
+      title: 'Create Row',
+      content: AppDialogField(
+        controller: dataCtrl,
+        label: 'Data (JSON)',
+        hint: '{}',
+        maxLines: 8,
+        autofocus: true,
       ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Create',
+          onTap: () async {
+            final api = ref.read(apiClientProvider);
+            await api.post(
+              '/databases/$dbId/tables/$tableId/rows',
+              data: {
+                'rowId': 'unique()',
+                'data': dataCtrl.text,
+                'permissions': <String>[],
+              },
+            );
+            if (context.mounted) Navigator.pop(context);
+            ref.invalidate(
+                rowsProvider((dbId: dbId, tableId: tableId)));
+          },
+        ),
+      ],
     );
   }
 
-  Future<void> _deleteDoc(WidgetRef ref, String docId) async {
+  Future<void> _deleteRow(WidgetRef ref, String rowId) async {
     final api = ref.read(apiClientProvider);
     await api.delete(
-        '/databases/$dbId/collections/$collId/documents/$docId');
+        '/databases/$dbId/tables/$tableId/rows/$rowId');
     ref.invalidate(
-        documentsProvider((dbId: dbId, collId: collId)));
+        rowsProvider((dbId: dbId, tableId: tableId)));
   }
 }

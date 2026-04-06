@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../shell/shell.dart';
@@ -13,6 +14,22 @@ import '../../features/functions/functions_page.dart';
 import '../../features/messaging/messaging_page.dart';
 import '../../features/workflows/workflows_page.dart';
 import '../../features/settings/settings_page.dart';
+import '../../features/account/account_page.dart';
+import '../../features/projects/projects_page.dart';
+
+Page<void> _noTransition(GoRouterState state, Widget child) {
+  return NoTransitionPage(key: state.pageKey, child: child);
+}
+
+Page<void> _fade(GoRouterState state, Widget child) {
+  return CustomTransitionPage(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 150),
+    transitionsBuilder: (_, animation, __, child) =>
+        FadeTransition(opacity: animation, child: child),
+  );
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -21,54 +38,85 @@ final routerProvider = Provider<GoRouter>((ref) {
       final token = ref.read(consoleTokenProvider);
       final isLoginRoute = state.uri.path == '/login';
 
-      // Not authenticated → force login (except if already on login page)
-      if (token == null && !isLoginRoute) {
-        return '/login';
-      }
-
-      // Authenticated and on login page → go to onboarding check
-      if (token != null && isLoginRoute) {
-        return '/onboarding';
-      }
-
+      if (token == null && !isLoginRoute) return '/login';
+      if (token != null && isLoginRoute) return '/projects';
       return null;
     },
     routes: [
+      // Full-page routes (no sidebar)
       GoRoute(
-          path: '/login', builder: (_, __) => const LoginPage()),
+        path: '/login',
+        pageBuilder: (_, state) => _fade(state, const LoginPage()),
+      ),
       GoRoute(
-          path: '/onboarding',
-          builder: (_, __) => const OnboardingPage()),
+        path: '/onboarding',
+        pageBuilder: (_, state) => _fade(state, const OnboardingPage()),
+      ),
+      GoRoute(
+        path: '/projects',
+        pageBuilder: (_, state) => _fade(state, const ProjectsPage()),
+      ),
+      GoRoute(
+        path: '/account',
+        pageBuilder: (_, state) => _fade(state, const AccountPage()),
+      ),
+
+      // Bare project path — redirect to overview
+      GoRoute(
+        path: '/project/:projectId',
+        redirect: (context, state) =>
+            '/project/${state.pathParameters['projectId']}/overview',
+      ),
+
+      // Project-scoped routes (with sidebar shell)
       ShellRoute(
         builder: (_, __, child) => AppShell(child: child),
         routes: [
           GoRoute(
-              path: '/overview',
-              builder: (_, __) => const OverviewPage()),
+            path: '/project/:projectId/overview',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const OverviewPage()),
+          ),
           GoRoute(
-              path: '/databases',
-              builder: (_, __) => const DatabasesPage()),
+            path: '/project/:projectId/databases',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const DatabasesPage()),
+          ),
           GoRoute(
-              path: '/storage',
-              builder: (_, __) => const StoragePage()),
+            path: '/project/:projectId/storage',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const StoragePage()),
+          ),
           GoRoute(
-              path: '/auth',
-              builder: (_, __) => const AuthPage()),
+            path: '/project/:projectId/auth',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const AuthPage()),
+          ),
           GoRoute(
-              path: '/deploy',
-              builder: (_, __) => const DeployPage()),
+            path: '/project/:projectId/deploy',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const DeployPage()),
+          ),
           GoRoute(
-              path: '/functions',
-              builder: (_, __) => const FunctionsPage()),
+            path: '/project/:projectId/functions',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const FunctionsPage()),
+          ),
           GoRoute(
-              path: '/messaging',
-              builder: (_, __) => const MessagingPage()),
+            path: '/project/:projectId/messaging',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const MessagingPage()),
+          ),
           GoRoute(
-              path: '/workflows',
-              builder: (_, __) => const WorkflowsPage()),
+            path: '/project/:projectId/workflows',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const WorkflowsPage()),
+          ),
           GoRoute(
-              path: '/settings',
-              builder: (_, __) => const SettingsPage()),
+            path: '/project/:projectId/settings',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const SettingsPage()),
+          ),
         ],
       ),
     ],

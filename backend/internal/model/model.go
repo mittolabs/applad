@@ -87,53 +87,63 @@ type Database struct {
 	Enabled   bool      `json:"enabled"`
 }
 
-// Collection represents a document collection.
-type Collection struct {
-	ID               string      `json:"$id"`
-	CreatedAt        time.Time   `json:"$createdAt"`
-	UpdatedAt        time.Time   `json:"$updatedAt"`
-	DatabaseID       string      `json:"databaseId"`
-	Name             string      `json:"name"`
-	Enabled          bool        `json:"enabled"`
-	DocumentSecurity bool        `json:"documentSecurity"`
-	Permissions      []string    `json:"$permissions"`
-	Attributes       []Attribute `json:"attributes"`
-	Indexes          []Index     `json:"indexes"`
+// Table represents a database table (stored in the `collections` MySQL table).
+type Table struct {
+	ID          string   `json:"$id"`
+	CreatedAt   time.Time `json:"$createdAt"`
+	UpdatedAt   time.Time `json:"$updatedAt"`
+	DatabaseID  string   `json:"databaseId"`
+	Name        string   `json:"name"`
+	Enabled     bool     `json:"enabled"`
+	RowSecurity bool     `json:"rowSecurity"`
+	Permissions []string `json:"$permissions"`
+	Columns     []Column `json:"columns"`
+	Indexes     []Index  `json:"indexes"`
 }
 
-// Attribute represents a collection attribute.
-type Attribute struct {
-	Key      string      `json:"key"`
-	Type     string      `json:"type"`
-	Status   string      `json:"status"`
-	Required bool        `json:"required"`
-	Array    bool        `json:"array"`
-	Default  interface{} `json:"default"`
+// Column represents a table column (stored in the `attributes` MySQL table).
+type Column struct {
+	Key      string                 `json:"key"`
+	Type     string                 `json:"type"`
+	Status   string                 `json:"status"`
+	Required bool                   `json:"required"`
+	Array    bool                   `json:"array"`
+	Default  interface{}            `json:"default"`
+	Options  map[string]interface{} `json:"options,omitempty"`
 }
 
-// Index represents a collection index.
+// Index represents a table index.
 type Index struct {
-	Key        string   `json:"key"`
-	Type       string   `json:"type"`
-	Status     string   `json:"status"`
-	Attributes []string `json:"attributes"`
-	Orders     []string `json:"orders"`
+	Key     string   `json:"key"`
+	Type    string   `json:"type"`
+	Status  string   `json:"status"`
+	Columns []string `json:"columns"`
+	Orders  []string `json:"orders"`
 }
 
-// Document represents a database document.
-type Document struct {
-	ID           string                 `json:"$id"`
-	CollectionID string                 `json:"$collectionId"`
-	DatabaseID   string                 `json:"$databaseId"`
-	CreatedAt    time.Time              `json:"$createdAt"`
-	UpdatedAt    time.Time              `json:"$updatedAt"`
-	Permissions  []string               `json:"$permissions"`
-	Data         map[string]interface{} `json:"-"`
+// Row represents a database row (stored in the `documents` MySQL table).
+type Row struct {
+	ID          string                 `json:"$id"`
+	TableID     string                 `json:"$tableId"`
+	DatabaseID  string                 `json:"$databaseId"`
+	CreatedAt   time.Time              `json:"$createdAt"`
+	UpdatedAt   time.Time              `json:"$updatedAt"`
+	Permissions []string               `json:"$permissions"`
+	Data        map[string]interface{} `json:"-"`
 }
 
-// MarshalJSON merges document Data fields into the top-level JSON object.
-func (d Document) MarshalJSON() ([]byte, error) {
-	type Alias Document
+// Collection is an alias for Table (backward compatibility).
+type Collection = Table
+
+// Attribute is an alias for Column (backward compatibility).
+type Attribute = Column
+
+// Document is an alias for Row (backward compatibility).
+type Document = Row
+
+// MarshalJSON merges row Data fields into the top-level JSON object.
+func (d Row) MarshalJSON() ([]byte, error) {
+	type Alias Row
 	base, err := json.Marshal(struct {
 		Alias
 	}{Alias: Alias(d)})

@@ -24,34 +24,34 @@ class Databases {
     deleteDatabase(databaseId) {
         return this.client.call('DELETE', `/databases/${databaseId}`);
     }
-    // --- Collections ---
-    createCollection(databaseId, name, opts) {
-        return this.client.call('POST', `/databases/${databaseId}/collections`, {
+    // --- Tables ---
+    createTable(databaseId, name, opts) {
+        return this.client.call('POST', `/databases/${databaseId}/tables`, {
             name,
-            collectionId: opts?.collectionId ?? 'unique()',
+            tableId: opts?.tableId ?? 'unique()',
             permissions: opts?.permissions ?? [],
             documentSecurity: opts?.documentSecurity ?? false,
         });
     }
-    listCollections(databaseId) {
-        return this.client.call('GET', `/databases/${databaseId}/collections`);
+    listTables(databaseId) {
+        return this.client.call('GET', `/databases/${databaseId}/tables`);
     }
-    getCollection(databaseId, collectionId) {
-        return this.client.call('GET', `/databases/${databaseId}/collections/${collectionId}`);
+    getTable(databaseId, tableId) {
+        return this.client.call('GET', `/databases/${databaseId}/tables/${tableId}`);
     }
-    updateCollection(databaseId, collectionId, name, opts) {
-        return this.client.call('PUT', `/databases/${databaseId}/collections/${collectionId}`, {
+    updateTable(databaseId, tableId, name, opts) {
+        return this.client.call('PUT', `/databases/${databaseId}/tables/${tableId}`, {
             name,
             ...(opts?.permissions && { permissions: opts.permissions }),
             ...(opts?.enabled !== undefined && { enabled: opts.enabled }),
         });
     }
-    deleteCollection(databaseId, collectionId) {
-        return this.client.call('DELETE', `/databases/${databaseId}/collections/${collectionId}`);
+    deleteTable(databaseId, tableId) {
+        return this.client.call('DELETE', `/databases/${databaseId}/tables/${tableId}`);
     }
-    // --- Attributes ---
-    createStringAttribute(databaseId, collectionId, key, opts) {
-        return this.client.call('POST', `/databases/${databaseId}/collections/${collectionId}/attributes/string`, {
+    // --- Columns ---
+    createStringColumn(databaseId, tableId, key, opts) {
+        return this.client.call('POST', `/databases/${databaseId}/tables/${tableId}/columns/string`, {
             key,
             required: opts?.required ?? false,
             array: opts?.array ?? false,
@@ -59,8 +59,8 @@ class Databases {
             ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
         });
     }
-    createIntegerAttribute(databaseId, collectionId, key, opts) {
-        return this.client.call('POST', `/databases/${databaseId}/collections/${collectionId}/attributes/integer`, {
+    createIntegerColumn(databaseId, tableId, key, opts) {
+        return this.client.call('POST', `/databases/${databaseId}/tables/${tableId}/columns/integer`, {
             key,
             required: opts?.required ?? false,
             array: opts?.array ?? false,
@@ -69,58 +69,58 @@ class Databases {
             ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
         });
     }
-    createBooleanAttribute(databaseId, collectionId, key, opts) {
-        return this.client.call('POST', `/databases/${databaseId}/collections/${collectionId}/attributes/boolean`, {
+    createBooleanColumn(databaseId, tableId, key, opts) {
+        return this.client.call('POST', `/databases/${databaseId}/tables/${tableId}/columns/boolean`, {
             key,
             required: opts?.required ?? false,
             array: opts?.array ?? false,
             ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
         });
     }
-    listAttributes(databaseId, collectionId) {
-        return this.client.call('GET', `/databases/${databaseId}/collections/${collectionId}/attributes`);
+    listColumns(databaseId, tableId) {
+        return this.client.call('GET', `/databases/${databaseId}/tables/${tableId}/columns`);
     }
-    deleteAttribute(databaseId, collectionId, key) {
-        return this.client.call('DELETE', `/databases/${databaseId}/collections/${collectionId}/attributes/${key}`);
+    deleteColumn(databaseId, tableId, key) {
+        return this.client.call('DELETE', `/databases/${databaseId}/tables/${tableId}/columns/${key}`);
     }
     // --- Indexes ---
-    createIndex(databaseId, collectionId, key, type, attributes, orders) {
-        return this.client.call('POST', `/databases/${databaseId}/collections/${collectionId}/indexes`, { key, type, attributes, ...(orders && { orders }) });
+    createIndex(databaseId, tableId, key, type, columns, orders) {
+        return this.client.call('POST', `/databases/${databaseId}/tables/${tableId}/indexes`, { key, type, columns, ...(orders && { orders }) });
     }
-    listIndexes(databaseId, collectionId) {
-        return this.client.call('GET', `/databases/${databaseId}/collections/${collectionId}/indexes`);
+    listIndexes(databaseId, tableId) {
+        return this.client.call('GET', `/databases/${databaseId}/tables/${tableId}/indexes`);
     }
-    deleteIndex(databaseId, collectionId, key) {
-        return this.client.call('DELETE', `/databases/${databaseId}/collections/${collectionId}/indexes/${key}`);
+    deleteIndex(databaseId, tableId, key) {
+        return this.client.call('DELETE', `/databases/${databaseId}/tables/${tableId}/indexes/${key}`);
     }
-    // --- Documents ---
-    createDocument(databaseId, collectionId, data, opts) {
-        return this.client.call('POST', `/databases/${databaseId}/collections/${collectionId}/documents`, {
-            documentId: opts?.documentId ?? 'unique()',
+    // --- Rows ---
+    createRow(databaseId, tableId, data, opts) {
+        return this.client.call('POST', `/databases/${databaseId}/tables/${tableId}/rows`, {
+            rowId: opts?.rowId ?? 'unique()',
             data,
             permissions: opts?.permissions ?? [],
         });
     }
-    listDocuments(databaseId, collectionId, opts) {
+    listRows(databaseId, tableId, opts) {
         const params = new URLSearchParams();
         if (opts?.limit)
             params.set('limit', String(opts.limit));
         if (opts?.offset)
             params.set('offset', String(opts.offset));
         const qs = params.toString();
-        return this.client.call('GET', `/databases/${databaseId}/collections/${collectionId}/documents${qs ? `?${qs}` : ''}`);
+        return this.client.call('GET', `/databases/${databaseId}/tables/${tableId}/rows${qs ? `?${qs}` : ''}`);
     }
-    getDocument(databaseId, collectionId, documentId) {
-        return this.client.call('GET', `/databases/${databaseId}/collections/${collectionId}/documents/${documentId}`);
+    getRow(databaseId, tableId, rowId) {
+        return this.client.call('GET', `/databases/${databaseId}/tables/${tableId}/rows/${rowId}`);
     }
-    updateDocument(databaseId, collectionId, documentId, opts) {
-        return this.client.call('PATCH', `/databases/${databaseId}/collections/${collectionId}/documents/${documentId}`, {
+    updateRow(databaseId, tableId, rowId, opts) {
+        return this.client.call('PATCH', `/databases/${databaseId}/tables/${tableId}/rows/${rowId}`, {
             ...(opts?.data && { data: opts.data }),
             ...(opts?.permissions && { permissions: opts.permissions }),
         });
     }
-    deleteDocument(databaseId, collectionId, documentId) {
-        return this.client.call('DELETE', `/databases/${databaseId}/collections/${collectionId}/documents/${documentId}`);
+    deleteRow(databaseId, tableId, rowId) {
+        return this.client.call('DELETE', `/databases/${databaseId}/tables/${tableId}/rows/${rowId}`);
     }
 }
 exports.Databases = Databases;

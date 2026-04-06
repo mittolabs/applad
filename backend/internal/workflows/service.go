@@ -35,17 +35,20 @@ type Edge struct {
 
 // Workflow is a complete workflow definition.
 type Workflow struct {
-	ID            string                 `json:"$id"`
-	ProjectID     string                 `json:"projectId"`
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
-	Status        string                 `json:"status"`
-	TriggerType   string                 `json:"triggerType"`
-	TriggerConfig map[string]interface{} `json:"triggerConfig"`
-	Nodes         []Node                 `json:"nodes"`
-	Edges         []Edge                 `json:"edges"`
-	CreatedAt     time.Time              `json:"$createdAt"`
-	UpdatedAt     time.Time              `json:"$updatedAt"`
+	ID              string                 `json:"$id"`
+	ProjectID       string                 `json:"projectId"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	Status          string                 `json:"status"`
+	TriggerType     string                 `json:"triggerType"`
+	TriggerConfig   map[string]interface{} `json:"triggerConfig"`
+	Nodes           []Node                 `json:"nodes"`
+	Edges           []Edge                 `json:"edges"`
+	ErrorWorkflowID string                 `json:"errorWorkflowId"`
+	RetryAttempts   int                    `json:"retryAttempts"`
+	RetryDelayMs    int                    `json:"retryDelayMs"`
+	CreatedAt       time.Time              `json:"$createdAt"`
+	UpdatedAt       time.Time              `json:"$updatedAt"`
 }
 
 // StepLog records the result of executing a single node.
@@ -84,7 +87,27 @@ type Service struct {
 
 // NewService creates a new workflows Service.
 func NewService(database *db.DB, q *queue.Queue) *Service {
-	return &Service{db: database, queue: q}
+	s := &Service{db: database, queue: q}
+
+	// Register sub-workflow runner
+	SubWorkflowRunner = func(ctx context.Context, workflowID string, triggerData map[string]interface{}, depth int) ([]StepLog, interface{}, error) {
+		wf, err := s.GetByID(ctx, workflowID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("sub-workflow %s not found: %w", workflowID, err)
+		}
+		triggerData["__depth__"] = depth
+		logs, runErr := RunWorkflow(ctx, wf, triggerData)
+		var lastOutput interface{}
+		for i := len(logs) - 1; i >= 0; i-- {
+			if logs[i].Status == "completed" && logs[i].Output != nil {
+				lastOutput = logs[i].Output
+				break
+			}
+		}
+		return logs, lastOutput, runErr
+	}
+
+	return s
 }
 
 // Create creates a new workflow.
@@ -125,12 +148,15 @@ func (s *Service) Create(ctx context.Context, projectID, name, description, trig
 func (s *Service) Get(ctx context.Context, id, projectID string) (*Workflow, error) {
 	var w Workflow
 	var tcJSON, nodesJSON, edgesJSON []byte
-	var desc sql.NullString
+	var desc, errorWfID sql.NullString
+	var retryAttempts, retryDelayMs sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at
+		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at,
+		        COALESCE(error_workflow_id, ''), COALESCE(retry_attempts, 0), COALESCE(retry_delay_ms, 0)
 		 FROM workflows WHERE id = ? AND project_id = ?`, id, projectID,
-	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt)
+	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
+		&errorWfID, &retryAttempts, &retryDelayMs)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("workflow not found")
 	}
@@ -139,6 +165,9 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Workflow, err
 	}
 
 	w.Description = desc.String
+	w.ErrorWorkflowID = errorWfID.String
+	w.RetryAttempts = int(retryAttempts.Int64)
+	w.RetryDelayMs = int(retryDelayMs.Int64)
 	json.Unmarshal(tcJSON, &w.TriggerConfig)
 	json.Unmarshal(nodesJSON, &w.Nodes)
 	json.Unmarshal(edgesJSON, &w.Edges)
@@ -158,12 +187,15 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Workflow, err
 func (s *Service) GetByID(ctx context.Context, id string) (*Workflow, error) {
 	var w Workflow
 	var tcJSON, nodesJSON, edgesJSON []byte
-	var desc sql.NullString
+	var desc, errorWfID sql.NullString
+	var retryAttempts, retryDelayMs sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at
+		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at,
+		        COALESCE(error_workflow_id, ''), COALESCE(retry_attempts, 0), COALESCE(retry_delay_ms, 0)
 		 FROM workflows WHERE id = ?`, id,
-	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt)
+	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
+		&errorWfID, &retryAttempts, &retryDelayMs)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("workflow not found")
 	}
@@ -172,6 +204,9 @@ func (s *Service) GetByID(ctx context.Context, id string) (*Workflow, error) {
 	}
 
 	w.Description = desc.String
+	w.ErrorWorkflowID = errorWfID.String
+	w.RetryAttempts = int(retryAttempts.Int64)
+	w.RetryDelayMs = int(retryDelayMs.Int64)
 	json.Unmarshal(tcJSON, &w.TriggerConfig)
 	json.Unmarshal(nodesJSON, &w.Nodes)
 	json.Unmarshal(edgesJSON, &w.Edges)
@@ -190,7 +225,8 @@ func (s *Service) GetByID(ctx context.Context, id string) (*Workflow, error) {
 // List returns all workflows for a project.
 func (s *Service) List(ctx context.Context, projectID string) ([]*Workflow, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at
+		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at,
+		        COALESCE(error_workflow_id, ''), COALESCE(retry_attempts, 0), COALESCE(retry_delay_ms, 0)
 		 FROM workflows WHERE project_id = ? ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
@@ -201,11 +237,16 @@ func (s *Service) List(ctx context.Context, projectID string) ([]*Workflow, int,
 	for rows.Next() {
 		var w Workflow
 		var tcJSON, nodesJSON, edgesJSON []byte
-		var desc sql.NullString
-		if err := rows.Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		var desc, errorWfID sql.NullString
+		var retryAttempts, retryDelayMs sql.NullInt64
+		if err := rows.Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
+			&errorWfID, &retryAttempts, &retryDelayMs); err != nil {
 			return nil, 0, err
 		}
 		w.Description = desc.String
+		w.ErrorWorkflowID = errorWfID.String
+		w.RetryAttempts = int(retryAttempts.Int64)
+		w.RetryDelayMs = int(retryDelayMs.Int64)
 		json.Unmarshal(tcJSON, &w.TriggerConfig)
 		json.Unmarshal(nodesJSON, &w.Nodes)
 		json.Unmarshal(edgesJSON, &w.Edges)
@@ -369,4 +410,172 @@ func (s *Service) UpdateExecution(ctx context.Context, executionID string, statu
 		 WHERE id=?`,
 		status, startedAt, completedAt, durationMs, execErr, logsJSON, executionID)
 	return err
+}
+
+// ── Workflow Versioning ──
+
+// SaveVersion creates a snapshot of the current workflow state.
+func (s *Service) SaveVersion(ctx context.Context, wf *Workflow, createdBy string) error {
+	// Count existing versions
+	var count int
+	s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_versions WHERE workflow_id=?`, wf.ID).Scan(&count)
+
+	nodesJSON, _ := json.Marshal(wf.Nodes)
+	edgesJSON, _ := json.Marshal(wf.Edges)
+	triggerJSON, _ := json.Marshal(wf.TriggerConfig)
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO workflow_versions (id, workflow_id, version, name, description, nodes, edges, trigger_type, trigger_config, created_at, created_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		uid.New("unique()"), wf.ID, count+1, wf.Name, wf.Description,
+		nodesJSON, edgesJSON, wf.TriggerType, triggerJSON, time.Now().UTC(), createdBy)
+	return err
+}
+
+// ListVersions returns all versions of a workflow.
+func (s *Service) ListVersions(ctx context.Context, workflowID string) ([]map[string]interface{}, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, version, name, created_at, created_by FROM workflow_versions WHERE workflow_id=? ORDER BY version DESC`, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var versions []map[string]interface{}
+	for rows.Next() {
+		var id, name string
+		var version int
+		var createdAt time.Time
+		var createdBy sql.NullString
+		rows.Scan(&id, &version, &name, &createdAt, &createdBy)
+		versions = append(versions, map[string]interface{}{
+			"$id": id, "version": version, "name": name,
+			"$createdAt": createdAt, "createdBy": createdBy.String,
+		})
+	}
+	return versions, nil
+}
+
+// ── Workflow Sharing ──
+
+// ShareWorkflow shares a workflow with a user.
+func (s *Service) ShareWorkflow(ctx context.Context, workflowID, userID, role string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO workflow_shares (id, workflow_id, user_id, role) VALUES (?, ?, ?, ?)
+		 ON DUPLICATE KEY UPDATE role=VALUES(role)`,
+		uid.New("unique()"), workflowID, userID, role)
+	return err
+}
+
+// UnshareWorkflow removes a share.
+func (s *Service) UnshareWorkflow(ctx context.Context, workflowID, userID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_shares WHERE workflow_id=? AND user_id=?`, workflowID, userID)
+	return err
+}
+
+// ListShares returns shares for a workflow.
+func (s *Service) ListShares(ctx context.Context, workflowID string) ([]map[string]interface{}, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, user_id, role, created_at FROM workflow_shares WHERE workflow_id=?`, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var shares []map[string]interface{}
+	for rows.Next() {
+		var id, userID, role string
+		var createdAt time.Time
+		rows.Scan(&id, &userID, &role, &createdAt)
+		shares = append(shares, map[string]interface{}{
+			"$id": id, "userId": userID, "role": role, "$createdAt": createdAt,
+		})
+	}
+	return shares, nil
+}
+
+// ── Workflow Templates ──
+
+// ListTemplates returns all available workflow templates.
+func (s *Service) ListTemplates(ctx context.Context) ([]map[string]interface{}, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, description, category, icon, trigger_type, popularity FROM workflow_templates ORDER BY popularity DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var templates []map[string]interface{}
+	for rows.Next() {
+		var id, name, category, icon, triggerType string
+		var description sql.NullString
+		var popularity int
+		rows.Scan(&id, &name, &description, &category, &icon, &triggerType, &popularity)
+		templates = append(templates, map[string]interface{}{
+			"$id": id, "name": name, "description": description.String,
+			"category": category, "icon": icon, "triggerType": triggerType,
+			"popularity": popularity,
+		})
+	}
+	return templates, nil
+}
+
+// GetTemplate returns a single template with full node/edge data.
+func (s *Service) GetTemplate(ctx context.Context, templateID string) (*Workflow, error) {
+	var name, triggerType string
+	var description sql.NullString
+	var nodesJSON, edgesJSON, triggerJSON []byte
+
+	err := s.db.QueryRowContext(ctx,
+		`SELECT name, description, trigger_type, trigger_config, nodes, edges FROM workflow_templates WHERE id=?`,
+		templateID).Scan(&name, &description, &triggerType, &triggerJSON, &nodesJSON, &edgesJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	wf := &Workflow{
+		ID: templateID, Name: name, Description: description.String, TriggerType: triggerType,
+	}
+	json.Unmarshal(nodesJSON, &wf.Nodes)
+	json.Unmarshal(edgesJSON, &wf.Edges)
+	json.Unmarshal(triggerJSON, &wf.TriggerConfig)
+	return wf, nil
+}
+
+// ── Workflow Folders ──
+
+// CreateFolder creates a workflow folder.
+func (s *Service) CreateFolder(ctx context.Context, projectID, name, parentID string) (string, error) {
+	id := uid.New("unique()")
+	var parent interface{} = nil
+	if parentID != "" {
+		parent = parentID
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO workflow_folders (id, project_id, name, parent_id) VALUES (?, ?, ?, ?)`,
+		id, projectID, name, parent)
+	return id, err
+}
+
+// ListFolders returns all folders for a project.
+func (s *Service) ListFolders(ctx context.Context, projectID string) ([]map[string]interface{}, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, parent_id, created_at FROM workflow_folders WHERE project_id=? ORDER BY name`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var folders []map[string]interface{}
+	for rows.Next() {
+		var id, name string
+		var parentID sql.NullString
+		var createdAt time.Time
+		rows.Scan(&id, &name, &parentID, &createdAt)
+		folders = append(folders, map[string]interface{}{
+			"$id": id, "name": name, "parentId": parentID.String,
+			"$createdAt": createdAt,
+		})
+	}
+	return folders, nil
 }

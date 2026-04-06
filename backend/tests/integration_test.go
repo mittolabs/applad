@@ -185,9 +185,9 @@ func TestDatabaseFlow(t *testing.T) {
 	dbID := body["$id"].(string)
 
 	// Create collection
-	status, body = request(t, "POST", fmt.Sprintf("/databases/%s/collections", dbID),
+	status, body = request(t, "POST", fmt.Sprintf("/databases/%s/tables", dbID),
 		map[string]interface{}{
-			"collectionId": "unique()",
+			"tableId": "unique()",
 			"name":         "posts",
 			"permissions":  []string{},
 		}, headers)
@@ -198,9 +198,9 @@ func TestDatabaseFlow(t *testing.T) {
 
 	// Create document
 	status, body = request(t, "POST",
-		fmt.Sprintf("/databases/%s/collections/%s/documents", dbID, collID),
+		fmt.Sprintf("/databases/%s/tables/%s/rows", dbID, collID),
 		map[string]interface{}{
-			"documentId":  "unique()",
+			"rowId":  "unique()",
 			"data":        map[string]interface{}{"title": "Hello", "body": "World"},
 			"permissions": []string{},
 		}, headers)
@@ -211,7 +211,7 @@ func TestDatabaseFlow(t *testing.T) {
 
 	// Get document
 	status, body = request(t, "GET",
-		fmt.Sprintf("/databases/%s/collections/%s/documents/%s", dbID, collID, docID),
+		fmt.Sprintf("/databases/%s/tables/%s/rows/%s", dbID, collID, docID),
 		nil, headers)
 	if status != 200 {
 		t.Fatalf("get doc: expected 200, got %d", status)
@@ -222,7 +222,7 @@ func TestDatabaseFlow(t *testing.T) {
 
 	// List documents
 	status, body = request(t, "GET",
-		fmt.Sprintf("/databases/%s/collections/%s/documents", dbID, collID),
+		fmt.Sprintf("/databases/%s/tables/%s/rows", dbID, collID),
 		nil, headers)
 	if status != 200 {
 		t.Fatalf("list docs: expected 200, got %d", status)

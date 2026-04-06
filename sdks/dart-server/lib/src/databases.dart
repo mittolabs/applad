@@ -1,6 +1,6 @@
 import 'client.dart';
 
-/// Databases service — manage databases, collections, attributes, indexes, and documents.
+/// Databases service — manage databases, tables, columns, indexes, and rows.
 class Databases {
   final ApplAdServer _client;
 
@@ -42,45 +42,45 @@ class Databases {
     return _client.delete('/v1/databases/$databaseId');
   }
 
-  // --- Collections ---
+  // --- Tables ---
 
-  /// Create a collection.
-  Future<Map<String, dynamic>> createCollection({
+  /// Create a table.
+  Future<Map<String, dynamic>> createTable({
     required String databaseId,
     required String name,
-    String? collectionId,
+    String? tableId,
     List<String>? permissions,
     bool documentSecurity = false,
   }) async {
-    return _client.post('/v1/databases/$databaseId/collections', data: {
+    return _client.post('/v1/databases/$databaseId/tables', data: {
       'name': name,
-      'collectionId': collectionId ?? 'unique()',
+      'tableId': tableId ?? 'unique()',
       'permissions': permissions ?? [],
       'documentSecurity': documentSecurity,
     });
   }
 
-  /// List collections in a database.
-  Future<Map<String, dynamic>> listCollections(String databaseId) async {
-    return _client.get('/v1/databases/$databaseId/collections');
+  /// List tables in a database.
+  Future<Map<String, dynamic>> listTables(String databaseId) async {
+    return _client.get('/v1/databases/$databaseId/tables');
   }
 
-  /// Get a collection.
-  Future<Map<String, dynamic>> getCollection(
-      String databaseId, String collectionId) async {
-    return _client.get('/v1/databases/$databaseId/collections/$collectionId');
+  /// Get a table.
+  Future<Map<String, dynamic>> getTable(
+      String databaseId, String tableId) async {
+    return _client.get('/v1/databases/$databaseId/tables/$tableId');
   }
 
-  /// Update a collection.
-  Future<Map<String, dynamic>> updateCollection({
+  /// Update a table.
+  Future<Map<String, dynamic>> updateTable({
     required String databaseId,
-    required String collectionId,
+    required String tableId,
     required String name,
     List<String>? permissions,
     bool? enabled,
   }) async {
     return _client.put(
-      '/v1/databases/$databaseId/collections/$collectionId',
+      '/v1/databases/$databaseId/tables/$tableId',
       data: {
         'name': name,
         if (permissions != null) 'permissions': permissions,
@@ -89,19 +89,19 @@ class Databases {
     );
   }
 
-  /// Delete a collection.
-  Future<Map<String, dynamic>> deleteCollection(
-      String databaseId, String collectionId) async {
+  /// Delete a table.
+  Future<Map<String, dynamic>> deleteTable(
+      String databaseId, String tableId) async {
     return _client
-        .delete('/v1/databases/$databaseId/collections/$collectionId');
+        .delete('/v1/databases/$databaseId/tables/$tableId');
   }
 
-  // --- Attributes ---
+  // --- Columns ---
 
-  /// Create a string attribute.
-  Future<Map<String, dynamic>> createStringAttribute({
+  /// Create a string column.
+  Future<Map<String, dynamic>> createStringColumn({
     required String databaseId,
-    required String collectionId,
+    required String tableId,
     required String key,
     bool required_ = false,
     int? size,
@@ -109,7 +109,7 @@ class Databases {
     bool array = false,
   }) async {
     return _client.post(
-      '/v1/databases/$databaseId/collections/$collectionId/attributes/string',
+      '/v1/databases/$databaseId/tables/$tableId/columns/string',
       data: {
         'key': key,
         'required': required_,
@@ -120,10 +120,10 @@ class Databases {
     );
   }
 
-  /// Create an integer attribute.
-  Future<Map<String, dynamic>> createIntegerAttribute({
+  /// Create an integer column.
+  Future<Map<String, dynamic>> createIntegerColumn({
     required String databaseId,
-    required String collectionId,
+    required String tableId,
     required String key,
     bool required_ = false,
     num? min,
@@ -132,7 +132,7 @@ class Databases {
     bool array = false,
   }) async {
     return _client.post(
-      '/v1/databases/$databaseId/collections/$collectionId/attributes/integer',
+      '/v1/databases/$databaseId/tables/$tableId/columns/integer',
       data: {
         'key': key,
         'required': required_,
@@ -144,17 +144,17 @@ class Databases {
     );
   }
 
-  /// Create a boolean attribute.
-  Future<Map<String, dynamic>> createBooleanAttribute({
+  /// Create a boolean column.
+  Future<Map<String, dynamic>> createBooleanColumn({
     required String databaseId,
-    required String collectionId,
+    required String tableId,
     required String key,
     bool required_ = false,
     bool? defaultValue,
     bool array = false,
   }) async {
     return _client.post(
-      '/v1/databases/$databaseId/collections/$collectionId/attributes/boolean',
+      '/v1/databases/$databaseId/tables/$tableId/columns/boolean',
       data: {
         'key': key,
         'required': required_,
@@ -164,10 +164,10 @@ class Databases {
     );
   }
 
-  /// Create an enum attribute.
-  Future<Map<String, dynamic>> createEnumAttribute({
+  /// Create an enum column.
+  Future<Map<String, dynamic>> createEnumColumn({
     required String databaseId,
-    required String collectionId,
+    required String tableId,
     required String key,
     required List<String> elements,
     bool required_ = false,
@@ -175,7 +175,7 @@ class Databases {
     bool array = false,
   }) async {
     return _client.post(
-      '/v1/databases/$databaseId/collections/$collectionId/attributes/enum',
+      '/v1/databases/$databaseId/tables/$tableId/columns/enum',
       data: {
         'key': key,
         'required': required_,
@@ -186,18 +186,18 @@ class Databases {
     );
   }
 
-  /// List attributes of a collection.
-  Future<Map<String, dynamic>> listAttributes(
-      String databaseId, String collectionId) async {
+  /// List columns of a table.
+  Future<Map<String, dynamic>> listColumns(
+      String databaseId, String tableId) async {
     return _client.get(
-        '/v1/databases/$databaseId/collections/$collectionId/attributes');
+        '/v1/databases/$databaseId/tables/$tableId/columns');
   }
 
-  /// Delete an attribute.
-  Future<Map<String, dynamic>> deleteAttribute(
-      String databaseId, String collectionId, String key) async {
+  /// Delete a column.
+  Future<Map<String, dynamic>> deleteColumn(
+      String databaseId, String tableId, String key) async {
     return _client.delete(
-        '/v1/databases/$databaseId/collections/$collectionId/attributes/$key');
+        '/v1/databases/$databaseId/tables/$tableId/columns/$key');
   }
 
   // --- Indexes ---
@@ -205,61 +205,61 @@ class Databases {
   /// Create an index.
   Future<Map<String, dynamic>> createIndex({
     required String databaseId,
-    required String collectionId,
+    required String tableId,
     required String key,
     required String type,
-    required List<String> attributes,
+    required List<String> columns,
     List<String>? orders,
   }) async {
     return _client.post(
-      '/v1/databases/$databaseId/collections/$collectionId/indexes',
+      '/v1/databases/$databaseId/tables/$tableId/indexes',
       data: {
         'key': key,
         'type': type,
-        'attributes': attributes,
+        'columns': columns,
         if (orders != null) 'orders': orders,
       },
     );
   }
 
-  /// List indexes of a collection.
+  /// List indexes of a table.
   Future<Map<String, dynamic>> listIndexes(
-      String databaseId, String collectionId) async {
+      String databaseId, String tableId) async {
     return _client.get(
-        '/v1/databases/$databaseId/collections/$collectionId/indexes');
+        '/v1/databases/$databaseId/tables/$tableId/indexes');
   }
 
   /// Delete an index.
   Future<Map<String, dynamic>> deleteIndex(
-      String databaseId, String collectionId, String key) async {
+      String databaseId, String tableId, String key) async {
     return _client.delete(
-        '/v1/databases/$databaseId/collections/$collectionId/indexes/$key');
+        '/v1/databases/$databaseId/tables/$tableId/indexes/$key');
   }
 
-  // --- Documents ---
+  // --- Rows ---
 
-  /// Create a document.
-  Future<Map<String, dynamic>> createDocument({
+  /// Create a row.
+  Future<Map<String, dynamic>> createRow({
     required String databaseId,
-    required String collectionId,
+    required String tableId,
     required Map<String, dynamic> data,
-    String? documentId,
+    String? rowId,
     List<String>? permissions,
   }) async {
     return _client.post(
-      '/v1/databases/$databaseId/collections/$collectionId/documents',
+      '/v1/databases/$databaseId/tables/$tableId/rows',
       data: {
-        'documentId': documentId ?? 'unique()',
+        'rowId': rowId ?? 'unique()',
         'data': data,
         'permissions': permissions ?? [],
       },
     );
   }
 
-  /// List documents in a collection.
-  Future<Map<String, dynamic>> listDocuments({
+  /// List rows in a table.
+  Future<Map<String, dynamic>> listRows({
     required String databaseId,
-    required String collectionId,
+    required String tableId,
     int? limit,
     int? offset,
   }) async {
@@ -270,29 +270,29 @@ class Databases {
         ? '?${query.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value)}').join('&')}'
         : '';
     return _client.get(
-        '/v1/databases/$databaseId/collections/$collectionId/documents$qs');
+        '/v1/databases/$databaseId/tables/$tableId/rows$qs');
   }
 
-  /// Get a document by ID.
-  Future<Map<String, dynamic>> getDocument({
+  /// Get a row by ID.
+  Future<Map<String, dynamic>> getRow({
     required String databaseId,
-    required String collectionId,
-    required String documentId,
+    required String tableId,
+    required String rowId,
   }) async {
     return _client.get(
-        '/v1/databases/$databaseId/collections/$collectionId/documents/$documentId');
+        '/v1/databases/$databaseId/tables/$tableId/rows/$rowId');
   }
 
-  /// Update a document.
-  Future<Map<String, dynamic>> updateDocument({
+  /// Update a row.
+  Future<Map<String, dynamic>> updateRow({
     required String databaseId,
-    required String collectionId,
-    required String documentId,
+    required String tableId,
+    required String rowId,
     Map<String, dynamic>? data,
     List<String>? permissions,
   }) async {
     return _client.patch(
-      '/v1/databases/$databaseId/collections/$collectionId/documents/$documentId',
+      '/v1/databases/$databaseId/tables/$tableId/rows/$rowId',
       data: {
         if (data != null) 'data': data,
         if (permissions != null) 'permissions': permissions,
@@ -300,13 +300,13 @@ class Databases {
     );
   }
 
-  /// Delete a document.
-  Future<Map<String, dynamic>> deleteDocument({
+  /// Delete a row.
+  Future<Map<String, dynamic>> deleteRow({
     required String databaseId,
-    required String collectionId,
-    required String documentId,
+    required String tableId,
+    required String rowId,
   }) async {
     return _client.delete(
-        '/v1/databases/$databaseId/collections/$collectionId/documents/$documentId');
+        '/v1/databases/$databaseId/tables/$tableId/rows/$rowId');
   }
 }

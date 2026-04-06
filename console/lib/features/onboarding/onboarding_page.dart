@@ -55,7 +55,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
               final id = projects.first['\$id'] as String;
               ref.read(currentProjectProvider.notifier).state = id;
               ref.read(apiClientProvider).setProject(id);
-              context.go('/overview');
+              context.go('/projects');
             }
           });
           return const SizedBox.shrink();
@@ -336,7 +336,7 @@ client.setKey('YOUR_API_KEY');
   }
 
   void _goToDashboard() {
-    context.go('/overview');
+    context.go('/projects');
   }
 }
 

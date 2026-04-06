@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/widgets/app_dialog.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -110,61 +111,58 @@ class SettingsPage extends ConsumerWidget {
   void _showCreateProjectDialog(BuildContext context, WidgetRef ref) {
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
-    showDialog(
+    showAppDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create Project'),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'Name')),
-              const SizedBox(height: 8),
-              TextField(
-                  controller: descCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'Description')),
-            ],
+      title: 'Create Project',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppDialogField(
+            controller: nameCtrl,
+            label: 'Name',
+            hint: 'Project name',
+            autofocus: true,
           ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              await ref
-                  .read(projectsProvider.notifier)
-                  .create(nameCtrl.text, descCtrl.text);
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('Create'),
+          const SizedBox(height: 12),
+          AppDialogField(
+            controller: descCtrl,
+            label: 'Description',
+            hint: 'Optional description',
           ),
         ],
       ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Create',
+          onTap: () async {
+            await ref
+                .read(projectsProvider.notifier)
+                .create(nameCtrl.text, descCtrl.text);
+            if (context.mounted) Navigator.pop(context);
+          },
+        ),
+      ],
     );
   }
 
   Future<void> _deleteProject(
       BuildContext context, WidgetRef ref, String id) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Project'),
-        content: const Text(
-            'This will permanently delete the project and all its data.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete')),
-        ],
+      title: 'Delete Project',
+      content: Text(
+        'This will permanently delete the project and all its data.',
+        style: TextStyle(color: Colors.white.withOpacity(0.7)),
       ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Delete',
+          destructive: true,
+          onTap: () => Navigator.of(context).pop(true),
+        ),
+      ],
     );
     if (confirmed == true) {
       await ref.read(projectsProvider.notifier).deleteProject(id);
@@ -267,32 +265,30 @@ class _ProjectDetail extends ConsumerWidget {
 
   void _showCreateKeyDialog(BuildContext context, WidgetRef ref) {
     final nameCtrl = TextEditingController();
-    showDialog(
+    showAppDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create API Key'),
-        content: TextField(
-          controller: nameCtrl,
-          decoration: const InputDecoration(labelText: 'Key Name'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final api = ref.read(apiClientProvider);
-              await api.post('/projects/$projectId/keys', data: {
-                'name': nameCtrl.text,
-                'scopes': <String>[],
-              });
-              if (ctx.mounted) Navigator.pop(ctx);
-              ref.invalidate(apiKeysProvider(projectId));
-            },
-            child: const Text('Create'),
-          ),
-        ],
+      title: 'Create API Key',
+      content: AppDialogField(
+        controller: nameCtrl,
+        label: 'Key Name',
+        hint: 'e.g. Production key',
+        autofocus: true,
       ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Create',
+          onTap: () async {
+            final api = ref.read(apiClientProvider);
+            await api.post('/projects/$projectId/keys', data: {
+              'name': nameCtrl.text,
+              'scopes': <String>[],
+            });
+            if (context.mounted) Navigator.pop(context);
+            ref.invalidate(apiKeysProvider(projectId));
+          },
+        ),
+      ],
     );
   }
 

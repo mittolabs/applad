@@ -1,10 +1,16 @@
+import 'dart:html' as html;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/client.dart';
 
-/// Holds the console auth token (null = not logged in).
-final consoleTokenProvider = StateProvider<String?>((ref) => null);
+const _tokenKey = 'applad_console_token';
 
-/// Holds the console auth state (loading, logged in, logged out).
+/// Holds the console auth token. Persisted to localStorage.
+final consoleTokenProvider = StateProvider<String?>((ref) {
+  // Restore from localStorage on app start
+  return html.window.localStorage[_tokenKey];
+});
+
+/// Holds the console auth state.
 final consoleAuthProvider =
     AsyncNotifierProvider<ConsoleAuthNotifier, ConsoleUser?>(
         ConsoleAuthNotifier.new);
@@ -35,10 +41,12 @@ class ConsoleAuthNotifier extends AsyncNotifier<ConsoleUser?> {
     api.setAuthToken(token);
     try {
       final res = await api.get('/console/me');
-      return ConsoleUser.fromJson(res.data as Map<String, dynamic>);
+      final user = ConsoleUser.fromJson(res.data as Map<String, dynamic>);
+      api.setConsoleUser(id: user.id, email: user.email, name: user.name);
+      return user;
     } catch (_) {
-      // Token invalid/expired
-      ref.read(consoleTokenProvider.notifier).state = null;
+      // Token invalid/expired — clear it
+      _clearToken();
       return null;
     }
   }
@@ -52,9 +60,11 @@ class ConsoleAuthNotifier extends AsyncNotifier<ConsoleUser?> {
     });
     final data = res.data as Map<String, dynamic>;
     final token = data['token'] as String;
-    ref.read(consoleTokenProvider.notifier).state = token;
+    _setToken(token);
     api.setAuthToken(token);
-    state = AsyncData(ConsoleUser.fromJson(data['user'] as Map<String, dynamic>));
+    final user = ConsoleUser.fromJson(data['user'] as Map<String, dynamic>);
+    api.setConsoleUser(id: user.id, email: user.email, name: user.name);
+    state = AsyncData(user);
   }
 
   Future<void> login(String email, String password) async {
@@ -65,18 +75,30 @@ class ConsoleAuthNotifier extends AsyncNotifier<ConsoleUser?> {
     });
     final data = res.data as Map<String, dynamic>;
     final token = data['token'] as String;
-    ref.read(consoleTokenProvider.notifier).state = token;
+    _setToken(token);
     api.setAuthToken(token);
-    state = AsyncData(ConsoleUser.fromJson(data['user'] as Map<String, dynamic>));
+    final user = ConsoleUser.fromJson(data['user'] as Map<String, dynamic>);
+    api.setConsoleUser(id: user.id, email: user.email, name: user.name);
+    state = AsyncData(user);
   }
 
   void logout() {
-    ref.read(consoleTokenProvider.notifier).state = null;
+    _clearToken();
     state = const AsyncData(null);
+  }
+
+  void _setToken(String token) {
+    ref.read(consoleTokenProvider.notifier).state = token;
+    html.window.localStorage[_tokenKey] = token;
+  }
+
+  void _clearToken() {
+    ref.read(consoleTokenProvider.notifier).state = null;
+    html.window.localStorage.remove(_tokenKey);
   }
 }
 
-/// Whether console signup is enabled (fetched from backend).
+/// Whether console signup is enabled.
 final signupEnabledProvider = FutureProvider<bool>((ref) async {
   final api = ref.read(apiClientProvider);
   try {

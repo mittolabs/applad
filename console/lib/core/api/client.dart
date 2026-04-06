@@ -2,7 +2,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 final apiClientProvider = Provider<ApiClient>((ref) {
-  return ApiClient(baseUrl: '/v1');
+  // When accessed via the proxy (port 80), relative URL works.
+  // When accessed directly (port 3000), we need the full API URL.
+  const apiBase = String.fromEnvironment('API_URL', defaultValue: '/v1');
+  return ApiClient(baseUrl: apiBase);
 });
 
 class ApiClient {
@@ -41,5 +44,11 @@ class ApiClient {
 
   void setApiKey(String key) {
     _dio.options.headers['X-Applad-Key'] = key;
+  }
+
+  void setConsoleUser({required String id, required String email, required String name}) {
+    _dio.options.headers['X-Console-User-ID'] = id;
+    _dio.options.headers['X-Console-User-Email'] = email;
+    _dio.options.headers['X-Console-User-Name'] = name;
   }
 }

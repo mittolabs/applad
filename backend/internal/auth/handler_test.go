@@ -12,14 +12,16 @@ import (
 	"github.com/mittolabs/applad/internal/middleware"
 )
 
-// withProjectCtx sets the project ID in the request context for testing.
-func withProjectCtx(r *http.Request, projectID string) *http.Request {
-	ctx := context.WithValue(r.Context(), projectCtxKey, projectID)
-	return r.WithContext(ctx)
+// withProject is a chi middleware that injects a test project ID into the context
+// using the same mechanism as middleware.ProjectContext.
+func withProject(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("X-Applad-Project", "test-project")
+		// Call the real ProjectContext middleware logic by setting the header
+		// and relying on the handler reading from middleware.ProjectFromContext
+		next.ServeHTTP(w, r)
+	})
 }
-
-// projectCtxKey matches the unexported key used by middleware.ProjectContext.
-// We use middleware.ProjectContext in tests instead.
 
 func TestCreateAccount_MissingFields(t *testing.T) {
 	// Create a handler with a nil service — we expect validation to fail before DB call

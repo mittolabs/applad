@@ -102,12 +102,12 @@ func TestCreateAttribute_MissingKey(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/db1/collections/c1/attributes/string", bytes.NewReader([]byte(tc.body)))
+			req := httptest.NewRequest(http.MethodPost, "/db1/tables/c1/columns/string", bytes.NewReader([]byte(tc.body)))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 
 			mux := chi.NewMux()
-			mux.Post("/{databaseId}/collections/{collectionId}/attributes/string", h.createAttr("string"))
+			mux.Post("/{databaseId}/tables/{tableId}/columns/string", h.createAttr("string"))
 			mux.ServeHTTP(w, req)
 
 			if w.Code != tc.want {
@@ -121,12 +121,12 @@ func TestCreateIndex_MissingKey(t *testing.T) {
 	svc := &Service{}
 	h := NewHandler(svc)
 
-	req := httptest.NewRequest(http.MethodPost, "/db1/collections/c1/indexes", bytes.NewReader([]byte(`{"type":"key"}`)))
+	req := httptest.NewRequest(http.MethodPost, "/db1/tables/c1/indexes", bytes.NewReader([]byte(`{"type":"key"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	mux := chi.NewMux()
-	mux.Post("/{databaseId}/collections/{collectionId}/indexes", h.createIndex)
+	mux.Post("/{databaseId}/tables/{tableId}/indexes", h.createIndex)
 	mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -138,13 +138,13 @@ func TestCreateDocument_InvalidJSON(t *testing.T) {
 	svc := &Service{}
 	h := NewHandler(svc)
 
-	req := httptest.NewRequest(http.MethodPost, "/db1/collections/c1/documents", bytes.NewReader([]byte(`not json`)))
+	req := httptest.NewRequest(http.MethodPost, "/db1/tables/c1/rows", bytes.NewReader([]byte(`not json`)))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	mux := chi.NewMux()
 	mux.Use(withProject)
-	mux.Post("/{databaseId}/collections/{collectionId}/documents", h.createDocument)
+	mux.Post("/{databaseId}/tables/{tableId}/rows", h.createDocument)
 	mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {

@@ -74,8 +74,8 @@ type projectStats struct {
 	Users        int    `json:"users"`
 	Sessions     int    `json:"sessions"`
 	Databases    int    `json:"databases"`
-	Collections  int    `json:"collections"`
-	Documents    int    `json:"documents"`
+	Tables       int    `json:"tables"`
+	Rows         int    `json:"rows"`
 	Buckets      int    `json:"buckets"`
 	Files        int    `json:"files"`
 	StorageBytes int64  `json:"storageBytes"`
@@ -96,8 +96,8 @@ func (w *Usage) aggregateProject(ctx context.Context, job *queue.Job) {
 	data, _ := json.Marshal(stats)
 	w.rdb.Set(ctx, "applad:usage:"+projectID, data, 0)
 
-	log.Printf("usage worker: aggregated stats for project %s — %d users, %d docs, %d files",
-		projectID, stats.Users, stats.Documents, stats.Files)
+	log.Printf("usage worker: aggregated stats for project %s — %d users, %d rows, %d files",
+		projectID, stats.Users, stats.Rows, stats.Files)
 }
 
 func (w *Usage) aggregateAll(ctx context.Context) {
@@ -125,8 +125,8 @@ func (w *Usage) collectStats(ctx context.Context, projectID string) projectStats
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&s.Users)
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = ?", projectID).Scan(&s.Sessions)
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM `_databases` WHERE project_id = ?", projectID).Scan(&s.Databases)
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM collections WHERE project_id = ?", projectID).Scan(&s.Collections)
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM documents WHERE project_id = ?", projectID).Scan(&s.Documents)
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM collections WHERE project_id = ?", projectID).Scan(&s.Tables)
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM documents WHERE project_id = ?", projectID).Scan(&s.Rows)
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = ?", projectID).Scan(&s.Buckets)
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = ?", projectID).Scan(&s.Files)
 	w.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = ?", projectID).Scan(&s.StorageBytes)

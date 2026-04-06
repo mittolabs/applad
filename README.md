@@ -23,13 +23,13 @@ Your data. Your infrastructure. No vendor lock-in.
 
 | Service | What you get |
 |---|---|
-| **Auth** | Email/password, OAuth2 (Google, GitHub, Apple), magic link, anonymous sessions, MFA (TOTP), email verification, password reset, teams & memberships |
-| **Databases** | Collections, typed attributes (string, integer, float, boolean, email, URL, datetime, enum), indexes, documents with 12 query operators, cursor pagination |
+| **Auth** | Email/password, OAuth2 (Google, GitHub, Apple + 12 more), magic link, anonymous sessions, MFA (TOTP), email verification, password reset, teams & memberships |
+| **Databases** | Tables, typed columns (string, integer, float, boolean, email, URL, datetime, enum, relationships), indexes, rows with 12 query operators |
 | **Storage** | Buckets, single + chunked file upload, image transformations (resize, format conversion), encryption, ClamAV antivirus |
 | **Functions** | Container-based serverless: Node.js, Bun, Python, Go, Dart, Rust, Ruby, PHP, or any custom Dockerfile. Pre-warmed containers, HTTP invocation |
-| **Realtime** | WebSocket pub/sub with channel subscriptions |
+| **Realtime** | WebSocket pub/sub with auto-publishing on database and storage events |
 | **Messaging** | Email (SMTP), SMS (Twilio), push notifications (FCM), topics & subscribers |
-| **Workflows** | Native DAG engine: manual/webhook/cron triggers, HTTP requests, conditions, delays, code nodes, execution history |
+| **Workflows** | Native DAG engine: manual/webhook triggers, HTTP requests, conditions, delays, code nodes, execution history |
 | **Avatars** | Generated initials, QR codes, credit card icons, country flags, favicon proxy |
 | **Locale** | 196 countries, 50+ currencies, 50+ languages, phone codes |
 | **Health** | Database, cache, and service health checks |
@@ -73,15 +73,15 @@ docker compose up api mariadb redis proxy -d
 
 ---
 
-## Console Walkthrough
+## Console
 
 1. **Sign up** — First user creates the admin account. Signup auto-disables after that (configurable via `CONSOLE_SIGNUP_ENABLED`).
 2. **Onboarding** — Create your first project, generate an API key, get SDK install snippets.
 3. **Overview** — Usage dashboard showing resource counts across all services.
-4. **Databases** — Create databases, collections, define attributes and indexes, browse documents.
+4. **Databases** — Create databases, tables, define columns and indexes, browse rows.
 5. **Storage** — Manage buckets, upload/download files, preview images with transformations.
 6. **Auth** — Manage users, view sessions, create accounts.
-7. **Functions** — *(coming to console soon — API fully operational)*
+7. **Functions** — Create functions, pick a runtime, edit source code, execute, view execution history.
 8. **Deploy** — Manage deployments with status lifecycle.
 9. **Messaging** — Send emails, SMS, push notifications.
 10. **Workflows** — Build automation flows with triggers, nodes, conditions. Execute and view step-by-step logs.
@@ -144,7 +144,7 @@ Functions are built and a warm container is started **at deploy time**, not at f
 
 ## Workflow Engine
 
-Native Go DAG executor — no n8n, no external dependencies.
+Native Go DAG executor. Workflows are defined as a graph of nodes and executed by a background worker.
 
 ```
 Trigger → Node → Node → Node → Result
@@ -165,8 +165,7 @@ Trigger → Node → Node → Node → Result
 ### Triggers
 
 - **Manual** — `POST /v1/workflows/{id}/execute`
-- **Webhook** — `POST /v1/workflows/webhooks/{id}` (public, no auth)
-- **Cron** — Schedule-based (configured in workflow)
+- **Webhook** — `POST /v1/workflows/webhooks/{id}` (public, no auth required)
 
 ---
 
@@ -175,12 +174,15 @@ Trigger → Node → Node → Node → Result
 ### Client-side (session/JWT auth)
 
 ```bash
-# Dart / Flutter
+# Dart / Flutter — add to pubspec.yaml
 dependencies:
-  applad: ^0.1.0
+  applad:
+    path: path/to/applad/sdks/dart
 
-# JavaScript / TypeScript
-npm install @mittolabs/applad
+# JavaScript / TypeScript — install from local
+cd sdks/js && npm install && npm run build
+# Then in your project:
+npm install path/to/applad/sdks/js
 ```
 
 ```dart
@@ -200,11 +202,18 @@ const user = await client.auth.createAccount('user@example.com', 'password123');
 
 ```bash
 # Node.js
-npm install @mittolabs/applad-node
+cd sdks/node && npm install && npm run build
 
-# Dart
+# Dart — add to pubspec.yaml
 dependencies:
-  applad_dart: ^0.1.0
+  applad_dart:
+    path: path/to/applad/sdks/dart-server
+
+# Go — use as local module
+go mod edit -replace github.com/mittolabs/applad-go=path/to/applad/sdks/go
+
+# Python
+pip install -e path/to/applad/sdks/python
 ```
 
 ```typescript
@@ -218,20 +227,33 @@ const server = new ApplAdServer({
 const users = await server.users.listUsers();
 ```
 
-### Available SDK services
+```go
+// Go
+client := applad.New("https://your-domain.com", "your-project", "applad_key_...")
+users, _ := client.Users().ListUsers()
+```
 
-| Service | Client (JS) | Client (Dart) | Server (Node) | Server (Dart) |
-|---|---|---|---|---|
-| Auth / Users | auth | auth, users | users | users |
-| Databases | databases | databases | databases | databases |
-| Storage | storage | storage | storage | storage |
-| Functions | functions | functions | functions | functions |
-| Workflows | workflows | workflows | workflows | workflows |
-| Messaging | messaging | messaging | messaging | messaging |
-| Deploy | deploy | deploy | deploy | deploy |
-| Teams | — | — | teams | teams |
-| Avatars | avatars | — | — | — |
-| Locale | locale | — | — | — |
+```python
+# Python
+from applad import Client
+client = Client("https://your-domain.com", "your-project", "applad_key_...")
+users = client.users.list_users()
+```
+
+### SDK service coverage
+
+| Service | Client JS | Client Dart | Server Node | Server Dart | Server Go | Server Python |
+|---|---|---|---|---|---|---|
+| Auth / Users | auth | auth, users | users | users | users | users |
+| Databases | databases | databases | databases | databases | databases | databases |
+| Storage | storage | storage | storage | storage | storage | storage |
+| Functions | functions | functions | functions | functions | functions | functions |
+| Workflows | workflows | workflows | workflows | workflows | workflows | workflows |
+| Messaging | messaging | messaging | messaging | messaging | messaging | messaging |
+| Deploy | deploy | deploy | deploy | deploy | deploy | deploy |
+| Teams | — | — | teams | teams | teams | teams |
+| Avatars | avatars | — | — | — | — | — |
+| Locale | locale | — | — | — | — | — |
 
 ---
 
@@ -300,13 +322,13 @@ All endpoints under `/v1`. Full OpenAPI spec at `backend/api/openapi.yaml`.
 |---|---|---|
 | `/health` | None | Health checks (server, DB, cache) |
 | `/console` | None / Console JWT | Admin signup, login, session |
-| `/projects` | None | Project CRUD + API keys + usage stats |
+| `/projects` | None | Project CRUD, API keys, usage stats |
 | `/avatars` | None | Generated images (initials, QR, flags) |
 | `/locale` | None | Countries, currencies, languages |
 | `/account` | Project header | Client-side auth (signup, login, OAuth2, MFA, magic link, verification, recovery) |
 | `/users` | Project + Auth | Server-side user management |
 | `/teams` | Project + Auth | Teams and memberships |
-| `/databases` | Project + Auth | Databases, collections, attributes, indexes, documents with query operators |
+| `/databases` | Project + Auth | Databases, tables, columns, indexes, relationships, rows with query operators |
 | `/storage` | Project + Auth | Buckets, files, chunked upload, image preview |
 | `/functions` | Project + Auth | Functions CRUD, execution, runtimes list |
 | `/messaging` | Project + Auth | Email, SMS, push, topics |
@@ -337,11 +359,12 @@ All endpoints under `/v1`. Full OpenAPI spec at `backend/api/openapi.yaml`.
 └───────┘ └─────┘ └───────────┘
 ```
 
-- **Go backend** — single binary, chi router, 14 service packages
-- **MariaDB** — primary store, 7 migrations, JSON document storage
+- **Go backend** — single binary, chi router, 26 internal packages
+- **MariaDB** — primary store, 9 migrations, JSON document storage
 - **Redis** — cache, pub/sub (realtime), job queues (workers)
 - **10 workers** — builds, certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks
-- **Flutter console** — Riverpod + GoRouter, 8 feature pages + overview + onboarding
+- **Flutter console** — Riverpod + GoRouter, 9 feature pages + overview + onboarding
+- **6 SDKs** — Dart, JavaScript, Node.js, Dart (server), Go, Python
 
 ---
 
@@ -351,7 +374,7 @@ All endpoints under `/v1`. Full OpenAPI spec at `backend/api/openapi.yaml`.
 
 - Go 1.22+
 - Flutter 3.22+ / Dart 3.3+
-- Node.js 18+ (for JS SDK)
+- Node.js 18+ (for JS/Node SDKs)
 - Docker
 
 ### Backend

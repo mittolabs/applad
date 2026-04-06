@@ -37,6 +37,18 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/{workflowId}/execute", h.execute)
 	r.Get("/{workflowId}/executions", h.listExecutions)
 	r.Get("/{workflowId}/executions/{executionId}", h.getExecution)
+	// Versioning
+	r.Get("/{workflowId}/versions", h.listVersions)
+	// Sharing
+	r.Post("/{workflowId}/shares", h.shareWorkflow)
+	r.Get("/{workflowId}/shares", h.listShares)
+	r.Delete("/{workflowId}/shares/{userId}", h.unshareWorkflow)
+	// Folders
+	r.Post("/folders", h.createFolder)
+	r.Get("/folders", h.listFolders)
+	// Templates
+	r.Get("/templates", h.listTemplates)
+	r.Get("/templates/{templateId}", h.getTemplate)
 	return r
 }
 
@@ -231,4 +243,121 @@ func (h *Handler) webhookTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, exec)
+}
+
+// ── Versioning ──
+
+func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
+	workflowID := chi.URLParam(r, "workflowId")
+	versions, err := h.svc.ListVersions(r.Context(), workflowID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if versions == nil {
+		versions = []map[string]interface{}{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"versions": versions})
+}
+
+// ── Sharing ──
+
+func (h *Handler) shareWorkflow(w http.ResponseWriter, r *http.Request) {
+	workflowID := chi.URLParam(r, "workflowId")
+	var body struct {
+		UserID string `json:"userId"`
+		Role   string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UserID == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "userId is required")
+		return
+	}
+	if body.Role == "" {
+		body.Role = "viewer"
+	}
+	if err := h.svc.ShareWorkflow(r.Context(), workflowID, body.UserID, body.Role); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"shared": true})
+}
+
+func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
+	workflowID := chi.URLParam(r, "workflowId")
+	shares, err := h.svc.ListShares(r.Context(), workflowID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if shares == nil {
+		shares = []map[string]interface{}{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"shares": shares})
+}
+
+func (h *Handler) unshareWorkflow(w http.ResponseWriter, r *http.Request) {
+	workflowID := chi.URLParam(r, "workflowId")
+	userID := chi.URLParam(r, "userId")
+	if err := h.svc.UnshareWorkflow(r.Context(), workflowID, userID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"unshared": true})
+}
+
+// ── Folders ──
+
+func (h *Handler) createFolder(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Name     string `json:"name"`
+		ParentID string `json:"parentId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name is required")
+		return
+	}
+	id, err := h.svc.CreateFolder(r.Context(), projectID, body.Name, body.ParentID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"$id": id, "name": body.Name})
+}
+
+func (h *Handler) listFolders(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	folders, err := h.svc.ListFolders(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if folders == nil {
+		folders = []map[string]interface{}{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"folders": folders})
+}
+
+// ── Templates ──
+
+func (h *Handler) listTemplates(w http.ResponseWriter, r *http.Request) {
+	templates, err := h.svc.ListTemplates(r.Context())
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if templates == nil {
+		templates = []map[string]interface{}{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"templates": templates})
+}
+
+func (h *Handler) getTemplate(w http.ResponseWriter, r *http.Request) {
+	templateID := chi.URLParam(r, "templateId")
+	tpl, err := h.svc.GetTemplate(r.Context(), templateID)
+	if err != nil {
+		apperr.NotFound(w, "template")
+		return
+	}
+	writeJSON(w, http.StatusOK, tpl)
 }

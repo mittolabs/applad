@@ -261,8 +261,19 @@ func (h *Handler) previewFile(w http.ResponseWriter, r *http.Request) {
 	height, _ := strconv.Atoi(r.URL.Query().Get("height"))
 	quality, _ := strconv.Atoi(r.URL.Query().Get("quality"))
 	output := r.URL.Query().Get("output") // png, jpg, webp
+	gravity := r.URL.Query().Get("gravity")
+	borderWidth, _ := strconv.Atoi(r.URL.Query().Get("borderWidth"))
+	borderColor := r.URL.Query().Get("borderColor")
+	borderRadius, _ := strconv.Atoi(r.URL.Query().Get("borderRadius"))
+	opacity, _ := strconv.Atoi(r.URL.Query().Get("opacity"))
+	rotation, _ := strconv.Atoi(r.URL.Query().Get("rotation"))
+	background := r.URL.Query().Get("background")
 
-	if width <= 0 && height <= 0 && output == "" {
+	hasTransform := width > 0 || height > 0 || output != "" || gravity != "" ||
+		borderWidth > 0 || borderRadius > 0 || (opacity > 0 && opacity < 100) ||
+		rotation > 0 || background != ""
+
+	if !hasTransform {
 		// No transformations, serve as-is
 		w.Header().Set("Content-Type", mimeType)
 		w.Header().Set("Content-Disposition", "inline")
@@ -272,7 +283,20 @@ func (h *Handler) previewFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Apply image transformations
-	transformed, newMime, err := h.svc.TransformImage(content, mimeType, width, height, quality, output)
+	opts := ImageTransformOpts{
+		Width:        width,
+		Height:       height,
+		Quality:      quality,
+		OutputFormat: output,
+		Gravity:      gravity,
+		BorderWidth:  borderWidth,
+		BorderColor:  borderColor,
+		BorderRadius: borderRadius,
+		Opacity:      opacity,
+		Rotation:     rotation,
+		Background:   background,
+	}
+	transformed, newMime, err := h.svc.TransformImageAdvanced(content, mimeType, opts)
 	if err != nil {
 		// If transformation fails (not an image), serve original
 		w.Header().Set("Content-Type", mimeType)

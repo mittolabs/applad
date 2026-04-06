@@ -17,16 +17,27 @@ type EmailSender interface {
 	SendEmail(ctx context.Context, to []string, subject, htmlBody string) error
 }
 
+// SMSSender sends SMS for phone OTP flows.
+type SMSSender interface {
+	SendSMS(ctx context.Context, to, body string) error
+}
+
 // Handler handles HTTP requests for auth.
 type Handler struct {
 	svc            *Service
 	oauthProviders map[string]OAuthProvider
 	mailer         EmailSender
+	smsSender      SMSSender
 }
 
 // SetMailer sets the email sender for auth flows (magic link, verification, reset).
 func (h *Handler) SetMailer(m EmailSender) {
 	h.mailer = m
+}
+
+// SetSMSSender sets the SMS sender for phone OTP flows.
+func (h *Handler) SetSMSSender(s SMSSender) {
+	h.smsSender = s
 }
 
 // OAuthProvider is the interface for OAuth2 provider operations.
@@ -65,6 +76,10 @@ func AccountRoutes(h *Handler) http.Handler {
 	r.Post("/sessions/anonymous", h.createAnonymousSession)
 	r.Get("/sessions/oauth/{provider}", h.oauthRedirect)
 	r.Get("/sessions/oauth/{provider}/callback", h.oauthCallback)
+
+	// Phone OTP
+	r.Post("/sessions/phone", h.sendPhoneOTP)
+	r.Put("/sessions/phone", h.verifyPhoneOTP)
 
 	// Public auth flows
 	r.Post("/sessions/magic-link", h.createMagicLink)
@@ -281,8 +296,17 @@ func (h *Handler) createAnonymousSession(w http.ResponseWriter, r *http.Request)
 		apperr.Internal(w, err)
 		return
 	}
+	// Set project-specific session cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "a_session_" + projectID,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	// Set generic a_session cookie as fallback for middleware
+	http.SetCookie(w, &http.Cookie{
+		Name:     "a_session",
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
@@ -828,4 +852,54 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 
 	_ = sess // session is set via cookie
 	http.Redirect(w, r, successURL, http.StatusTemporaryRedirect)
+}
+
+// ── Phone OTP ────────────────────────────────────────────────────────────────
+
+func (h *Handler) sendPhoneOTP(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Phone string `json:"phone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Phone == "" {
+		apperr.BadRequest(w, "phone is required")
+		return
+	}
+	code, err := h.svc.SendPhoneOTP(r.Context(), projectID, body.Phone)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	// Send SMS if sender configured
+	if h.smsSender != nil {
+		msg := fmt.Sprintf("Your Applad verification code is: %s", code)
+		if err := h.smsSender.SendSMS(r.Context(), body.Phone, msg); err != nil {
+			apperr.Internal(w, fmt.Errorf("failed to send SMS: %w", err))
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sent": true, "phone": body.Phone})
+}
+
+func (h *Handler) verifyPhoneOTP(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Phone string `json:"phone"`
+		Code  string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Phone == "" || body.Code == "" {
+		apperr.BadRequest(w, "phone and code are required")
+		return
+	}
+	sess, token, err := h.svc.VerifyPhoneOTP(r.Context(), projectID, body.Phone, body.Code, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		apperr.Write(w, http.StatusUnauthorized, "auth_invalid_otp", err.Error())
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: "a_session", Value: token, Path: "/",
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		MaxAge: 365 * 24 * 3600,
+	})
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"session": sess, "token": token})
 }

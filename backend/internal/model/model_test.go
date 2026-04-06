@@ -9,7 +9,7 @@ import (
 func TestDocument_MarshalJSON_MergesData(t *testing.T) {
 	doc := Document{
 		ID:           "doc1",
-		CollectionID: "coll1",
+		TableID: "coll1",
 		DatabaseID:   "db1",
 		CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		UpdatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -42,8 +42,8 @@ func TestDocument_MarshalJSON_MergesData(t *testing.T) {
 	if result["$id"] != "doc1" {
 		t.Fatalf("expected $id='doc1', got %v", result["$id"])
 	}
-	if result["$collectionId"] != "coll1" {
-		t.Fatalf("expected $collectionId='coll1', got %v", result["$collectionId"])
+	if result["$tableId"] != "coll1" {
+		t.Fatalf("expected $tableId='coll1', got %v", result["$tableId"])
 	}
 }
 

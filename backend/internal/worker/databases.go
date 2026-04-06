@@ -104,7 +104,7 @@ func (w *Databases) processIndexCreate(ctx context.Context, job *queue.Job) {
 }
 
 func (w *Databases) processCollectionStats(ctx context.Context, job *queue.Job) {
-	collectionID, _ := job.Payload["collectionId"].(string)
+	collectionID, _ := job.Payload["tableId"].(string)
 	if collectionID == "" {
 		return
 	}

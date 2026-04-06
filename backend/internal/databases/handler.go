@@ -37,36 +37,49 @@ func Routes(h *Handler) http.Handler {
 	r.Put("/{databaseId}", h.updateDatabase)
 	r.Delete("/{databaseId}", h.deleteDatabase)
 
-	r.Post("/{databaseId}/collections", h.createCollection)
-	r.Get("/{databaseId}/collections", h.listCollections)
-	r.Get("/{databaseId}/collections/{collectionId}", h.getCollection)
-	r.Put("/{databaseId}/collections/{collectionId}", h.updateCollection)
-	r.Delete("/{databaseId}/collections/{collectionId}", h.deleteCollection)
+	// Tables (stored in `collections` MySQL table)
+	r.Post("/{databaseId}/tables", h.createCollection)
+	r.Get("/{databaseId}/tables", h.listCollections)
+	r.Get("/{databaseId}/tables/{tableId}", h.getCollection)
+	r.Put("/{databaseId}/tables/{tableId}", h.updateCollection)
+	r.Delete("/{databaseId}/tables/{tableId}", h.deleteCollection)
 
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/string", h.createAttr("string"))
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/integer", h.createAttr("integer"))
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/float", h.createAttr("double"))
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/boolean", h.createAttr("boolean"))
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/email", h.createAttr("email"))
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/url", h.createAttr("url"))
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/datetime", h.createAttr("datetime"))
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/enum", h.createAttr("enum"))
-	r.Get("/{databaseId}/collections/{collectionId}/attributes", h.listAttributes)
-	r.Delete("/{databaseId}/collections/{collectionId}/attributes/{key}", h.deleteAttribute)
+	// Columns (stored in `attributes` MySQL table)
+	r.Post("/{databaseId}/tables/{tableId}/columns/string", h.createAttr("string"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/integer", h.createAttr("integer"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/float", h.createAttr("double"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/boolean", h.createAttr("boolean"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/email", h.createAttr("email"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/url", h.createAttr("url"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/datetime", h.createAttr("datetime"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/enum", h.createAttr("enum"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/point", h.createAttr("point"))
+	r.Get("/{databaseId}/tables/{tableId}/columns", h.listAttributes)
+	r.Delete("/{databaseId}/tables/{tableId}/columns/{key}", h.deleteAttribute)
 
-	r.Post("/{databaseId}/collections/{collectionId}/attributes/relationship", h.createRelationship)
-	r.Get("/{databaseId}/collections/{collectionId}/relationships", h.listRelationships)
-	r.Delete("/{databaseId}/collections/{collectionId}/relationships/{relationshipId}", h.deleteRelationship)
+	// Relationships
+	r.Post("/{databaseId}/tables/{tableId}/columns/relationship", h.createRelationship)
+	r.Get("/{databaseId}/tables/{tableId}/relationships", h.listRelationships)
+	r.Delete("/{databaseId}/tables/{tableId}/relationships/{relationshipId}", h.deleteRelationship)
 
-	r.Post("/{databaseId}/collections/{collectionId}/indexes", h.createIndex)
-	r.Get("/{databaseId}/collections/{collectionId}/indexes", h.listIndexes)
-	r.Delete("/{databaseId}/collections/{collectionId}/indexes/{key}", h.deleteIndex)
+	// Indexes
+	r.Post("/{databaseId}/tables/{tableId}/indexes", h.createIndex)
+	r.Get("/{databaseId}/tables/{tableId}/indexes", h.listIndexes)
+	r.Delete("/{databaseId}/tables/{tableId}/indexes/{key}", h.deleteIndex)
 
-	r.Post("/{databaseId}/collections/{collectionId}/documents", h.createDocument)
-	r.Get("/{databaseId}/collections/{collectionId}/documents", h.listDocuments)
-	r.Get("/{databaseId}/collections/{collectionId}/documents/{documentId}", h.getDocument)
-	r.Patch("/{databaseId}/collections/{collectionId}/documents/{documentId}", h.updateDocument)
-	r.Delete("/{databaseId}/collections/{collectionId}/documents/{documentId}", h.deleteDocument)
+	// Transactions
+	r.Post("/{databaseId}/transactions", h.executeTransaction)
+
+	// Rows (stored in `documents` MySQL table)
+	r.Post("/{databaseId}/tables/{tableId}/rows", h.createDocument)
+	r.Get("/{databaseId}/tables/{tableId}/rows", h.listDocuments)
+	r.Get("/{databaseId}/tables/{tableId}/rows/{rowId}", h.getDocument)
+	r.Patch("/{databaseId}/tables/{tableId}/rows/{rowId}", h.updateDocument)
+	r.Delete("/{databaseId}/tables/{tableId}/rows/{rowId}", h.deleteDocument)
+
+	// Permissions
+	r.Post("/{databaseId}/tables/{tableId}/permissions", h.setCollectionPermissions)
+	r.Get("/{databaseId}/tables/{tableId}/permissions", h.getCollectionPermissions)
 
 	return r
 }
@@ -142,10 +155,10 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
 	var body struct {
-		CollectionID     string   `json:"collectionId"`
+		TableID          string   `json:"tableId"`
 		Name             string   `json:"name"`
 		Permissions      []string `json:"permissions"`
-		DocumentSecurity bool     `json:"documentSecurity"`
+		RowSecurity      bool     `json:"rowSecurity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
@@ -154,7 +167,7 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	c, err := h.svc.CreateCollection(r.Context(), projectID, dbID, body.CollectionID, body.Name, body.Permissions, body.DocumentSecurity)
+	c, err := h.svc.CreateCollection(r.Context(), projectID, dbID, body.TableID, body.Name, body.Permissions, body.RowSecurity)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -173,13 +186,13 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 	if colls == nil {
 		colls = []*model.Collection{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "collections": colls})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "tables": colls})
 }
 
 func (h *Handler) getCollection(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	c, err := h.svc.GetCollection(r.Context(), collID, dbID, projectID)
 	if err != nil {
 		apperr.NotFound(w, "collection")
@@ -191,7 +204,7 @@ func (h *Handler) getCollection(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	var body struct {
 		Name        string   `json:"name"`
 		Permissions []string `json:"permissions"`
@@ -216,7 +229,7 @@ func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	if err := h.svc.DeleteCollection(r.Context(), collID, dbID, projectID); err != nil {
 		apperr.Internal(w, err)
 		return
@@ -226,7 +239,7 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) createAttr(attrType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		collID := chi.URLParam(r, "collectionId")
+		collID := chi.URLParam(r, "tableId")
 		var body struct {
 			Key      string      `json:"key"`
 			Required bool        `json:"required"`
@@ -268,17 +281,17 @@ func (h *Handler) createAttr(attrType string) http.HandlerFunc {
 }
 
 func (h *Handler) listAttributes(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	attrs, err := h.svc.ListAttributes(r.Context(), collID)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(attrs), "attributes": attrs})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(attrs), "columns": attrs})
 }
 
 func (h *Handler) deleteAttribute(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	key := chi.URLParam(r, "key")
 	if err := h.svc.DeleteAttribute(r.Context(), collID, key); err != nil {
 		apperr.Internal(w, err)
@@ -288,18 +301,18 @@ func (h *Handler) deleteAttribute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	var body struct {
-		Key        string   `json:"key"`
-		Type       string   `json:"type"`
-		Attributes []string `json:"attributes"`
-		Orders     []string `json:"orders"`
+		Key     string   `json:"key"`
+		Type    string   `json:"type"`
+		Columns []string `json:"columns"`
+		Orders  []string `json:"orders"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Key == "" {
 		apperr.BadRequest(w, "key is required")
 		return
 	}
-	idx, err := h.svc.CreateIndex(r.Context(), collID, body.Key, body.Type, body.Attributes, body.Orders)
+	idx, err := h.svc.CreateIndex(r.Context(), collID, body.Key, body.Type, body.Columns, body.Orders)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -308,7 +321,7 @@ func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listIndexes(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	idxs, err := h.svc.ListIndexes(r.Context(), collID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -318,7 +331,7 @@ func (h *Handler) listIndexes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteIndex(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	key := chi.URLParam(r, "key")
 	if err := h.svc.DeleteIndex(r.Context(), collID, key); err != nil {
 		apperr.Internal(w, err)
@@ -328,23 +341,23 @@ func (h *Handler) deleteIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createRelationship(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	var body struct {
-		RelatedCollectionID string `json:"relatedCollectionId"`
-		Type                string `json:"type"` // oneToOne, oneToMany, manyToOne, manyToMany
-		TwoWay              bool   `json:"twoWay"`
-		Key                 string `json:"key"`
-		TwoWayKey           string `json:"twoWayKey"`
-		OnDelete            string `json:"onDelete"`
+		RelatedTableID string `json:"relatedTableId"`
+		Type           string `json:"type"` // oneToOne, oneToMany, manyToOne, manyToMany
+		TwoWay         bool   `json:"twoWay"`
+		Key            string `json:"key"`
+		TwoWayKey      string `json:"twoWayKey"`
+		OnDelete       string `json:"onDelete"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RelatedCollectionID == "" || body.Key == "" {
-		apperr.BadRequest(w, "relatedCollectionId and key are required")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RelatedTableID == "" || body.Key == "" {
+		apperr.BadRequest(w, "relatedTableId and key are required")
 		return
 	}
 	if body.Type == "" {
 		body.Type = "oneToMany"
 	}
-	rel, err := h.svc.CreateRelationship(r.Context(), collID, body.RelatedCollectionID, body.Type, body.Key, body.TwoWayKey, body.OnDelete, body.TwoWay)
+	rel, err := h.svc.CreateRelationship(r.Context(), collID, body.RelatedTableID, body.Type, body.Key, body.TwoWayKey, body.OnDelete, body.TwoWay)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -353,7 +366,7 @@ func (h *Handler) createRelationship(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listRelationships(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	rels, err := h.svc.ListRelationships(r.Context(), collID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -363,7 +376,7 @@ func (h *Handler) listRelationships(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteRelationship(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	relID := chi.URLParam(r, "relationshipId")
 	if err := h.svc.DeleteRelationship(r.Context(), collID, relID); err != nil {
 		apperr.Internal(w, err)
@@ -375,10 +388,11 @@ func (h *Handler) deleteRelationship(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createDocument(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	var body struct {
-		DocumentID  string                 `json:"documentId"`
+		RowID       string                 `json:"rowId"`
 		Data        map[string]interface{} `json:"data"`
 		Permissions []string               `json:"permissions"`
 	}
@@ -392,8 +406,12 @@ func (h *Handler) createDocument(w http.ResponseWriter, r *http.Request) {
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	doc, err := h.svc.CreateDocument(ctx, projectID, dbID, collID, body.DocumentID, body.Data, body.Permissions)
+	doc, err := h.svc.CreateDocumentWithAuth(ctx, projectID, dbID, collID, body.RowID, body.Data, body.Permissions, userID, nil)
 	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") {
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to create documents in this collection")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -404,7 +422,7 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "collectionId")
+	collID := chi.URLParam(r, "tableId")
 	pg := middleware.ParsePagination(r)
 
 	params := ListParams{
@@ -431,7 +449,7 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 	if docs == nil {
 		docs = []*model.Document{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "documents": docs})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "rows": docs})
 }
 
 // parseQueryString parses Appwrite-style query strings like:
@@ -477,6 +495,18 @@ func parseQueryString(q string) *Query {
 			return nil
 		}
 		return &Query{Attribute: args[0], Method: method, Values: []interface{}{args[1], args[2]}}
+	case "geo_near":
+		// geo_near("field", lat, lng, maxDistanceKm)
+		if len(args) < 4 {
+			return nil
+		}
+		return &Query{Attribute: args[0], Method: method, Values: []interface{}{args[1], args[2], args[3]}}
+	case "geo_within":
+		// geo_within("field", minLat, maxLat, minLng, maxLng)
+		if len(args) < 5 {
+			return nil
+		}
+		return &Query{Attribute: args[0], Method: method, Values: []interface{}{args[1], args[2], args[3], args[4]}}
 	case "isNull", "isNotNull":
 		if len(args) < 1 {
 			return nil
@@ -517,11 +547,16 @@ func splitQueryArgs(s string) []string {
 func (h *Handler) getDocument(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "collectionId")
-	docID := chi.URLParam(r, "documentId")
-	doc, err := h.svc.GetDocument(ctx, docID, collID, dbID, projectID)
+	collID := chi.URLParam(r, "tableId")
+	docID := chi.URLParam(r, "rowId")
+	doc, err := h.svc.GetDocumentWithAuth(ctx, docID, collID, dbID, projectID, userID, nil)
 	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") {
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to read this document")
+			return
+		}
 		apperr.NotFound(w, "document")
 		return
 	}
@@ -531,9 +566,10 @@ func (h *Handler) getDocument(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "collectionId")
-	docID := chi.URLParam(r, "documentId")
+	collID := chi.URLParam(r, "tableId")
+	docID := chi.URLParam(r, "rowId")
 	var body struct {
 		Data        map[string]interface{} `json:"data"`
 		Permissions []string               `json:"permissions"`
@@ -542,8 +578,12 @@ func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	doc, err := h.svc.UpdateDocument(ctx, docID, collID, dbID, projectID, body.Data, body.Permissions)
+	doc, err := h.svc.UpdateDocumentWithAuth(ctx, docID, collID, dbID, projectID, body.Data, body.Permissions, userID, nil)
 	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") {
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to update this document")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -553,12 +593,284 @@ func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteDocument(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "collectionId")
-	docID := chi.URLParam(r, "documentId")
-	if err := h.svc.DeleteDocument(ctx, docID, collID, dbID, projectID); err != nil {
+	collID := chi.URLParam(r, "tableId")
+	docID := chi.URLParam(r, "rowId")
+	if err := h.svc.DeleteDocumentWithAuth(ctx, docID, collID, dbID, projectID, userID, nil); err != nil {
+		if strings.Contains(err.Error(), "permission denied") {
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to delete this document")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- permissions handlers ---
+
+func (h *Handler) setCollectionPermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	collID := chi.URLParam(r, "tableId")
+	var body struct {
+		Permissions []Permission `json:"permissions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if body.Permissions == nil {
+		body.Permissions = []Permission{}
+	}
+	if err := h.svc.SetPermissions(ctx, projectID, "collection", collID, body.Permissions); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":       len(body.Permissions),
+		"permissions": body.Permissions,
+	})
+}
+
+func (h *Handler) getCollectionPermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	collID := chi.URLParam(r, "tableId")
+	perms, err := h.svc.GetPermissions(ctx, projectID, "collection", collID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":       len(perms),
+		"permissions": perms,
+	})
+}
+
+// ── Upsert ──
+
+func (h *Handler) upsertDocument(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
+	dbID := chi.URLParam(r, "databaseId")
+	collID := chi.URLParam(r, "tableId")
+	var body struct {
+		Data        map[string]interface{} `json:"data"`
+		ID          string                 `json:"$id"`
+		Permissions []string               `json:"permissions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Invalid JSON body")
+		return
+	}
+	if body.Permissions == nil {
+		body.Permissions = []string{}
+	}
+	if body.ID != "" {
+		existing, _ := h.svc.GetDocument(ctx, body.ID, collID, dbID, projectID)
+		if existing != nil {
+			doc, err := h.svc.UpdateDocumentWithAuth(ctx, body.ID, collID, dbID, projectID, body.Data, body.Permissions, userID, nil)
+			if err != nil {
+				apperr.Internal(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, doc)
+			return
+		}
+	}
+	doc, err := h.svc.CreateDocumentWithAuth(ctx, projectID, dbID, collID, body.ID, body.Data, body.Permissions, userID, nil)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, doc)
+}
+
+// ── Bulk operations ──
+
+func (h *Handler) bulkCreateDocuments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
+	dbID := chi.URLParam(r, "databaseId")
+	collID := chi.URLParam(r, "tableId")
+	var body struct {
+		Documents []map[string]interface{} `json:"documents"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Invalid JSON body")
+		return
+	}
+	var created []interface{}
+	for _, data := range body.Documents {
+		doc, err := h.svc.CreateDocumentWithAuth(ctx, projectID, dbID, collID, "", data, []string{}, userID, nil)
+		if err == nil {
+			created = append(created, doc)
+		}
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"created": len(created), "documents": created})
+}
+
+func (h *Handler) bulkUpdateDocuments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
+	dbID := chi.URLParam(r, "databaseId")
+	collID := chi.URLParam(r, "tableId")
+	var body struct {
+		Documents []struct {
+			ID   string                 `json:"$id"`
+			Data map[string]interface{} `json:"data"`
+		} `json:"documents"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Invalid JSON body")
+		return
+	}
+	updated := 0
+	for _, item := range body.Documents {
+		if _, err := h.svc.UpdateDocumentWithAuth(ctx, item.ID, collID, dbID, projectID, item.Data, []string{}, userID, nil); err == nil {
+			updated++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"updated": updated})
+}
+
+func (h *Handler) bulkDeleteDocuments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
+	dbID := chi.URLParam(r, "databaseId")
+	collID := chi.URLParam(r, "tableId")
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Invalid JSON body")
+		return
+	}
+	deleted := 0
+	for _, id := range body.IDs {
+		if err := h.svc.DeleteDocumentWithAuth(ctx, id, collID, dbID, projectID, userID, nil); err == nil {
+			deleted++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": deleted})
+}
+
+// ── Atomic operations ──
+
+func (h *Handler) atomicIncrement(w http.ResponseWriter, r *http.Request) {
+	h.atomicNumericOp(w, r, 1)
+}
+
+func (h *Handler) atomicDecrement(w http.ResponseWriter, r *http.Request) {
+	h.atomicNumericOp(w, r, -1)
+}
+
+func (h *Handler) atomicNumericOp(w http.ResponseWriter, r *http.Request, sign float64) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
+	dbID := chi.URLParam(r, "databaseId")
+	collID := chi.URLParam(r, "tableId")
+	rowID := chi.URLParam(r, "rowId")
+	var body struct {
+		Field string  `json:"field"`
+		Delta float64 `json:"delta"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Field == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "field and delta required")
+		return
+	}
+	doc, err := h.svc.GetDocument(ctx, rowID, collID, dbID, projectID)
+	if err != nil {
+		apperr.NotFound(w, "document")
+		return
+	}
+	data := doc.Data
+	cur := 0.0
+	if v, ok := data[body.Field]; ok {
+		switch n := v.(type) {
+		case float64:
+			cur = n
+		}
+	}
+	cur += body.Delta * sign
+	updated, err := h.svc.UpdateDocumentWithAuth(ctx, rowID, collID, dbID, projectID,
+		map[string]interface{}{body.Field: cur}, []string{}, userID, nil)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *Handler) atomicAppend(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
+	dbID := chi.URLParam(r, "databaseId")
+	collID := chi.URLParam(r, "tableId")
+	rowID := chi.URLParam(r, "rowId")
+	var body struct {
+		Field string      `json:"field"`
+		Value interface{} `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Field == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "field and value required")
+		return
+	}
+	doc, err := h.svc.GetDocument(ctx, rowID, collID, dbID, projectID)
+	if err != nil {
+		apperr.NotFound(w, "document")
+		return
+	}
+	var arr []interface{}
+	if existing, ok := doc.Data[body.Field].([]interface{}); ok {
+		arr = existing
+	}
+	arr = append(arr, body.Value)
+	updated, err := h.svc.UpdateDocumentWithAuth(ctx, rowID, collID, dbID, projectID,
+		map[string]interface{}{body.Field: arr}, []string{}, userID, nil)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// ── Transactions ──
+
+func (h *Handler) executeTransaction(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	dbID := chi.URLParam(r, "databaseId")
+	var body struct {
+		Operations []TransactionOp `json:"operations"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if len(body.Operations) == 0 {
+		apperr.BadRequest(w, "operations array is required and must not be empty")
+		return
+	}
+	results, err := h.svc.ExecuteTransaction(ctx, projectID, dbID, body.Operations)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "is required") || strings.Contains(err.Error(), "unsupported action") {
+			apperr.BadRequest(w, err.Error())
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":   len(results),
+		"results": results,
+	})
 }
