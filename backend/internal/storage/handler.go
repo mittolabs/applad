@@ -43,6 +43,10 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/buckets/{bucketId}/files/{fileId}", h.getFile)
 	r.Get("/buckets/{bucketId}/files/{fileId}/download", h.downloadFile)
 	r.Get("/buckets/{bucketId}/files/{fileId}/view", h.viewFile)
+	r.Get("/buckets/{bucketId}/files/{fileId}/preview", h.previewFile)
+	r.Post("/buckets/{bucketId}/files/chunked", h.initChunkedUpload)
+	r.Patch("/buckets/{bucketId}/files/{fileId}/chunks", h.uploadChunk)
+	r.Post("/buckets/{bucketId}/files/{fileId}/chunks/complete", h.completeChunkedUpload)
 	r.Delete("/buckets/{bucketId}/files/{fileId}", h.deleteFile)
 	return r
 }
@@ -238,6 +242,130 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, download boo
 	w.Header().Set("Content-Length", strconv.Itoa(len(content)))
 	w.WriteHeader(http.StatusOK)
 	w.Write(content) //nolint:errcheck
+}
+
+func (h *Handler) previewFile(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	bucketID := chi.URLParam(r, "bucketId")
+	fileID := chi.URLParam(r, "fileId")
+
+	content, mimeType, err := h.svc.GetFileContent(ctx, fileID, bucketID, projectID)
+	if err != nil {
+		apperr.NotFound(w, "file")
+		return
+	}
+
+	// Parse transformation params
+	width, _ := strconv.Atoi(r.URL.Query().Get("width"))
+	height, _ := strconv.Atoi(r.URL.Query().Get("height"))
+	quality, _ := strconv.Atoi(r.URL.Query().Get("quality"))
+	output := r.URL.Query().Get("output") // png, jpg, webp
+
+	if width <= 0 && height <= 0 && output == "" {
+		// No transformations, serve as-is
+		w.Header().Set("Content-Type", mimeType)
+		w.Header().Set("Content-Disposition", "inline")
+		w.Header().Set("Content-Length", strconv.Itoa(len(content)))
+		w.Write(content)
+		return
+	}
+
+	// Apply image transformations
+	transformed, newMime, err := h.svc.TransformImage(content, mimeType, width, height, quality, output)
+	if err != nil {
+		// If transformation fails (not an image), serve original
+		w.Header().Set("Content-Type", mimeType)
+		w.Header().Set("Content-Disposition", "inline")
+		w.Header().Set("Content-Length", strconv.Itoa(len(content)))
+		w.Write(content)
+		return
+	}
+
+	w.Header().Set("Content-Type", newMime)
+	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("Content-Length", strconv.Itoa(len(transformed)))
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(transformed)
+}
+
+// --- Chunked uploads ---
+
+func (h *Handler) initChunkedUpload(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	bucketID := chi.URLParam(r, "bucketId")
+
+	var body struct {
+		FileID   string   `json:"fileId"`
+		Name     string   `json:"name"`
+		MimeType string   `json:"mimeType"`
+		Size     int64    `json:"size"`
+		Permissions []string `json:"permissions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		apperr.BadRequest(w, "name is required")
+		return
+	}
+	if body.MimeType == "" {
+		body.MimeType = "application/octet-stream"
+	}
+	if body.Permissions == nil {
+		body.Permissions = []string{}
+	}
+
+	fileID, err := h.svc.InitChunkedUpload(ctx, projectID, bucketID, body.FileID, body.Name, body.MimeType, body.Size, body.Permissions)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"fileId":    fileID,
+		"uploadUrl": fmt.Sprintf("/v1/storage/buckets/%s/files/%s/chunks", bucketID, fileID),
+	})
+}
+
+func (h *Handler) uploadChunk(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	bucketID := chi.URLParam(r, "bucketId")
+	fileID := chi.URLParam(r, "fileId")
+
+	// Parse Content-Range header: bytes start-end/total
+	rangeHeader := r.Header.Get("Content-Range")
+	chunkIndex, _ := strconv.Atoi(r.URL.Query().Get("chunk"))
+
+	chunk, err := io.ReadAll(io.LimitReader(r.Body, 10<<20)) // 10MB per chunk
+	if err != nil {
+		apperr.BadRequest(w, "failed to read chunk")
+		return
+	}
+
+	if err := h.svc.UploadChunk(ctx, projectID, bucketID, fileID, chunkIndex, chunk); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+
+	_ = rangeHeader
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"chunk":    chunkIndex,
+		"received": len(chunk),
+	})
+}
+
+func (h *Handler) completeChunkedUpload(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	bucketID := chi.URLParam(r, "bucketId")
+	fileID := chi.URLParam(r, "fileId")
+
+	f, err := h.svc.CompleteChunkedUpload(ctx, projectID, bucketID, fileID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, f)
 }
 
 func (h *Handler) deleteFile(w http.ResponseWriter, r *http.Request) {

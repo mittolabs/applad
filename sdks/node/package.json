@@ -1,0 +1,16 @@
+{
+  "name": "@mittolabs/applad-node",
+  "version": "0.1.0",
+  "description": "Official server-side Node.js SDK for Applad (API key auth)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": ["applad", "baas", "server", "node"],
+  "license": "BSD-3-Clause",
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}

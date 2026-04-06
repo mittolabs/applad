@@ -6,6 +6,7 @@ export 'src/auth.dart';
 export 'src/databases.dart';
 export 'src/storage.dart';
 export 'src/deploy.dart';
+export 'src/functions.dart';
 export 'src/realtime.dart';
 export 'src/messaging.dart';
 export 'src/workflows.dart';

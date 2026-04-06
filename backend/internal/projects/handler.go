@@ -30,6 +30,7 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/{projectId}/keys", h.createKey)
 	r.Get("/{projectId}/keys", h.listKeys)
 	r.Delete("/{projectId}/keys/{keyId}", h.deleteKey)
+	r.Get("/{projectId}/usage", h.getUsage)
 	return r
 }
 
@@ -155,4 +156,14 @@ func (h *Handler) deleteKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) getUsage(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	usage, err := h.svc.GetUsage(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
 }

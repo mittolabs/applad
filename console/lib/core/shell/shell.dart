@@ -45,6 +45,11 @@ class AppShell extends ConsumerWidget {
             ),
             destinations: const [
               NavigationRailDestination(
+                icon: Icon(Icons.dashboard_outlined),
+                selectedIcon: Icon(Icons.dashboard),
+                label: Text('Overview'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.table_chart_outlined),
                 selectedIcon: Icon(Icons.table_chart),
                 label: Text('Databases'),
@@ -128,6 +133,7 @@ class AppShell extends ConsumerWidget {
 
   int _indexForPath(String path) {
     const paths = [
+      '/overview',
       '/databases',
       '/storage',
       '/auth',
@@ -142,6 +148,7 @@ class AppShell extends ConsumerWidget {
 
   String _pathForIndex(int index) {
     const paths = [
+      '/overview',
       '/databases',
       '/storage',
       '/auth',

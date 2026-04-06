@@ -169,6 +169,43 @@ func (s *Service) DeleteKey(ctx context.Context, projectID, keyID string) error 
 	return err
 }
 
+// UsageStats holds aggregated project statistics.
+type UsageStats struct {
+	ProjectID    string `json:"projectId"`
+	Users        int    `json:"users"`
+	Sessions     int    `json:"sessions"`
+	Databases    int    `json:"databases"`
+	Collections  int    `json:"collections"`
+	Documents    int    `json:"documents"`
+	Buckets      int    `json:"buckets"`
+	Files        int    `json:"files"`
+	StorageBytes int64  `json:"storageBytes"`
+	Teams        int    `json:"teams"`
+	Workflows    int    `json:"workflows"`
+	Executions   int    `json:"executions"`
+	Functions    int    `json:"functions"`
+	Deployments  int    `json:"deployments"`
+}
+
+// GetUsage returns aggregated usage stats for a project.
+func (s *Service) GetUsage(ctx context.Context, projectID string) (*UsageStats, error) {
+	u := &UsageStats{ProjectID: projectID}
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&u.Users)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = ?", projectID).Scan(&u.Sessions)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM `_databases` WHERE project_id = ?", projectID).Scan(&u.Databases)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM collections WHERE project_id = ?", projectID).Scan(&u.Collections)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM documents WHERE project_id = ?", projectID).Scan(&u.Documents)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = ?", projectID).Scan(&u.Buckets)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = ?", projectID).Scan(&u.Files)
+	s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = ?", projectID).Scan(&u.StorageBytes)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM teams WHERE project_id = ?", projectID).Scan(&u.Teams)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflows WHERE project_id = ?", projectID).Scan(&u.Workflows)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflow_executions WHERE project_id = ?", projectID).Scan(&u.Executions)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM functions WHERE project_id = ?", projectID).Scan(&u.Functions)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM deployments WHERE project_id = ?", projectID).Scan(&u.Deployments)
+	return u, nil
+}
+
 // --- scan helpers ---
 
 type projectScanner interface {

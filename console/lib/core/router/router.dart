@@ -4,6 +4,7 @@ import '../shell/shell.dart';
 import '../providers/auth_provider.dart';
 import '../../features/login/login_page.dart';
 import '../../features/onboarding/onboarding_page.dart';
+import '../../features/overview/overview_page.dart';
 import '../../features/auth/auth_page.dart';
 import '../../features/databases/databases_page.dart';
 import '../../features/storage/storage_page.dart';
@@ -40,6 +41,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         builder: (_, __, child) => AppShell(child: child),
         routes: [
+          GoRoute(
+              path: '/overview',
+              builder: (_, __) => const OverviewPage()),
           GoRoute(
               path: '/databases',
               builder: (_, __) => const DatabasesPage()),

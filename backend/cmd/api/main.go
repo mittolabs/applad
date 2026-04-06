@@ -18,6 +18,14 @@ import (
 func main() {
 	cfg := config.Load()
 
+	// Refuse to start with default JWT secret in production
+	if cfg.AppEnv == "production" && cfg.JWTSecret == "change-me-in-production" {
+		log.Fatal("FATAL: JWT_SECRET must be changed from the default value in production. Set the JWT_SECRET environment variable to a strong random secret.")
+	}
+	if cfg.JWTSecret == "change-me-in-production" {
+		log.Println("WARNING: Using default JWT_SECRET — set JWT_SECRET env var before going to production")
+	}
+
 	database, err := db.Connect(cfg.DatabaseDSN)
 	if err != nil {
 		log.Fatalf("db connect: %v", err)

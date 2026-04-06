@@ -39,6 +39,31 @@ components:
           type: string
         version:
           type: string
+    WorkflowNode:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [http_request, send_email, set_variable, code, if_condition, delay]
+        label:
+          type: string
+        config:
+          type: object
+        position:
+          type: object
+    WorkflowEdge:
+      type: object
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        target:
+          type: string
+        condition:
+          type: string
     Project:
       type: object
       properties:
@@ -706,3 +731,283 @@ paths:
       responses:
         '200':
           description: Email sent
+
+  # ── Console Auth ──────────────────────────────────────────
+
+  /console/signup:
+    post:
+      summary: Create admin account
+      tags: [Console]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Account created
+        '403':
+          description: Signup disabled
+
+  /console/login:
+    post:
+      summary: Sign in to console
+      tags: [Console]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+        '401':
+          description: Invalid credentials
+
+  /console/me:
+    get:
+      summary: Get current console user
+      tags: [Console]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+        '401':
+          description: Not authenticated
+
+  /console/signup-status:
+    get:
+      summary: Check if signup is enabled
+      tags: [Console]
+      responses:
+        '200':
+          description: Signup status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signupEnabled:
+                    type: boolean
+
+  # ── Workflows ─────────────────────────────────────────────
+
+  /workflows:
+    post:
+      summary: Create workflow
+      tags: [Workflows]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                triggerType:
+                  type: string
+                  enum: [manual, webhook, cron]
+                triggerConfig:
+                  type: object
+                nodes:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/WorkflowNode'
+                edges:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/WorkflowEdge'
+      responses:
+        '201':
+          description: Workflow created
+    get:
+      summary: List workflows
+      tags: [Workflows]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Workflow list
+
+  /workflows/{workflowId}:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get workflow
+      tags: [Workflows]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Workflow details
+    put:
+      summary: Update workflow
+      tags: [Workflows]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                  enum: [draft, active, paused]
+                triggerType:
+                  type: string
+                triggerConfig:
+                  type: object
+                nodes:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/WorkflowNode'
+                edges:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/WorkflowEdge'
+      responses:
+        '200':
+          description: Workflow updated
+    delete:
+      summary: Delete workflow
+      tags: [Workflows]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '204':
+          description: Deleted
+
+  /workflows/{workflowId}/execute:
+    post:
+      summary: Execute workflow
+      tags: [Workflows]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                triggerData:
+                  type: object
+      responses:
+        '202':
+          description: Execution started
+
+  /workflows/{workflowId}/executions:
+    get:
+      summary: List executions
+      tags: [Workflows]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Execution list
+
+  /workflows/{workflowId}/executions/{executionId}:
+    get:
+      summary: Get execution
+      tags: [Workflows]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Execution details
+
+  /workflows/webhooks/{workflowId}:
+    post:
+      summary: Trigger workflow via webhook
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '202':
+          description: Execution started

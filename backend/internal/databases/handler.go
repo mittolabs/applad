@@ -357,7 +357,24 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 	dbID := chi.URLParam(r, "databaseId")
 	collID := chi.URLParam(r, "collectionId")
 	pg := middleware.ParsePagination(r)
-	docs, total, err := h.svc.ListDocuments(ctx, projectID, dbID, collID, pg.Limit, pg.Offset)
+
+	params := ListParams{
+		Limit:       pg.Limit,
+		Offset:      pg.Offset,
+		OrderAttr:   r.URL.Query().Get("orderAttr"),
+		OrderType:   r.URL.Query().Get("orderType"),
+		CursorAfter: r.URL.Query().Get("cursorAfter"),
+	}
+
+	// Parse queries: ?queries[]=equal("name","John")&queries[]=greaterThan("age",18)
+	for _, q := range r.URL.Query()["queries[]"] {
+		parsed := parseQueryString(q)
+		if parsed != nil {
+			params.Queries = append(params.Queries, *parsed)
+		}
+	}
+
+	docs, total, err := h.svc.ListDocumentsWithQuery(ctx, projectID, dbID, collID, params)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -366,6 +383,86 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 		docs = []*model.Document{}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "documents": docs})
+}
+
+// parseQueryString parses Appwrite-style query strings like:
+// equal("name","John") or greaterThan("age",18) or isNull("field")
+func parseQueryString(q string) *Query {
+	// Find method name (before the opening paren)
+	parenIdx := strings.Index(q, "(")
+	if parenIdx < 0 {
+		return nil
+	}
+	method := strings.TrimSpace(q[:parenIdx])
+	inner := strings.TrimSpace(q[parenIdx+1:])
+	if len(inner) > 0 && inner[len(inner)-1] == ')' {
+		inner = inner[:len(inner)-1]
+	}
+
+	// Parse arguments — split by comma, respecting quotes
+	args := splitQueryArgs(inner)
+
+	// Clean up quoted strings
+	for i, a := range args {
+		a = strings.TrimSpace(a)
+		if len(a) >= 2 && a[0] == '"' && a[len(a)-1] == '"' {
+			args[i] = a[1 : len(a)-1]
+		} else {
+			args[i] = a
+		}
+	}
+
+	switch method {
+	case "equal", "notEqual", "contains", "search", "startsWith", "endsWith":
+		if len(args) < 2 {
+			return nil
+		}
+		return &Query{Attribute: args[0], Method: method, Values: args[1]}
+	case "lessThan", "greaterThan", "lessThanEqual", "greaterThanEqual":
+		if len(args) < 2 {
+			return nil
+		}
+		return &Query{Attribute: args[0], Method: method, Values: args[1]}
+	case "between":
+		if len(args) < 3 {
+			return nil
+		}
+		return &Query{Attribute: args[0], Method: method, Values: []interface{}{args[1], args[2]}}
+	case "isNull", "isNotNull":
+		if len(args) < 1 {
+			return nil
+		}
+		return &Query{Attribute: args[0], Method: method}
+	case "orderAsc":
+		// Handled via orderAttr/orderType params — ignore here
+		return nil
+	case "orderDesc":
+		return nil
+	default:
+		return nil
+	}
+}
+
+func splitQueryArgs(s string) []string {
+	var args []string
+	var current strings.Builder
+	inQuote := false
+	for _, ch := range s {
+		switch {
+		case ch == '"':
+			inQuote = !inQuote
+			current.WriteRune(ch)
+		case ch == ',' && !inQuote:
+			args = append(args, current.String())
+			current.Reset()
+		default:
+			current.WriteRune(ch)
+		}
+	}
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+	return args
 }
 
 func (h *Handler) getDocument(w http.ResponseWriter, r *http.Request) {

@@ -1,5 +1,8 @@
 import { Auth } from './auth';
+import { Avatars } from './avatars';
 import { Databases } from './databases';
+import { Functions } from './functions';
+import { Locale } from './locale';
 import { Storage } from './storage';
 import { Workflows } from './workflows';
 
@@ -14,7 +17,10 @@ export class Applad {
   private headers: Record<string, string>;
 
   readonly auth: Auth;
+  readonly avatars: Avatars;
   readonly databases: Databases;
+  readonly functions: Functions;
+  readonly locale: Locale;
   readonly storage: Storage;
   readonly workflows: Workflows;
 
@@ -26,7 +32,10 @@ export class Applad {
       'Content-Type': 'application/json',
     };
     this.auth = new Auth(this);
+    this.avatars = new Avatars(this);
     this.databases = new Databases(this);
+    this.functions = new Functions(this);
+    this.locale = new Locale(this);
     this.storage = new Storage(this);
     this.workflows = new Workflows(this);
   }

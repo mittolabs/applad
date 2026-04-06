@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mittolabs/applad/internal/db"
@@ -323,17 +324,123 @@ func (s *Service) GetDocument(ctx context.Context, docID, collID, dbID, projectI
 	return &doc, nil
 }
 
+// Query represents a single filter condition on document data.
+type Query struct {
+	Attribute string      // JSON field path (e.g., "name", "age")
+	Method    string      // equal, notEqual, lessThan, greaterThan, lessThanEqual, greaterThanEqual, contains, search, startsWith, endsWith, isNull, isNotNull, between
+	Values    interface{} // comparison value(s)
+}
+
+// ListParams holds all parameters for listing documents.
+type ListParams struct {
+	Limit      int
+	Offset     int
+	Queries    []Query
+	OrderAttr  string // field to order by
+	OrderType  string // ASC or DESC
+	CursorAfter string // document ID for cursor-based pagination
+}
+
 func (s *Service) ListDocuments(ctx context.Context, projectID, dbID, collID string, limit, offset int) ([]*model.Document, int, error) {
-	if limit <= 0 {
-		limit = 25
+	return s.ListDocumentsWithQuery(ctx, projectID, dbID, collID, ListParams{Limit: limit, Offset: offset})
+}
+
+func (s *Service) ListDocumentsWithQuery(ctx context.Context, projectID, dbID, collID string, params ListParams) ([]*model.Document, int, error) {
+	if params.Limit <= 0 {
+		params.Limit = 25
 	}
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, collection_id, database_id, data, permissions, created_at, updated_at FROM documents WHERE collection_id = ? AND database_id = ? AND project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-		collID, dbID, projectID, limit, offset)
+	if params.Limit > 100 {
+		params.Limit = 100
+	}
+
+	baseWhere := "collection_id = ? AND database_id = ? AND project_id = ?"
+	args := []interface{}{collID, dbID, projectID}
+
+	// Build query conditions from filters
+	var conditions []string
+	for _, q := range params.Queries {
+		jsonPath := fmt.Sprintf("JSON_UNQUOTE(JSON_EXTRACT(data, '$.%s'))", q.Attribute)
+		switch q.Method {
+		case "equal":
+			conditions = append(conditions, fmt.Sprintf("%s = ?", jsonPath))
+			args = append(args, fmt.Sprintf("%v", q.Values))
+		case "notEqual":
+			conditions = append(conditions, fmt.Sprintf("%s != ?", jsonPath))
+			args = append(args, fmt.Sprintf("%v", q.Values))
+		case "lessThan":
+			conditions = append(conditions, fmt.Sprintf("CAST(%s AS DOUBLE) < ?", jsonPath))
+			args = append(args, q.Values)
+		case "greaterThan":
+			conditions = append(conditions, fmt.Sprintf("CAST(%s AS DOUBLE) > ?", jsonPath))
+			args = append(args, q.Values)
+		case "lessThanEqual":
+			conditions = append(conditions, fmt.Sprintf("CAST(%s AS DOUBLE) <= ?", jsonPath))
+			args = append(args, q.Values)
+		case "greaterThanEqual":
+			conditions = append(conditions, fmt.Sprintf("CAST(%s AS DOUBLE) >= ?", jsonPath))
+			args = append(args, q.Values)
+		case "contains":
+			conditions = append(conditions, fmt.Sprintf("%s LIKE ?", jsonPath))
+			args = append(args, fmt.Sprintf("%%%v%%", q.Values))
+		case "startsWith":
+			conditions = append(conditions, fmt.Sprintf("%s LIKE ?", jsonPath))
+			args = append(args, fmt.Sprintf("%v%%", q.Values))
+		case "endsWith":
+			conditions = append(conditions, fmt.Sprintf("%s LIKE ?", jsonPath))
+			args = append(args, fmt.Sprintf("%%%v", q.Values))
+		case "search":
+			conditions = append(conditions, fmt.Sprintf("%s LIKE ?", jsonPath))
+			args = append(args, fmt.Sprintf("%%%v%%", q.Values))
+		case "isNull":
+			conditions = append(conditions, fmt.Sprintf("(JSON_EXTRACT(data, '$.%s') IS NULL OR JSON_TYPE(JSON_EXTRACT(data, '$.%s')) = 'NULL')", q.Attribute, q.Attribute))
+		case "isNotNull":
+			conditions = append(conditions, fmt.Sprintf("(JSON_EXTRACT(data, '$.%s') IS NOT NULL AND JSON_TYPE(JSON_EXTRACT(data, '$.%s')) != 'NULL')", q.Attribute, q.Attribute))
+		case "between":
+			if vals, ok := q.Values.([]interface{}); ok && len(vals) == 2 {
+				conditions = append(conditions, fmt.Sprintf("CAST(%s AS DOUBLE) BETWEEN ? AND ?", jsonPath))
+				args = append(args, vals[0], vals[1])
+			}
+		}
+	}
+
+	// Cursor-based pagination
+	if params.CursorAfter != "" {
+		conditions = append(conditions, "created_at < (SELECT created_at FROM documents WHERE id = ?)")
+		args = append(args, params.CursorAfter)
+	}
+
+	where := baseWhere
+	if len(conditions) > 0 {
+		where += " AND " + strings.Join(conditions, " AND ")
+	}
+
+	// Order by
+	orderBy := "created_at DESC"
+	if params.OrderAttr != "" {
+		dir := "ASC"
+		if strings.EqualFold(params.OrderType, "DESC") {
+			dir = "DESC"
+		}
+		if params.OrderAttr == "$createdAt" || params.OrderAttr == "created_at" {
+			orderBy = "created_at " + dir
+		} else if params.OrderAttr == "$updatedAt" || params.OrderAttr == "updated_at" {
+			orderBy = "updated_at " + dir
+		} else {
+			orderBy = fmt.Sprintf("JSON_UNQUOTE(JSON_EXTRACT(data, '$.%s')) %s", params.OrderAttr, dir)
+		}
+	}
+
+	query := fmt.Sprintf(
+		"SELECT id, collection_id, database_id, data, permissions, created_at, updated_at FROM documents WHERE %s ORDER BY %s LIMIT ? OFFSET ?",
+		where, orderBy)
+	args = append(args, params.Limit, params.Offset)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
+
 	var docs []*model.Document
 	for rows.Next() {
 		var doc model.Document
@@ -348,10 +455,13 @@ func (s *Service) ListDocuments(ctx context.Context, projectID, dbID, collID str
 		}
 		docs = append(docs, &doc)
 	}
+
+	// Count total matching documents
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM documents WHERE %s", where)
+	countArgs := args[:len(args)-2] // exclude LIMIT and OFFSET
 	var total int
-	s.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM documents WHERE collection_id = ? AND database_id = ? AND project_id = ?",
-		collID, dbID, projectID).Scan(&total) //nolint:errcheck
+	s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total) //nolint:errcheck
+
 	return docs, total, nil
 }
 

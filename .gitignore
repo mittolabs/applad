@@ -12,10 +12,14 @@ console/build/
 console/pubspec.lock
 sdks/dart/.dart_tool/
 sdks/dart/build/
+sdks/dart-server/.dart_tool/
+sdks/dart-server/pubspec.lock
 
 # JS / Node
 sdks/js/node_modules/
 sdks/js/dist/
+sdks/node/node_modules/
+sdks/node/dist/
 
 # Docker
 docker/.env

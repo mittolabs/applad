@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'auth.dart';
 import 'databases.dart';
 import 'deploy.dart';
+import 'functions.dart';
 import 'messaging.dart';
 import 'realtime.dart';
 import 'storage.dart';
@@ -20,6 +21,7 @@ class Applad {
   late final Deploy deploy;
   late final Messaging messaging;
   late final Realtime realtime;
+  late final Functions functions;
   late final Workflows workflows;
 
   Applad({required this.endpoint, required this.projectId})
@@ -37,6 +39,7 @@ class Applad {
     deploy = Deploy(_dio);
     messaging = Messaging(_dio);
     realtime = Realtime(endpoint: endpoint, projectId: projectId);
+    functions = Functions(_dio);
     workflows = Workflows(_dio);
   }
 

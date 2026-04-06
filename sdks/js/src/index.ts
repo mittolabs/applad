@@ -1,8 +1,11 @@
 export { Applad } from './client';
 export { Auth } from './auth';
+export { Avatars } from './avatars';
 export { Databases } from './databases';
-export { Storage } from './storage';
 export { Deploy } from './deploy';
-export { Realtime } from './realtime';
+export { Functions } from './functions';
+export { Locale } from './locale';
 export { Messaging } from './messaging';
+export { Realtime } from './realtime';
+export { Storage } from './storage';
 export { Workflows } from './workflows';

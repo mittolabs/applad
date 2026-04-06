@@ -3,14 +3,21 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	_ "image/gif" // register GIF decoder
 
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/model"
@@ -239,6 +246,155 @@ func (s *Service) ListFiles(ctx context.Context, projectID, bucketID string, lim
 	var total int
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE bucket_id = ? AND project_id = ?", bucketID, projectID).Scan(&total) //nolint:errcheck
 	return files, total, nil
+}
+
+// --- chunked uploads ---
+
+// InitChunkedUpload creates a file record and temp directory for chunks.
+func (s *Service) InitChunkedUpload(ctx context.Context, projectID, bucketID, fileID, name, mimeType string, totalSize int64, permissions []string) (string, error) {
+	id := uid.New(fileID)
+
+	// Create temp chunk directory
+	chunkDir := filepath.Join(s.storagePath, "_chunks", id)
+	if err := os.MkdirAll(chunkDir, 0755); err != nil {
+		return "", fmt.Errorf("storage: create chunk dir: %w", err)
+	}
+
+	// Create a pending file record
+	now := time.Now().UTC()
+	permsJSON, _ := json.Marshal(permissions)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO files (id, bucket_id, project_id, name, mime_type, size, permissions, path, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, bucketID, projectID, name, mimeType, totalSize, permsJSON, chunkDir, now, now)
+	if err != nil {
+		return "", fmt.Errorf("storage: init chunked upload: %w", err)
+	}
+	return id, nil
+}
+
+// UploadChunk writes a single chunk to disk.
+func (s *Service) UploadChunk(_ context.Context, projectID, bucketID, fileID string, index int, data []byte) error {
+	chunkDir := filepath.Join(s.storagePath, "_chunks", fileID)
+	chunkPath := filepath.Join(chunkDir, fmt.Sprintf("%06d", index))
+	return os.WriteFile(chunkPath, data, 0644)
+}
+
+// CompleteChunkedUpload assembles chunks into the final file.
+func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID, fileID string) (*model.File, error) {
+	chunkDir := filepath.Join(s.storagePath, "_chunks", fileID)
+
+	entries, err := os.ReadDir(chunkDir)
+	if err != nil {
+		return nil, fmt.Errorf("storage: read chunks: %w", err)
+	}
+
+	// Assemble chunks in order
+	dir := filepath.Join(s.storagePath, projectID, bucketID)
+	os.MkdirAll(dir, 0755)
+	finalPath := filepath.Join(dir, fileID)
+
+	out, err := os.Create(finalPath)
+	if err != nil {
+		return nil, fmt.Errorf("storage: create final file: %w", err)
+	}
+
+	var totalSize int64
+	for _, entry := range entries {
+		chunk, err := os.ReadFile(filepath.Join(chunkDir, entry.Name()))
+		if err != nil {
+			out.Close()
+			return nil, fmt.Errorf("storage: read chunk %s: %w", entry.Name(), err)
+		}
+		n, _ := out.Write(chunk)
+		totalSize += int64(n)
+	}
+	out.Close()
+
+	// Clean up chunks
+	os.RemoveAll(chunkDir)
+
+	// Update file record with final path and size
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE files SET path = ?, size = ? WHERE id = ? AND bucket_id = ? AND project_id = ?",
+		finalPath, totalSize, fileID, bucketID, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetFile(ctx, fileID, bucketID, projectID)
+}
+
+// TransformImage resizes and converts an image.
+func (s *Service) TransformImage(content []byte, mimeType string, width, height, quality int, outputFormat string) ([]byte, string, error) {
+	if !strings.HasPrefix(mimeType, "image/") {
+		return nil, "", fmt.Errorf("not an image")
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(content))
+	if err != nil {
+		return nil, "", fmt.Errorf("decode image: %w", err)
+	}
+
+	// Resize if requested
+	if width > 0 || height > 0 {
+		img = resizeImage(img, width, height)
+	}
+
+	// Determine output format
+	if outputFormat == "" {
+		if strings.Contains(mimeType, "png") {
+			outputFormat = "png"
+		} else {
+			outputFormat = "jpg"
+		}
+	}
+
+	if quality <= 0 {
+		quality = 85
+	}
+
+	var buf bytes.Buffer
+	var outMime string
+
+	switch outputFormat {
+	case "png":
+		err = png.Encode(&buf, img)
+		outMime = "image/png"
+	default: // jpg/jpeg
+		err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
+		outMime = "image/jpeg"
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("encode image: %w", err)
+	}
+
+	return buf.Bytes(), outMime, nil
+}
+
+// resizeImage scales an image to fit within the given dimensions, preserving aspect ratio.
+func resizeImage(src image.Image, targetW, targetH int) image.Image {
+	bounds := src.Bounds()
+	srcW := bounds.Dx()
+	srcH := bounds.Dy()
+
+	if targetW <= 0 {
+		targetW = srcW * targetH / srcH
+	}
+	if targetH <= 0 {
+		targetH = srcH * targetW / srcW
+	}
+
+	// Simple nearest-neighbor resize using Go stdlib
+	dst := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
+	for y := 0; y < targetH; y++ {
+		for x := 0; x < targetW; x++ {
+			srcX := x * srcW / targetW
+			srcY := y * srcH / targetH
+			dst.Set(x, y, src.At(srcX+bounds.Min.X, srcY+bounds.Min.Y))
+		}
+	}
+	return dst
 }
 
 func (s *Service) DeleteFile(ctx context.Context, fileID, bucketID, projectID string) error {

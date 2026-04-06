@@ -10,6 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha1"
+	"encoding/base32"
+	"encoding/binary"
+	"math/big"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/model"
@@ -371,6 +378,256 @@ func (s *Service) signJWT(userID, sessionID, projectID string, expires time.Time
 	return token.SignedString([]byte(s.jwtSecret))
 }
 
+// --- MFA (TOTP) ---
+
+// EnableMFA generates a TOTP secret for a user and returns it.
+func (s *Service) EnableMFA(ctx context.Context, userID, projectID string) (string, []string, error) {
+	// Generate random 20-byte secret
+	secret := make([]byte, 20)
+	rand.Read(secret)
+	secretB32 := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secret)
+
+	// Generate 8 recovery codes
+	recovery := make([]string, 8)
+	for i := range recovery {
+		code := make([]byte, 4)
+		rand.Read(code)
+		n := new(big.Int).SetBytes(code)
+		recovery[i] = fmt.Sprintf("%08d", n.Int64()%100000000)
+	}
+	recoveryJSON, _ := json.Marshal(recovery)
+
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE users SET mfa_secret = ?, mfa_recovery = ? WHERE id = ? AND project_id = ?",
+		secretB32, recoveryJSON, userID, projectID)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return secretB32, recovery, nil
+}
+
+// VerifyMFA verifies a TOTP code and enables MFA if valid.
+func (s *Service) VerifyMFA(ctx context.Context, userID, projectID, code string) error {
+	var secretB32 string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT mfa_secret FROM users WHERE id = ? AND project_id = ?",
+		userID, projectID).Scan(&secretB32)
+	if err != nil || secretB32 == "" {
+		return fmt.Errorf("auth: MFA not set up")
+	}
+
+	if !validateTOTP(secretB32, code) {
+		return fmt.Errorf("auth: invalid MFA code")
+	}
+
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE users SET mfa_enabled = 1 WHERE id = ? AND project_id = ?",
+		userID, projectID)
+	return err
+}
+
+// DisableMFA disables MFA for a user.
+func (s *Service) DisableMFA(ctx context.Context, userID, projectID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE users SET mfa_enabled = 0, mfa_secret = NULL, mfa_recovery = NULL WHERE id = ? AND project_id = ?",
+		userID, projectID)
+	return err
+}
+
+// CheckMFA returns whether MFA is enabled for the user with the given email.
+func (s *Service) CheckMFA(ctx context.Context, projectID, email string) (bool, error) {
+	var enabled bool
+	err := s.db.QueryRowContext(ctx,
+		"SELECT mfa_enabled FROM users WHERE email = ? AND project_id = ? AND status = 1",
+		email, projectID).Scan(&enabled)
+	if err != nil {
+		return false, err
+	}
+	return enabled, nil
+}
+
+// ValidateMFAForLogin validates a TOTP code during login.
+func (s *Service) ValidateMFAForLogin(ctx context.Context, projectID, email, code string) error {
+	var secretB32 string
+	var recoveryJSON []byte
+	err := s.db.QueryRowContext(ctx,
+		"SELECT mfa_secret, mfa_recovery FROM users WHERE email = ? AND project_id = ?",
+		email, projectID).Scan(&secretB32, &recoveryJSON)
+	if err != nil {
+		return fmt.Errorf("auth: user not found")
+	}
+
+	// Try TOTP first
+	if validateTOTP(secretB32, code) {
+		return nil
+	}
+
+	// Try recovery codes
+	var recovery []string
+	json.Unmarshal(recoveryJSON, &recovery)
+	for i, rc := range recovery {
+		if rc == code {
+			// Remove used recovery code
+			recovery = append(recovery[:i], recovery[i+1:]...)
+			newJSON, _ := json.Marshal(recovery)
+			s.db.ExecContext(ctx,
+				"UPDATE users SET mfa_recovery = ? WHERE email = ? AND project_id = ?",
+				newJSON, email, projectID)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("auth: invalid MFA code")
+}
+
+func validateTOTP(secretB32, code string) bool {
+	secret, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secretB32)
+	if err != nil {
+		return false
+	}
+	// Check current and adjacent time steps (±1)
+	now := time.Now().Unix() / 30
+	for _, offset := range []int64{-1, 0, 1} {
+		expected := generateTOTP(secret, now+offset)
+		if expected == code {
+			return true
+		}
+	}
+	return false
+}
+
+func generateTOTP(secret []byte, counter int64) string {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(counter))
+	mac := hmac.New(sha1.New, secret)
+	mac.Write(buf)
+	hash := mac.Sum(nil)
+	offset := hash[len(hash)-1] & 0x0f
+	truncated := binary.BigEndian.Uint32(hash[offset:offset+4]) & 0x7fffffff
+	return fmt.Sprintf("%06d", truncated%1000000)
+}
+
+// --- Auth tokens (magic link, email verification, password reset) ---
+
+// CreateAuthToken creates a token for email verification, password reset, or magic link.
+func (s *Service) CreateAuthToken(ctx context.Context, userID, projectID, tokenType string, ttl time.Duration) (string, error) {
+	id := uid.New("unique()")
+	secret := make([]byte, 32)
+	rand.Read(secret)
+	token := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secret)
+	expires := time.Now().UTC().Add(ttl)
+
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO auth_tokens (id, user_id, project_id, type, secret, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+		id, userID, projectID, tokenType, token, expires)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// ValidateAuthToken validates and consumes a token.
+func (s *Service) ValidateAuthToken(ctx context.Context, projectID, tokenType, secret string) (string, error) {
+	var id, userID string
+	var expiresAt time.Time
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id, user_id, expires_at FROM auth_tokens WHERE project_id = ? AND type = ? AND secret = ?",
+		projectID, tokenType, secret).Scan(&id, &userID, &expiresAt)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("auth: invalid or expired token")
+	}
+	if err != nil {
+		return "", err
+	}
+	if time.Now().After(expiresAt) {
+		s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id = ?", id)
+		return "", fmt.Errorf("auth: token expired")
+	}
+	// Consume token
+	s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id = ?", id)
+	return userID, nil
+}
+
+// CreateMagicLinkToken creates a magic link token for passwordless login.
+func (s *Service) CreateMagicLinkToken(ctx context.Context, projectID, email string) (string, error) {
+	var userID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM users WHERE email = ? AND project_id = ?",
+		email, projectID).Scan(&userID)
+	if err == sql.ErrNoRows {
+		// Create user without password
+		userID = uid.New("unique()")
+		now := time.Now().UTC()
+		labelsJSON, _ := json.Marshal([]string{})
+		prefsJSON, _ := json.Marshal(map[string]interface{}{})
+		_, err = s.db.ExecContext(ctx,
+			"INSERT INTO users (id, project_id, email, labels, prefs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			userID, projectID, email, labelsJSON, prefsJSON, now, now)
+		if err != nil {
+			return "", err
+		}
+	} else if err != nil {
+		return "", err
+	}
+	return s.CreateAuthToken(ctx, userID, projectID, "magic_link", 15*time.Minute)
+}
+
+// RedeemMagicLink validates a magic link and creates a session.
+func (s *Service) RedeemMagicLink(ctx context.Context, projectID, secret, ip, ua string) (*model.Session, string, error) {
+	userID, err := s.ValidateAuthToken(ctx, projectID, "magic_link", secret)
+	if err != nil {
+		return nil, "", err
+	}
+	// Mark email as verified
+	s.db.ExecContext(ctx, "UPDATE users SET email_verified = 1 WHERE id = ? AND project_id = ?", userID, projectID)
+	return s.createSession(ctx, userID, projectID, "magic_link", ip, ua)
+}
+
+// CreateEmailVerificationToken creates an email verification token.
+func (s *Service) CreateEmailVerificationToken(ctx context.Context, userID, projectID string) (string, error) {
+	return s.CreateAuthToken(ctx, userID, projectID, "email_verification", 24*time.Hour)
+}
+
+// VerifyEmail validates an email verification token.
+func (s *Service) VerifyEmail(ctx context.Context, projectID, secret string) error {
+	userID, err := s.ValidateAuthToken(ctx, projectID, "email_verification", secret)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE users SET email_verified = 1 WHERE id = ? AND project_id = ?", userID, projectID)
+	return err
+}
+
+// CreatePasswordResetToken creates a password reset token.
+func (s *Service) CreatePasswordResetToken(ctx context.Context, projectID, email string) (string, error) {
+	var userID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM users WHERE email = ? AND project_id = ?",
+		email, projectID).Scan(&userID)
+	if err != nil {
+		return "", fmt.Errorf("auth: user not found")
+	}
+	return s.CreateAuthToken(ctx, userID, projectID, "password_reset", 1*time.Hour)
+}
+
+// ResetPassword validates a password reset token and sets a new password.
+func (s *Service) ResetPassword(ctx context.Context, projectID, secret, newPassword string) error {
+	userID, err := s.ValidateAuthToken(ctx, projectID, "password_reset", secret)
+	if err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE users SET password_hash = ? WHERE id = ? AND project_id = ?",
+		string(hash), userID, projectID)
+	return err
+}
+
 // --- scan helpers ---
 
 type rowScanner interface {
@@ -481,6 +738,60 @@ func nullString(s string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+// CreateOAuthSession creates or links an OAuth user and returns a session.
+func (s *Service) CreateOAuthSession(ctx context.Context, projectID, provider, oauthID, email, name, ip, ua string) (*model.Session, string, error) {
+	// Check if user exists with this OAuth identity
+	var userID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM users WHERE project_id = ? AND oauth_provider = ? AND oauth_id = ?",
+		projectID, provider, oauthID).Scan(&userID)
+
+	if err == sql.ErrNoRows {
+		// Check if user exists with this email
+		err2 := s.db.QueryRowContext(ctx,
+			"SELECT id FROM users WHERE project_id = ? AND email = ?",
+			projectID, email).Scan(&userID)
+
+		if err2 == sql.ErrNoRows {
+			// Create new user
+			userID = uid.New("unique()")
+			now := time.Now().UTC()
+			labelsJSON, _ := json.Marshal([]string{})
+			prefsJSON, _ := json.Marshal(map[string]interface{}{})
+			_, err := s.db.ExecContext(ctx,
+				`INSERT INTO users (id, project_id, email, name, oauth_provider, oauth_id, email_verified, labels, prefs, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+				userID, projectID, email, name, provider, oauthID, labelsJSON, prefsJSON, now, now)
+			if err != nil {
+				return nil, "", fmt.Errorf("auth: create oauth user: %w", err)
+			}
+		} else if err2 == nil {
+			// Link OAuth to existing email user
+			s.db.ExecContext(ctx,
+				"UPDATE users SET oauth_provider = ?, oauth_id = ?, email_verified = 1 WHERE id = ? AND project_id = ?",
+				provider, oauthID, userID, projectID)
+		} else {
+			return nil, "", err2
+		}
+	} else if err != nil {
+		return nil, "", err
+	}
+
+	return s.createSession(ctx, userID, projectID, provider, ip, ua)
+}
+
+// ListOAuthProviders returns which OAuth providers are configured for a project.
+func (s *Service) ListOAuthProviders(providers []string) []map[string]interface{} {
+	var result []map[string]interface{}
+	for _, p := range providers {
+		result = append(result, map[string]interface{}{
+			"provider": p,
+			"enabled":  true,
+		})
+	}
+	return result
 }
 
 // UpdateUserEmailAdmin updates a user's email server-side (no password required).

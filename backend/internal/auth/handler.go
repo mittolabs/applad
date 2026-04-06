@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,7 +14,23 @@ import (
 
 // Handler handles HTTP requests for auth.
 type Handler struct {
-	svc *Service
+	svc            *Service
+	oauthProviders map[string]OAuthProvider
+}
+
+// OAuthProvider is the interface for OAuth2 provider operations.
+type OAuthProvider interface {
+	GetAuthURL(redirectURI, state string) string
+	ExchangeCode(ctx context.Context, code, redirectURI string) (string, error)
+	GetUserInfo(ctx context.Context, accessToken string) (OAuthUserInfo, error)
+}
+
+// OAuthUserInfo is normalized OAuth user info.
+type OAuthUserInfo struct {
+	ID       string
+	Email    string
+	Name     string
+	Provider string
 }
 
 // NewHandler creates a new auth Handler.
@@ -34,6 +52,16 @@ func AccountRoutes(h *Handler) http.Handler {
 	r.Post("/", h.createAccount)
 	r.Post("/sessions/email", h.createEmailSession)
 	r.Post("/sessions/anonymous", h.createAnonymousSession)
+	r.Get("/sessions/oauth/{provider}", h.oauthRedirect)
+	r.Get("/sessions/oauth/{provider}/callback", h.oauthCallback)
+
+	// Public auth flows
+	r.Post("/sessions/magic-link", h.createMagicLink)
+	r.Put("/sessions/magic-link", h.redeemMagicLink)
+	r.Post("/verification", h.createEmailVerification)
+	r.Put("/verification", h.verifyEmail)
+	r.Post("/recovery", h.createPasswordReset)
+	r.Put("/recovery", h.resetPassword)
 
 	// Authenticated endpoints
 	r.Group(func(r chi.Router) {
@@ -49,6 +77,9 @@ func AccountRoutes(h *Handler) http.Handler {
 		r.Delete("/sessions/{sessionId}", h.deleteSession)
 		r.Delete("/sessions", h.deleteSessions)
 		r.Post("/jwt", h.getJWT)
+		r.Post("/mfa", h.enableMFA)
+		r.Put("/mfa", h.verifyMFA)
+		r.Delete("/mfa", h.disableMFA)
 	})
 
 	return r
@@ -482,4 +513,273 @@ func (h *Handler) deleteUserSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- MFA handlers ---
+
+func (h *Handler) enableMFA(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := middleware.UserFromContext(ctx)
+	projectID := middleware.ProjectFromContext(ctx)
+	secret, recovery, err := h.svc.EnableMFA(ctx, userID, projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"secret":        secret,
+		"recoveryCodes": recovery,
+		"uri":           fmt.Sprintf("otpauth://totp/Applad?secret=%s&issuer=Applad", secret),
+	})
+}
+
+func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := middleware.UserFromContext(ctx)
+	projectID := middleware.ProjectFromContext(ctx)
+	var body struct {
+		Code string `json:"code"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if err := h.svc.VerifyMFA(ctx, userID, projectID, body.Code); err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
+}
+
+func (h *Handler) disableMFA(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := middleware.UserFromContext(ctx)
+	projectID := middleware.ProjectFromContext(ctx)
+	if err := h.svc.DisableMFA(ctx, userID, projectID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Magic link, email verification, password reset handlers ---
+
+func (h *Handler) createMagicLink(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Email string `json:"email"`
+		URL   string `json:"url"` // callback URL to append token to
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Email == "" {
+		apperr.BadRequest(w, "email is required")
+		return
+	}
+	token, err := h.svc.CreateMagicLinkToken(r.Context(), projectID, body.Email)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	// In production, send token via email. For now return it.
+	writeJSON(w, http.StatusCreated, map[string]string{"token": token})
+}
+
+func (h *Handler) redeemMagicLink(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Secret string `json:"secret"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Secret == "" {
+		apperr.BadRequest(w, "secret is required")
+		return
+	}
+	sess, token, err := h.svc.RedeemMagicLink(r.Context(), projectID, body.Secret, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: "a_session_" + projectID, Value: token, Path: "/",
+		HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
+	writeJSON(w, http.StatusOK, sess)
+}
+
+func (h *Handler) createEmailVerification(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		UserID string `json:"userId"`
+		URL    string `json:"url"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.UserID == "" {
+		apperr.BadRequest(w, "userId is required")
+		return
+	}
+	token, err := h.svc.CreateEmailVerificationToken(r.Context(), body.UserID, projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"token": token})
+}
+
+func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Secret string `json:"secret"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Secret == "" {
+		apperr.BadRequest(w, "secret is required")
+		return
+	}
+	if err := h.svc.VerifyEmail(r.Context(), projectID, body.Secret); err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "verified"})
+}
+
+func (h *Handler) createPasswordReset(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Email string `json:"email"`
+		URL   string `json:"url"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Email == "" {
+		apperr.BadRequest(w, "email is required")
+		return
+	}
+	token, err := h.svc.CreatePasswordResetToken(r.Context(), projectID, body.Email)
+	if err != nil {
+		// Don't reveal whether email exists
+		writeJSON(w, http.StatusCreated, map[string]string{"status": "sent"})
+		return
+	}
+	_ = token // In production, send via email
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "sent"})
+}
+
+func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Secret   string `json:"secret"`
+		Password string `json:"password"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Secret == "" || body.Password == "" {
+		apperr.BadRequest(w, "secret and password are required")
+		return
+	}
+	if err := h.svc.ResetPassword(r.Context(), projectID, body.Secret, body.Password); err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
+}
+
+// --- OAuth2 handlers ---
+
+// SetOAuthProviders sets the available OAuth providers on the handler.
+func (h *Handler) SetOAuthProviders(providers map[string]OAuthProvider) {
+	h.oauthProviders = providers
+}
+
+func (h *Handler) oauthRedirect(w http.ResponseWriter, r *http.Request) {
+	providerName := chi.URLParam(r, "provider")
+	provider, ok := h.oauthProviders[providerName]
+	if !ok {
+		apperr.BadRequest(w, "unsupported OAuth provider: "+providerName)
+		return
+	}
+
+	projectID := middleware.ProjectFromContext(r.Context())
+	successURL := r.URL.Query().Get("success")
+	failureURL := r.URL.Query().Get("failure")
+
+	// Build callback URL
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	callbackURL := fmt.Sprintf("%s://%s/v1/account/sessions/oauth/%s/callback", scheme, r.Host, providerName)
+
+	// State encodes project + redirect URLs
+	state := fmt.Sprintf("%s|%s|%s", projectID, successURL, failureURL)
+
+	authURL := provider.GetAuthURL(callbackURL, state)
+	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
+}
+
+func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
+	providerName := chi.URLParam(r, "provider")
+	provider, ok := h.oauthProviders[providerName]
+	if !ok {
+		apperr.BadRequest(w, "unsupported OAuth provider")
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+	if code == "" {
+		errMsg := r.URL.Query().Get("error")
+		apperr.BadRequest(w, "OAuth error: "+errMsg)
+		return
+	}
+
+	// Parse state: projectID|successURL|failureURL
+	parts := strings.SplitN(state, "|", 3)
+	projectID := ""
+	successURL := "/"
+	failureURL := "/"
+	if len(parts) >= 1 {
+		projectID = parts[0]
+	}
+	if len(parts) >= 2 && parts[1] != "" {
+		successURL = parts[1]
+	}
+	if len(parts) >= 3 && parts[2] != "" {
+		failureURL = parts[2]
+	}
+
+	// Build callback URL for token exchange
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	callbackURL := fmt.Sprintf("%s://%s/v1/account/sessions/oauth/%s/callback", scheme, r.Host, providerName)
+
+	// Exchange code for token
+	ctx := r.Context()
+	accessToken, err := provider.ExchangeCode(ctx, code, callbackURL)
+	if err != nil {
+		http.Redirect(w, r, failureURL+"?error=token_exchange_failed", http.StatusTemporaryRedirect)
+		return
+	}
+
+	// Get user info
+	userInfo, err := provider.GetUserInfo(ctx, accessToken)
+	if err != nil {
+		http.Redirect(w, r, failureURL+"?error=userinfo_failed", http.StatusTemporaryRedirect)
+		return
+	}
+
+	// Create or link user and session
+	sess, token, err := h.svc.CreateOAuthSession(ctx, projectID, providerName, userInfo.ID, userInfo.Email, userInfo.Name, r.RemoteAddr, r.UserAgent())
+	if err != nil {
+		http.Redirect(w, r, failureURL+"?error=session_failed", http.StatusTemporaryRedirect)
+		return
+	}
+
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "a_session_" + projectID,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	_ = sess // session is set via cookie
+	http.Redirect(w, r, successURL, http.StatusTemporaryRedirect)
 }
