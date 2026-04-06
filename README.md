@@ -65,22 +65,15 @@ Applad unifies Functions and Sites into a single **Deploy** service. Every deplo
 
 ## Workflow Engine
 
-Phase 1 ships n8n embedded in the Docker Compose stack, integrated with Applad via SSO. Phase 2 replaces the engine with a native Go implementation maintaining full API and UI compatibility.
+Applad ships a native Go workflow engine — no external dependencies. Workflows are defined as a DAG of nodes and executed by the built-in executions worker.
 
-### What you get on day one
-- **45+ trigger types** — Webhook, Schedule, Email (IMAP), RabbitMQ, MQTT, and Applad-native triggers for Auth, Database, Storage, and Function events
-- **Flow control** — IF, Switch, Merge, Loop Over Items, Wait, Stop and Error
-- **Data manipulation** — Filter, Sort, Deduplicate, Aggregate, Split Out, Compare Datasets, Code (JS/Python)
-- **AI-native** — AI Agent, 9 LLM providers (OpenAI, Anthropic, Gemini, Ollama, Bedrock, etc.), RAG pipeline nodes, 7 vector store integrations
-- **Applad-native nodes** — Create/read/update/delete Auth users, Database documents, Storage files, and Function executions directly from any workflow — auto-configured with your project credentials
-
-### Applad-native triggers
-| Trigger | Fires on |
-|---|---|
-| Auth Event | `user.create`, `user.delete`, `session.create`, `session.delete` |
-| Database Event | `document.create`, `document.update`, `document.delete` per collection |
-| Storage Event | `file.create`, `file.update`, `file.delete` per bucket |
-| Function Event | `execution.complete`, `execution.failed` per function |
+### Capabilities
+- **Triggers** — Manual, Webhook (public URL per workflow), Cron schedule
+- **Action nodes** — HTTP Request, Send Email (SMTP), Set Variable, Code (Go template expressions)
+- **Control flow** — If/Condition (branching with operators: eq, neq, contains, empty, etc.), Delay
+- **Execution engine** — Topological DAG sort, sequential node execution with data passing, per-step logging
+- **API** — Full CRUD on workflows + trigger execution + execution history with step-level logs
+- **Console** — Workflow list with status management, node editor, manual execute, execution history viewer
 
 ---
 
@@ -94,7 +87,7 @@ The admin console is a Flutter Web app — the same codebase runs on web, deskto
 - File browser with drag-and-drop upload and preview
 - Deploy console: pipeline wizard, release timeline, live log streaming, one-click rollback
 - Execution log viewer for serverless targets
-- Workflows section (Phase 1: n8n WebView with SSO; Phase 2: native Flutter canvas)
+- Workflows: create, edit nodes, execute, view execution history with step logs
 - Real-time dashboard stats, usage analytics per service
 
 ---
@@ -108,8 +101,7 @@ The admin console is a Flutter Web app — the same codebase runs on web, deskto
 | Primary database | MariaDB |
 | Cache / Realtime | Redis |
 | Reverse proxy | OpenResty / Nginx |
-| Workflow engine (Phase 1) | n8n (embedded Docker service) |
-| Workflow engine (Phase 2) | Native Go (planned) |
+| Workflow engine | Native Go (built-in) |
 | Antivirus | ClamAV (optional) |
 
 ---
@@ -151,7 +143,7 @@ Applad is environment-variable driven. A single `docker compose up` brings up al
 | 5 | Deploy — serverless target, Node.js runtime, invocation API |
 | 6 | Realtime — WebSocket subscriptions |
 | 7 | Admin console (Flutter Web) |
-| 8 | Workflows Phase 1 — n8n embedded, SSO, Applad-native nodes |
+| 8 | Workflows — native Go engine, DAG executor, webhook triggers |
 | 9 | Auth — MFA, full OAuth2 provider list, advanced config |
 | 10 | Messaging — providers, topics, messages |
 | 11 | Locale, Avatars, Health utility services |

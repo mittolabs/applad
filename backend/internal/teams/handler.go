@@ -3,7 +3,6 @@ package teams
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -63,10 +62,9 @@ func (h *Handler) createTeam(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) listTeams(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	pg := middleware.ParsePagination(r)
 	search := r.URL.Query().Get("search")
-	teams, total, err := h.svc.List(r.Context(), projectID, limit, offset, search)
+	teams, total, err := h.svc.List(r.Context(), projectID, pg.Limit, pg.Offset, search)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

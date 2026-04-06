@@ -186,9 +186,8 @@ func (h *Handler) listFiles(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	bucketID := chi.URLParam(r, "bucketId")
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	files, total, err := h.svc.ListFiles(ctx, projectID, bucketID, limit, offset)
+	pg := middleware.ParsePagination(r)
+	files, total, err := h.svc.ListFiles(ctx, projectID, bucketID, pg.Limit, pg.Offset)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

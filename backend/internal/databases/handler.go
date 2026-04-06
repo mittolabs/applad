@@ -3,7 +3,6 @@ package databases
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -357,9 +356,8 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
 	collID := chi.URLParam(r, "collectionId")
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	docs, total, err := h.svc.ListDocuments(ctx, projectID, dbID, collID, limit, offset)
+	pg := middleware.ParsePagination(r)
+	docs, total, err := h.svc.ListDocuments(ctx, projectID, dbID, collID, pg.Limit, pg.Offset)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

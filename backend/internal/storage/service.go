@@ -21,11 +21,17 @@ import (
 type Service struct {
 	db          *db.DB
 	storagePath string
+	clamavAddr  string
 }
 
 // NewService creates a new storage Service.
 func NewService(database *db.DB, storagePath string) *Service {
 	return &Service{db: database, storagePath: storagePath}
+}
+
+// SetClamAV configures antivirus scanning.
+func (s *Service) SetClamAV(addr string) {
+	s.clamavAddr = addr
 }
 
 // --- buckets ---
@@ -125,6 +131,17 @@ func (s *Service) DeleteBucket(ctx context.Context, bucketID, projectID string) 
 // --- files ---
 
 func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, name string, content []byte, mimeType string, permissions []string) (*model.File, error) {
+	// Antivirus scan if configured
+	if s.clamavAddr != "" {
+		result, err := ScanWithClamAV(s.clamavAddr, content)
+		if err != nil {
+			return nil, fmt.Errorf("storage: antivirus scan failed: %w", err)
+		}
+		if !result.Clean {
+			return nil, fmt.Errorf("storage: file rejected by antivirus: %s", result.Message)
+		}
+	}
+
 	id := uid.New(fileID)
 	now := time.Now().UTC()
 

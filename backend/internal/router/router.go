@@ -8,11 +8,17 @@ import (
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/databases"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/deploy"
 	"github.com/mittolabs/applad/internal/health"
+	"github.com/mittolabs/applad/internal/locale"
+	"github.com/mittolabs/applad/internal/messaging"
 	mw "github.com/mittolabs/applad/internal/middleware"
 	"github.com/mittolabs/applad/internal/projects"
+	"github.com/mittolabs/applad/internal/queue"
+	"github.com/mittolabs/applad/internal/realtime"
 	"github.com/mittolabs/applad/internal/storage"
 	"github.com/mittolabs/applad/internal/teams"
+	"github.com/mittolabs/applad/internal/workflows"
 )
 
 // New builds and returns the application router.
@@ -24,13 +30,33 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS)
+	r.Use(mw.SecurityHeaders)
+	r.Use(mw.RateLimit(100))
+	r.Use(mw.MaxBodySize(10 << 20))
 
 	projectSvc := projects.NewService(database)
 	authSvc := auth.NewService(database, cfg.JWTSecret)
 	dbSvc := databases.NewService(database)
 	storageSvc := storage.NewService(database, cfg.StoragePath)
 	teamSvc := teams.NewService(database)
+	deploySvc := deploy.NewService(database)
 	healthHandler := health.NewHandler(database, cacheClient)
+	messagingSvc := messaging.NewService(messaging.Config{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		Username: cfg.SMTPUser,
+		Password: cfg.SMTPPass,
+		From:     cfg.SMTPFrom,
+	})
+
+	// Realtime hub
+	hub := realtime.NewHub()
+	realtimeHandler := realtime.NewHandler(hub)
+
+	// Workflows
+	workflowQueue := queue.New(cacheClient.Client())
+	workflowSvc := workflows.NewService(database, workflowQueue)
+	workflowHandler := workflows.NewHandler(workflowSvc)
 
 	r.Route("/v1", func(r chi.Router) {
 		// Health — no auth required
@@ -38,6 +64,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 
 		// Projects — no project header needed (these manage projects)
 		r.Mount("/projects", projects.Routes(projects.NewHandler(projectSvc)))
+
+		// Locale — no auth required
+		r.Mount("/locale", locale.Routes(locale.NewHandler()))
 
 		// All service routes require X-Applad-Project header + optional auth
 		r.Group(func(r chi.Router) {
@@ -47,6 +76,12 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			// Account (client-side) — some public, some require auth
 			r.Mount("/account", auth.AccountRoutes(auth.NewHandler(authSvc)))
 
+			// Realtime WebSocket — auth optional
+			r.Mount("/realtime", realtime.Routes(realtimeHandler))
+
+			// Workflow webhook trigger — no auth required, resolves project from workflow ID
+			r.Mount("/workflows/webhooks", workflows.WebhookRoutes(workflowHandler))
+
 			// Server-side routes — require auth
 			r.Group(func(r chi.Router) {
 				r.Use(mw.RequireAuth)
@@ -54,6 +89,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/teams", teams.Routes(teams.NewHandler(teamSvc)))
 				r.Mount("/databases", databases.Routes(databases.NewHandler(dbSvc)))
 				r.Mount("/storage", storage.Routes(storage.NewHandler(storageSvc)))
+				r.Mount("/messaging", messaging.Routes(messaging.NewHandler(messagingSvc)))
+				r.Mount("/deploy", deploy.Routes(deploy.NewHandler(deploySvc)))
+				r.Mount("/workflows", workflows.Routes(workflowHandler))
 			})
 		})
 	})

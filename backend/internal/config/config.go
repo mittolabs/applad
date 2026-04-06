@@ -9,6 +9,11 @@ type Config struct {
 	JWTSecret   string
 	StoragePath string
 	AppEnv      string
+	SMTPHost    string
+	SMTPPort    string
+	SMTPUser    string
+	SMTPPass    string
+	SMTPFrom    string
 }
 
 func Load() *Config {
@@ -19,6 +24,11 @@ func Load() *Config {
 		JWTSecret:   getEnv("JWT_SECRET", "change-me-in-production"),
 		StoragePath: getEnv("STORAGE_PATH", "/var/applad/storage"),
 		AppEnv:      getEnv("APP_ENV", "development"),
+		SMTPHost:    getEnv("SMTP_HOST", ""),
+		SMTPPort:    getEnv("SMTP_PORT", "587"),
+		SMTPUser:    getEnv("SMTP_USER", ""),
+		SMTPPass:    getEnv("SMTP_PASS", ""),
+		SMTPFrom:    getEnv("SMTP_FROM", "noreply@applad.local"),
 	}
 }
 

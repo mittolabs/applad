@@ -5,3 +5,4 @@ export { Storage } from './storage';
 export { Deploy } from './deploy';
 export { Realtime } from './realtime';
 export { Messaging } from './messaging';
+export { Workflows } from './workflows';

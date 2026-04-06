@@ -3,7 +3,6 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -343,10 +342,9 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	pg := middleware.ParsePagination(r)
 	search := r.URL.Query().Get("search")
-	users, total, err := h.svc.ListUsers(ctx, projectID, limit, offset, search)
+	users, total, err := h.svc.ListUsers(ctx, projectID, pg.Limit, pg.Offset, search)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

@@ -8,3 +8,4 @@ export 'src/storage.dart';
 export 'src/deploy.dart';
 export 'src/realtime.dart';
 export 'src/messaging.dart';
+export 'src/workflows.dart';

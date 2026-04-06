@@ -1,0 +1,708 @@
+openapi: 3.0.3
+info:
+  title: Applad API
+  version: 1.0.0
+  description: Self-hosted Backend-as-a-Service API
+  license:
+    name: BSD-3-Clause
+
+servers:
+  - url: /v1
+    description: Default (relative)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Applad-Key
+  parameters:
+    projectHeader:
+      name: X-Applad-Project
+      in: header
+      required: true
+      schema:
+        type: string
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        code:
+          type: integer
+        type:
+          type: string
+        version:
+          type: string
+    Project:
+      type: object
+      properties:
+        $id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        $createdAt:
+          type: string
+          format: date-time
+        $updatedAt:
+          type: string
+          format: date-time
+    User:
+      type: object
+      properties:
+        $id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        emailVerification:
+          type: boolean
+        phoneVerification:
+          type: boolean
+        status:
+          type: boolean
+        labels:
+          type: array
+          items:
+            type: string
+        prefs:
+          type: object
+        $createdAt:
+          type: string
+          format: date-time
+        $updatedAt:
+          type: string
+          format: date-time
+    Session:
+      type: object
+      properties:
+        $id:
+          type: string
+        userId:
+          type: string
+        provider:
+          type: string
+        ip:
+          type: string
+        userAgent:
+          type: string
+        expire:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+        $createdAt:
+          type: string
+          format: date-time
+    Database:
+      type: object
+      properties:
+        $id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        $createdAt:
+          type: string
+          format: date-time
+        $updatedAt:
+          type: string
+          format: date-time
+    Collection:
+      type: object
+      properties:
+        $id:
+          type: string
+        databaseId:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        documentSecurity:
+          type: boolean
+        $permissions:
+          type: array
+          items:
+            type: string
+        attributes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attribute'
+        indexes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Index'
+        $createdAt:
+          type: string
+          format: date-time
+        $updatedAt:
+          type: string
+          format: date-time
+    Attribute:
+      type: object
+      properties:
+        key:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+        required:
+          type: boolean
+        array:
+          type: boolean
+        default: {}
+    Index:
+      type: object
+      properties:
+        key:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+        attributes:
+          type: array
+          items:
+            type: string
+        orders:
+          type: array
+          items:
+            type: string
+    Document:
+      type: object
+      properties:
+        $id:
+          type: string
+        $collectionId:
+          type: string
+        $databaseId:
+          type: string
+        $permissions:
+          type: array
+          items:
+            type: string
+        $createdAt:
+          type: string
+          format: date-time
+        $updatedAt:
+          type: string
+          format: date-time
+      additionalProperties: true
+    Bucket:
+      type: object
+      properties:
+        $id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        $permissions:
+          type: array
+          items:
+            type: string
+        maximumFileSize:
+          type: integer
+        allowedFileExtensions:
+          type: array
+          items:
+            type: string
+        compression:
+          type: string
+        encryption:
+          type: boolean
+        antivirus:
+          type: boolean
+        $createdAt:
+          type: string
+          format: date-time
+        $updatedAt:
+          type: string
+          format: date-time
+    File:
+      type: object
+      properties:
+        $id:
+          type: string
+        bucketId:
+          type: string
+        name:
+          type: string
+        mimeType:
+          type: string
+        sizeOriginal:
+          type: integer
+        $permissions:
+          type: array
+          items:
+            type: string
+        $createdAt:
+          type: string
+          format: date-time
+        $updatedAt:
+          type: string
+          format: date-time
+    Team:
+      type: object
+      properties:
+        $id:
+          type: string
+        name:
+          type: string
+        total:
+          type: integer
+        prefs:
+          type: object
+        $createdAt:
+          type: string
+          format: date-time
+        $updatedAt:
+          type: string
+          format: date-time
+    APIKey:
+      type: object
+      properties:
+        $id:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+        secret:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expire:
+          type: string
+          format: date-time
+          nullable: true
+        $createdAt:
+          type: string
+          format: date-time
+
+paths:
+  /health:
+    get:
+      summary: Server health check
+      tags: [Health]
+      responses:
+        '200':
+          description: Healthy
+  /health/db:
+    get:
+      summary: Database health check
+      tags: [Health]
+      responses:
+        '200':
+          description: Database reachable
+  /health/cache:
+    get:
+      summary: Cache health check
+      tags: [Health]
+      responses:
+        '200':
+          description: Redis reachable
+
+  /projects:
+    get:
+      summary: List projects
+      tags: [Projects]
+      responses:
+        '200':
+          description: Project list
+    post:
+      summary: Create project
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /projects/{projectId}:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get project
+      tags: [Projects]
+      responses:
+        '200':
+          description: Project details
+    patch:
+      summary: Update project
+      tags: [Projects]
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete project
+      tags: [Projects]
+      responses:
+        '204':
+          description: Deleted
+
+  /projects/{projectId}/keys:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List API keys
+      tags: [Projects]
+      responses:
+        '200':
+          description: Key list
+    post:
+      summary: Create API key
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Key created (secret returned only once)
+
+  /account:
+    get:
+      summary: Get current account
+      tags: [Account]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+    post:
+      summary: Create account
+      tags: [Account]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                userId:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Account created
+    delete:
+      summary: Delete account
+      tags: [Account]
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+
+  /account/sessions/email:
+    post:
+      summary: Create email session (login)
+      tags: [Account]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '201':
+          description: Session created
+
+  /account/sessions/anonymous:
+    post:
+      summary: Create anonymous session
+      tags: [Account]
+      responses:
+        '201':
+          description: Anonymous session created
+
+  /account/sessions:
+    get:
+      summary: List sessions
+      tags: [Account]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Session list
+    delete:
+      summary: Delete all sessions
+      tags: [Account]
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: All sessions deleted
+
+  /databases:
+    get:
+      summary: List databases
+      tags: [Databases]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Database list
+    post:
+      summary: Create database
+      tags: [Databases]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                databaseId:
+                  type: string
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Database created
+
+  /databases/{databaseId}/collections:
+    parameters:
+      - name: databaseId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List collections
+      tags: [Databases]
+      responses:
+        '200':
+          description: Collection list
+    post:
+      summary: Create collection
+      tags: [Databases]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                collectionId:
+                  type: string
+                name:
+                  type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+                documentSecurity:
+                  type: boolean
+      responses:
+        '201':
+          description: Collection created
+
+  /databases/{databaseId}/collections/{collectionId}/documents:
+    parameters:
+      - name: databaseId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: collectionId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List documents
+      tags: [Databases]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Document list
+    post:
+      summary: Create document
+      tags: [Databases]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                documentId:
+                  type: string
+                data:
+                  type: object
+                permissions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Document created
+
+  /storage/buckets:
+    get:
+      summary: List buckets
+      tags: [Storage]
+      responses:
+        '200':
+          description: Bucket list
+    post:
+      summary: Create bucket
+      tags: [Storage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                bucketId:
+                  type: string
+                name:
+                  type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+                maximumFileSize:
+                  type: integer
+                allowedFileExtensions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Bucket created
+
+  /storage/buckets/{bucketId}/files:
+    parameters:
+      - name: bucketId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List files
+      tags: [Storage]
+      responses:
+        '200':
+          description: File list
+    post:
+      summary: Upload file
+      tags: [Storage]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                fileId:
+                  type: string
+                file:
+                  type: string
+                  format: binary
+                permissions:
+                  type: string
+      responses:
+        '201':
+          description: File uploaded
+
+  /messaging/email:
+    post:
+      summary: Send email
+      tags: [Messaging]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, subject]
+              properties:
+                to:
+                  type: array
+                  items:
+                    type: string
+                subject:
+                  type: string
+                html:
+                  type: string
+      responses:
+        '200':
+          description: Email sent
