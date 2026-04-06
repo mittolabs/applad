@@ -21,6 +21,13 @@ sdks/js/dist/
 sdks/node/node_modules/
 sdks/node/dist/
 
+# Python
+sdks/python/*.egg-info/
+sdks/python/dist/
+sdks/python/build/
+__pycache__/
+*.pyc
+
 # Docker
 docker/.env
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/model"
+	"github.com/mittolabs/applad/internal/realtime"
 	"github.com/mittolabs/applad/internal/uid"
 )
 
@@ -29,11 +30,17 @@ type Service struct {
 	db          *db.DB
 	storagePath string
 	clamavAddr  string
+	events      realtime.EventPublisher
 }
 
 // NewService creates a new storage Service.
 func NewService(database *db.DB, storagePath string) *Service {
 	return &Service{db: database, storagePath: storagePath}
+}
+
+// SetEventPublisher sets the realtime event publisher.
+func (s *Service) SetEventPublisher(pub realtime.EventPublisher) {
+	s.events = pub
 }
 
 // SetClamAV configures antivirus scanning.
@@ -174,12 +181,14 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 		return nil, fmt.Errorf("storage: create file record: %w", err)
 	}
 
-	return &model.File{
+	f := &model.File{
 		ID: id, BucketID: bucketID, Name: name,
 		MimeType: mimeType, SizeOriginal: int64(len(content)),
 		Signature: sig, Permissions: permissions,
 		CreatedAt: now, UpdatedAt: now,
-	}, nil
+	}
+	realtime.PublishResourceEvent(s.events, "storage", "files", "create", projectID, id, f)
+	return f, nil
 }
 
 func (s *Service) GetFile(ctx context.Context, fileID, bucketID, projectID string) (*model.File, error) {
@@ -408,5 +417,6 @@ func (s *Service) DeleteFile(ctx context.Context, fileID, bucketID, projectID st
 	_, _ = s.db.ExecContext(ctx,
 		"DELETE FROM files WHERE id = ? AND bucket_id = ? AND project_id = ?", fileID, bucketID, projectID)
 	os.Remove(path) //nolint:errcheck
+	realtime.PublishResourceEvent(s.events, "storage", "files", "delete", projectID, fileID, map[string]string{"$id": fileID})
 	return nil
 }

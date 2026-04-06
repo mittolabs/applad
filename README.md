@@ -6,157 +6,387 @@
 
 <p align="center">
   Open-source backend-as-a-service with a built-in workflow automation engine.<br/>
-  Self-hosted. Flutter Web console. Go backend.
+  Self-hosted. Flutter Web console. Go backend. One <code>docker compose up</code>.
 </p>
 
 ---
 
 ## What is Applad?
 
-Applad is a self-hosted, open-source backend-as-a-service — Auth, Databases, Storage, Serverless Functions, Realtime, and Messaging — combined with a full workflow automation engine, all managed through a **Flutter Web admin console** as its primary differentiator.
+Applad is a self-hosted, open-source backend-as-a-service: **Auth, Databases, Storage, Functions, Realtime, Messaging, and Workflows** — managed through a Flutter Web admin console.
 
-One Docker Compose command. Your data. Your infrastructure.
+Your data. Your infrastructure. No vendor lock-in.
 
 ---
 
 ## Services
 
-| Service | Description |
+| Service | What you get |
 |---|---|
-| **Auth** | Email/password, OAuth2 (45+ providers), magic link, phone OTP, anonymous sessions, MFA, Teams |
-| **Databases (TablesDB)** | Collections, typed attributes, indexes, document CRUD, full query operators, atomic ops, relationships |
-| **Storage** | Buckets, chunked file upload, image transformations, encryption, antivirus |
-| **Deploy** | Universal deployment — serverless functions, web apps, mobile builds, containers |
-| **Realtime** | WebSocket event subscriptions across all services |
-| **Messaging** | Email (Mailgun, Sendgrid, SMTP, Resend), SMS (Twilio, Vonage, MSG91), Push (FCM, APNS) |
-| **Workflows** | Full workflow automation engine — triggers, logic nodes, AI/LangChain, Applad-native nodes |
-| **Locale** | IP-based locale, countries, currencies, languages |
-| **Health** | Service health endpoints for all dependencies |
+| **Auth** | Email/password, OAuth2 (Google, GitHub, Apple), magic link, anonymous sessions, MFA (TOTP), email verification, password reset, teams & memberships |
+| **Databases** | Collections, typed attributes (string, integer, float, boolean, email, URL, datetime, enum), indexes, documents with 12 query operators, cursor pagination |
+| **Storage** | Buckets, single + chunked file upload, image transformations (resize, format conversion), encryption, ClamAV antivirus |
+| **Functions** | Container-based serverless: Node.js, Bun, Python, Go, Dart, Rust, Ruby, PHP, or any custom Dockerfile. Pre-warmed containers, HTTP invocation |
+| **Realtime** | WebSocket pub/sub with channel subscriptions |
+| **Messaging** | Email (SMTP), SMS (Twilio), push notifications (FCM), topics & subscribers |
+| **Workflows** | Native DAG engine: manual/webhook/cron triggers, HTTP requests, conditions, delays, code nodes, execution history |
+| **Avatars** | Generated initials, QR codes, credit card icons, country flags, favicon proxy |
+| **Locale** | 196 countries, 50+ currencies, 50+ languages, phone codes |
+| **Health** | Database, cache, and service health checks |
 
 ---
 
-## The Deploy Service
+## Quick Start
 
-Applad unifies Functions and Sites into a single **Deploy** service. Every deployable artifact — a serverless function, a web app, a Flutter mobile app, a background container — follows the same model:
+### Prerequisites
 
-**Target** (where to deploy + runtime) + **Pipeline** (how to build) + **Release** (one deployment attempt)
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
 
-### Serverless Targets
-- Invoke via HTTP, cron, Realtime event, or webhook
-- Runtimes: Node.js, Bun, Python, Go, Dart, Ruby, PHP, Java, Kotlin, Swift, .NET, C++
-- Sync and async execution, streaming logs
+### Run
 
-### Web Targets
-- Static hosting with CDN, custom domains, automatic SSL
-- Framework auto-detection: Next.js, SvelteKit, Nuxt, Astro, Remix, Angular, Flutter Web
-- Branch preview deployments
+```bash
+git clone https://github.com/mittolabs/applad
+cd applad
+cp .env.example .env
+# Edit .env — at minimum set JWT_SECRET to a strong random value
+docker compose up -d
+```
 
-### Mobile Targets
-- Android (APK/AAB → Play Store, Firebase App Distribution)
-- iOS (IPA → App Store Connect, TestFlight) — requires macOS build agent
-- Build agents: register any macOS/Linux machine with `applad agent start`
+Open `http://localhost` in your browser. You'll see the signup screen — create your admin account and follow the onboarding stepper.
 
-### Container Targets
-- Dockerfile builds, multi-platform (amd64/arm64)
-- Push to Applad registry, Docker Hub, ghcr.io, ECR, GAR
-- Deploy to Fly.io, Railway, Cloud Run, ECS, DigitalOcean, or generic SSH
+### What starts
+
+| Service | Port | Description |
+|---|---|---|
+| **proxy** | 80 | Nginx reverse proxy — routes to API and console |
+| **api** | 8080 (internal) | Go API server with all services |
+| **console** | 3000 (internal) | Flutter Web admin UI |
+| **mariadb** | 3306 (internal) | Primary database |
+| **redis** | 6379 (internal) | Cache, pub/sub, job queues |
+| **10 workers** | — | Background processors (builds, deletes, executions, webhooks, etc.) |
+
+### Backend only (skip Flutter build)
+
+```bash
+docker compose up api mariadb redis proxy -d
+```
+
+---
+
+## Console Walkthrough
+
+1. **Sign up** — First user creates the admin account. Signup auto-disables after that (configurable via `CONSOLE_SIGNUP_ENABLED`).
+2. **Onboarding** — Create your first project, generate an API key, get SDK install snippets.
+3. **Overview** — Usage dashboard showing resource counts across all services.
+4. **Databases** — Create databases, collections, define attributes and indexes, browse documents.
+5. **Storage** — Manage buckets, upload/download files, preview images with transformations.
+6. **Auth** — Manage users, view sessions, create accounts.
+7. **Functions** — *(coming to console soon — API fully operational)*
+8. **Deploy** — Manage deployments with status lifecycle.
+9. **Messaging** — Send emails, SMS, push notifications.
+10. **Workflows** — Build automation flows with triggers, nodes, conditions. Execute and view step-by-step logs.
+11. **Settings** — Project management, API key creation.
+
+---
+
+## Functions Runtime
+
+Applad runs functions as **standard HTTP containers**. No proprietary SDK required — if it can serve HTTP, it's a function.
+
+### Built-in runtimes
+
+| Runtime | Base image |
+|---|---|
+| `node-18`, `node-20`, `node-22` | `node:XX-alpine` |
+| `bun-1` | `oven/bun:alpine` |
+| `python-3.11`, `python-3.12` | `python:3.XX-alpine` |
+| `go-1.22` | `golang:1.22-alpine` |
+| `dart-3` | `dart:stable` |
+| `rust-1` | `rust:alpine` |
+| `ruby-3` | `ruby:3-alpine` |
+| `php-8` | `php:8-alpine` |
+| `custom` | Your own Dockerfile |
+
+### How it works
+
+**Simple path** — Write a handler function. Applad wraps it in an HTTP server automatically:
+
+```javascript
+// Node.js — just export a function
+module.exports = async function(payload) {
+  return { message: `Hello ${payload.name}!` };
+};
+```
+
+```python
+# Python — define a handler function
+def handler(payload):
+    return {"message": f"Hello {payload.get('name')}!"}
+```
+
+**Advanced path** — Provide a Dockerfile. Run Express, Flask, Gin, anything:
+
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["node", "server.js"]
+```
+
+### Pre-warming
+
+Functions are built and a warm container is started **at deploy time**, not at first invocation. First request latency: ~10-50ms (warm), not 5-30s (cold).
 
 ---
 
 ## Workflow Engine
 
-Applad ships a native Go workflow engine — no external dependencies. Workflows are defined as a DAG of nodes and executed by the built-in executions worker.
+Native Go DAG executor — no n8n, no external dependencies.
 
-### Capabilities
-- **Triggers** — Manual, Webhook (public URL per workflow), Cron schedule
-- **Action nodes** — HTTP Request, Send Email (SMTP), Set Variable, Code (Go template expressions)
-- **Control flow** — If/Condition (branching with operators: eq, neq, contains, empty, etc.), Delay
-- **Execution engine** — Topological DAG sort, sequential node execution with data passing, per-step logging
-- **API** — Full CRUD on workflows + trigger execution + execution history with step-level logs
-- **Console** — Workflow list with status management, node editor, manual execute, execution history viewer
-
----
-
-## Flutter Web Console
-
-The admin console is a Flutter Web app — the same codebase runs on web, desktop, and mobile. It is a first-class client of Applad's own public REST/GraphQL API with no privileged backdoors.
-
-- Full Auth admin: user search, impersonation, session management, MFA, labels
-- Schema editor: databases, collections, attributes, indexes — live against the API
-- Document explorer with query builder
-- File browser with drag-and-drop upload and preview
-- Deploy console: pipeline wizard, release timeline, live log streaming, one-click rollback
-- Execution log viewer for serverless targets
-- Workflows: create, edit nodes, execute, view execution history with step logs
-- Real-time dashboard stats, usage analytics per service
-
----
-
-## Stack
-
-| Layer | Technology |
-|---|---|
-| Backend | Go |
-| Admin console | Flutter Web |
-| Primary database | MariaDB |
-| Cache / Realtime | Redis |
-| Reverse proxy | OpenResty / Nginx |
-| Workflow engine | Native Go (built-in) |
-| Antivirus | ClamAV (optional) |
-
----
-
-## Self-hosting
-
-```bash
-git clone https://github.com/mittolabs/applad
-cd applad
-docker compose up -d
+```
+Trigger → Node → Node → Node → Result
+              ↘ Node (condition false) → skipped
 ```
 
-Applad is environment-variable driven. A single `docker compose up` brings up all services: API, console, workers, MariaDB, Redis, ClamAV, and the workflow engine.
+### Node types
+
+| Type | Description |
+|---|---|
+| `http_request` | HTTP call with configurable method, URL, headers, body |
+| `send_email` | Send email via SMTP |
+| `set_variable` | Set a key/value in the execution context |
+| `code` | Go template expression evaluation |
+| `if_condition` | Branch based on field comparison (eq, neq, contains, etc.) |
+| `delay` | Wait for a configured duration |
+
+### Triggers
+
+- **Manual** — `POST /v1/workflows/{id}/execute`
+- **Webhook** — `POST /v1/workflows/webhooks/{id}` (public, no auth)
+- **Cron** — Schedule-based (configured in workflow)
 
 ---
 
 ## SDKs
 
-| SDK | Priority |
-|---|---|
-| Flutter / Dart (client) | P1 |
-| JavaScript / TypeScript | P1 |
-| React Native | P1 |
-| Node.js (server) | P2 |
-| Go (server) | P2 |
-| Python (server) | P2 |
-| Dart (server) | P2 |
+### Client-side (session/JWT auth)
+
+```bash
+# Dart / Flutter
+dependencies:
+  applad: ^0.1.0
+
+# JavaScript / TypeScript
+npm install @mittolabs/applad
+```
+
+```dart
+// Dart
+final client = Applad(endpoint: 'https://your-domain.com', projectId: 'your-project');
+final user = await client.auth.createAccount(email: 'user@example.com', password: 'password123');
+```
+
+```typescript
+// JavaScript
+import { Applad } from '@mittolabs/applad';
+const client = new Applad({ endpoint: 'https://your-domain.com', projectId: 'your-project' });
+const user = await client.auth.createAccount('user@example.com', 'password123');
+```
+
+### Server-side (API key auth)
+
+```bash
+# Node.js
+npm install @mittolabs/applad-node
+
+# Dart
+dependencies:
+  applad_dart: ^0.1.0
+```
+
+```typescript
+// Node.js
+import { ApplAdServer } from '@mittolabs/applad-node';
+const server = new ApplAdServer({
+  endpoint: 'https://your-domain.com',
+  projectId: 'your-project',
+  apiKey: 'applad_key_...',
+});
+const users = await server.users.listUsers();
+```
+
+### Available SDK services
+
+| Service | Client (JS) | Client (Dart) | Server (Node) | Server (Dart) |
+|---|---|---|---|---|
+| Auth / Users | auth | auth, users | users | users |
+| Databases | databases | databases | databases | databases |
+| Storage | storage | storage | storage | storage |
+| Functions | functions | functions | functions | functions |
+| Workflows | workflows | workflows | workflows | workflows |
+| Messaging | messaging | messaging | messaging | messaging |
+| Deploy | deploy | deploy | deploy | deploy |
+| Teams | — | — | teams | teams |
+| Avatars | avatars | — | — | — |
+| Locale | locale | — | — | — |
 
 ---
 
-## Build Roadmap
+## Configuration
 
-| Phase | What ships |
+All configuration is via environment variables. Copy `.env.example` and customize:
+
+```bash
+cp .env.example .env
+```
+
+### Core
+
+| Variable | Default | Description |
+|---|---|---|
+| `JWT_SECRET` | — | **Required.** HS256 signing key. Must change from default. |
+| `DATABASE_DSN` | `applad:applad@tcp(mariadb:3306)/applad?parseTime=true` | MariaDB connection |
+| `REDIS_ADDR` | `redis:6379` | Redis connection |
+| `STORAGE_PATH` | `/var/applad/storage` | File storage directory |
+| `APP_ENV` | `development` | `development` or `production` |
+| `PORT` | `8080` | API server port |
+
+### Console
+
+| Variable | Default | Description |
+|---|---|---|
+| `CONSOLE_SIGNUP_ENABLED` | `auto` | `auto` = disabled after first user. `true` = always. `false` = never. |
+
+### Email (SMTP)
+
+| Variable | Default | Description |
+|---|---|---|
+| `SMTP_HOST` | — | SMTP server host |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USER` | — | SMTP username |
+| `SMTP_PASS` | — | SMTP password |
+| `SMTP_FROM` | `noreply@applad.local` | Sender address |
+
+### OAuth2
+
+| Variable | Description |
 |---|---|
-| 1 | Infrastructure — Docker Compose, API gateway, projects, health |
-| 2 | Auth — accounts, sessions, email+password, OAuth2, Teams |
-| 3 | Databases (TablesDB) — CRUD, attributes, indexes, queries, permissions |
-| 4 | Storage — buckets, upload, download |
-| 5 | Deploy — serverless target, Node.js runtime, invocation API |
-| 6 | Realtime — WebSocket subscriptions |
-| 7 | Admin console (Flutter Web) |
-| 8 | Workflows — native Go engine, DAG executor, webhook triggers |
-| 9 | Auth — MFA, full OAuth2 provider list, advanced config |
-| 10 | Messaging — providers, topics, messages |
-| 11 | Locale, Avatars, Health utility services |
-| 12 | Deploy — Web, Mobile, Container targets |
-| 13 | Migrations, SDKs |
-| 14 | Workflows Phase 2 — native Go engine, native Flutter canvas |
+| `OAUTH_GOOGLE_CLIENT_ID` | Google OAuth2 client ID |
+| `OAUTH_GOOGLE_CLIENT_SECRET` | Google OAuth2 client secret |
+| `OAUTH_GITHUB_CLIENT_ID` | GitHub OAuth2 client ID |
+| `OAUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth2 client secret |
+| `OAUTH_APPLE_CLIENT_ID` | Apple Sign-In client ID |
+| `OAUTH_APPLE_CLIENT_SECRET` | Apple Sign-In client secret |
+
+### Messaging providers
+
+| Variable | Description |
+|---|---|
+| `TWILIO_SID` | Twilio Account SID for SMS |
+| `TWILIO_TOKEN` | Twilio Auth Token |
+| `TWILIO_FROM` | Twilio sender phone number |
+| `FCM_SERVER_KEY` | Firebase Cloud Messaging server key |
+
+---
+
+## API Reference
+
+All endpoints under `/v1`. Full OpenAPI spec at `backend/api/openapi.yaml`.
+
+| Route | Auth | Description |
+|---|---|---|
+| `/health` | None | Health checks (server, DB, cache) |
+| `/console` | None / Console JWT | Admin signup, login, session |
+| `/projects` | None | Project CRUD + API keys + usage stats |
+| `/avatars` | None | Generated images (initials, QR, flags) |
+| `/locale` | None | Countries, currencies, languages |
+| `/account` | Project header | Client-side auth (signup, login, OAuth2, MFA, magic link, verification, recovery) |
+| `/users` | Project + Auth | Server-side user management |
+| `/teams` | Project + Auth | Teams and memberships |
+| `/databases` | Project + Auth | Databases, collections, attributes, indexes, documents with query operators |
+| `/storage` | Project + Auth | Buckets, files, chunked upload, image preview |
+| `/functions` | Project + Auth | Functions CRUD, execution, runtimes list |
+| `/messaging` | Project + Auth | Email, SMS, push, topics |
+| `/deploy` | Project + Auth | Deployment management |
+| `/workflows` | Project + Auth | Workflow CRUD, execute, execution history |
+| `/workflows/webhooks/{id}` | Project header | Public webhook trigger |
+| `/realtime` | Project header | WebSocket connection |
+
+---
+
+## Architecture
+
+```
+                    ┌─────────┐
+                    │  Proxy  │ :80
+                    └────┬────┘
+                    ┌────┴────┐
+              ┌─────┤  Routes ├─────┐
+              │     └─────────┘     │
+        ┌─────▼─────┐        ┌─────▼─────┐
+        │  API :8080 │        │  Console  │
+        └─────┬─────┘        └───────────┘
+              │
+    ┌─────────┼──────────┐
+    │         │          │
+┌───▼───┐ ┌──▼──┐ ┌─────▼─────┐
+│MariaDB│ │Redis│ │ 10 Workers│
+└───────┘ └─────┘ └───────────┘
+```
+
+- **Go backend** — single binary, chi router, 14 service packages
+- **MariaDB** — primary store, 7 migrations, JSON document storage
+- **Redis** — cache, pub/sub (realtime), job queues (workers)
+- **10 workers** — builds, certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks
+- **Flutter console** — Riverpod + GoRouter, 8 feature pages + overview + onboarding
+
+---
+
+## Development
+
+### Prerequisites
+
+- Go 1.22+
+- Flutter 3.22+ / Dart 3.3+
+- Node.js 18+ (for JS SDK)
+- Docker
+
+### Backend
+
+```bash
+cd backend
+go build ./...          # compile
+go test ./...           # unit tests
+go vet ./...            # lint
+gofmt -w .              # format
+```
+
+### Console + Dart SDK
+
+```bash
+make bootstrap          # first time: melos + npm install
+melos analyze           # lint all Dart packages
+melos test              # test all Dart packages
+melos build:web         # build Flutter console for production
+```
+
+### TypeScript SDK
+
+```bash
+cd sdks/js && npm install && npm run build && npm test
+```
+
+### Node.js Server SDK
+
+```bash
+cd sdks/node && npm install && npm run build
+```
 
 ---
 
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).
-
----
-
-*Spec: Applad v1.0*

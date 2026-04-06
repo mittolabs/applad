@@ -12,17 +12,24 @@ import (
 
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/model"
+	"github.com/mittolabs/applad/internal/realtime"
 	"github.com/mittolabs/applad/internal/uid"
 )
 
 // Service handles database/collection/document business logic.
 type Service struct {
-	db *db.DB
+	db     *db.DB
+	events realtime.EventPublisher
 }
 
 // NewService creates a new databases Service.
 func NewService(database *db.DB) *Service {
 	return &Service{db: database}
+}
+
+// SetEventPublisher sets the realtime event publisher for auto-publishing.
+func (s *Service) SetEventPublisher(pub realtime.EventPublisher) {
+	s.events = pub
 }
 
 // --- databases ---
@@ -281,6 +288,71 @@ func (s *Service) DeleteIndex(ctx context.Context, collID, key string) error {
 	return err
 }
 
+// --- relationships ---
+
+// Relationship represents a link between two collections.
+type Relationship struct {
+	ID                 string `json:"$id"`
+	CollectionID       string `json:"collectionId"`
+	RelatedCollection  string `json:"relatedCollectionId"`
+	Type               string `json:"type"` // oneToOne, oneToMany, manyToOne, manyToMany
+	TwoWay             bool   `json:"twoWay"`
+	Key                string `json:"key"`
+	TwoWayKey          string `json:"twoWayKey,omitempty"`
+	OnDelete           string `json:"onDelete"` // setNull, cascade, restrict
+}
+
+func (s *Service) CreateRelationship(ctx context.Context, collID, relatedCollID, relType, key, twoWayKey, onDelete string, twoWay bool) (*Relationship, error) {
+	id := uid.New("unique()")
+	if onDelete == "" {
+		onDelete = "setNull"
+	}
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO collection_relationships (id, collection_id, related_collection, relationship_type, two_way, ` + "`key`" + `, two_way_key, on_delete)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, collID, relatedCollID, relType, twoWay, key, twoWayKey, onDelete)
+	if err != nil {
+		return nil, fmt.Errorf("relationships: create: %w", err)
+	}
+
+	return &Relationship{
+		ID: id, CollectionID: collID, RelatedCollection: relatedCollID,
+		Type: relType, TwoWay: twoWay, Key: key, TwoWayKey: twoWayKey, OnDelete: onDelete,
+	}, nil
+}
+
+func (s *Service) ListRelationships(ctx context.Context, collID string) ([]Relationship, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, collection_id, related_collection, relationship_type, two_way, `key`, two_way_key, on_delete FROM collection_relationships WHERE collection_id = ?",
+		collID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rels []Relationship
+	for rows.Next() {
+		var r Relationship
+		var twoWayKey sql.NullString
+		if err := rows.Scan(&r.ID, &r.CollectionID, &r.RelatedCollection, &r.Type, &r.TwoWay, &r.Key, &twoWayKey, &r.OnDelete); err != nil {
+			return nil, err
+		}
+		r.TwoWayKey = twoWayKey.String
+		rels = append(rels, r)
+	}
+	if rels == nil {
+		rels = []Relationship{}
+	}
+	return rels, nil
+}
+
+func (s *Service) DeleteRelationship(ctx context.Context, collID, relID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM collection_relationships WHERE id = ? AND collection_id = ?", relID, collID)
+	return err
+}
+
 // --- documents ---
 
 func (s *Service) CreateDocument(ctx context.Context, projectID, dbID, collID, docID string, data map[string]interface{}, permissions []string) (*model.Document, error) {
@@ -297,11 +369,13 @@ func (s *Service) CreateDocument(ctx context.Context, projectID, dbID, collID, d
 	if err != nil {
 		return nil, fmt.Errorf("documents: create: %w", err)
 	}
-	return &model.Document{
+	doc := &model.Document{
 		ID: id, CollectionID: collID, DatabaseID: dbID,
 		Permissions: permissions, Data: data,
 		CreatedAt: now, UpdatedAt: now,
-	}, nil
+	}
+	realtime.PublishResourceEvent(s.events, "databases", "documents", "create", projectID, id, doc)
+	return doc, nil
 }
 
 func (s *Service) GetDocument(ctx context.Context, docID, collID, dbID, projectID string) (*model.Document, error) {
@@ -474,12 +548,19 @@ func (s *Service) UpdateDocument(ctx context.Context, docID, collID, dbID, proje
 	if err != nil {
 		return nil, err
 	}
-	return s.GetDocument(ctx, docID, collID, dbID, projectID)
+	doc, err := s.GetDocument(ctx, docID, collID, dbID, projectID)
+	if err == nil {
+		realtime.PublishResourceEvent(s.events, "databases", "documents", "update", projectID, docID, doc)
+	}
+	return doc, err
 }
 
 func (s *Service) DeleteDocument(ctx context.Context, docID, collID, dbID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
 		"DELETE FROM documents WHERE id = ? AND collection_id = ? AND database_id = ? AND project_id = ?",
 		docID, collID, dbID, projectID)
+	if err == nil {
+		realtime.PublishResourceEvent(s.events, "databases", "documents", "delete", projectID, docID, map[string]string{"$id": docID})
+	}
 	return err
 }

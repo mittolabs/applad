@@ -1,10 +1,10 @@
 .PHONY: up down build test fmt
 
 up:
-	docker compose -f docker/docker-compose.yml up -d
+	docker compose up -d
 
 down:
-	docker compose -f docker/docker-compose.yml down
+	docker compose down
 
 build: build-backend build-console
 

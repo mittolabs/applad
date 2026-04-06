@@ -70,6 +70,11 @@ class AppShell extends ConsumerWidget {
                 label: Text('Deploy'),
               ),
               NavigationRailDestination(
+                icon: Icon(Icons.functions_outlined),
+                selectedIcon: Icon(Icons.functions),
+                label: Text('Functions'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.mail_outlined),
                 selectedIcon: Icon(Icons.mail),
                 label: Text('Messaging'),
@@ -138,6 +143,7 @@ class AppShell extends ConsumerWidget {
       '/storage',
       '/auth',
       '/deploy',
+      '/functions',
       '/messaging',
       '/workflows',
       '/settings',
@@ -153,6 +159,7 @@ class AppShell extends ConsumerWidget {
       '/storage',
       '/auth',
       '/deploy',
+      '/functions',
       '/messaging',
       '/workflows',
       '/settings',

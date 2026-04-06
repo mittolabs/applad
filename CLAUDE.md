@@ -16,7 +16,7 @@ make down        # docker compose down
 
 To bring up only the backend (skips the slow Flutter console build):
 ```bash
-docker compose -f docker/docker-compose.yml up api mariadb redis proxy
+docker compose up api mariadb redis proxy
 ```
 
 ### Backend (Go)

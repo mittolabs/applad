@@ -1,0 +1,210 @@
+version: "3.9"
+
+x-worker-build: &worker-build
+  context: ./backend
+  dockerfile: ../docker/worker/Dockerfile
+
+x-worker-env: &worker-env
+  DATABASE_DSN: "applad:applad@tcp(mariadb:3306)/applad?parseTime=true"
+  REDIS_ADDR: "redis:6379"
+  STORAGE_PATH: "/var/applad/storage"
+  APP_ENV: "${APP_ENV:-development}"
+  SMTP_HOST: "${SMTP_HOST:-}"
+  SMTP_PORT: "${SMTP_PORT:-587}"
+  SMTP_USER: "${SMTP_USER:-}"
+  SMTP_PASS: "${SMTP_PASS:-}"
+  SMTP_FROM: "${SMTP_FROM:-noreply@applad.local}"
+
+x-worker-deps: &worker-deps
+  mariadb:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+x-worker-volumes: &worker-volumes
+  - storage_data:/var/applad/storage
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: ../docker/api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_DSN: "applad:applad@tcp(mariadb:3306)/applad?parseTime=true"
+      REDIS_ADDR: "redis:6379"
+      JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      STORAGE_PATH: "/var/applad/storage"
+      APP_ENV: "${APP_ENV:-development}"
+    volumes:
+      - storage_data:/var/applad/storage
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  console:
+    build:
+      context: .
+      dockerfile: docker/console/Dockerfile
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+  proxy:
+    image: openresty/openresty:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ssl_certs:/etc/ssl/applad
+    depends_on:
+      - api
+      - console
+    restart: unless-stopped
+
+  worker-builds:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: builds
+    environment: *worker-env
+    volumes:
+      - storage_data:/var/applad/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-certificates:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: certificates
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-databases:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: databases
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-deletes:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: deletes
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-executions:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: executions
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-mails:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: mails
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-messaging:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: messaging
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-migrations:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: migrations
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-usage:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: usage
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-webhooks:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: webhooks
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  mariadb:
+    image: mariadb:11.2
+    environment:
+      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-root}"
+      MARIADB_DATABASE: "applad"
+      MARIADB_USER: "applad"
+      MARIADB_PASSWORD: "${DB_PASSWORD:-applad}"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./docker/mariadb/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav_data:/var/lib/clamav
+    profiles:
+      - antivirus
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  redis_data:
+  storage_data:
+  ssl_certs:
+  clamav_data:

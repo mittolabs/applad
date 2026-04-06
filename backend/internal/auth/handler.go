@@ -12,10 +12,21 @@ import (
 	"github.com/mittolabs/applad/internal/middleware"
 )
 
+// EmailSender sends emails for auth flows.
+type EmailSender interface {
+	SendEmail(ctx context.Context, to []string, subject, htmlBody string) error
+}
+
 // Handler handles HTTP requests for auth.
 type Handler struct {
 	svc            *Service
 	oauthProviders map[string]OAuthProvider
+	mailer         EmailSender
+}
+
+// SetMailer sets the email sender for auth flows (magic link, verification, reset).
+func (h *Handler) SetMailer(m EmailSender) {
+	h.mailer = m
 }
 
 // OAuthProvider is the interface for OAuth2 provider operations.
@@ -577,8 +588,18 @@ func (h *Handler) createMagicLink(w http.ResponseWriter, r *http.Request) {
 		apperr.Internal(w, err)
 		return
 	}
-	// In production, send token via email. For now return it.
-	writeJSON(w, http.StatusCreated, map[string]string{"token": token})
+
+	// Send magic link email
+	if h.mailer != nil {
+		link := token
+		if body.URL != "" {
+			link = body.URL + "?secret=" + token
+		}
+		html := fmt.Sprintf(`<h2>Sign in to Applad</h2><p>Click the link below to sign in:</p><p><a href="%s">Sign In</a></p><p>This link expires in 15 minutes.</p>`, link)
+		h.mailer.SendEmail(r.Context(), []string{body.Email}, "Sign in to Applad", html)
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "sent"})
 }
 
 func (h *Handler) redeemMagicLink(w http.ResponseWriter, r *http.Request) {
@@ -619,7 +640,22 @@ func (h *Handler) createEmailVerification(w http.ResponseWriter, r *http.Request
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"token": token})
+
+	// Send verification email
+	if h.mailer != nil {
+		// Get user email
+		user, _ := h.svc.GetAccount(r.Context(), body.UserID, projectID)
+		if user != nil && user.Email != "" {
+			link := token
+			if body.URL != "" {
+				link = body.URL + "?secret=" + token
+			}
+			html := fmt.Sprintf(`<h2>Verify your email</h2><p>Click the link below to verify your email address:</p><p><a href="%s">Verify Email</a></p><p>This link expires in 24 hours.</p>`, link)
+			h.mailer.SendEmail(r.Context(), []string{user.Email}, "Verify your email", html)
+		}
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "sent"})
 }
 
 func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
@@ -656,7 +692,17 @@ func (h *Handler) createPasswordReset(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, map[string]string{"status": "sent"})
 		return
 	}
-	_ = token // In production, send via email
+
+	// Send password reset email
+	if h.mailer != nil {
+		link := token
+		if body.URL != "" {
+			link = body.URL + "?secret=" + token
+		}
+		html := fmt.Sprintf(`<h2>Reset your password</h2><p>Click the link below to reset your password:</p><p><a href="%s">Reset Password</a></p><p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>`, link)
+		h.mailer.SendEmail(r.Context(), []string{body.Email}, "Reset your password", html)
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "sent"})
 }
 

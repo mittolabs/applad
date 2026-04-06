@@ -63,9 +63,11 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	functionQueue := queue.New(cacheClient.Client())
 	functionSvc := functions.NewService(database, functionQueue)
 
-	// Realtime hub
+	// Realtime hub — wire into services for auto-publishing
 	hub := realtime.NewHub()
 	realtimeHandler := realtime.NewHandler(hub)
+	dbSvc.SetEventPublisher(hub)
+	storageSvc.SetEventPublisher(hub)
 
 	// Workflows
 	workflowQueue := queue.New(cacheClient.Client())
@@ -111,6 +113,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				oauthAdapters[name] = &oauthAdapter{p: p}
 			}
 			authHandler.SetOAuthProviders(oauthAdapters)
+			authHandler.SetMailer(messagingSvc)
 
 			r.Mount("/account", auth.AccountRoutes(authHandler))
 

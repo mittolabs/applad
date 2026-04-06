@@ -5,6 +5,84 @@ import (
 	"strings"
 )
 
+// GenerateDockerfileWithBase creates a Dockerfile that uses a pre-built Applad
+// base image (applad-base-{runtime}) instead of the upstream image. The base
+// image already contains the HTTP wrapper, so the Dockerfile only needs to COPY
+// the user's source file. Falls back to GenerateDockerfile if no base image
+// exists for the given runtime.
+func GenerateDockerfileWithBase(runtime, entrypoint, source string) string {
+	baseName := GetBaseImageName(runtime)
+	if baseName == "" {
+		return GenerateDockerfile(runtime, entrypoint, source)
+	}
+
+	filename := sourceFilename(runtime, entrypoint)
+
+	switch {
+	case strings.HasPrefix(runtime, "node"):
+		// If source has its own server, use the standard Dockerfile
+		if strings.Contains(source, "listen(") || strings.Contains(source, "createServer") {
+			return GenerateDockerfile(runtime, entrypoint, source)
+		}
+		return fmt.Sprintf(`FROM %s
+COPY %s /app/handler.js
+CMD ["node", "wrapper.js"]
+`, baseName, filename)
+
+	case strings.HasPrefix(runtime, "bun"):
+		if strings.Contains(source, "serve") || strings.Contains(source, "listen") {
+			return GenerateDockerfile(runtime, entrypoint, source)
+		}
+		return fmt.Sprintf(`FROM %s
+COPY %s /app/handler.ts
+CMD ["bun", "run", "wrapper.ts"]
+`, baseName, filename)
+
+	case strings.HasPrefix(runtime, "python"):
+		if strings.Contains(source, "Flask") || strings.Contains(source, "uvicorn") || strings.Contains(source, "HTTPServer") {
+			return GenerateDockerfile(runtime, entrypoint, source)
+		}
+		return fmt.Sprintf(`FROM %s
+COPY %s /app/handler.py
+CMD ["python", "wrapper.py"]
+`, baseName, filename)
+
+	case strings.HasPrefix(runtime, "go"):
+		if strings.Contains(source, "ListenAndServe") || strings.Contains(source, "http.Handle") {
+			return GenerateDockerfile(runtime, entrypoint, source)
+		}
+		return fmt.Sprintf(`FROM %s
+COPY %s /app/handler.go
+RUN go build -o fn wrapper.go handler.go
+CMD ["/app/fn"]
+`, baseName, filename)
+
+	case strings.HasPrefix(runtime, "dart"):
+		if strings.Contains(source, "HttpServer") || strings.Contains(source, "shelf") {
+			return GenerateDockerfile(runtime, entrypoint, source)
+		}
+		return fmt.Sprintf(`FROM %s
+COPY %s /app/handler.dart
+CMD ["dart", "run", "wrapper.dart"]
+`, baseName, filename)
+
+	case strings.HasPrefix(runtime, "ruby"):
+		return fmt.Sprintf(`FROM %s
+COPY %s /app/handler.rb
+CMD ["ruby", "wrapper.rb"]
+`, baseName, filename)
+
+	case strings.HasPrefix(runtime, "php"):
+		return fmt.Sprintf(`FROM %s
+COPY %s /app/handler.php
+CMD ["php", "wrapper.php"]
+`, baseName, filename)
+
+	default:
+		return GenerateDockerfile(runtime, entrypoint, source)
+	}
+}
+
 // GenerateDockerfile creates a Dockerfile for the given runtime and source.
 // Returns empty string if the runtime is not recognized.
 func GenerateDockerfile(runtime, entrypoint, source string) string {

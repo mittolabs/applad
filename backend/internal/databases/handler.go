@@ -54,6 +54,10 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/{databaseId}/collections/{collectionId}/attributes", h.listAttributes)
 	r.Delete("/{databaseId}/collections/{collectionId}/attributes/{key}", h.deleteAttribute)
 
+	r.Post("/{databaseId}/collections/{collectionId}/attributes/relationship", h.createRelationship)
+	r.Get("/{databaseId}/collections/{collectionId}/relationships", h.listRelationships)
+	r.Delete("/{databaseId}/collections/{collectionId}/relationships/{relationshipId}", h.deleteRelationship)
+
 	r.Post("/{databaseId}/collections/{collectionId}/indexes", h.createIndex)
 	r.Get("/{databaseId}/collections/{collectionId}/indexes", h.listIndexes)
 	r.Delete("/{databaseId}/collections/{collectionId}/indexes/{key}", h.deleteIndex)
@@ -317,6 +321,51 @@ func (h *Handler) deleteIndex(w http.ResponseWriter, r *http.Request) {
 	collID := chi.URLParam(r, "collectionId")
 	key := chi.URLParam(r, "key")
 	if err := h.svc.DeleteIndex(r.Context(), collID, key); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) createRelationship(w http.ResponseWriter, r *http.Request) {
+	collID := chi.URLParam(r, "collectionId")
+	var body struct {
+		RelatedCollectionID string `json:"relatedCollectionId"`
+		Type                string `json:"type"` // oneToOne, oneToMany, manyToOne, manyToMany
+		TwoWay              bool   `json:"twoWay"`
+		Key                 string `json:"key"`
+		TwoWayKey           string `json:"twoWayKey"`
+		OnDelete            string `json:"onDelete"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RelatedCollectionID == "" || body.Key == "" {
+		apperr.BadRequest(w, "relatedCollectionId and key are required")
+		return
+	}
+	if body.Type == "" {
+		body.Type = "oneToMany"
+	}
+	rel, err := h.svc.CreateRelationship(r.Context(), collID, body.RelatedCollectionID, body.Type, body.Key, body.TwoWayKey, body.OnDelete, body.TwoWay)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, rel)
+}
+
+func (h *Handler) listRelationships(w http.ResponseWriter, r *http.Request) {
+	collID := chi.URLParam(r, "collectionId")
+	rels, err := h.svc.ListRelationships(r.Context(), collID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(rels), "relationships": rels})
+}
+
+func (h *Handler) deleteRelationship(w http.ResponseWriter, r *http.Request) {
+	collID := chi.URLParam(r, "collectionId")
+	relID := chi.URLParam(r, "relationshipId")
+	if err := h.svc.DeleteRelationship(r.Context(), collID, relID); err != nil {
 		apperr.Internal(w, err)
 		return
 	}

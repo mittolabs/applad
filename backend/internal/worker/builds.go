@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"time"
 
@@ -16,11 +17,12 @@ import (
 // For deployments: transitions through building → deploying → active.
 // For functions: builds container image, executes via HTTP, records result.
 type Builds struct {
-	cfg      *config.Config
-	stop     chan struct{}
-	queue    *queue.Queue
-	db       *db.DB
-	executor *runtime.Executor
+	cfg            *config.Config
+	stop           chan struct{}
+	queue          *queue.Queue
+	db             *db.DB
+	executor       *runtime.Executor
+	deployExecutor *runtime.DeployExecutor
 }
 
 func NewBuilds(cfg *config.Config) *Builds {
@@ -37,8 +39,9 @@ func (w *Builds) Start() error {
 	}
 	w.db = database
 
-	// Initialize the container runtime executor
+	// Initialize the container runtime executors
 	w.executor = runtime.NewExecutor()
+	w.deployExecutor = runtime.NewDeployExecutor()
 
 	log.Println("builds worker: listening for jobs")
 
@@ -191,18 +194,79 @@ func (w *Builds) processDeployment(ctx context.Context, job *queue.Job) {
 		return
 	}
 
+	// Look up deployment type and config from the database
+	deployType, deployCfg := w.loadDeploymentConfig(ctx, deploymentID, projectID)
+
 	w.updateDeployStatus(ctx, deploymentID, projectID, "building")
-	log.Printf("builds worker: building deployment %s", deploymentID)
+	log.Printf("builds worker: building deployment %s (type=%s)", deploymentID, deployType)
 
-	time.Sleep(2 * time.Second)
+	cfg := runtime.ParseDeployConfig(deployCfg)
+	var deployErr error
 
-	w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
-	log.Printf("builds worker: deploying %s", deploymentID)
+	switch deployType {
+	case "web":
+		// Build Docker image from user config and start container
+		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
+		deployErr = w.deployExecutor.DeployWeb(ctx, deploymentID, projectID, cfg)
 
-	time.Sleep(1 * time.Second)
+	case "container":
+		// Pull or build image, then start container
+		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
+		deployErr = w.deployExecutor.DeployContainer(ctx, deploymentID, projectID, cfg)
+
+	case "function":
+		// Functions are handled by processFunctionBuild; if we get here
+		// via a generic deployment job, build as a function image
+		runtimeName, _ := deployCfg["runtime"].(string)
+		entrypoint, _ := deployCfg["entrypoint"].(string)
+		source, _ := deployCfg["source"].(string)
+		dockerfile, _ := deployCfg["dockerfile"].(string)
+
+		req := runtime.ExecRequest{
+			FunctionID: deploymentID,
+			ProjectID:  projectID,
+			Runtime:    runtimeName,
+			Entrypoint: entrypoint,
+			Source:     source,
+			Dockerfile: dockerfile,
+		}
+		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
+		_, deployErr = w.executor.Build(ctx, req)
+
+	default:
+		// Unknown type — treat as web deployment
+		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
+		deployErr = w.deployExecutor.DeployWeb(ctx, deploymentID, projectID, cfg)
+	}
+
+	if deployErr != nil {
+		log.Printf("builds worker: deployment %s failed: %v", deploymentID, deployErr)
+		w.updateDeployStatusWithError(ctx, deploymentID, projectID, "failed", deployErr.Error())
+		return
+	}
 
 	w.updateDeployStatus(ctx, deploymentID, projectID, "active")
 	log.Printf("builds worker: completed job %s — deployment %s is active", job.ID, deploymentID)
+}
+
+// loadDeploymentConfig reads the deployment type and config from the database.
+func (w *Builds) loadDeploymentConfig(ctx context.Context, deploymentID, projectID string) (string, map[string]interface{}) {
+	var deployType string
+	var cfgJSON []byte
+
+	err := w.db.QueryRowContext(ctx,
+		"SELECT type, config FROM deployments WHERE id = ? AND project_id = ?",
+		deploymentID, projectID).Scan(&deployType, &cfgJSON)
+	if err != nil {
+		log.Printf("builds worker: failed to load deployment %s: %v", deploymentID, err)
+		return "web", map[string]interface{}{}
+	}
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(cfgJSON, &cfg); err != nil {
+		cfg = map[string]interface{}{}
+	}
+	return deployType, cfg
 }
 
 func (w *Builds) updateDeployStatus(ctx context.Context, id, projectID, status string) {
@@ -211,6 +275,27 @@ func (w *Builds) updateDeployStatus(ctx context.Context, id, projectID, status s
 		status, time.Now().UTC(), id, projectID)
 	if err != nil {
 		log.Printf("builds worker: failed to update status for %s: %v", id, err)
+	}
+}
+
+func (w *Builds) updateDeployStatusWithError(ctx context.Context, id, projectID, status, errMsg string) {
+	// Store the error in the config JSON so the console can display it
+	var cfgJSON []byte
+	w.db.QueryRowContext(ctx, "SELECT config FROM deployments WHERE id = ? AND project_id = ?",
+		id, projectID).Scan(&cfgJSON)
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(cfgJSON, &cfg); err != nil {
+		cfg = map[string]interface{}{}
+	}
+	cfg["error"] = errMsg
+	updatedCfg, _ := json.Marshal(cfg)
+
+	_, err := w.db.ExecContext(ctx,
+		"UPDATE deployments SET status = ?, config = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+		status, updatedCfg, time.Now().UTC(), id, projectID)
+	if err != nil {
+		log.Printf("builds worker: failed to update status with error for %s: %v", id, err)
 	}
 }
 
