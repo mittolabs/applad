@@ -10,3 +10,4 @@ export 'src/functions.dart';
 export 'src/realtime.dart';
 export 'src/messaging.dart';
 export 'src/workflows.dart';
+export 'src/flags.dart';

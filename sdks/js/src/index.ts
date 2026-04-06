@@ -9,3 +9,4 @@ export { Messaging } from './messaging';
 export { Realtime } from './realtime';
 export { Storage } from './storage';
 export { Workflows } from './workflows';
+export { Flags } from './flags';

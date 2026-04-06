@@ -8,3 +8,4 @@ export { Teams } from './teams';
 export { Workflows } from './workflows';
 export { Messaging } from './messaging';
 export { Deploy } from './deploy';
+export { Flags } from './flags';

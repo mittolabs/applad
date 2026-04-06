@@ -551,6 +551,16 @@ class _Sidebar extends ConsumerWidget {
             currentPath: currentPath,
           ),
 
+          const SizedBox(height: 10),
+          _sectionHeader('FEATURE FLAGS'),
+
+          _NavItem(
+            icon: LucideIcons.toggleRight,
+            label: 'Flags',
+            path: '$_base/flags',
+            currentPath: currentPath,
+          ),
+
           const Spacer(),
           _divider(),
 

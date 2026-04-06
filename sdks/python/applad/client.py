@@ -30,6 +30,7 @@ class Client:
         self._workflows = None
         self._messaging = None
         self._deploy = None
+        self._flags = None
 
     # -----------------------------------------------------------------
     # Internal helpers
@@ -112,3 +113,10 @@ class Client:
             from .deploy import Deploy
             self._deploy = Deploy(self)
         return self._deploy
+
+    @property
+    def flags(self):
+        if self._flags is None:
+            from .flags import Flags
+            self._flags = Flags(self)
+        return self._flags

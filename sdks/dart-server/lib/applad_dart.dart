@@ -13,3 +13,4 @@ export 'src/teams.dart';
 export 'src/workflows.dart';
 export 'src/messaging.dart';
 export 'src/deploy.dart';
+export 'src/flags.dart';

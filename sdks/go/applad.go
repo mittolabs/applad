@@ -141,6 +141,7 @@ func (c *Client) Teams() *TeamsService           { return &TeamsService{client: 
 func (c *Client) Workflows() *WorkflowsService   { return &WorkflowsService{client: c} }
 func (c *Client) Messaging() *MessagingService   { return &MessagingService{client: c} }
 func (c *Client) Deploy() *DeployService         { return &DeployService{client: c} }
+func (c *Client) Flags() *FlagsService           { return &FlagsService{client: c} }
 
 // ---------------------------------------------------------------------------
 // Users
@@ -459,4 +460,69 @@ func (s *DeployService) Get(deploymentID string) (map[string]interface{}, error)
 
 func (s *DeployService) Delete(deploymentID string) (map[string]interface{}, error) {
 	return s.client.call("DELETE", "/deploy/"+deploymentID, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Flags
+// ---------------------------------------------------------------------------
+
+type FlagsService struct{ client *Client }
+
+// --- CRUD ---
+
+func (s *FlagsService) List() (map[string]interface{}, error) {
+	return s.client.call("GET", "/flags", nil)
+}
+
+func (s *FlagsService) Create(key, name string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"key":  key,
+		"name": name,
+	}
+	for k, v := range opts {
+		body[k] = v
+	}
+	return s.client.call("POST", "/flags", body)
+}
+
+func (s *FlagsService) Get(key string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/flags/"+key, nil)
+}
+
+func (s *FlagsService) Update(key string, opts map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("PUT", "/flags/"+key, opts)
+}
+
+func (s *FlagsService) Delete(key string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", "/flags/"+key, nil)
+}
+
+func (s *FlagsService) Toggle(key string, enabled bool) (map[string]interface{}, error) {
+	return s.client.call("PATCH", fmt.Sprintf("/flags/%s/toggle", key), map[string]interface{}{
+		"enabled": enabled,
+	})
+}
+
+// --- Evaluation ---
+
+func (s *FlagsService) GetFlag(key string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/flags/evaluate/%s", key), nil)
+}
+
+func (s *FlagsService) GetAllFlags(context map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{}
+	if context != nil {
+		body["context"] = context
+	}
+	return s.client.call("POST", "/flags/evaluate/all", body)
+}
+
+func (s *FlagsService) EvaluateFlag(key string, context map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"key": key,
+	}
+	if context != nil {
+		body["context"] = context
+	}
+	return s.client.call("POST", "/flags/evaluate", body)
 }
