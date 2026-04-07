@@ -12,13 +12,137 @@ import '../widgets/app_dialog.dart';
 import '../widgets/navbar_popovers.dart';
 import '../widgets/console_footer.dart';
 
-// ── Search intent ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// Constants
+// ═════════════════════════════════════════════════════════════════════════════
+
+const _bg = Color(0xFF0B0B0F);
+const _railBg = Color(0xFF101014);
+const _panelBg = Color(0xFF131317);
+const _accent = Color(0xFF3472A4);
+const _railWidth = 56.0;
+const _panelWidth = 220.0;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Navigation group model
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _NavGroup {
+  final String id;
+  final String label;
+  final IconData icon;
+  final List<_NavChild> children;
+  final bool pinBottom;
+
+  const _NavGroup(this.id, this.label, this.icon, this.children,
+      {this.pinBottom = false});
+}
+
+class _NavChild {
+  final String label;
+  final String route; // relative to /project/{id}/
+  final IconData icon;
+  final bool placeholder; // not yet implemented
+
+  const _NavChild(this.label, this.route, this.icon,
+      {this.placeholder = false});
+}
+
+List<_NavGroup> _buildGroups() => [
+      _NavGroup('overview', 'Overview', LucideIcons.layoutDashboard, [
+        _NavChild('Dashboard', 'overview', LucideIcons.barChart3),
+        _NavChild('Getting started', 'overview', LucideIcons.checkCircle),
+        _NavChild('Activity', 'overview', LucideIcons.activity,
+            placeholder: true),
+      ]),
+      _NavGroup('specify', 'Specify', LucideIcons.fileText, [
+        _NavChild('Feature specs', 'specify', LucideIcons.fileText,
+            placeholder: true),
+        _NavChild('User stories', 'specify/stories', LucideIcons.bookOpen,
+            placeholder: true),
+        _NavChild(
+            'API contracts', 'specify/api', LucideIcons.fileCode,
+            placeholder: true),
+      ]),
+      _NavGroup('design', 'Design', LucideIcons.figma, [
+        _NavChild('Components', 'design', LucideIcons.component,
+            placeholder: true),
+        _NavChild('Pages', 'design/pages', LucideIcons.layout,
+            placeholder: true),
+        _NavChild('Assets', 'design/assets', LucideIcons.image,
+            placeholder: true),
+        _NavChild('Prototypes', 'design/prototypes', LucideIcons.play,
+            placeholder: true),
+      ]),
+      _NavGroup('build', 'Build', LucideIcons.box, [
+        _NavChild('Auth', 'auth', LucideIcons.users),
+        _NavChild('Databases', 'databases', LucideIcons.database),
+        _NavChild('Storage', 'storage', LucideIcons.folderClosed),
+        _NavChild('Functions', 'functions', LucideIcons.zap),
+        _NavChild('Messaging', 'messaging', LucideIcons.messageSquare),
+      ]),
+      _NavGroup('test', 'Test', LucideIcons.flaskConical, [
+        _NavChild('Test recorder', 'test', LucideIcons.video,
+            placeholder: true),
+        _NavChild('Test suites', 'test/suites', LucideIcons.listChecks,
+            placeholder: true),
+        _NavChild('Device lab', 'test/devices', LucideIcons.smartphone,
+            placeholder: true),
+        _NavChild('Bug capture', 'test/bugs', LucideIcons.bug,
+            placeholder: true),
+        _NavChild('Coverage', 'test/coverage', LucideIcons.pieChart,
+            placeholder: true),
+      ]),
+      _NavGroup('automate', 'Automate', LucideIcons.gitBranch, [
+        _NavChild('Workflows', 'workflows', LucideIcons.gitBranch),
+        _NavChild('Webhooks', 'webhooks', LucideIcons.webhook,
+            placeholder: true),
+        _NavChild(
+            'Scheduled jobs', 'jobs', LucideIcons.clock, placeholder: true),
+      ]),
+      _NavGroup('ship', 'Ship', LucideIcons.rocket, [
+        _NavChild('Deploy', 'deploy', LucideIcons.rocket),
+        _NavChild('Feature Flags', 'flags', LucideIcons.toggleRight),
+        _NavChild('Domains', 'domains', LucideIcons.globe,
+            placeholder: true),
+      ]),
+      _NavGroup('observe', 'Observe', LucideIcons.activity, [
+        _NavChild('Analytics', 'analytics', LucideIcons.barChart3,
+            placeholder: true),
+        _NavChild('Logs', 'logs', LucideIcons.terminal, placeholder: true),
+        _NavChild('Health', 'health', LucideIcons.heartPulse,
+            placeholder: true),
+        _NavChild('Errors', 'errors', LucideIcons.alertTriangle,
+            placeholder: true),
+      ]),
+      _NavGroup('secure', 'Secure', LucideIcons.shield, [
+        _NavChild('Credentials', 'credentials', LucideIcons.lock,
+            placeholder: true),
+        _NavChild('API Keys', 'settings', LucideIcons.key),
+        _NavChild('RBAC', 'rbac', LucideIcons.userCheck,
+            placeholder: true),
+        _NavChild(
+            'Audit log', 'audit', LucideIcons.scroll, placeholder: true),
+      ]),
+      _NavGroup('settings', 'Settings', LucideIcons.settings, [
+        _NavChild('General', 'settings', LucideIcons.settings),
+        _NavChild(
+            'Platforms', 'settings', LucideIcons.smartphone),
+        _NavChild('Team', 'settings', LucideIcons.users),
+      ], pinBottom: true),
+    ];
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Search intent
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _OpenSearchIntent extends Intent {
   const _OpenSearchIntent();
 }
 
-// ── Shell ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// Shell
+// ═════════════════════════════════════════════════════════════════════════════
 
 class AppShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -30,6 +154,8 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   String? _syncedProjectId;
+  String? _expandedGroup; // null = panel collapsed
+  bool _aiChatOpen = false;
 
   void _syncProject(String projectId) {
     if (_syncedProjectId == projectId) return;
@@ -73,7 +199,11 @@ class _AppShellState extends ConsumerState<AppShell> {
       context: context,
       title: 'Create organization',
       subtitle: 'Organize your projects into teams',
-      content: AppDialogField(controller: nameCtrl, label: 'Organization name', hint: 'My org', autofocus: true),
+      content: AppDialogField(
+          controller: nameCtrl,
+          label: 'Organization name',
+          hint: 'My org',
+          autofocus: true),
       actions: [
         const AppDialogCancel(),
         AppDialogAction(
@@ -91,6 +221,36 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
   }
 
+  /// Determine which group is active based on the current path.
+  String _activeGroup(String currentPath, String projectId) {
+    final base = '/project/$projectId/';
+    if (!currentPath.startsWith(base)) return 'overview';
+    final segment = currentPath.substring(base.length).split('/').first;
+    const routeToGroup = {
+      'overview': 'overview',
+      'auth': 'build',
+      'databases': 'build',
+      'storage': 'build',
+      'functions': 'build',
+      'messaging': 'build',
+      'workflows': 'automate',
+      'webhooks': 'automate',
+      'deploy': 'ship',
+      'flags': 'ship',
+      'settings': 'settings',
+      'specify': 'specify',
+      'design': 'design',
+      'test': 'test',
+      'analytics': 'observe',
+      'logs': 'observe',
+      'health': 'observe',
+      'credentials': 'secure',
+      'rbac': 'secure',
+      'audit': 'secure',
+    };
+    return routeToGroup[segment] ?? 'overview';
+  }
+
   @override
   Widget build(BuildContext context) {
     final routerState = GoRouterState.of(context);
@@ -98,6 +258,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     final currentPath = routerState.uri.path;
 
     if (projectId != null) _syncProject(projectId);
+
+    final groups = _buildGroups();
+    final activeGroup = _activeGroup(currentPath, projectId ?? '');
 
     return Shortcuts(
       shortcuts: <LogicalKeySet, Intent>{
@@ -118,7 +281,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         child: Focus(
           autofocus: true,
           child: Scaffold(
-            backgroundColor: const Color(0xFF0B0B0F),
+            backgroundColor: _bg,
             body: Column(
               children: [
                 _TopNavBar(
@@ -129,10 +292,45 @@ class _AppShellState extends ConsumerState<AppShell> {
                 Expanded(
                   child: Row(
                     children: [
-                      _Sidebar(
+                      // Icon rail
+                      _IconRail(
+                        groups: groups,
+                        activeGroup: activeGroup,
+                        expandedGroup: _expandedGroup,
+                        onGroupTap: (id) {
+                          setState(() {
+                            if (id == 'ai') {
+                              _aiChatOpen = !_aiChatOpen;
+                              return;
+                            }
+                            if (_expandedGroup == id) {
+                              _expandedGroup = null;
+                            } else {
+                              _expandedGroup = id;
+                            }
+                          });
+                        },
+                        aiChatOpen: _aiChatOpen,
+                      ),
+                      // Expanded detail panel
+                      if (_expandedGroup != null)
+                        _DetailPanel(
+                          group: groups.firstWhere(
+                              (g) => g.id == _expandedGroup,
+                              orElse: () => groups.first),
+                          projectId: projectId ?? '',
                           currentPath: currentPath,
-                          projectId: projectId ?? ''),
+                          onClose: () =>
+                              setState(() => _expandedGroup = null),
+                        ),
+                      // Main content
                       Expanded(child: widget.child),
+                      // AI chat panel (right overlay)
+                      if (_aiChatOpen)
+                        _AIChatPanel(
+                          onClose: () =>
+                              setState(() => _aiChatOpen = false),
+                        ),
                     ],
                   ),
                 ),
@@ -146,7 +344,621 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 }
 
-// ── Top navigation bar ────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// Icon Rail (left, 56px)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _IconRail extends StatelessWidget {
+  final List<_NavGroup> groups;
+  final String activeGroup;
+  final String? expandedGroup;
+  final ValueChanged<String> onGroupTap;
+  final bool aiChatOpen;
+
+  const _IconRail({
+    required this.groups,
+    required this.activeGroup,
+    required this.expandedGroup,
+    required this.onGroupTap,
+    required this.aiChatOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final topGroups = groups.where((g) => !g.pinBottom).toList();
+    final bottomGroups = groups.where((g) => g.pinBottom).toList();
+
+    return Container(
+      width: _railWidth,
+      decoration: BoxDecoration(
+        color: _railBg,
+        border: Border(
+            right: BorderSide(color: Colors.white.withOpacity(0.06))),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          // Top groups
+          ...topGroups
+              .map((g) => _RailIcon(
+                    icon: g.icon,
+                    tooltip: g.label,
+                    isActive: activeGroup == g.id,
+                    isExpanded: expandedGroup == g.id,
+                    onTap: () => onGroupTap(g.id),
+                  )),
+
+          const Spacer(),
+
+          // AI button
+          _RailIcon(
+            icon: LucideIcons.sparkles,
+            tooltip: 'AI Assistant',
+            isActive: aiChatOpen,
+            isExpanded: false,
+            onTap: () => onGroupTap('ai'),
+            accentColor: const Color(0xFF8B5CF6),
+          ),
+
+          const SizedBox(height: 4),
+
+          // Bottom groups (settings)
+          ...bottomGroups
+              .map((g) => _RailIcon(
+                    icon: g.icon,
+                    tooltip: g.label,
+                    isActive: activeGroup == g.id,
+                    isExpanded: expandedGroup == g.id,
+                    onTap: () => onGroupTap(g.id),
+                  )),
+          const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+}
+
+class _RailIcon extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool isActive;
+  final bool isExpanded;
+  final VoidCallback onTap;
+  final Color? accentColor;
+
+  const _RailIcon({
+    required this.icon,
+    required this.tooltip,
+    required this.isActive,
+    required this.isExpanded,
+    required this.onTap,
+    this.accentColor,
+  });
+
+  @override
+  State<_RailIcon> createState() => _RailIconState();
+}
+
+class _RailIconState extends State<_RailIcon> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.accentColor ?? _accent;
+    final active = widget.isActive || widget.isExpanded;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Tooltip(
+        message: widget.tooltip,
+        preferBelow: false,
+        waitDuration: const Duration(milliseconds: 400),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: Container(
+              width: 40,
+              height: 40,
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                color: active
+                    ? color.withOpacity(0.12)
+                    : _hovered
+                        ? Colors.white.withOpacity(0.06)
+                        : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                widget.icon,
+                size: 20,
+                color: active
+                    ? color
+                    : _hovered
+                        ? Colors.white.withOpacity(0.7)
+                        : Colors.white.withOpacity(0.35),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Detail Panel (expandable, 220px)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _DetailPanel extends StatelessWidget {
+  final _NavGroup group;
+  final String projectId;
+  final String currentPath;
+  final VoidCallback onClose;
+
+  const _DetailPanel({
+    required this.group,
+    required this.projectId,
+    required this.currentPath,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: _panelWidth,
+      decoration: BoxDecoration(
+        color: _panelBg,
+        border: Border(
+            right: BorderSide(color: Colors.white.withOpacity(0.06))),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Panel header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+            child: Row(
+              children: [
+                Text(
+                  group.label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: onClose,
+                  child: Icon(LucideIcons.panelLeftClose,
+                      size: 16,
+                      color: Colors.white.withOpacity(0.3)),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            height: 1,
+            margin: const EdgeInsets.symmetric(horizontal: 12),
+            color: Colors.white.withOpacity(0.06),
+          ),
+          const SizedBox(height: 6),
+          // Children
+          ...group.children.map((child) {
+            final path = '/project/$projectId/${child.route}';
+            final active = currentPath.startsWith(path);
+
+            return _PanelItem(
+              icon: child.icon,
+              label: child.label,
+              active: active,
+              placeholder: child.placeholder,
+              onTap: () {
+                if (!child.placeholder) {
+                  context.go(path);
+                }
+              },
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _PanelItem extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final bool placeholder;
+  final VoidCallback onTap;
+
+  const _PanelItem({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.placeholder,
+    required this.onTap,
+  });
+
+  @override
+  State<_PanelItem> createState() => _PanelItemState();
+}
+
+class _PanelItemState extends State<_PanelItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: widget.placeholder
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          width: double.infinity,
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: widget.active
+                ? Colors.white.withOpacity(0.08)
+                : _hovered && !widget.placeholder
+                    ? Colors.white.withOpacity(0.04)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                widget.icon,
+                size: 15,
+                color: widget.placeholder
+                    ? Colors.white.withOpacity(0.15)
+                    : widget.active
+                        ? Colors.white.withOpacity(0.9)
+                        : Colors.white.withOpacity(0.4),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  style: TextStyle(
+                    color: widget.placeholder
+                        ? Colors.white.withOpacity(0.2)
+                        : widget.active
+                            ? Colors.white.withOpacity(0.9)
+                            : Colors.white.withOpacity(0.55),
+                    fontSize: 13,
+                    fontWeight:
+                        widget.active ? FontWeight.w500 : FontWeight.w400,
+                  ),
+                ),
+              ),
+              if (widget.placeholder)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text('Soon',
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.2),
+                          fontSize: 9)),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AI Chat Panel (right side overlay)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _AIChatPanel extends StatefulWidget {
+  final VoidCallback onClose;
+  const _AIChatPanel({required this.onClose});
+
+  @override
+  State<_AIChatPanel> createState() => _AIChatPanelState();
+}
+
+class _AIChatPanelState extends State<_AIChatPanel> {
+  final _msgCtrl = TextEditingController();
+  final _messages = <Map<String, String>>[];
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final text = _msgCtrl.text.trim();
+    if (text.isEmpty) return;
+    setState(() {
+      _messages.add({'role': 'user', 'text': text});
+      _msgCtrl.clear();
+      _loading = true;
+    });
+    // Simulate AI response
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) {
+        setState(() {
+          _messages.add({
+            'role': 'assistant',
+            'text':
+                'I can help you with that. This AI chat will be connected to Applad\'s APIs to create resources, trigger workflows, and deploy — all from this conversation.'
+          });
+          _loading = false;
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 360,
+      decoration: BoxDecoration(
+        color: _panelBg,
+        border: Border(
+            left: BorderSide(color: Colors.white.withOpacity(0.06))),
+      ),
+      child: Column(
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 8, 12),
+            child: Row(
+              children: [
+                Icon(LucideIcons.sparkles,
+                    size: 18, color: const Color(0xFF8B5CF6)),
+                const SizedBox(width: 8),
+                const Text('AI Assistant',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600)),
+                const Spacer(),
+                GestureDetector(
+                  onTap: widget.onClose,
+                  child: Icon(LucideIcons.x,
+                      size: 16,
+                      color: Colors.white.withOpacity(0.3)),
+                ),
+              ],
+            ),
+          ),
+          Container(height: 1, color: Colors.white.withOpacity(0.06)),
+
+          // Messages
+          Expanded(
+            child: _messages.isEmpty
+                ? _emptyChat()
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _messages.length + (_loading ? 1 : 0),
+                    itemBuilder: (ctx, i) {
+                      if (i >= _messages.length) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Row(children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white.withOpacity(0.3)),
+                            ),
+                            const SizedBox(width: 8),
+                            Text('Thinking...',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.3),
+                                    fontSize: 12)),
+                          ]),
+                        );
+                      }
+                      final msg = _messages[i];
+                      final isUser = msg['role'] == 'user';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 24,
+                              height: 24,
+                              decoration: BoxDecoration(
+                                color: isUser
+                                    ? _accent.withOpacity(0.15)
+                                    : const Color(0xFF8B5CF6)
+                                        .withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Icon(
+                                isUser
+                                    ? LucideIcons.user
+                                    : LucideIcons.sparkles,
+                                size: 12,
+                                color: isUser
+                                    ? _accent
+                                    : const Color(0xFF8B5CF6),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                msg['text'] ?? '',
+                                style: TextStyle(
+                                  color: Colors.white
+                                      .withOpacity(isUser ? 0.9 : 0.7),
+                                  fontSize: 13,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+
+          // Input
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border(
+                  top: BorderSide(
+                      color: Colors.white.withOpacity(0.06))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _msgCtrl,
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Ask anything...',
+                      hintStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.22),
+                          fontSize: 13),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                            color: Colors.white.withOpacity(0.1)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                            color: Colors.white.withOpacity(0.1)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide:
+                            const BorderSide(color: Color(0xFF8B5CF6)),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.04),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                    ),
+                    onSubmitted: (_) => _send(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: _send,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8B5CF6),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(LucideIcons.arrowUp,
+                        size: 16, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyChat() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: const Color(0xFF8B5CF6).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(LucideIcons.sparkles,
+                  size: 24, color: Color(0xFF8B5CF6)),
+            ),
+            const SizedBox(height: 20),
+            const Text('AI Assistant',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Text(
+              'Create apps, manage databases, deploy services, and automate workflows — all through conversation.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.4),
+                  fontSize: 13,
+                  height: 1.5),
+            ),
+            const SizedBox(height: 24),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                _suggestion('Create a users table'),
+                _suggestion('Deploy to production'),
+                _suggestion('Build a login flow'),
+                _suggestion('Set up a webhook'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _suggestion(String text) {
+    return GestureDetector(
+      onTap: () {
+        _msgCtrl.text = text;
+        _send();
+      },
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(20),
+          border:
+              Border.all(color: Colors.white.withOpacity(0.08)),
+        ),
+        child: Text(text,
+            style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontSize: 12)),
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Top navigation bar (unchanged)
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _TopNavBar extends ConsumerWidget {
   final String? projectId;
@@ -165,7 +977,7 @@ class _TopNavBar extends ConsumerWidget {
     final currentOrgId = ref.watch(currentOrgProvider);
     final projects = ref.watch(projectsProvider).valueOrNull ?? [];
 
-    String orgName = 'Personal';
+    String orgName = orgs.isNotEmpty ? (orgs.first['name'] ?? 'Organization') : 'Organization';
     if (currentOrgId != null) {
       final org = orgs.where((o) => o['\$id'] == currentOrgId).firstOrNull;
       if (org != null) orgName = org['name'] ?? 'Organization';
@@ -183,14 +995,13 @@ class _TopNavBar extends ConsumerWidget {
     return Container(
       height: 52,
       decoration: BoxDecoration(
-        color: const Color(0xFF0B0B0F),
+        color: _bg,
         border: Border(
             bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          // App logo mark → /projects
           GestureDetector(
             onTap: () => context.go('/projects'),
             child: MouseRegion(
@@ -211,10 +1022,8 @@ class _TopNavBar extends ConsumerWidget {
           _sep(),
           const SizedBox(width: 10),
 
-          // Org breadcrumb
           _OrgNavButton(orgName: orgName, orgs: orgs, ref: ref),
 
-          // Project breadcrumb (only when inside a project)
           if (projectId != null) ...[
             const SizedBox(width: 10),
             _sep(),
@@ -236,7 +1045,6 @@ class _TopNavBar extends ConsumerWidget {
           const ThemeToggleButton(),
           const SizedBox(width: 4),
 
-          // Search
           Tooltip(
             message: '⌘K',
             child: InkWell(
@@ -254,7 +1062,6 @@ class _TopNavBar extends ConsumerWidget {
 
           const SizedBox(width: 8),
 
-          // User avatar
           Consumer(builder: (context, ref, _) {
             final user = ref.watch(consoleAuthProvider).valueOrNull;
             if (user == null) return const SizedBox.shrink();
@@ -267,7 +1074,7 @@ class _TopNavBar extends ConsumerWidget {
                   width: 32,
                   height: 32,
                   decoration: const BoxDecoration(
-                    color: Color(0xFF3472A4),
+                    color: _accent,
                     shape: BoxShape.circle,
                   ),
                   child: Center(
@@ -300,8 +1107,7 @@ class _TopNavBar extends ConsumerWidget {
         ),
       );
 
-  String _short(String id) =>
-      id.length > 8 ? id.substring(0, 8) : id;
+  String _short(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
   String _initials(String name, String email) {
     if (name.isNotEmpty) {
@@ -316,7 +1122,9 @@ class _TopNavBar extends ConsumerWidget {
   }
 }
 
-// ── Project breadcrumb dropdown ───────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// Shared nav widgets (unchanged)
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _ProjectNavButton extends StatelessWidget {
   final String projectId;
@@ -348,9 +1156,7 @@ class _ProjectNavButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: Colors.white.withOpacity(0.08)),
       ),
-      onSelected: (id) {
-        context.go('/project/$id/${_section()}');
-      },
+      onSelected: (id) => context.go('/project/$id/${_section()}'),
       itemBuilder: (_) => projects
           .map((p) => PopupMenuItem<String>(
                 value: p['\$id'] as String,
@@ -371,14 +1177,11 @@ class _ProjectNavButton extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            projectName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          Text(projectName,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500)),
           const SizedBox(width: 4),
           Icon(LucideIcons.chevronDown,
               size: 14, color: Colors.white.withOpacity(0.35)),
@@ -387,8 +1190,6 @@ class _ProjectNavButton extends StatelessWidget {
     );
   }
 }
-
-// ── Org nav button ────────────────────────────────────────────────────────────
 
 class _OrgNavButton extends StatelessWidget {
   final String orgName;
@@ -426,397 +1227,15 @@ class _OrgNavButton extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            orgName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          Text(orgName,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500)),
           const SizedBox(width: 4),
           Icon(LucideIcons.chevronDown,
               size: 14, color: Colors.white.withOpacity(0.35)),
         ],
-      ),
-    );
-  }
-}
-
-// ── Sidebar ───────────────────────────────────────────────────────────────────
-
-class _Sidebar extends ConsumerWidget {
-  final String currentPath;
-  final String projectId;
-  const _Sidebar({required this.currentPath, required this.projectId});
-
-  String get _base => '/project/$projectId';
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final orgsAsync = ref.watch(orgsProvider);
-    final currentOrg = ref.watch(currentOrgProvider);
-
-    return Container(
-      width: 216,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B0B0F),
-        border: Border(
-            right: BorderSide(color: Colors.white.withOpacity(0.06))),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 8),
-
-          _OrgDropdown(
-            orgs: orgsAsync.valueOrNull ?? [],
-            currentOrg: currentOrg,
-            onSelect: (id) =>
-                ref.read(currentOrgProvider.notifier).state = id,
-            onCreateOrg: () => _showCreateOrgDialog(context, ref),
-          ),
-
-          const SizedBox(height: 6),
-          _divider(),
-
-          _NavItem(
-            icon: LucideIcons.checkCircle,
-            label: 'Get started',
-            path: '$_base/overview',
-            currentPath: currentPath,
-          ),
-
-          const SizedBox(height: 4),
-
-          _NavItem(
-            icon: LucideIcons.barChart3,
-            label: 'Overview',
-            path: '$_base/overview',
-            currentPath: currentPath,
-            exactMatch: true,
-          ),
-
-          const SizedBox(height: 10),
-          _sectionHeader('BUILD'),
-
-          _NavItem(
-            icon: LucideIcons.users,
-            label: 'Auth',
-            path: '$_base/auth',
-            currentPath: currentPath,
-          ),
-          _NavItem(
-            icon: LucideIcons.database,
-            label: 'Databases',
-            path: '$_base/databases',
-            currentPath: currentPath,
-          ),
-          _NavItem(
-            icon: LucideIcons.zap,
-            label: 'Functions',
-            path: '$_base/functions',
-            currentPath: currentPath,
-          ),
-          _NavItem(
-            icon: LucideIcons.messageSquare,
-            label: 'Messaging',
-            path: '$_base/messaging',
-            currentPath: currentPath,
-          ),
-          _NavItem(
-            icon: LucideIcons.folderClosed,
-            label: 'Storage',
-            path: '$_base/storage',
-            currentPath: currentPath,
-          ),
-
-          const SizedBox(height: 10),
-          _sectionHeader('DEPLOY'),
-
-          _NavItem(
-            icon: LucideIcons.rocket,
-            label: 'Deploy',
-            path: '$_base/deploy',
-            currentPath: currentPath,
-          ),
-
-          const SizedBox(height: 10),
-          _sectionHeader('WORKFLOWS'),
-
-          _NavItem(
-            icon: LucideIcons.gitBranch,
-            label: 'Workflows',
-            path: '$_base/workflows',
-            currentPath: currentPath,
-          ),
-
-          const SizedBox(height: 10),
-          _sectionHeader('FEATURE FLAGS'),
-
-          _NavItem(
-            icon: LucideIcons.toggleRight,
-            label: 'Flags',
-            path: '$_base/flags',
-            currentPath: currentPath,
-          ),
-
-          const Spacer(),
-          _divider(),
-
-          _NavItem(
-            icon: LucideIcons.settings,
-            label: 'Settings',
-            path: '$_base/settings',
-            currentPath: currentPath,
-          ),
-          const SizedBox(height: 10),
-        ],
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 20, bottom: 4, top: 2),
-      child: Text(
-        title,
-        style: TextStyle(
-          color: Colors.white.withOpacity(0.22),
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 1.2,
-        ),
-      ),
-    );
-  }
-
-  Widget _divider() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      height: 1,
-      color: Colors.white.withOpacity(0.06),
-    );
-  }
-
-  void _showCreateOrgDialog(BuildContext context, WidgetRef ref) {
-    final nameCtrl = TextEditingController();
-    showAppDialog(
-      context: context,
-      title: 'Create organization',
-      subtitle: 'Organize your projects into teams',
-      content: AppDialogField(controller: nameCtrl, label: 'Organization name', hint: 'My org', autofocus: true),
-      actions: [
-        const AppDialogCancel(),
-        AppDialogAction(
-          label: 'Create',
-          onTap: () async {
-            try {
-              final api = ref.read(apiClientProvider);
-              await api.post('/organizations', data: {'name': nameCtrl.text});
-              ref.invalidate(orgsProvider);
-            } catch (_) {}
-            if (context.mounted) Navigator.pop(context);
-          },
-        ),
-      ],
-    );
-  }
-}
-
-// ── Organization dropdown (sidebar) ──────────────────────────────────────────
-
-class _OrgDropdown extends StatelessWidget {
-  final List<Map<String, dynamic>> orgs;
-  final String? currentOrg;
-  final ValueChanged<String> onSelect;
-  final VoidCallback onCreateOrg;
-
-  const _OrgDropdown({
-    required this.orgs,
-    required this.currentOrg,
-    required this.onSelect,
-    required this.onCreateOrg,
-  });
-
-  String get _displayName {
-    if (currentOrg != null) {
-      final org = orgs.where((o) => o['\$id'] == currentOrg).firstOrNull;
-      if (org != null) return org['name'] ?? 'Organization';
-    }
-    if (orgs.isNotEmpty) return orgs.first['name'] ?? 'Organization';
-    return 'Personal';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: PopupMenuButton<String>(
-        offset: const Offset(0, 40),
-        color: const Color(0xFF1A1A22),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: Colors.white.withOpacity(0.08)),
-        ),
-        onSelected: (value) {
-          if (value == '__create__') {
-            onCreateOrg();
-          } else {
-            onSelect(value);
-          }
-        },
-        itemBuilder: (_) {
-          final items = <PopupMenuEntry<String>>[];
-          for (final org in orgs) {
-            items.add(PopupMenuItem<String>(
-              value: org['\$id'] as String,
-              child: Text(org['name'] ?? 'Unnamed',
-                  style:
-                      const TextStyle(color: Colors.white70, fontSize: 13)),
-            ));
-          }
-          if (orgs.isNotEmpty) items.add(const PopupMenuDivider());
-          items.add(const PopupMenuItem<String>(
-            value: '__create__',
-            child: Row(
-              children: [
-                Icon(LucideIcons.plus, size: 15, color: Colors.white54),
-                SizedBox(width: 8),
-                Text('Create organization',
-                    style:
-                        TextStyle(color: Colors.white70, fontSize: 13)),
-              ],
-            ),
-          ));
-          return items;
-        },
-        child: Container(
-          width: double.infinity,
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.04),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF3472A4).withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: Center(
-                  child: Text(
-                    _displayName.isNotEmpty
-                        ? _displayName[0].toUpperCase()
-                        : 'P',
-                    style: const TextStyle(
-                      color: Color(0xFF3472A4),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  _displayName,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Icon(LucideIcons.chevronDown,
-                  size: 14, color: Colors.white.withOpacity(0.28)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Nav item ──────────────────────────────────────────────────────────────────
-
-class _NavItem extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final String path;
-  final String currentPath;
-  final bool exactMatch;
-
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.path,
-    required this.currentPath,
-    this.exactMatch = false,
-  });
-
-  @override
-  State<_NavItem> createState() => _NavItemState();
-}
-
-class _NavItemState extends State<_NavItem> {
-  bool _hovered = false;
-
-  bool get _isActive {
-    if (widget.exactMatch) return widget.currentPath == widget.path;
-    return widget.currentPath.startsWith(widget.path);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final active = _isActive;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: () => context.go(widget.path),
-        child: Container(
-          width: double.infinity,
-          margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: active
-                ? Colors.white.withOpacity(0.08)
-                : _hovered
-                    ? Colors.white.withOpacity(0.04)
-                    : Colors.transparent,
-            borderRadius: BorderRadius.circular(7),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                widget.icon,
-                size: 16,
-                color: active
-                    ? Colors.white.withOpacity(0.9)
-                    : Colors.white.withOpacity(0.35),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                widget.label,
-                style: TextStyle(
-                  color: active
-                      ? Colors.white.withOpacity(0.9)
-                      : Colors.white.withOpacity(0.5),
-                  fontSize: 13,
-                  fontWeight:
-                      active ? FontWeight.w500 : FontWeight.w400,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

@@ -232,15 +232,59 @@ class _UsageTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Padding(
+      padding: const EdgeInsets.all(32),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.bar_chart, size: 48, color: Color(0x40FFFFFF)),
-          SizedBox(height: 16),
-          Text('Storage usage analytics coming soon.',
-              style: TextStyle(color: Color(0x40FFFFFF))),
+          const Text('Storage Usage',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 24),
+          Row(children: [
+            _statCard('Total Files', '—', Icons.insert_drive_file_outlined),
+            const SizedBox(width: 16),
+            _statCard('Storage Used', '—', Icons.storage),
+            const SizedBox(width: 16),
+            _statCard('Bandwidth', '—', Icons.cloud_download_outlined),
+          ]),
+          const SizedBox(height: 32),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF16171B),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0x14FFFFFF)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Storage by bucket',
+                  style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14)),
+              const SizedBox(height: 16),
+              Text('Usage data is collected hourly. Check back after your first file uploads.',
+                  style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 13)),
+            ]),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _statCard(String label, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF16171B),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0x14FFFFFF)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, size: 20, color: const Color(0x60FFFFFF)),
+          const SizedBox(height: 12),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
+        ]),
       ),
     );
   }

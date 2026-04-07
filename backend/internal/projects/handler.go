@@ -63,7 +63,8 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := h.svc.List(r.Context())
+	orgID := r.URL.Query().Get("orgId")
+	projects, err := h.svc.List(r.Context(), orgID)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

@@ -3,10 +3,13 @@
 package databases
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -1017,4 +1020,151 @@ func (s *Service) DeleteDocumentWithAuth(ctx context.Context, docID, collID, dbI
 		realtime.PublishResourceEvent(s.events, "databases", "documents", "delete", projectID, docID, map[string]string{"$id": docID})
 	}
 	return err
+}
+
+// --- CSV Import ---
+
+// CSVImportResult holds the result of a CSV import operation.
+type CSVImportResult struct {
+	Imported int      `json:"imported"`
+	Errors   []string `json:"errors"`
+	Total    int      `json:"total"`
+}
+
+// CSVPreview holds a preview of CSV data.
+type CSVPreview struct {
+	Columns []string                 `json:"columns"`
+	Rows    []map[string]interface{} `json:"rows"`
+	Total   int                      `json:"total"`
+}
+
+// PreviewCSV parses the first 5 rows of CSV data and returns column names and sample data.
+func (s *Service) PreviewCSV(ctx context.Context, csvData []byte) (*CSVPreview, error) {
+	reader := csv.NewReader(bytes.NewReader(csvData))
+	reader.LazyQuotes = true
+	reader.TrimLeadingSpace = true
+
+	// Read header row
+	headers, err := reader.Read()
+	if err != nil {
+		return nil, fmt.Errorf("csv: failed to read header row: %w", err)
+	}
+
+	// Clean headers
+	for i, h := range headers {
+		headers[i] = strings.TrimSpace(h)
+	}
+
+	// Read up to 5 sample rows
+	var rows []map[string]interface{}
+	total := 0
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+		total++
+		if len(rows) < 5 {
+			row := make(map[string]interface{})
+			for i, val := range record {
+				if i < len(headers) {
+					row[headers[i]] = val
+				}
+			}
+			rows = append(rows, row)
+		}
+	}
+
+	if rows == nil {
+		rows = []map[string]interface{}{}
+	}
+
+	return &CSVPreview{
+		Columns: headers,
+		Rows:    rows,
+		Total:   total,
+	}, nil
+}
+
+// ImportCSV parses CSV data, maps columns to attributes, and bulk inserts documents.
+func (s *Service) ImportCSV(ctx context.Context, projectID, dbID, collID string, csvData []byte, columnMapping map[string]string) (*CSVImportResult, error) {
+	// Verify the collection exists
+	_, err := s.GetCollection(ctx, collID, dbID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("collection not found")
+	}
+
+	reader := csv.NewReader(bytes.NewReader(csvData))
+	reader.LazyQuotes = true
+	reader.TrimLeadingSpace = true
+
+	// Read header row
+	headers, err := reader.Read()
+	if err != nil {
+		return nil, fmt.Errorf("csv: failed to read header row: %w", err)
+	}
+	for i, h := range headers {
+		headers[i] = strings.TrimSpace(h)
+	}
+
+	// Build effective mapping: CSV column index -> attribute key
+	// If no mapping provided, use header names directly as attribute keys
+	indexToAttr := make(map[int]string)
+	for i, header := range headers {
+		if columnMapping != nil && len(columnMapping) > 0 {
+			if attrKey, ok := columnMapping[header]; ok {
+				indexToAttr[i] = attrKey
+			}
+			// If header not in mapping, skip this column
+		} else {
+			// No mapping: use header as-is
+			indexToAttr[i] = header
+		}
+	}
+
+	result := &CSVImportResult{
+		Errors: []string{},
+	}
+
+	// Read and import all rows
+	rowNum := 0
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %d: parse error: %v", rowNum+1, err))
+			rowNum++
+			continue
+		}
+		rowNum++
+		result.Total++
+
+		// Build document data from CSV row
+		data := make(map[string]interface{})
+		for i, val := range record {
+			if attrKey, ok := indexToAttr[i]; ok {
+				data[attrKey] = val
+			}
+		}
+
+		// Skip empty rows
+		if len(data) == 0 {
+			continue
+		}
+
+		// Create document
+		_, err = s.CreateDocument(ctx, projectID, dbID, collID, "", data, []string{})
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %d: %v", rowNum, err))
+			continue
+		}
+		result.Imported++
+	}
+
+	return result, nil
 }

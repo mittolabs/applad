@@ -2,6 +2,7 @@ package databases
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -69,6 +70,10 @@ func Routes(h *Handler) http.Handler {
 
 	// Transactions
 	r.Post("/{databaseId}/transactions", h.executeTransaction)
+
+	// CSV Import
+	r.Post("/{databaseId}/tables/{tableId}/import/csv", h.importCSV)
+	r.Post("/{databaseId}/tables/{tableId}/import/csv/preview", h.previewCSV)
 
 	// Rows (stored in `documents` MySQL table)
 	r.Post("/{databaseId}/tables/{tableId}/rows", h.createDocument)
@@ -606,6 +611,82 @@ func (h *Handler) deleteDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- CSV import handlers ---
+
+func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	dbID := chi.URLParam(r, "databaseId")
+	collID := chi.URLParam(r, "tableId")
+
+	// Parse multipart form — 32 MB max
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		apperr.BadRequest(w, "invalid multipart form")
+		return
+	}
+
+	// Get CSV file
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		apperr.BadRequest(w, "file is required")
+		return
+	}
+	defer file.Close()
+
+	csvData, err := io.ReadAll(file)
+	if err != nil {
+		apperr.BadRequest(w, "failed to read CSV file")
+		return
+	}
+
+	// Parse optional column mapping from form field
+	var columnMapping map[string]string
+	if mappingStr := r.FormValue("columnMapping"); mappingStr != "" {
+		if err := json.Unmarshal([]byte(mappingStr), &columnMapping); err != nil {
+			apperr.BadRequest(w, "invalid columnMapping JSON")
+			return
+		}
+	}
+
+	result, err := h.svc.ImportCSV(r.Context(), projectID, dbID, collID, csvData, columnMapping)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "collection")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) previewCSV(w http.ResponseWriter, r *http.Request) {
+	// Parse multipart form — 32 MB max
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		apperr.BadRequest(w, "invalid multipart form")
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		apperr.BadRequest(w, "file is required")
+		return
+	}
+	defer file.Close()
+
+	csvData, err := io.ReadAll(file)
+	if err != nil {
+		apperr.BadRequest(w, "failed to read CSV file")
+		return
+	}
+
+	preview, err := h.svc.PreviewCSV(r.Context(), csvData)
+	if err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 // --- permissions handlers ---

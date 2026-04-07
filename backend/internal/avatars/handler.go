@@ -33,6 +33,8 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/favicon", h.favicon)
 	r.Get("/credit-cards/{code}", h.creditCard)
 	r.Get("/flags/{code}", h.flag)
+	r.Get("/browsers/{code}", h.browser)
+	r.Get("/image", h.remoteImage)
 	return r
 }
 
@@ -279,7 +281,7 @@ func (h *Handler) favicon(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeDefaultFavicon(w http.ResponseWriter) {
-	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{108, 71, 255, 255}}, image.Point{}, draw.Src)
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -391,5 +393,132 @@ func xmlEscape(s string) string {
 	s = strings.ReplaceAll(s, `"`, "&quot;")
 	s = strings.ReplaceAll(s, "'", "&apos;")
 	return s
+}
+
+// ---------------------------------------------------------------------------
+// GET /browsers/{code} — browser icon SVG by browser name
+// ---------------------------------------------------------------------------
+
+var browserColors = map[string]string{
+	"chrome": "#4285F4", "firefox": "#FF7139", "safari": "#006CFF",
+	"edge": "#0078D7", "opera": "#FF1B2D", "brave": "#FB542B",
+	"vivaldi": "#EF3939", "arc": "#0095FF", "tor": "#7D4698",
+	"samsung": "#1428A0", "ie": "#0076D6", "unknown": "#888888",
+}
+
+var browserLabels = map[string]string{
+	"chrome": "Ch", "firefox": "Fx", "safari": "Sa", "edge": "Ed",
+	"opera": "Op", "brave": "Br", "vivaldi": "Vi", "arc": "Ar",
+	"tor": "To", "samsung": "Si", "ie": "IE", "unknown": "?",
+}
+
+func (h *Handler) browser(w http.ResponseWriter, r *http.Request) {
+	code := strings.ToLower(chi.URLParam(r, "code"))
+	width := queryInt(r, "width", 48)
+	height := queryInt(r, "height", 48)
+
+	bgColor, ok := browserColors[code]
+	if !ok {
+		bgColor = browserColors["unknown"]
+	}
+	label, ok := browserLabels[code]
+	if !ok {
+		label = strings.ToUpper(code[:min(2, len(code))])
+	}
+
+	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
+  <rect width="%d" height="%d" rx="8" fill="%s"/>
+  <text x="50%%" y="54%%" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,-apple-system,sans-serif" font-size="%d" font-weight="700" fill="white">%s</text>
+</svg>`, width, height, width, height, width, height, bgColor, width/3, xmlEscape(label))
+
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	io.WriteString(w, svg)
+}
+
+// ---------------------------------------------------------------------------
+// GET /image?url=...&width=...&height=...&output=png — fetch and transform remote image
+// ---------------------------------------------------------------------------
+
+func (h *Handler) remoteImage(w http.ResponseWriter, r *http.Request) {
+	url := r.URL.Query().Get("url")
+	if url == "" {
+		http.Error(w, "url parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate URL starts with http
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		http.Error(w, "url must start with http:// or https://", http.StatusBadRequest)
+		return
+	}
+
+	width := queryInt(r, "width", 0)
+	height := queryInt(r, "height", 0)
+
+	// Fetch remote image
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		http.Error(w, "failed to fetch image", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		http.Error(w, fmt.Sprintf("remote server returned %d", resp.StatusCode), http.StatusBadGateway)
+		return
+	}
+
+	// Limit to 10MB
+	body := io.LimitReader(resp.Body, 10<<20)
+
+	// If no resize needed, proxy through
+	if width == 0 && height == 0 {
+		ct := resp.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "image/png"
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		io.Copy(w, body)
+		return
+	}
+
+	// Decode, resize, and serve
+	src, _, err := image.Decode(body)
+	if err != nil {
+		http.Error(w, "failed to decode image", http.StatusBadRequest)
+		return
+	}
+
+	srcBounds := src.Bounds()
+	if width == 0 {
+		width = srcBounds.Dx() * height / srcBounds.Dy()
+	}
+	if height == 0 {
+		height = srcBounds.Dy() * width / srcBounds.Dx()
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	// Simple nearest-neighbor resize
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			srcX := x * srcBounds.Dx() / width
+			srcY := y * srcBounds.Dy() / height
+			dst.Set(x, y, src.At(srcX+srcBounds.Min.X, srcY+srcBounds.Min.Y))
+		}
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	png.Encode(w, dst)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 

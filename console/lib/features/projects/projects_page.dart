@@ -237,7 +237,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
     final projectsAsync = ref.watch(projectsProvider);
     final authUser = ref.watch(consoleAuthProvider).valueOrNull;
 
-    String orgName = 'Personal';
+    String orgName = orgs.isNotEmpty ? (orgs.first['name'] ?? 'Organization') : 'Organization';
     if (currentOrgId != null) {
       final org = orgs.where((o) => o['\$id'] == currentOrgId).firstOrNull;
       if (org != null) orgName = org['name'] ?? 'Organization';
@@ -438,7 +438,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                   else
                     const SizedBox(width: 12),
                   const SizedBox(width: 8),
-                  const Text('Personal',
+                  const Text('Organization',
                       style: TextStyle(color: Colors.white70, fontSize: 13)),
                 ]),
               ));

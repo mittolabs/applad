@@ -5,13 +5,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/mittolabs/applad/internal/audit"
 	"github.com/mittolabs/applad/internal/auth"
 	"github.com/mittolabs/applad/internal/avatars"
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/console"
 	"github.com/mittolabs/applad/internal/credentials"
-	oauthpkg "github.com/mittolabs/applad/internal/oauth"
 	"github.com/mittolabs/applad/internal/databases"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/deploy"
@@ -20,8 +20,10 @@ import (
 	"github.com/mittolabs/applad/internal/health"
 	"github.com/mittolabs/applad/internal/locale"
 	"github.com/mittolabs/applad/internal/messaging"
-	"github.com/mittolabs/applad/internal/organizations"
+	"github.com/mittolabs/applad/internal/migrations"
 	mw "github.com/mittolabs/applad/internal/middleware"
+	oauthpkg "github.com/mittolabs/applad/internal/oauth"
+	"github.com/mittolabs/applad/internal/organizations"
 	"github.com/mittolabs/applad/internal/projects"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/realtime"
@@ -42,8 +44,12 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS)
 	r.Use(mw.SecurityHeaders)
-	r.Use(mw.RateLimit(100))
+	r.Use(mw.RateLimitRedis(100, cacheClient.Client()))
 	r.Use(mw.MaxBodySize(10 << 20))
+
+	// Audit log middleware — records all authenticated API calls
+	auditSvc := audit.NewService(database)
+	r.Use(audit.Middleware(auditSvc))
 
 	projectSvc := projects.NewService(database)
 	authSvc := auth.NewService(database, cfg.JWTSecret)
@@ -190,6 +196,11 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/deploy", deploy.Routes(deploy.NewHandler(deploySvc)))
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))
+
+				// Migrations
+				migrationQueue := queue.New(cacheClient.Client())
+				migrationSvc := migrations.NewService(database, migrationQueue)
+				r.Mount("/migrations", migrations.Routes(migrations.NewHandler(migrationSvc)))
 				r.Mount("/credentials", credentials.Routes(credentials.NewHandler(credentials.NewService(database))))
 				r.Mount("/flags", flags.Routes(flags.NewHandler(flags.NewService(database))))
 

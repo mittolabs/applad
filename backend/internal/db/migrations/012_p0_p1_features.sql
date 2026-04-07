@@ -179,7 +179,7 @@ CREATE TABLE IF NOT EXISTS deploy_executions (
     stdout      TEXT,
     stderr      TEXT,
     duration_ms BIGINT       NOT NULL DEFAULT 0,
-    trigger     VARCHAR(32)  NOT NULL DEFAULT 'http',
+    trigger_source VARCHAR(32) NOT NULL DEFAULT 'http',
     created_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     INDEX idx_de_project (project_id),
     INDEX idx_de_target (target_id),

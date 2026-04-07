@@ -357,20 +357,56 @@ class _TeamsTab extends ConsumerWidget {
 
 // --- Settings tab --------------------------------------------------------
 
-class _SettingsTab extends StatelessWidget {
+class _SettingsTab extends ConsumerWidget {
   const _SettingsTab();
 
   @override
-  Widget build(BuildContext context) {
-    return const Center(
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.all(32),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.settings, size: 48, color: Color(0x40FFFFFF)),
-          SizedBox(height: 16),
-          Text('Auth settings coming soon.',
-              style: TextStyle(color: Color(0x40FFFFFF))),
+          const Text('Authentication Settings',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 24),
+          _settingRow('Session duration', '365 days', 'How long sessions remain valid'),
+          _settingRow('Max sessions per user', '10', 'Maximum concurrent sessions'),
+          _settingRow('Password minimum length', '8 characters', 'Minimum password requirement'),
+          _settingRow('Password history', 'Disabled', 'Prevent reuse of previous passwords'),
+          _settingRow('MFA enforcement', 'Optional', 'Require multi-factor authentication'),
+          _settingRow('Email verification', 'Disabled', 'Require email verification on signup'),
+          _settingRow('Anonymous sessions', 'Enabled', 'Allow anonymous session creation'),
         ],
+      ),
+    );
+  }
+
+  Widget _settingRow(String label, String value, String description) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF16171B),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0x14FFFFFF)),
+        ),
+        child: Row(children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 14)),
+            const SizedBox(height: 2),
+            Text(description, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
+          ])),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(value, style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+          ),
+        ]),
       ),
     );
   }

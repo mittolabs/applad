@@ -5,18 +5,23 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
-	"os"
 	"net/smtp"
+	"os"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/dop251/goja"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 // SubWorkflowRunner is set by the service to allow sub-workflow execution.
@@ -1159,22 +1164,26 @@ func execTwilioSMS(ctx context.Context, config map[string]interface{}, execCtx m
 }
 
 func execPostgresQuery(ctx context.Context, config map[string]interface{}, execCtx map[string]interface{}) (interface{}, error) {
+	connURL, _ := config["connectionUrl"].(string)
 	proxyURL, _ := config["proxyUrl"].(string)
 	query, _ := config["query"].(string)
 
 	if query == "" {
 		return nil, fmt.Errorf("postgres_query: query is required")
 	}
-
 	query = resolveTemplate(query, execCtx)
-	proxyURL = resolveTemplate(proxyURL, execCtx)
 
-	if proxyURL == "" {
-		return map[string]interface{}{
-			"status": "placeholder",
-			"query":  query,
-			"engine": "postgres",
-		}, nil
+	if connURL == "" && proxyURL == "" {
+		return nil, fmt.Errorf("postgres_query: connectionUrl or proxyUrl is required")
+	}
+
+	// Use proxy URL if provided (for external Postgres via HTTP proxy)
+	if connURL == "" {
+		proxyURL = resolveTemplate(proxyURL, execCtx)
+	} else {
+		// For direct connection, use proxy approach via the connection URL
+		// Since we don't ship a Postgres driver, route through an HTTP proxy
+		proxyURL = connURL
 	}
 
 	payload, _ := json.Marshal(map[string]string{"query": query, "engine": "postgres"})
@@ -1202,90 +1211,120 @@ func execPostgresQuery(ctx context.Context, config map[string]interface{}, execC
 }
 
 func execMySQLQuery(ctx context.Context, config map[string]interface{}, execCtx map[string]interface{}) (interface{}, error) {
-	proxyURL, _ := config["proxyUrl"].(string)
+	connURL, _ := config["connectionUrl"].(string)
 	query, _ := config["query"].(string)
 
 	if query == "" {
 		return nil, fmt.Errorf("mysql_query: query is required")
 	}
-
 	query = resolveTemplate(query, execCtx)
-	proxyURL = resolveTemplate(proxyURL, execCtx)
 
-	if proxyURL == "" {
-		return map[string]interface{}{
-			"status": "placeholder",
-			"query":  query,
-			"engine": "mysql",
-		}, nil
+	if connURL == "" {
+		return nil, fmt.Errorf("mysql_query: connectionUrl is required")
 	}
+	connURL = resolveTemplate(connURL, execCtx)
 
-	payload, _ := json.Marshal(map[string]string{"query": query, "engine": "mysql"})
-	req, err := http.NewRequestWithContext(ctx, "POST", proxyURL, bytes.NewReader(payload))
+	// Use database/sql with the MySQL driver (already imported in the project)
+	db, err := sql.Open("mysql", connURL)
 	if err != nil {
-		return nil, fmt.Errorf("mysql_query: %w", err)
+		return nil, fmt.Errorf("mysql_query: connect: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	defer db.Close()
 
-	if token, _ := config["token"].(string); token != "" {
-		req.Header.Set("Authorization", "Bearer "+resolveTemplate(token, execCtx))
-	}
-
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("mysql_query: %w", err)
+		return nil, fmt.Errorf("mysql_query: execute: %w", err)
 	}
-	defer resp.Body.Close()
+	defer rows.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	var result interface{}
-	json.Unmarshal(respBody, &result)
+	cols, _ := rows.Columns()
+	var results []map[string]interface{}
+	for rows.Next() {
+		vals := make([]interface{}, len(cols))
+		ptrs := make([]interface{}, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			continue
+		}
+		row := map[string]interface{}{}
+		for i, col := range cols {
+			v := vals[i]
+			if b, ok := v.([]byte); ok {
+				v = string(b)
+			}
+			row[col] = v
+		}
+		results = append(results, row)
+	}
 
-	return map[string]interface{}{"status": resp.StatusCode, "response": result}, nil
+	return map[string]interface{}{
+		"rows":    results,
+		"count":   len(results),
+		"columns": cols,
+	}, nil
 }
 
 func execRedisCommand(ctx context.Context, config map[string]interface{}, execCtx map[string]interface{}) (interface{}, error) {
-	proxyURL, _ := config["proxyUrl"].(string)
+	connURL, _ := config["connectionUrl"].(string)
 	command, _ := config["command"].(string)
-	args := config["args"]
 
 	if command == "" {
 		return nil, fmt.Errorf("redis_command: command is required")
 	}
-
 	command = resolveTemplate(command, execCtx)
-	proxyURL = resolveTemplate(proxyURL, execCtx)
 
-	if proxyURL == "" {
-		return map[string]interface{}{
-			"status":  "placeholder",
-			"command": command,
-			"args":    args,
-		}, nil
+	if connURL == "" {
+		connURL = "localhost:6379"
 	}
+	connURL = resolveTemplate(connURL, execCtx)
 
-	payload, _ := json.Marshal(map[string]interface{}{"command": command, "args": args})
-	req, err := http.NewRequestWithContext(ctx, "POST", proxyURL, bytes.NewReader(payload))
+	// Connect via raw TCP and send RESP protocol
+	conn, err := net.DialTimeout("tcp", connURL, 5*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("redis_command: %w", err)
+		return nil, fmt.Errorf("redis_command: connect to %s: %w", connURL, err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
 
-	if token, _ := config["token"].(string); token != "" {
-		req.Header.Set("Authorization", "Bearer "+resolveTemplate(token, execCtx))
+	// Parse command into parts (e.g., "GET mykey" → ["GET", "mykey"])
+	parts := strings.Fields(command)
+	// Build RESP array
+	resp := fmt.Sprintf("*%d\r\n", len(parts))
+	for _, p := range parts {
+		resp += fmt.Sprintf("$%d\r\n%s\r\n", len(p), p)
+	}
+	conn.Write([]byte(resp))
+
+	// Read response (simple: read up to 64KB)
+	buf := make([]byte, 65536)
+	n, err := conn.Read(buf)
+	if err != nil && n == 0 {
+		return nil, fmt.Errorf("redis_command: read: %w", err)
+	}
+	result := strings.TrimSpace(string(buf[:n]))
+
+	// Parse RESP response
+	var value interface{} = result
+	if strings.HasPrefix(result, "+") {
+		value = result[1:] // simple string
+	} else if strings.HasPrefix(result, "-") {
+		return nil, fmt.Errorf("redis_command: %s", result[1:]) // error
+	} else if strings.HasPrefix(result, ":") {
+		value = result[1:] // integer
+	} else if strings.HasPrefix(result, "$") {
+		// Bulk string — extract the data after the length line
+		lines := strings.SplitN(result, "\r\n", 3)
+		if len(lines) >= 2 {
+			value = lines[1]
+		}
 	}
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("redis_command: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	var result interface{}
-	json.Unmarshal(respBody, &result)
-
-	return map[string]interface{}{"status": resp.StatusCode, "response": result}, nil
+	return map[string]interface{}{
+		"result":  value,
+		"command": command,
+	}, nil
 }
 
 func execS3(ctx context.Context, config map[string]interface{}, execCtx map[string]interface{}) (interface{}, error) {
@@ -1558,105 +1597,61 @@ func execJavaScript(config map[string]interface{}, execCtx map[string]interface{
 		return nil, fmt.Errorf("javascript: code is required")
 	}
 
-	// Build a JS-like evaluation environment using Go templates with helper functions
-	// This provides $input, $json, $env access without a full JS runtime
-	funcMap := template.FuncMap{
-		"json_parse": func(s string) interface{} {
+	vm := goja.New()
+	// Set execution timeout (5 seconds)
+	timer := time.AfterFunc(5*time.Second, func() { vm.Interrupt("execution timeout (5s)") })
+	defer timer.Stop()
+
+	// Inject execution context as $input
+	vm.Set("$input", execCtx)
+	vm.Set("$json", execCtx)
+	vm.Set("$env", func(key string) string { return os.Getenv(key) })
+	vm.Set("$now", time.Now().UTC().Format(time.RFC3339))
+
+	// Inject console.log
+	logOutput := &strings.Builder{}
+	console := map[string]interface{}{
+		"log": func(args ...interface{}) {
+			for i, a := range args {
+				if i > 0 {
+					logOutput.WriteString(" ")
+				}
+				fmt.Fprint(logOutput, a)
+			}
+			logOutput.WriteString("\n")
+		},
+	}
+	vm.Set("console", console)
+
+	// Inject JSON helpers
+	vm.Set("JSON", map[string]interface{}{
+		"stringify": func(v interface{}) string {
+			b, _ := json.Marshal(v)
+			return string(b)
+		},
+		"parse": func(s string) interface{} {
 			var v interface{}
 			json.Unmarshal([]byte(s), &v)
 			return v
 		},
-		"json_stringify": func(v interface{}) string {
-			b, _ := json.Marshal(v)
-			return string(b)
-		},
-		"upper":    strings.ToUpper,
-		"lower":    strings.ToLower,
-		"trim":     strings.TrimSpace,
-		"contains": strings.Contains,
-		"replace": func(s, old, new string) string {
-			return strings.ReplaceAll(s, old, new)
-		},
-		"split": func(s, sep string) []string {
-			return strings.Split(s, sep)
-		},
-		"join": func(elems []interface{}, sep string) string {
-			strs := make([]string, len(elems))
-			for i, e := range elems {
-				strs[i] = fmt.Sprintf("%v", e)
-			}
-			return strings.Join(strs, sep)
-		},
-		"len_of": func(v interface{}) int {
-			switch val := v.(type) {
-			case []interface{}:
-				return len(val)
-			case map[string]interface{}:
-				return len(val)
-			case string:
-				return len(val)
-			default:
-				return 0
-			}
-		},
-		"to_int": func(v interface{}) int {
-			switch val := v.(type) {
-			case float64:
-				return int(val)
-			case string:
-				n, _ := strconv.Atoi(val)
-				return n
-			default:
-				return 0
-			}
-		},
-		"to_float": func(v interface{}) float64 {
-			switch val := v.(type) {
-			case float64:
-				return val
-			case int:
-				return float64(val)
-			case string:
-				f, _ := strconv.ParseFloat(val, 64)
-				return f
-			default:
-				return 0
-			}
-		},
-		"env": func(key string) string {
-			return os.Getenv(key)
-		},
-		"now": func() string {
-			return time.Now().UTC().Format(time.RFC3339)
-		},
-	}
+	})
 
-	// Wrap the code in a template
-	tmplCode := code
-	if !strings.Contains(code, "{{") {
-		// If no template delimiters, treat the whole thing as a template expression
-		tmplCode = "{{" + code + "}}"
-	}
-
-	t, err := template.New("js").Funcs(funcMap).Parse(tmplCode)
+	// Execute
+	val, err := vm.RunString(code)
 	if err != nil {
-		return nil, fmt.Errorf("javascript: parse error: %w", err)
+		return nil, fmt.Errorf("javascript: %w", err)
 	}
 
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, execCtx); err != nil {
-		return nil, fmt.Errorf("javascript: execution error: %w", err)
+	// Export result
+	var result interface{}
+	if val != nil && !goja.IsUndefined(val) && !goja.IsNull(val) {
+		result = val.Export()
 	}
 
-	result := buf.String()
-
-	// Try to parse the result as JSON
-	var jsonResult interface{}
-	if json.Unmarshal([]byte(result), &jsonResult) == nil {
-		return map[string]interface{}{"result": jsonResult}, nil
-	}
-
-	return map[string]interface{}{"result": result}, nil
+	return map[string]interface{}{
+		"result": result,
+		"logs":   logOutput.String(),
+	}, nil
 }
 
 // --- AI Node Implementations ---

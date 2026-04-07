@@ -5,14 +5,23 @@ package messaging
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/smtp"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Provider is the common interface for all messaging providers.
@@ -55,7 +64,8 @@ type Config struct {
 
 // Service handles email, SMS, and push notification sending.
 type Service struct {
-	cfg Config
+	cfg        Config
+	httpClient *http.Client
 
 	mu     sync.RWMutex
 	topics map[string]*Topic // topicId -> Topic
@@ -71,7 +81,10 @@ type Topic struct {
 // NewService creates a new messaging Service.
 func NewService(cfg Config) *Service {
 	return &Service{
-		cfg:    cfg,
+		cfg: cfg,
+		httpClient: &http.Client{
+			Timeout: 15 * time.Second,
+		},
 		topics: make(map[string]*Topic),
 	}
 }
@@ -156,7 +169,7 @@ func (s *Service) SendSMS(ctx context.Context, to, body string) error {
 	req.SetBasicAuth(s.cfg.TwilioSID, s.cfg.TwilioToken)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("messaging: twilio request failed: %w", err)
 	}
@@ -203,7 +216,7 @@ func (s *Service) SendPush(ctx context.Context, token, title, body string) error
 	req.Header.Set("Authorization", "Bearer "+s.cfg.FCMServerKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("messaging: fcm request failed: %w", err)
 	}
@@ -241,7 +254,7 @@ func (s *Service) SendEmailMailgun(ctx context.Context, to []string, subject, ht
 	req.SetBasicAuth("api", s.cfg.MailgunAPIKey)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("messaging: mailgun request failed: %w", err)
 	}
@@ -283,7 +296,7 @@ func (s *Service) SendEmailResend(ctx context.Context, to []string, subject, htm
 	req.Header.Set("Authorization", "Bearer "+s.cfg.ResendAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("messaging: resend request failed: %w", err)
 	}
@@ -325,7 +338,7 @@ func (s *Service) SendSMSVonage(ctx context.Context, to, text string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("messaging: vonage request failed: %w", err)
 	}
@@ -372,7 +385,7 @@ func (s *Service) SendSMSMSG91(ctx context.Context, to, body string) error {
 	req.Header.Set("authkey", s.cfg.MSG91AuthKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("messaging: msg91 request failed: %w", err)
 	}
@@ -386,27 +399,87 @@ func (s *Service) SendSMSMSG91(ctx context.Context, to, body string) error {
 }
 
 // ---------------------------------------------------------------------------
-// Push notifications (APNS) — stub
+// Push notifications (APNS)
 // ---------------------------------------------------------------------------
 
-// SendPushAPNS is a stub for Apple Push Notification Service.
-// Full implementation requires loading a .p8 key file and signing a JWT.
-// This stub validates the configuration and returns an error indicating
-// that real delivery is not yet implemented.
+// SendPushAPNS sends an Apple Push Notification via the HTTP/2 APNS API.
 func (s *Service) SendPushAPNS(ctx context.Context, deviceToken, title, body string) error {
 	if s.cfg.APNSKeyID == "" || s.cfg.APNSTeamID == "" || s.cfg.APNSKeyPath == "" || s.cfg.APNSBundleID == "" {
-		return fmt.Errorf("messaging: APNS not configured (key_id=%q, team_id=%q, key_path=%q, bundle_id=%q)",
-			s.cfg.APNSKeyID, s.cfg.APNSTeamID, s.cfg.APNSKeyPath, s.cfg.APNSBundleID)
+		return fmt.Errorf("messaging: APNS not configured (set APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH, APNS_BUNDLE_ID)")
 	}
 
-	// TODO: implement full APNS delivery:
-	// 1. Load the .p8 key from APNSKeyPath
-	// 2. Sign a JWT with ES256 using APNSKeyID and APNSTeamID
-	// 3. POST to https://api.push.apple.com/3/device/{deviceToken}
-	//    with headers: authorization (bearer JWT), apns-topic (APNSBundleID)
-	//    and JSON payload: {"aps":{"alert":{"title":..,"body":..}}}
-	return fmt.Errorf("messaging: APNS delivery not yet implemented (stub); config valid: key_id=%s, team_id=%s, bundle_id=%s",
-		s.cfg.APNSKeyID, s.cfg.APNSTeamID, s.cfg.APNSBundleID)
+	keyData, err := os.ReadFile(s.cfg.APNSKeyPath)
+	if err != nil {
+		return fmt.Errorf("messaging: read APNS .p8 key: %w", err)
+	}
+	block, _ := pem.Decode(keyData)
+	if block == nil {
+		return fmt.Errorf("messaging: APNS key is not valid PEM")
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("messaging: parse APNS key: %w", err)
+	}
+	ecKey, ok := parsed.(*ecdsa.PrivateKey)
+	if !ok {
+		return fmt.Errorf("messaging: APNS key is not ECDSA (ES256)")
+	}
+
+	// Build JWT (ES256)
+	now := time.Now()
+	hdr := apnsB64([]byte(`{"alg":"ES256","kid":"` + s.cfg.APNSKeyID + `"}`))
+	clm := apnsB64([]byte(fmt.Sprintf(`{"iss":"%s","iat":%d}`, s.cfg.APNSTeamID, now.Unix())))
+	unsigned := hdr + "." + clm
+
+	hash := sha256.Sum256([]byte(unsigned))
+	r, ss, err := ecdsa.Sign(rand.Reader, ecKey, hash[:])
+	if err != nil {
+		return fmt.Errorf("messaging: sign APNS JWT: %w", err)
+	}
+	sig := apnsB64(append(apnsPad32(r), apnsPad32(ss)...))
+	jwt := unsigned + "." + sig
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"aps": map[string]interface{}{
+			"alert": map[string]string{"title": title, "body": body},
+			"sound": "default",
+		},
+	})
+
+	apnsURL := fmt.Sprintf("https://api.push.apple.com/3/device/%s", deviceToken)
+	req, err := http.NewRequestWithContext(ctx, "POST", apnsURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "bearer "+jwt)
+	req.Header.Set("apns-topic", s.cfg.APNSBundleID)
+	req.Header.Set("apns-push-type", "alert")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("messaging: APNS request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("messaging: APNS error %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+func apnsB64(data []byte) string {
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(data), "=")
+}
+
+func apnsPad32(n *big.Int) []byte {
+	b := n.Bytes()
+	if len(b) >= 32 {
+		return b[:32]
+	}
+	p := make([]byte, 32)
+	copy(p[32-len(b):], b)
+	return p
 }
 
 // ---------------------------------------------------------------------------

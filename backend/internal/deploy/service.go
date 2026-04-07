@@ -7,6 +7,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mittolabs/applad/internal/db"
@@ -545,7 +549,7 @@ func (s *Service) InvokeTarget(ctx context.Context, targetID, projectID, request
 	now := time.Now().UTC()
 
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO deploy_executions (id, project_id, target_id, status, request, trigger, created_at)
+		`INSERT INTO deploy_executions (id, project_id, target_id, status, request, trigger_source, created_at)
 		 VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
 		id, projectID, targetID, request, trigger, now)
 	if err != nil {
@@ -582,7 +586,7 @@ func (s *Service) GetExecution(ctx context.Context, id, targetID, projectID stri
 	var statusCode sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, target_id, status, status_code, request, response, stdout, stderr, duration_ms, trigger, created_at
+		`SELECT id, project_id, target_id, status, status_code, request, response, stdout, stderr, duration_ms, trigger_source, created_at
 		 FROM deploy_executions WHERE id = ? AND target_id = ? AND project_id = ?`,
 		id, targetID, projectID,
 	).Scan(&e.ID, &e.ProjectID, &e.TargetID, &e.Status, &statusCode,
@@ -604,7 +608,7 @@ func (s *Service) GetExecution(ctx context.Context, id, targetID, projectID stri
 // ListExecutions returns all executions for a target.
 func (s *Service) ListExecutions(ctx context.Context, targetID, projectID string) ([]*Execution, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, target_id, status, status_code, request, response, stdout, stderr, duration_ms, trigger, created_at
+		`SELECT id, project_id, target_id, status, status_code, request, response, stdout, stderr, duration_ms, trigger_source, created_at
 		 FROM deploy_executions WHERE target_id = ? AND project_id = ? ORDER BY created_at DESC`,
 		targetID, projectID)
 	if err != nil {
@@ -638,6 +642,415 @@ func (s *Service) UpdateExecution(ctx context.Context, id string, status string,
 		 WHERE id=?`,
 		status, statusCode, response, stdout, stderr, durationMs, id)
 	return err
+}
+
+// ── Custom Domain models + operations (Web Deploy Targets) ──
+
+// CustomDomain represents a custom domain attached to a web deploy target.
+type CustomDomain struct {
+	ID           string     `json:"$id"`
+	ProjectID    string     `json:"projectId"`
+	TargetID     string     `json:"targetId"`
+	Domain       string     `json:"domain"`
+	Verification string     `json:"verification"`
+	Verified     bool       `json:"verified"`
+	SSLStatus    string     `json:"sslStatus"`
+	SSLExpiresAt *time.Time `json:"sslExpiresAt"`
+	CreatedAt    time.Time  `json:"$createdAt"`
+}
+
+// CreateCustomDomain adds a custom domain to a web deploy target.
+func (s *Service) CreateCustomDomain(ctx context.Context, projectID, targetID, domain string) (*CustomDomain, error) {
+	id := uid.New("unique()")
+	verification := uid.RandomHex(16)
+	now := time.Now().UTC()
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO custom_domains (id, project_id, target_id, domain, verification, verified, ssl_status, created_at)
+		 VALUES (?, ?, ?, ?, ?, FALSE, 'pending', ?)`,
+		id, projectID, targetID, domain, verification, now)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: create custom domain: %w", err)
+	}
+	return &CustomDomain{
+		ID: id, ProjectID: projectID, TargetID: targetID,
+		Domain: domain, Verification: verification, Verified: false,
+		SSLStatus: "pending", CreatedAt: now,
+	}, nil
+}
+
+// VerifyDomain performs DNS verification and marks the domain as verified.
+func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*CustomDomain, error) {
+	var domain, verification string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT domain, verification FROM custom_domains WHERE id = ?`, domainID).Scan(&domain, &verification)
+	if err != nil {
+		return nil, fmt.Errorf("domain not found")
+	}
+
+	// Check TXT records on the domain and _applad-verification subdomain
+	verified := false
+	for _, host := range []string{domain, "_applad-verification." + domain} {
+		txts, _ := net.LookupTXT(host)
+		for _, txt := range txts {
+			if strings.Contains(txt, verification) {
+				verified = true
+				break
+			}
+		}
+		if verified {
+			break
+		}
+	}
+	// Check CNAME as fallback
+	if !verified {
+		cname, _ := net.LookupCNAME(domain)
+		if strings.Contains(cname, verification) {
+			verified = true
+		}
+	}
+	if !verified {
+		return nil, fmt.Errorf("DNS verification failed: add TXT record for %s or _applad-verification.%s containing %s", domain, domain, verification)
+	}
+
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE custom_domains SET verified = TRUE, ssl_status = 'active' WHERE id = ?`, domainID)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: verify domain: %w", err)
+	}
+
+	var d CustomDomain
+	var sslExpires sql.NullTime
+	err = s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, target_id, domain, verification, verified, ssl_status, ssl_expires_at, created_at
+		 FROM custom_domains WHERE id = ?`, domainID,
+	).Scan(&d.ID, &d.ProjectID, &d.TargetID, &d.Domain, &d.Verification, &d.Verified,
+		&d.SSLStatus, &sslExpires, &d.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("domain not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if sslExpires.Valid {
+		d.SSLExpiresAt = &sslExpires.Time
+	}
+	return &d, nil
+}
+
+// ListDomains returns all custom domains for a target.
+func (s *Service) ListDomains(ctx context.Context, projectID, targetID string) ([]*CustomDomain, int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, target_id, domain, verification, verified, ssl_status, ssl_expires_at, created_at
+		 FROM custom_domains WHERE project_id = ? AND target_id = ? ORDER BY created_at DESC`,
+		projectID, targetID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var domains []*CustomDomain
+	for rows.Next() {
+		var d CustomDomain
+		var sslExpires sql.NullTime
+		if err := rows.Scan(&d.ID, &d.ProjectID, &d.TargetID, &d.Domain, &d.Verification,
+			&d.Verified, &d.SSLStatus, &sslExpires, &d.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		if sslExpires.Valid {
+			d.SSLExpiresAt = &sslExpires.Time
+		}
+		domains = append(domains, &d)
+	}
+	return domains, len(domains), nil
+}
+
+// DeleteDomain removes a custom domain.
+func (s *Service) DeleteDomain(ctx context.Context, domainID string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM custom_domains WHERE id = ?", domainID)
+	return err
+}
+
+// ServeStaticFile reads and returns a static file from the target's output directory.
+func (s *Service) ServeStaticFile(ctx context.Context, targetID, filePath string) ([]byte, string, error) {
+	var outputDir string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT p.output_dir FROM deploy_pipelines p
+		 JOIN deploy_targets t ON t.id = p.target_id
+		 WHERE p.target_id = ? ORDER BY p.created_at DESC LIMIT 1`, targetID,
+	).Scan(&outputDir)
+	if err == sql.ErrNoRows {
+		return nil, "", fmt.Errorf("no pipeline found for target")
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	if outputDir == "" {
+		outputDir = "dist"
+	}
+
+	// Sanitize path to prevent directory traversal
+	cleanPath := filepath.Clean("/" + filePath)
+	fullPath := filepath.Join(outputDir, cleanPath)
+
+	// Ensure the resolved path is still within outputDir
+	if !strings.HasPrefix(fullPath, filepath.Clean(outputDir)) {
+		return nil, "", fmt.Errorf("invalid path")
+	}
+
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		// Try index.html for SPA fallback
+		indexPath := filepath.Join(outputDir, "index.html")
+		data, err = os.ReadFile(indexPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("file not found: %s", filePath)
+		}
+		return data, "text/html; charset=utf-8", nil
+	}
+
+	// Detect content type from extension
+	contentType := "application/octet-stream"
+	ext := strings.ToLower(filepath.Ext(fullPath))
+	switch ext {
+	case ".html", ".htm":
+		contentType = "text/html; charset=utf-8"
+	case ".css":
+		contentType = "text/css; charset=utf-8"
+	case ".js", ".mjs":
+		contentType = "application/javascript"
+	case ".json":
+		contentType = "application/json"
+	case ".png":
+		contentType = "image/png"
+	case ".jpg", ".jpeg":
+		contentType = "image/jpeg"
+	case ".gif":
+		contentType = "image/gif"
+	case ".svg":
+		contentType = "image/svg+xml"
+	case ".ico":
+		contentType = "image/x-icon"
+	case ".woff2":
+		contentType = "font/woff2"
+	case ".woff":
+		contentType = "font/woff"
+	case ".ttf":
+		contentType = "font/ttf"
+	case ".txt":
+		contentType = "text/plain"
+	case ".xml":
+		contentType = "application/xml"
+	case ".webp":
+		contentType = "image/webp"
+	case ".mp4":
+		contentType = "video/mp4"
+	case ".webm":
+		contentType = "video/webm"
+	case ".wasm":
+		contentType = "application/wasm"
+	}
+	return data, contentType, nil
+}
+
+// ── Registry Image models + operations (Container Deploy Targets) ──
+
+// RegistryImage represents a container image pushed to a target's registry.
+type RegistryImage struct {
+	ID         string    `json:"$id"`
+	ProjectID  string    `json:"projectId"`
+	TargetID   string    `json:"targetId"`
+	Repository string    `json:"repository"`
+	Tag        string    `json:"tag"`
+	Digest     string    `json:"digest"`
+	SizeBytes  int64     `json:"sizeBytes"`
+	Platform   string    `json:"platform"`
+	CreatedAt  time.Time `json:"$createdAt"`
+}
+
+// PushImage records a container image that was pushed to the registry.
+func (s *Service) PushImage(ctx context.Context, targetID, projectID, repository, tag, digest string, sizeBytes int64, platform string) (*RegistryImage, error) {
+	id := uid.New("unique()")
+	now := time.Now().UTC()
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO registry_images (id, project_id, target_id, repository, tag, digest, size_bytes, platform, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, projectID, targetID, repository, tag, digest, sizeBytes, platform, now)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: push image: %w", err)
+	}
+	return &RegistryImage{
+		ID: id, ProjectID: projectID, TargetID: targetID,
+		Repository: repository, Tag: tag, Digest: digest,
+		SizeBytes: sizeBytes, Platform: platform, CreatedAt: now,
+	}, nil
+}
+
+// ListImages returns all registry images for a target.
+func (s *Service) ListImages(ctx context.Context, targetID, projectID string) ([]*RegistryImage, int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, target_id, repository, tag, digest, size_bytes, platform, created_at
+		 FROM registry_images WHERE target_id = ? AND project_id = ? ORDER BY created_at DESC`,
+		targetID, projectID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var images []*RegistryImage
+	for rows.Next() {
+		var img RegistryImage
+		if err := rows.Scan(&img.ID, &img.ProjectID, &img.TargetID, &img.Repository,
+			&img.Tag, &img.Digest, &img.SizeBytes, &img.Platform, &img.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		images = append(images, &img)
+	}
+	return images, len(images), nil
+}
+
+// DeleteImage removes a registry image record.
+func (s *Service) DeleteImage(ctx context.Context, imageID string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM registry_images WHERE id = ?", imageID)
+	return err
+}
+
+// ── Build Agent models + operations ──
+
+// Agent represents a build agent that can execute deploy jobs.
+type Agent struct {
+	ID            string     `json:"$id"`
+	ProjectID     string     `json:"projectId"`
+	Name          string     `json:"name"`
+	Token         string     `json:"token,omitempty"`
+	Labels        []string   `json:"labels"`
+	Status        string     `json:"status"` // online, offline
+	LastHeartbeat *time.Time `json:"lastHeartbeat"`
+	CurrentJobID  string     `json:"currentJobId,omitempty"`
+	OS            string     `json:"os"`
+	Arch          string     `json:"arch"`
+	CreatedAt     time.Time  `json:"$createdAt"`
+}
+
+// RegisterAgent creates a new build agent with a generated authentication token.
+func (s *Service) RegisterAgent(ctx context.Context, projectID, name string, labels []string, os, arch string) (*Agent, error) {
+	id := uid.New("unique()")
+	token := uid.RandomHex(32)
+	now := time.Now().UTC()
+
+	if labels == nil {
+		labels = []string{}
+	}
+	labelsJSON, _ := json.Marshal(labels)
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO build_agents (id, project_id, name, token, labels, status, os, arch, created_at)
+		 VALUES (?, ?, ?, ?, ?, 'offline', ?, ?, ?)`,
+		id, projectID, name, token, labelsJSON, os, arch, now)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: register agent: %w", err)
+	}
+	return &Agent{
+		ID: id, ProjectID: projectID, Name: name, Token: token,
+		Labels: labels, Status: "offline", OS: os, Arch: arch,
+		CreatedAt: now,
+	}, nil
+}
+
+// ListAgents returns all build agents for a project.
+func (s *Service) ListAgents(ctx context.Context, projectID string) ([]*Agent, int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, name, labels, status, last_heartbeat, current_job_id, os, arch, created_at
+		 FROM build_agents WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var agents []*Agent
+	for rows.Next() {
+		var a Agent
+		var labelsJSON []byte
+		var lastHB sql.NullTime
+		var currentJob sql.NullString
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Name, &labelsJSON, &a.Status,
+			&lastHB, &currentJob, &a.OS, &a.Arch, &a.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		json.Unmarshal(labelsJSON, &a.Labels)
+		if a.Labels == nil {
+			a.Labels = []string{}
+		}
+		if lastHB.Valid {
+			a.LastHeartbeat = &lastHB.Time
+		}
+		a.CurrentJobID = currentJob.String
+		agents = append(agents, &a)
+	}
+	return agents, len(agents), nil
+}
+
+// HeartbeatAgent updates an agent's heartbeat timestamp and sets its status to online.
+func (s *Service) HeartbeatAgent(ctx context.Context, agentID string) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE build_agents SET last_heartbeat = ?, status = 'online' WHERE id = ?`,
+		now, agentID)
+	return err
+}
+
+// DeleteAgent removes a build agent.
+func (s *Service) DeleteAgent(ctx context.Context, agentID string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM build_agents WHERE id = ?", agentID)
+	return err
+}
+
+// AssignJob finds an available agent with a matching label and assigns it a job.
+func (s *Service) AssignJob(ctx context.Context, agentLabel, jobID string) (*Agent, error) {
+	// Find an online agent with the matching label that has no current job.
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, name, labels, status, last_heartbeat, current_job_id, os, arch, created_at
+		 FROM build_agents WHERE status = 'online' AND (current_job_id IS NULL OR current_job_id = '')
+		 ORDER BY last_heartbeat DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var a Agent
+		var labelsJSON []byte
+		var lastHB sql.NullTime
+		var currentJob sql.NullString
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Name, &labelsJSON, &a.Status,
+			&lastHB, &currentJob, &a.OS, &a.Arch, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		json.Unmarshal(labelsJSON, &a.Labels)
+		if a.Labels == nil {
+			a.Labels = []string{}
+		}
+		if lastHB.Valid {
+			a.LastHeartbeat = &lastHB.Time
+		}
+
+		// Check if this agent has the requested label.
+		for _, l := range a.Labels {
+			if l == agentLabel {
+				// Assign the job.
+				_, err := s.db.ExecContext(ctx,
+					`UPDATE build_agents SET current_job_id = ? WHERE id = ?`, jobID, a.ID)
+				if err != nil {
+					return nil, fmt.Errorf("deploy: assign job: %w", err)
+				}
+				a.CurrentJobID = jobID
+				return &a, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no available agent with label %q", agentLabel)
 }
 
 // ── Stats ──

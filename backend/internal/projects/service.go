@@ -76,10 +76,17 @@ func (s *Service) GetByKey(ctx context.Context, secret string) (*model.Project, 
 	return s.Get(ctx, projectID)
 }
 
-// List returns all projects.
-func (s *Service) List(ctx context.Context) ([]*model.Project, error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, description, created_at, updated_at FROM projects ORDER BY created_at DESC")
+// List returns all projects, optionally filtered by org ID.
+func (s *Service) List(ctx context.Context, orgID ...string) ([]*model.Project, error) {
+	var rows *sql.Rows
+	var err error
+	if len(orgID) > 0 && orgID[0] != "" {
+		rows, err = s.db.QueryContext(ctx,
+			"SELECT id, name, description, created_at, updated_at FROM projects WHERE org_id = ? ORDER BY created_at DESC", orgID[0])
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			"SELECT id, name, description, created_at, updated_at FROM projects ORDER BY created_at DESC")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("projects: list: %w", err)
 	}

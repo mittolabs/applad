@@ -68,6 +68,23 @@ func Routes(h *Handler) http.Handler {
 	// Aggregate stats
 	r.Get("/stats", h.getAggregateStats)
 
+	// Custom domains (web deploy targets)
+	r.Post("/targets/{targetId}/domains", h.createDomain)
+	r.Get("/targets/{targetId}/domains", h.listDomains)
+	r.Post("/targets/{targetId}/domains/{domainId}/verify", h.verifyDomain)
+	r.Delete("/targets/{targetId}/domains/{domainId}", h.deleteDomain)
+
+	// Registry images (container deploy targets)
+	r.Get("/targets/{targetId}/images", h.listImages)
+	r.Post("/targets/{targetId}/images", h.pushImage)
+	r.Delete("/targets/{targetId}/images/{imageId}", h.deleteImage)
+
+	// Build agents
+	r.Post("/agents", h.registerAgent)
+	r.Get("/agents", h.listAgents)
+	r.Post("/agents/{agentId}/heartbeat", h.heartbeatAgent)
+	r.Delete("/agents/{agentId}", h.deleteAgent)
+
 	return r
 }
 
@@ -504,4 +521,186 @@ func (h *Handler) getTargetDetailedStats(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// ── Custom domain handlers (web deploy targets) ──
+
+func (h *Handler) createDomain(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	targetID := chi.URLParam(r, "targetId")
+	var body struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Domain) == "" {
+		apperr.BadRequest(w, "domain is required")
+		return
+	}
+	d, err := h.svc.CreateCustomDomain(r.Context(), projectID, targetID, body.Domain)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, d)
+}
+
+func (h *Handler) listDomains(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	targetID := chi.URLParam(r, "targetId")
+	domains, total, err := h.svc.ListDomains(r.Context(), projectID, targetID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if domains == nil {
+		domains = []*CustomDomain{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":   total,
+		"domains": domains,
+	})
+}
+
+func (h *Handler) verifyDomain(w http.ResponseWriter, r *http.Request) {
+	domainID := chi.URLParam(r, "domainId")
+	d, err := h.svc.VerifyDomain(r.Context(), domainID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "domain")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+func (h *Handler) deleteDomain(w http.ResponseWriter, r *http.Request) {
+	domainID := chi.URLParam(r, "domainId")
+	if err := h.svc.DeleteDomain(r.Context(), domainID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Registry image handlers (container deploy targets) ──
+
+func (h *Handler) pushImage(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	targetID := chi.URLParam(r, "targetId")
+	var body struct {
+		Repository string `json:"repository"`
+		Tag        string `json:"tag"`
+		Digest     string `json:"digest"`
+		SizeBytes  int64  `json:"sizeBytes"`
+		Platform   string `json:"platform"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Repository) == "" {
+		apperr.BadRequest(w, "repository is required")
+		return
+	}
+	if body.Tag == "" {
+		body.Tag = "latest"
+	}
+	if body.Platform == "" {
+		body.Platform = "linux/amd64"
+	}
+
+	img, err := h.svc.PushImage(r.Context(), targetID, projectID, body.Repository, body.Tag, body.Digest, body.SizeBytes, body.Platform)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, img)
+}
+
+func (h *Handler) listImages(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	targetID := chi.URLParam(r, "targetId")
+	images, total, err := h.svc.ListImages(r.Context(), targetID, projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if images == nil {
+		images = []*RegistryImage{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":  total,
+		"images": images,
+	})
+}
+
+func (h *Handler) deleteImage(w http.ResponseWriter, r *http.Request) {
+	imageID := chi.URLParam(r, "imageId")
+	if err := h.svc.DeleteImage(r.Context(), imageID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Build agent handlers ──
+
+func (h *Handler) registerAgent(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Name   string   `json:"name"`
+		Labels []string `json:"labels"`
+		OS     string   `json:"os"`
+		Arch   string   `json:"arch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+		apperr.BadRequest(w, "name is required")
+		return
+	}
+	if body.OS == "" {
+		body.OS = "linux"
+	}
+	if body.Arch == "" {
+		body.Arch = "amd64"
+	}
+
+	agent, err := h.svc.RegisterAgent(r.Context(), projectID, body.Name, body.Labels, body.OS, body.Arch)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, agent)
+}
+
+func (h *Handler) listAgents(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	agents, total, err := h.svc.ListAgents(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if agents == nil {
+		agents = []*Agent{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":  total,
+		"agents": agents,
+	})
+}
+
+func (h *Handler) heartbeatAgent(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "agentId")
+	if err := h.svc.HeartbeatAgent(r.Context(), agentID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status": "ok",
+	})
+}
+
+func (h *Handler) deleteAgent(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "agentId")
+	if err := h.svc.DeleteAgent(r.Context(), agentID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
