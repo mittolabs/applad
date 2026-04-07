@@ -427,7 +427,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         filled: true,
         fillColor: Colors.white.withOpacity(0.04),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
@@ -456,7 +456,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         filled: true,
         fillColor: Colors.white.withOpacity(0.04),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),

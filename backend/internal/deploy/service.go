@@ -7,7 +7,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1200,4 +1202,409 @@ func (s *Service) GetAggregateStats(ctx context.Context, projectID string) (*Agg
 	).Scan(&stats.TotalExecutions)
 
 	return stats, nil
+}
+
+// ── Deploy Template models + operations ──
+
+// DeployTemplate represents a pre-built deploy template.
+type DeployTemplate struct {
+	ID          string            `json:"$id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Category    string            `json:"category"` // sites, containers, mobile, desktop
+	Framework   string            `json:"framework"`
+	UseCase     string            `json:"useCase"`
+	RepoURL     string            `json:"repoUrl"`
+	Branch      string            `json:"branch"`
+	BuildCmd    string            `json:"buildCmd"`
+	OutputDir   string            `json:"outputDir"`
+	InstallCmd  string            `json:"installCmd"`
+	EnvVars     map[string]string `json:"envVars"`
+	Icon        string            `json:"icon"`
+	Popularity  int               `json:"popularity"`
+	CreatedAt   time.Time         `json:"$createdAt"`
+}
+
+// ListDeployTemplates returns templates filtered by category and optionally by framework.
+func (s *Service) ListDeployTemplates(ctx context.Context, category, framework string) ([]*DeployTemplate, int, error) {
+	query := `SELECT id, name, description, category, framework, use_case, repo_url, branch, build_cmd, output_dir, install_cmd, env_vars, icon, popularity, created_at
+	          FROM deploy_templates WHERE 1=1`
+	args := []interface{}{}
+
+	if category != "" {
+		query += " AND category = ?"
+		args = append(args, category)
+	}
+	if framework != "" {
+		query += " AND framework = ?"
+		args = append(args, framework)
+	}
+	query += " ORDER BY popularity DESC, created_at DESC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var templates []*DeployTemplate
+	for rows.Next() {
+		var t DeployTemplate
+		var envJSON []byte
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.Framework,
+			&t.UseCase, &t.RepoURL, &t.Branch, &t.BuildCmd, &t.OutputDir, &t.InstallCmd,
+			&envJSON, &t.Icon, &t.Popularity, &t.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		json.Unmarshal(envJSON, &t.EnvVars)
+		if t.EnvVars == nil {
+			t.EnvVars = map[string]string{}
+		}
+		templates = append(templates, &t)
+	}
+	return templates, len(templates), nil
+}
+
+// GetDeployTemplate returns a single deploy template by ID.
+func (s *Service) GetDeployTemplate(ctx context.Context, templateID string) (*DeployTemplate, error) {
+	var t DeployTemplate
+	var envJSON []byte
+
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, name, description, category, framework, use_case, repo_url, branch, build_cmd, output_dir, install_cmd, env_vars, icon, popularity, created_at
+		 FROM deploy_templates WHERE id = ?`, templateID,
+	).Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.Framework,
+		&t.UseCase, &t.RepoURL, &t.Branch, &t.BuildCmd, &t.OutputDir, &t.InstallCmd,
+		&envJSON, &t.Icon, &t.Popularity, &t.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("template not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal(envJSON, &t.EnvVars)
+	if t.EnvVars == nil {
+		t.EnvVars = map[string]string{}
+	}
+	return &t, nil
+}
+
+// ── Git Connection models + operations ──
+
+// GitConnection represents an OAuth-based connection to a Git provider.
+type GitConnection struct {
+	ID             string     `json:"$id"`
+	ProjectID      string     `json:"projectId"`
+	Provider       string     `json:"provider"` // github, gitlab, bitbucket
+	InstallationID string     `json:"installationId"`
+	AccessToken    string     `json:"accessToken,omitempty"`
+	RefreshToken   string     `json:"refreshToken,omitempty"`
+	AccountName    string     `json:"accountName"`
+	AccountType    string     `json:"accountType"`
+	ExpiresAt      *time.Time `json:"expiresAt"`
+	CreatedAt      time.Time  `json:"$createdAt"`
+	UpdatedAt      time.Time  `json:"$updatedAt"`
+}
+
+// GitRepository represents a repository returned from the Git provider API.
+type GitRepository struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	FullName      string `json:"fullName"`
+	Private       bool   `json:"private"`
+	DefaultBranch string `json:"defaultBranch"`
+	CloneURL      string `json:"cloneUrl"`
+	HTMLURL       string `json:"htmlUrl"`
+	Language      string `json:"language"`
+	UpdatedAt     string `json:"updatedAt"`
+}
+
+// CreateGitConnection creates a new git provider connection.
+func (s *Service) CreateGitConnection(ctx context.Context, projectID, provider, installationID, accessToken, refreshToken, accountName, accountType string) (*GitConnection, error) {
+	id := uid.New("unique()")
+	now := time.Now().UTC()
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO git_connections (id, project_id, provider, installation_id, access_token, refresh_token, account_name, account_type, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, projectID, provider, installationID, accessToken, refreshToken, accountName, accountType, now, now)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: create git connection: %w", err)
+	}
+	return &GitConnection{
+		ID: id, ProjectID: projectID, Provider: provider,
+		InstallationID: installationID, AccessToken: accessToken,
+		RefreshToken: refreshToken, AccountName: accountName,
+		AccountType: accountType, CreatedAt: now, UpdatedAt: now,
+	}, nil
+}
+
+// ListGitConnections returns all git connections for a project.
+func (s *Service) ListGitConnections(ctx context.Context, projectID string) ([]*GitConnection, int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, provider, installation_id, access_token, refresh_token, account_name, account_type, expires_at, created_at, updated_at
+		 FROM git_connections WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var connections []*GitConnection
+	for rows.Next() {
+		var c GitConnection
+		var expiresAt sql.NullTime
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Provider, &c.InstallationID,
+			&c.AccessToken, &c.RefreshToken, &c.AccountName, &c.AccountType,
+			&expiresAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		if expiresAt.Valid {
+			c.ExpiresAt = &expiresAt.Time
+		}
+		connections = append(connections, &c)
+	}
+	return connections, len(connections), nil
+}
+
+// DeleteGitConnection removes a git connection.
+func (s *Service) DeleteGitConnection(ctx context.Context, connectionID string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM git_connections WHERE id = ?", connectionID)
+	return err
+}
+
+// ListRepositories fetches repositories from the Git provider using the connection's access token.
+func (s *Service) ListRepositories(ctx context.Context, connectionID string) ([]*GitRepository, error) {
+	var accessToken, provider string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT access_token, provider FROM git_connections WHERE id = ?`, connectionID,
+	).Scan(&accessToken, &provider)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("git connection not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if accessToken == "" {
+		return nil, fmt.Errorf("git connection has no access token")
+	}
+
+	// Call GitHub API to list installation repositories
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/installation/repositories", nil)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: list repos: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: list repos: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("deploy: github API error (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Repositories []struct {
+			ID            int64  `json:"id"`
+			Name          string `json:"name"`
+			FullName      string `json:"full_name"`
+			Private       bool   `json:"private"`
+			DefaultBranch string `json:"default_branch"`
+			CloneURL      string `json:"clone_url"`
+			HTMLURL       string `json:"html_url"`
+			Language      string `json:"language"`
+			UpdatedAt     string `json:"updated_at"`
+		} `json:"repositories"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("deploy: parse github response: %w", err)
+	}
+
+	var repos []*GitRepository
+	for _, r := range result.Repositories {
+		repos = append(repos, &GitRepository{
+			ID: r.ID, Name: r.Name, FullName: r.FullName,
+			Private: r.Private, DefaultBranch: r.DefaultBranch,
+			CloneURL: r.CloneURL, HTMLURL: r.HTMLURL,
+			Language: r.Language, UpdatedAt: r.UpdatedAt,
+		})
+	}
+	return repos, nil
+}
+
+// ── Environment models + operations ──
+
+// Environment represents a deploy environment (e.g., production, staging, development).
+type Environment struct {
+	ID        string            `json:"$id"`
+	ProjectID string            `json:"projectId"`
+	Name      string            `json:"name"`
+	Slug      string            `json:"slug"`
+	Branch    string            `json:"branch"`
+	Domain    string            `json:"domain"`
+	EnvVars   map[string]string `json:"envVars"`
+	IsDefault bool              `json:"isDefault"`
+	CreatedAt time.Time         `json:"$createdAt"`
+	UpdatedAt time.Time         `json:"$updatedAt"`
+}
+
+// CreateEnvironment creates a new environment for a project.
+func (s *Service) CreateEnvironment(ctx context.Context, projectID, name, slug, branch, domain string, envVars map[string]string) (*Environment, error) {
+	id := uid.New("unique()")
+	now := time.Now().UTC()
+
+	if envVars == nil {
+		envVars = map[string]string{}
+	}
+	envJSON, _ := json.Marshal(envVars)
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO environments (id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?)`,
+		id, projectID, name, slug, branch, domain, envJSON, now, now)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: create environment: %w", err)
+	}
+	return &Environment{
+		ID: id, ProjectID: projectID, Name: name, Slug: slug,
+		Branch: branch, Domain: domain, EnvVars: envVars,
+		IsDefault: false, CreatedAt: now, UpdatedAt: now,
+	}, nil
+}
+
+// ListEnvironments returns all environments for a project.
+func (s *Service) ListEnvironments(ctx context.Context, projectID string) ([]*Environment, int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at
+		 FROM environments WHERE project_id = ? ORDER BY is_default DESC, created_at ASC`, projectID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var envs []*Environment
+	for rows.Next() {
+		var e Environment
+		var envJSON []byte
+		if err := rows.Scan(&e.ID, &e.ProjectID, &e.Name, &e.Slug, &e.Branch,
+			&e.Domain, &envJSON, &e.IsDefault, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		json.Unmarshal(envJSON, &e.EnvVars)
+		if e.EnvVars == nil {
+			e.EnvVars = map[string]string{}
+		}
+		envs = append(envs, &e)
+	}
+	return envs, len(envs), nil
+}
+
+// GetEnvironment returns a single environment by ID.
+func (s *Service) GetEnvironment(ctx context.Context, environmentID, projectID string) (*Environment, error) {
+	var e Environment
+	var envJSON []byte
+
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at
+		 FROM environments WHERE id = ? AND project_id = ?`, environmentID, projectID,
+	).Scan(&e.ID, &e.ProjectID, &e.Name, &e.Slug, &e.Branch,
+		&e.Domain, &envJSON, &e.IsDefault, &e.CreatedAt, &e.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("environment not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal(envJSON, &e.EnvVars)
+	if e.EnvVars == nil {
+		e.EnvVars = map[string]string{}
+	}
+	return &e, nil
+}
+
+// UpdateEnvironment updates an environment.
+func (s *Service) UpdateEnvironment(ctx context.Context, environmentID, name, branch, domain string, envVars map[string]string) (*Environment, error) {
+	if envVars == nil {
+		envVars = map[string]string{}
+	}
+	envJSON, _ := json.Marshal(envVars)
+
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE environments SET name=?, branch=?, domain=?, env_vars=?, updated_at=?
+		 WHERE id=?`,
+		name, branch, domain, envJSON, time.Now().UTC(), environmentID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Retrieve the updated environment
+	var e Environment
+	var envJSONOut []byte
+	err = s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at
+		 FROM environments WHERE id = ?`, environmentID,
+	).Scan(&e.ID, &e.ProjectID, &e.Name, &e.Slug, &e.Branch,
+		&e.Domain, &envJSONOut, &e.IsDefault, &e.CreatedAt, &e.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal(envJSONOut, &e.EnvVars)
+	if e.EnvVars == nil {
+		e.EnvVars = map[string]string{}
+	}
+	return &e, nil
+}
+
+// DeleteEnvironment deletes an environment. The default environment cannot be deleted.
+func (s *Service) DeleteEnvironment(ctx context.Context, environmentID string) error {
+	var isDefault bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT is_default FROM environments WHERE id = ?`, environmentID,
+	).Scan(&isDefault)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("environment not found")
+	}
+	if err != nil {
+		return err
+	}
+	if isDefault {
+		return fmt.Errorf("cannot delete the default environment")
+	}
+	_, err = s.db.ExecContext(ctx, "DELETE FROM environments WHERE id = ?", environmentID)
+	return err
+}
+
+// CreateDefaultEnvironments creates the 3 default environments for a new project.
+func (s *Service) CreateDefaultEnvironments(ctx context.Context, projectID string) error {
+	now := time.Now().UTC()
+	emptyEnv, _ := json.Marshal(map[string]string{})
+
+	defaults := []struct {
+		name      string
+		slug      string
+		branch    string
+		isDefault bool
+	}{
+		{"Production", "production", "main", true},
+		{"Staging", "staging", "staging", false},
+		{"Development", "development", "develop", false},
+	}
+
+	for _, d := range defaults {
+		id := uid.New("unique()")
+		_, err := s.db.ExecContext(ctx,
+			`INSERT INTO environments (id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
+			id, projectID, d.name, d.slug, d.branch, emptyEnv, d.isDefault, now, now)
+		if err != nil {
+			return fmt.Errorf("deploy: create default environment %s: %w", d.name, err)
+		}
+	}
+	return nil
 }

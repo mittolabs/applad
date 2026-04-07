@@ -109,7 +109,7 @@ class ApplAdApp extends ConsumerWidget {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: Colors.white.withOpacity(0.04),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
         borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
@@ -216,7 +216,7 @@ class ApplAdApp extends ConsumerWidget {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: Colors.black.withOpacity(0.03),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
         borderSide: BorderSide(color: Colors.black.withOpacity(0.12)),

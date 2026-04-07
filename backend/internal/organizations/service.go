@@ -223,6 +223,22 @@ func (s *Service) ListProjects(ctx context.Context, orgID string) ([]map[string]
 	return projects, nil
 }
 
+// CreateProject creates a project under an organization.
+func (s *Service) CreateProject(ctx context.Context, orgID, name, description string) (map[string]interface{}, error) {
+	id := uid.New("unique()")
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO projects (id, org_id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		id, orgID, name, description, now, now)
+	if err != nil {
+		return nil, fmt.Errorf("organizations: create project: %w", err)
+	}
+	return map[string]interface{}{
+		"$id": id, "name": name, "description": description,
+		"$createdAt": now, "$updatedAt": now,
+	}, nil
+}
+
 func generateInviteToken() string {
 	b := make([]byte, 32)
 	rand.Read(b)

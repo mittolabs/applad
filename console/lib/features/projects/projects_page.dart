@@ -237,10 +237,36 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
     final projectsAsync = ref.watch(projectsProvider);
     final authUser = ref.watch(consoleAuthProvider).valueOrNull;
 
-    String orgName = orgs.isNotEmpty ? (orgs.first['name'] ?? 'Organization') : 'Organization';
+    // Org is mandatory — redirect to onboarding if none exist
+    if (orgs.isEmpty && authUser != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.go('/onboarding');
+      });
+      return const SizedBox.shrink();
+    }
+
+    // Sync org from URL if present
+    final routeOrgId = GoRouterState.of(context).pathParameters['orgId'];
+    if (routeOrgId != null && routeOrgId != currentOrgId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(currentOrgProvider.notifier).state = routeOrgId;
+        }
+      });
+    }
+
+    // Redirect to org-scoped URL if on bare /projects
+    if (routeOrgId == null && currentOrgId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.go('/org/$currentOrgId/projects');
+      });
+      return const SizedBox.shrink();
+    }
+
+    String orgName = orgs.isNotEmpty ? orgs.first['name'] as String : '';
     if (currentOrgId != null) {
       final org = orgs.where((o) => o['\$id'] == currentOrgId).firstOrNull;
-      if (org != null) orgName = org['name'] ?? 'Organization';
+      if (org != null) orgName = org['name'] as String;
     }
 
     final userEmail = authUser?.email ?? '';
@@ -423,28 +449,15 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
               if (value == '__create__') {
                 _showCreateOrgDialog();
               } else {
-                ref.read(currentOrgProvider.notifier).state =
-                    value == '__personal__' ? null : value;
-                ref.invalidate(projectsProvider);
+                ref.read(currentOrgProvider.notifier).state = value;
+                context.go('/org/$value/projects');
               }
             },
             itemBuilder: (_) {
               final items = <PopupMenuEntry<String>>[];
-              items.add(PopupMenuItem(
-                value: '__personal__',
-                child: Row(children: [
-                  if (currentOrgId == null)
-                    const Icon(LucideIcons.check, size: 12, color: Colors.white70)
-                  else
-                    const SizedBox(width: 12),
-                  const SizedBox(width: 8),
-                  const Text('Organization',
-                      style: TextStyle(color: Colors.white70, fontSize: 13)),
-                ]),
-              ));
               for (final org in orgs) {
-                final id = org['\$id'] as String? ?? '';
-                final name = org['name'] as String? ?? 'Organization';
+                final id = org['\$id'] as String;
+                final name = org['name'] as String;
                 items.add(PopupMenuItem(
                   value: id,
                   child: Row(children: [

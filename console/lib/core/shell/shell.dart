@@ -11,6 +11,8 @@ import '../widgets/search_modal.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/navbar_popovers.dart';
 import '../widgets/console_footer.dart';
+import '../providers/experiments_provider.dart';
+import '../providers/environment_provider.dart';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Constants
@@ -20,7 +22,7 @@ const _bg = Color(0xFF0B0B0F);
 const _railBg = Color(0xFF101014);
 const _panelBg = Color(0xFF131317);
 const _accent = Color(0xFF3472A4);
-const _railWidth = 56.0;
+const _railWidth = 68.0;
 const _panelWidth = 220.0;
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -80,6 +82,7 @@ List<_NavGroup> _buildGroups() => [
         _NavChild('Storage', 'storage', LucideIcons.folderClosed),
         _NavChild('Functions', 'functions', LucideIcons.zap),
         _NavChild('Messaging', 'messaging', LucideIcons.messageSquare),
+        _NavChild('Workflows', 'workflows', LucideIcons.gitBranch),
       ]),
       _NavGroup('test', 'Test', LucideIcons.flaskConical, [
         _NavChild('Test recorder', 'test', LucideIcons.video,
@@ -93,18 +96,12 @@ List<_NavGroup> _buildGroups() => [
         _NavChild('Coverage', 'test/coverage', LucideIcons.pieChart,
             placeholder: true),
       ]),
-      _NavGroup('automate', 'Automate', LucideIcons.gitBranch, [
-        _NavChild('Workflows', 'workflows', LucideIcons.gitBranch),
-        _NavChild('Webhooks', 'webhooks', LucideIcons.webhook,
-            placeholder: true),
-        _NavChild(
-            'Scheduled jobs', 'jobs', LucideIcons.clock, placeholder: true),
-      ]),
-      _NavGroup('ship', 'Ship', LucideIcons.rocket, [
-        _NavChild('Deploy', 'deploy', LucideIcons.rocket),
+      _NavGroup('deploy', 'Deploy', LucideIcons.rocket, [
+        _NavChild('Sites', 'sites', LucideIcons.globe),
+        _NavChild('Containers', 'containers', LucideIcons.box),
+        _NavChild('Mobile', 'mobile', LucideIcons.smartphone),
+        _NavChild('Desktop', 'desktop', LucideIcons.monitor),
         _NavChild('Feature Flags', 'flags', LucideIcons.toggleRight),
-        _NavChild('Domains', 'domains', LucideIcons.globe,
-            placeholder: true),
       ]),
       _NavGroup('observe', 'Observe', LucideIcons.activity, [
         _NavChild('Analytics', 'analytics', LucideIcons.barChart3,
@@ -126,9 +123,9 @@ List<_NavGroup> _buildGroups() => [
       ]),
       _NavGroup('settings', 'Settings', LucideIcons.settings, [
         _NavChild('General', 'settings', LucideIcons.settings),
-        _NavChild(
-            'Platforms', 'settings', LucideIcons.smartphone),
+        _NavChild('Platforms', 'settings', LucideIcons.smartphone),
         _NavChild('Team', 'settings', LucideIcons.users),
+        _NavChild('Experiments', 'experiments', LucideIcons.flaskConical),
       ], pinBottom: true),
     ];
 
@@ -233,10 +230,13 @@ class _AppShellState extends ConsumerState<AppShell> {
       'storage': 'build',
       'functions': 'build',
       'messaging': 'build',
-      'workflows': 'automate',
-      'webhooks': 'automate',
-      'deploy': 'ship',
-      'flags': 'ship',
+      'workflows': 'build',
+      'deploy': 'deploy',
+      'sites': 'deploy',
+      'containers': 'deploy',
+      'mobile': 'deploy',
+      'desktop': 'deploy',
+      'flags': 'deploy',
       'settings': 'settings',
       'specify': 'specify',
       'design': 'design',
@@ -259,7 +259,15 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     if (projectId != null) _syncProject(projectId);
 
-    final groups = _buildGroups();
+    final experiments = ref.watch(experimentsProvider);
+    final allGroups = _buildGroups();
+    // Filter groups based on experiments
+    final experimentalGroups = {'specify', 'design', 'test', 'observe'};
+    final groups = allGroups.where((g) {
+      if (!experimentalGroups.contains(g.id)) return true;
+      final map = experiments.toMap();
+      return map[g.id] == true;
+    }).toList();
     final activeGroup = _activeGroup(currentPath, projectId ?? '');
 
     return Shortcuts(
@@ -311,6 +319,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                           });
                         },
                         aiChatOpen: _aiChatOpen,
+                        showAiButton: experiments.aiChat,
                       ),
                       // Expanded detail panel
                       if (_expandedGroup != null)
@@ -326,7 +335,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                       // Main content
                       Expanded(child: widget.child),
                       // AI chat panel (right overlay)
-                      if (_aiChatOpen)
+                      if (_aiChatOpen && experiments.aiChat)
                         _AIChatPanel(
                           onClose: () =>
                               setState(() => _aiChatOpen = false),
@@ -354,6 +363,7 @@ class _IconRail extends StatelessWidget {
   final String? expandedGroup;
   final ValueChanged<String> onGroupTap;
   final bool aiChatOpen;
+  final bool showAiButton;
 
   const _IconRail({
     required this.groups,
@@ -361,6 +371,7 @@ class _IconRail extends StatelessWidget {
     required this.expandedGroup,
     required this.onGroupTap,
     required this.aiChatOpen,
+    this.showAiButton = false,
   });
 
   @override
@@ -383,22 +394,23 @@ class _IconRail extends StatelessWidget {
               .map((g) => _RailIcon(
                     icon: g.icon,
                     tooltip: g.label,
-                    isActive: activeGroup == g.id,
+                    isActive: expandedGroup == null && activeGroup == g.id,
                     isExpanded: expandedGroup == g.id,
                     onTap: () => onGroupTap(g.id),
                   )),
 
           const Spacer(),
 
-          // AI button
-          _RailIcon(
-            icon: LucideIcons.sparkles,
-            tooltip: 'AI Assistant',
-            isActive: aiChatOpen,
-            isExpanded: false,
-            onTap: () => onGroupTap('ai'),
-            accentColor: const Color(0xFF8B5CF6),
-          ),
+          // AI button (only when experiment enabled)
+          if (showAiButton)
+            _RailIcon(
+              icon: LucideIcons.sparkles,
+              tooltip: 'AI Assistant',
+              isActive: aiChatOpen,
+              isExpanded: false,
+              onTap: () => onGroupTap('ai'),
+              accentColor: const Color(0xFF8B5CF6),
+            ),
 
           const SizedBox(height: 4),
 
@@ -407,7 +419,7 @@ class _IconRail extends StatelessWidget {
               .map((g) => _RailIcon(
                     icon: g.icon,
                     tooltip: g.label,
-                    isActive: activeGroup == g.id,
+                    isActive: expandedGroup == null && activeGroup == g.id,
                     isExpanded: expandedGroup == g.id,
                     onTap: () => onGroupTap(g.id),
                   )),
@@ -448,7 +460,7 @@ class _RailIconState extends State<_RailIcon> {
     final active = widget.isActive || widget.isExpanded;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Tooltip(
         message: widget.tooltip,
         preferBelow: false,
@@ -462,7 +474,7 @@ class _RailIconState extends State<_RailIcon> {
             child: Container(
               width: 40,
               height: 40,
-              margin: const EdgeInsets.symmetric(horizontal: 8),
+              margin: const EdgeInsets.symmetric(horizontal: 14),
               decoration: BoxDecoration(
                 color: active
                     ? color.withOpacity(0.12)
@@ -977,12 +989,12 @@ class _TopNavBar extends ConsumerWidget {
     final currentOrgId = ref.watch(currentOrgProvider);
     final projects = ref.watch(projectsProvider).valueOrNull ?? [];
 
-    String orgName = orgs.isNotEmpty ? (orgs.first['name'] ?? 'Organization') : 'Organization';
+    String orgName = orgs.isNotEmpty ? orgs.first['name'] as String : '';
     if (currentOrgId != null) {
       final org = orgs.where((o) => o['\$id'] == currentOrgId).firstOrNull;
-      if (org != null) orgName = org['name'] ?? 'Organization';
+      if (org != null) orgName = org['name'] as String;
     } else if (orgs.isNotEmpty) {
-      orgName = orgs.first['name'] ?? 'Organization';
+      orgName = orgs.first['name'] as String;
     }
 
     String? projectName;
@@ -1034,6 +1046,9 @@ class _TopNavBar extends ConsumerWidget {
               projects: projects,
               currentPath: currentPath,
             ),
+            const SizedBox(width: 10),
+            // Environment badge
+            _EnvironmentBadge(),
           ],
 
           const Spacer(),
@@ -1214,6 +1229,7 @@ class _OrgNavButton extends StatelessWidget {
       onSelected: (value) {
         if (value != '__create__') {
           ref.read(currentOrgProvider.notifier).state = value;
+          context.go('/org/$value/projects');
         }
       },
       itemBuilder: (_) => [
@@ -1236,6 +1252,74 @@ class _OrgNavButton extends StatelessWidget {
           Icon(LucideIcons.chevronDown,
               size: 14, color: Colors.white.withOpacity(0.35)),
         ],
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Environment badge (navbar)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _EnvironmentBadge extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final envsAsync = ref.watch(environmentsProvider);
+    final currentEnvId = ref.watch(currentEnvironmentProvider);
+    final envs = envsAsync.valueOrNull ?? [];
+
+    if (envs.isEmpty) return const SizedBox.shrink();
+
+    String envName = 'production';
+    Color envColor = const Color(0xFF10B981);
+    if (currentEnvId != null) {
+      final env = envs.where((e) => e['\$id'] == currentEnvId).firstOrNull;
+      if (env != null) {
+        envName = env['slug'] as String? ?? env['name'] as String? ?? 'production';
+      }
+    }
+    if (envName == 'staging') envColor = const Color(0xFFF59E0B);
+    if (envName == 'development') envColor = const Color(0xFF8B5CF6);
+
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 36),
+      color: const Color(0xFF1A1A22),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: Colors.white.withOpacity(0.08)),
+      ),
+      onSelected: (id) => ref.read(currentEnvironmentProvider.notifier).state = id,
+      itemBuilder: (_) => envs.map((e) {
+        final id = e['\$id'] as String;
+        final name = e['slug'] as String? ?? e['name'] as String? ?? '';
+        Color c = const Color(0xFF10B981);
+        if (name == 'staging') c = const Color(0xFFF59E0B);
+        if (name == 'development') c = const Color(0xFF8B5CF6);
+        return PopupMenuItem<String>(
+          value: id,
+          child: Row(children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+            Text(name, style: TextStyle(
+              color: currentEnvId == id ? Colors.white : Colors.white70, fontSize: 13,
+              fontWeight: currentEnvId == id ? FontWeight.w600 : FontWeight.w400)),
+          ]),
+        );
+      }).toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: envColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: envColor.withOpacity(0.25)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 6, height: 6, decoration: BoxDecoration(color: envColor, shape: BoxShape.circle)),
+          const SizedBox(width: 6),
+          Text(envName, style: TextStyle(color: envColor, fontSize: 11, fontWeight: FontWeight.w500)),
+          const SizedBox(width: 4),
+          Icon(LucideIcons.chevronDown, size: 10, color: envColor),
+        ]),
       ),
     );
   }

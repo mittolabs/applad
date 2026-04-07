@@ -38,6 +38,7 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/{orgId}/members/{memberId}", h.removeMember)
 	r.Patch("/{orgId}/members/{memberId}", h.updateMemberRole)
 	r.Get("/{orgId}/projects", h.listProjects)
+	r.Post("/{orgId}/projects", h.createProject)
 	r.Post("/invites/{token}/accept", h.acceptInvite)
 	return r
 }
@@ -182,6 +183,24 @@ func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
 		projects = []map[string]interface{}{}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(projects), "projects": projects})
+}
+
+func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "orgId")
+	var body struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name is required")
+		return
+	}
+	project, err := h.svc.CreateProject(r.Context(), orgID, body.Name, body.Description)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, project)
 }
 
 func (h *Handler) acceptInvite(w http.ResponseWriter, r *http.Request) {

@@ -279,7 +279,7 @@ class _SearchModalState extends State<SearchModal> {
                             focusedBorder: InputBorder.none,
                             filled: false,
                             contentPadding:
-                                const EdgeInsets.symmetric(vertical: 14),
+                                const EdgeInsets.symmetric(vertical: 10),
                           ),
                           onSubmitted: (_) {
                             final items = _selectable;

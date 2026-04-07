@@ -85,6 +85,27 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/agents/{agentId}/heartbeat", h.heartbeatAgent)
 	r.Delete("/agents/{agentId}", h.deleteAgent)
 
+	// Deploy templates
+	r.Get("/templates", h.listDeployTemplates)
+	r.Get("/templates/{templateId}", h.getDeployTemplate)
+
+	// Git connections
+	r.Route("/git/connections", func(r chi.Router) {
+		r.Post("/", h.createGitConnection)
+		r.Get("/", h.listGitConnections)
+		r.Delete("/{connectionId}", h.deleteGitConnection)
+		r.Get("/{connectionId}/repos", h.listRepositories)
+	})
+
+	// Environments
+	r.Route("/environments", func(r chi.Router) {
+		r.Post("/", h.createEnvironment)
+		r.Get("/", h.listEnvironments)
+		r.Get("/{envId}", h.getEnvironment)
+		r.Put("/{envId}", h.updateEnvironment)
+		r.Delete("/{envId}", h.deleteEnvironment)
+	})
+
 	return r
 }
 
@@ -699,6 +720,212 @@ func (h *Handler) heartbeatAgent(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "agentId")
 	if err := h.svc.DeleteAgent(r.Context(), agentID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Deploy template handlers ──
+
+func (h *Handler) listDeployTemplates(w http.ResponseWriter, r *http.Request) {
+	category := r.URL.Query().Get("category")
+	framework := r.URL.Query().Get("framework")
+
+	templates, total, err := h.svc.ListDeployTemplates(r.Context(), category, framework)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if templates == nil {
+		templates = []*DeployTemplate{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":     total,
+		"templates": templates,
+	})
+}
+
+func (h *Handler) getDeployTemplate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "templateId")
+	t, err := h.svc.GetDeployTemplate(r.Context(), id)
+	if err != nil {
+		apperr.NotFound(w, "template")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+// ── Git connection handlers ──
+
+func (h *Handler) createGitConnection(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Provider       string `json:"provider"`
+		InstallationID string `json:"installationId"`
+		AccessToken    string `json:"accessToken"`
+		RefreshToken   string `json:"refreshToken"`
+		AccountName    string `json:"accountName"`
+		AccountType    string `json:"accountType"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Provider) == "" {
+		apperr.BadRequest(w, "provider is required")
+		return
+	}
+	if body.Provider != "github" && body.Provider != "gitlab" && body.Provider != "bitbucket" {
+		apperr.BadRequest(w, "provider must be github, gitlab, or bitbucket")
+		return
+	}
+	if strings.TrimSpace(body.AccessToken) == "" {
+		apperr.BadRequest(w, "accessToken is required")
+		return
+	}
+
+	conn, err := h.svc.CreateGitConnection(r.Context(), projectID, body.Provider, body.InstallationID,
+		body.AccessToken, body.RefreshToken, body.AccountName, body.AccountType)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, conn)
+}
+
+func (h *Handler) listGitConnections(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	connections, total, err := h.svc.ListGitConnections(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if connections == nil {
+		connections = []*GitConnection{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":       total,
+		"connections": connections,
+	})
+}
+
+func (h *Handler) deleteGitConnection(w http.ResponseWriter, r *http.Request) {
+	connectionID := chi.URLParam(r, "connectionId")
+	if err := h.svc.DeleteGitConnection(r.Context(), connectionID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) listRepositories(w http.ResponseWriter, r *http.Request) {
+	connectionID := chi.URLParam(r, "connectionId")
+	repos, err := h.svc.ListRepositories(r.Context(), connectionID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "git connection")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	if repos == nil {
+		repos = []*GitRepository{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":        len(repos),
+		"repositories": repos,
+	})
+}
+
+// ── Environment handlers ──
+
+func (h *Handler) createEnvironment(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Name    string            `json:"name"`
+		Slug    string            `json:"slug"`
+		Branch  string            `json:"branch"`
+		Domain  string            `json:"domain"`
+		EnvVars map[string]string `json:"envVars"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+		apperr.BadRequest(w, "name is required")
+		return
+	}
+	if strings.TrimSpace(body.Slug) == "" {
+		apperr.BadRequest(w, "slug is required")
+		return
+	}
+
+	env, err := h.svc.CreateEnvironment(r.Context(), projectID, body.Name, body.Slug, body.Branch, body.Domain, body.EnvVars)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, env)
+}
+
+func (h *Handler) listEnvironments(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	envs, total, err := h.svc.ListEnvironments(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if envs == nil {
+		envs = []*Environment{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":        total,
+		"environments": envs,
+	})
+}
+
+func (h *Handler) getEnvironment(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	id := chi.URLParam(r, "envId")
+	env, err := h.svc.GetEnvironment(r.Context(), id, projectID)
+	if err != nil {
+		apperr.NotFound(w, "environment")
+		return
+	}
+	writeJSON(w, http.StatusOK, env)
+}
+
+func (h *Handler) updateEnvironment(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "envId")
+	var body struct {
+		Name    string            `json:"name"`
+		Branch  string            `json:"branch"`
+		Domain  string            `json:"domain"`
+		EnvVars map[string]string `json:"envVars"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" {
+		apperr.BadRequest(w, "name is required")
+		return
+	}
+
+	env, err := h.svc.UpdateEnvironment(r.Context(), id, body.Name, body.Branch, body.Domain, body.EnvVars)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, env)
+}
+
+func (h *Handler) deleteEnvironment(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "envId")
+	if err := h.svc.DeleteEnvironment(r.Context(), id); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "environment")
+			return
+		}
+		if strings.Contains(err.Error(), "cannot delete") {
+			apperr.BadRequest(w, err.Error())
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}

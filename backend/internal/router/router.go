@@ -5,19 +5,25 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/mittolabs/applad/internal/analytics"
+	"github.com/mittolabs/applad/internal/appcache"
 	"github.com/mittolabs/applad/internal/audit"
 	"github.com/mittolabs/applad/internal/auth"
+	"github.com/mittolabs/applad/internal/billing"
 	"github.com/mittolabs/applad/internal/avatars"
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/console"
+	"github.com/mittolabs/applad/internal/content"
 	"github.com/mittolabs/applad/internal/credentials"
 	"github.com/mittolabs/applad/internal/databases"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/deploy"
+	"github.com/mittolabs/applad/internal/edge"
 	"github.com/mittolabs/applad/internal/flags"
 	"github.com/mittolabs/applad/internal/functions"
 	"github.com/mittolabs/applad/internal/health"
+	"github.com/mittolabs/applad/internal/jobs"
 	"github.com/mittolabs/applad/internal/locale"
 	"github.com/mittolabs/applad/internal/messaging"
 	"github.com/mittolabs/applad/internal/migrations"
@@ -27,9 +33,12 @@ import (
 	"github.com/mittolabs/applad/internal/projects"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/realtime"
+	"github.com/mittolabs/applad/internal/regions"
+	"github.com/mittolabs/applad/internal/search"
 	"github.com/mittolabs/applad/internal/storage"
 	"github.com/mittolabs/applad/internal/teams"
 	"github.com/mittolabs/applad/internal/usage"
+	"github.com/mittolabs/applad/internal/vectors"
 	"github.com/mittolabs/applad/internal/webhooks"
 	"github.com/mittolabs/applad/internal/workflows"
 )
@@ -122,6 +131,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// Avatars — no auth required
 		r.Mount("/avatars", avatars.Routes(avatars.NewHandler()))
 
+		// Regions — public catalog (no auth)
+		r.Mount("/regions", regions.PublicRoutes(regions.NewHandler(regions.NewService(database))))
+
 		// All service routes require X-Applad-Project header + optional auth
 		r.Group(func(r chi.Router) {
 			r.Use(mw.ProjectContext)
@@ -211,6 +223,17 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				// Usage analytics
 				usageSvc := usage.NewService(database)
 				r.Mount("/usage", usage.Routes(usage.NewHandler(usageSvc)))
+
+				// Future services (experimental)
+				r.Mount("/analytics", analytics.Routes(analytics.NewHandler(analytics.NewService(database))))
+				r.Mount("/cache", appcache.Routes(appcache.NewHandler(appcache.NewService(cacheClient.Client()))))
+				r.Mount("/billing", billing.Routes(billing.NewHandler(billing.NewService(database))))
+				r.Mount("/content", content.Routes(content.NewHandler(content.NewService(database))))
+				r.Mount("/edge", edge.Routes(edge.NewHandler(edge.NewService(database))))
+				r.Mount("/jobs", jobs.Routes(jobs.NewHandler(jobs.NewService(database))))
+				r.Mount("/search", search.Routes(search.NewHandler(search.NewService(database))))
+				r.Mount("/vectors", vectors.Routes(vectors.NewHandler(vectors.NewService(database))))
+				r.Mount("/project-regions", regions.ProjectRoutes(regions.NewHandler(regions.NewService(database))))
 			})
 		})
 	})

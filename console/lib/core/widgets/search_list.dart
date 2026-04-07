@@ -57,7 +57,7 @@ class SearchListHeader extends StatelessWidget {
               fillColor: _fieldFill,
               isDense: true,
               contentPadding:
-                  const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
                 borderSide: BorderSide(

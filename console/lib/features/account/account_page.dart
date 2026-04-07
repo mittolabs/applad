@@ -350,7 +350,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
         filled: true,
         fillColor: const Color(0xFF0B0B0F),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),

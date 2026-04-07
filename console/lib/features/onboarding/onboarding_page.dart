@@ -59,8 +59,9 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     final orgsAsync = ref.watch(orgsProvider);
     final orgs = orgsAsync.valueOrNull ?? [];
     if (orgs.isNotEmpty) {
+      final orgId = ref.read(currentOrgProvider) ?? orgs.first['\$id'] as String;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) context.go('/projects');
+        if (mounted) context.go('/org/$orgId/projects');
       });
       return const SizedBox.shrink();
     }
@@ -150,7 +151,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                     filled: true,
                     fillColor: Colors.white.withOpacity(0.04),
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
+                        horizontal: 14, vertical: 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                       borderSide:
@@ -201,20 +202,6 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   ),
                 ),
 
-                const SizedBox(height: 20),
-
-                // Skip link
-                GestureDetector(
-                  onTap: () => context.go('/projects'),
-                  child: Text(
-                    'Skip for now',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.3),
-                      fontSize: 13,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -236,8 +223,10 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
       ref.invalidate(orgsProvider);
       if (orgId != null) {
         ref.read(currentOrgProvider.notifier).state = orgId;
+        if (mounted) context.go('/org/$orgId/projects');
+      } else {
+        if (mounted) context.go('/projects');
       }
-      if (mounted) context.go('/projects');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

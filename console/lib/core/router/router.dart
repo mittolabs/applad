@@ -15,6 +15,11 @@ import '../../features/messaging/messaging_page.dart';
 import '../../features/workflows/workflows_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/flags/flags_page.dart';
+import '../../features/experiments/experiments_page.dart';
+import '../../features/sites/sites_page.dart';
+import '../../features/containers/containers_page.dart';
+import '../../features/mobile/mobile_page.dart';
+import '../../features/desktop/desktop_page.dart';
 import '../../features/account/account_page.dart';
 import '../../features/projects/projects_page.dart';
 
@@ -47,19 +52,27 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Full-page routes (no sidebar)
       GoRoute(
         path: '/login',
-        pageBuilder: (_, state) => _fade(state, const LoginPage()),
+        pageBuilder: (_, state) => _noTransition(state, const LoginPage()),
       ),
       GoRoute(
         path: '/onboarding',
-        pageBuilder: (_, state) => _fade(state, const OnboardingPage()),
+        pageBuilder: (_, state) => _noTransition(state, const OnboardingPage()),
       ),
       GoRoute(
         path: '/projects',
-        pageBuilder: (_, state) => _fade(state, const ProjectsPage()),
+        redirect: (context, state) {
+          // Legacy route — redirect to org-scoped route
+          return null; // handled by ProjectsPage which reads org from provider
+        },
+        pageBuilder: (_, state) => _noTransition(state, const ProjectsPage()),
+      ),
+      GoRoute(
+        path: '/org/:orgId/projects',
+        pageBuilder: (_, state) => _noTransition(state, const ProjectsPage()),
       ),
       GoRoute(
         path: '/account',
-        pageBuilder: (_, state) => _fade(state, const AccountPage()),
+        pageBuilder: (_, state) => _noTransition(state, const AccountPage()),
       ),
 
       // Bare project path — redirect to overview
@@ -117,6 +130,31 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/project/:projectId/flags',
             pageBuilder: (_, state) =>
                 _noTransition(state, const FlagsPage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/experiments',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ExperimentsPage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/sites',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const SitesPage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/containers',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ContainersPage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/mobile',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const MobilePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/desktop',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const DesktopPage()),
           ),
           GoRoute(
             path: '/project/:projectId/settings',
