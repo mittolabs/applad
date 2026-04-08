@@ -53,7 +53,7 @@ func (s *Service) SetClamAV(addr string) {
 
 // --- buckets ---
 
-func (s *Service) CreateBucket(ctx context.Context, projectID, bucketID, name string, permissions []string, fileSizeLimit int64, allowedMimeTypes []string, compression string, encryption, antivirus bool) (*model.Bucket, error) {
+func (s *Service) CreateBucket(ctx context.Context, projectID, bucketID, name string, permissions []string, fileSizeLimit int64, allowedMimeTypes []string, compression string, encryption, antivirus, fileSecurity, imageTransformations bool) (*model.Bucket, error) {
 	id := uid.New(bucketID)
 	now := time.Now().UTC()
 	permsJSON, _ := json.Marshal(permissions)
@@ -62,9 +62,9 @@ func (s *Service) CreateBucket(ctx context.Context, projectID, bucketID, name st
 		compression = "none"
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO buckets (id, project_id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, projectID, name, permsJSON, fileSizeLimit, mimeJSON, compression, encryption, antivirus, now, now)
+		`INSERT INTO buckets (id, project_id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, file_security, image_transformations, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, projectID, name, permsJSON, fileSizeLimit, mimeJSON, compression, encryption, antivirus, fileSecurity, imageTransformations, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("storage: create bucket: %w", err)
 	}
@@ -72,7 +72,8 @@ func (s *Service) CreateBucket(ctx context.Context, projectID, bucketID, name st
 		ID: id, Name: name, Enabled: true,
 		Permissions: permissions, FileSizeLimit: fileSizeLimit,
 		AllowedFileExtensions: allowedMimeTypes,
-		Compression:           compression, Encryption: encryption, Antivirus: antivirus,
+		Compression: compression, Encryption: encryption, Antivirus: antivirus,
+		FileSecurity: fileSecurity, ImageTransformations: imageTransformations,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
@@ -81,8 +82,8 @@ func (s *Service) GetBucket(ctx context.Context, bucketID, projectID string) (*m
 	var b model.Bucket
 	var permsJSON, mimeJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, enabled, created_at, updated_at FROM buckets WHERE id = ? AND project_id = ?",
-		bucketID, projectID).Scan(&b.ID, &b.Name, &permsJSON, &b.FileSizeLimit, &mimeJSON, &b.Compression, &b.Encryption, &b.Antivirus, &b.Enabled, &b.CreatedAt, &b.UpdatedAt)
+		"SELECT id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, file_security, image_transformations, enabled, created_at, updated_at FROM buckets WHERE id = ? AND project_id = ?",
+		bucketID, projectID).Scan(&b.ID, &b.Name, &permsJSON, &b.FileSizeLimit, &mimeJSON, &b.Compression, &b.Encryption, &b.Antivirus, &b.FileSecurity, &b.ImageTransformations, &b.Enabled, &b.CreatedAt, &b.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("bucket not found")
 	}
@@ -102,7 +103,7 @@ func (s *Service) GetBucket(ctx context.Context, bucketID, projectID string) (*m
 
 func (s *Service) ListBuckets(ctx context.Context, projectID string) ([]*model.Bucket, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, enabled, created_at, updated_at FROM buckets WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, file_security, image_transformations, enabled, created_at, updated_at FROM buckets WHERE project_id = ? ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, 0, err
@@ -112,7 +113,7 @@ func (s *Service) ListBuckets(ctx context.Context, projectID string) ([]*model.B
 	for rows.Next() {
 		var b model.Bucket
 		var permsJSON, mimeJSON []byte
-		if err := rows.Scan(&b.ID, &b.Name, &permsJSON, &b.FileSizeLimit, &mimeJSON, &b.Compression, &b.Encryption, &b.Antivirus, &b.Enabled, &b.CreatedAt, &b.UpdatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &permsJSON, &b.FileSizeLimit, &mimeJSON, &b.Compression, &b.Encryption, &b.Antivirus, &b.FileSecurity, &b.ImageTransformations, &b.Enabled, &b.CreatedAt, &b.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		json.Unmarshal(permsJSON, &b.Permissions)          //nolint:errcheck
@@ -128,11 +129,16 @@ func (s *Service) ListBuckets(ctx context.Context, projectID string) ([]*model.B
 	return buckets, len(buckets), nil
 }
 
-func (s *Service) UpdateBucket(ctx context.Context, bucketID, projectID, name string, permissions []string, fileSizeLimit int64, enabled bool) (*model.Bucket, error) {
+func (s *Service) UpdateBucket(ctx context.Context, bucketID, projectID, name string, permissions []string, fileSizeLimit int64, allowedMimeTypes []string, compression string, encryption, antivirus, fileSecurity, imageTransformations, enabled bool) (*model.Bucket, error) {
 	permsJSON, _ := json.Marshal(permissions)
+	mimeJSON, _ := json.Marshal(allowedMimeTypes)
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE buckets SET name = ?, permissions = ?, file_size_limit = ?, enabled = ? WHERE id = ? AND project_id = ?",
-		name, permsJSON, fileSizeLimit, enabled, bucketID, projectID)
+		`UPDATE buckets SET name = ?, permissions = ?, file_size_limit = ?, allowed_mime_types = ?,
+		 compression = ?, encryption = ?, antivirus = ?, file_security = ?, image_transformations = ?,
+		 enabled = ? WHERE id = ? AND project_id = ?`,
+		name, permsJSON, fileSizeLimit, mimeJSON,
+		compression, encryption, antivirus, fileSecurity, imageTransformations,
+		enabled, bucketID, projectID)
 	if err != nil {
 		return nil, err
 	}

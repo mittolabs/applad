@@ -156,20 +156,20 @@ func (s *Service) ListMembers(ctx context.Context, orgID string) ([]*Member, err
 	return members, nil
 }
 
-// InviteMember sends an invite to join the organization.
-func (s *Service) InviteMember(ctx context.Context, orgID, email, name string) (*Member, string, error) {
+// InviteMember sends an invite to join the organization with a specific role.
+func (s *Service) InviteMember(ctx context.Context, orgID, email, name, role string) (*Member, string, error) {
 	id := uid.New("unique()")
 	token := generateInviteToken()
 	now := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO organization_members (id, org_id, email, name, role, status, invite_token, created_at) VALUES (?, ?, ?, ?, 'member', 'pending', ?, ?)",
-		id, orgID, email, name, token, now)
+		"INSERT INTO organization_members (id, org_id, email, name, role, status, invite_token, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+		id, orgID, email, name, role, token, now)
 	if err != nil {
 		return nil, "", fmt.Errorf("organizations: invite: %w", err)
 	}
 
-	return &Member{ID: id, OrgID: orgID, Email: email, Name: name, Role: "member", Status: "pending", CreatedAt: now}, token, nil
+	return &Member{ID: id, OrgID: orgID, Email: email, Name: name, Role: role, Status: "pending", CreatedAt: now}, token, nil
 }
 
 // AcceptInvite accepts a pending invite by token and links it to a console user.
@@ -237,6 +237,82 @@ func (s *Service) CreateProject(ctx context.Context, orgID, name, description st
 		"$id": id, "name": name, "description": description,
 		"$createdAt": now, "$updatedAt": now,
 	}, nil
+}
+
+// --- Org-level stats and activity ---
+
+// OrgStats holds aggregate statistics across all projects in an organization.
+type OrgStats struct {
+	OrgID           string `json:"orgId"`
+	TotalProjects   int    `json:"totalProjects"`
+	TotalMembers    int    `json:"totalMembers"`
+	TotalUsers      int64  `json:"totalUsers"`
+	TotalStorage    int64  `json:"totalStorage"`
+	TotalExecutions int64  `json:"totalExecutions"`
+}
+
+// GetOrgStats aggregates statistics across all projects in the organization.
+func (s *Service) GetOrgStats(ctx context.Context, orgID string) (*OrgStats, error) {
+	stats := &OrgStats{OrgID: orgID}
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects WHERE org_id = ?", orgID).Scan(&stats.TotalProjects)             //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM organization_members WHERE org_id = ?", orgID).Scan(&stats.TotalMembers) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id IN (SELECT id FROM projects WHERE org_id = ?)", orgID).Scan(&stats.TotalUsers)                            //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size),0) FROM files WHERE project_id IN (SELECT id FROM projects WHERE org_id = ?)", orgID).Scan(&stats.TotalStorage)            //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM function_executions WHERE project_id IN (SELECT id FROM projects WHERE org_id = ?)", orgID).Scan(&stats.TotalExecutions) //nolint:errcheck
+	return stats, nil
+}
+
+// ActivityEntry is a single activity log entry scoped to an organization.
+type ActivityEntry struct {
+	ID           string    `json:"$id"`
+	ProjectID    string    `json:"projectId"`
+	ProjectName  string    `json:"projectName"`
+	Action       string    `json:"action"`
+	ResourceType string    `json:"resourceType"`
+	ResourceID   string    `json:"resourceId,omitempty"`
+	Method       string    `json:"method"`
+	Path         string    `json:"path"`
+	StatusCode   int       `json:"statusCode"`
+	IPAddress    string    `json:"ipAddress,omitempty"`
+	CreatedAt    time.Time `json:"$createdAt"`
+}
+
+// ListActivity returns audit log entries across all projects in the organization.
+func (s *Service) ListActivity(ctx context.Context, orgID string, limit, offset int) ([]*ActivityEntry, int, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var total int
+	s.db.QueryRowContext(ctx, //nolint:errcheck
+		"SELECT COUNT(*) FROM audit_logs WHERE project_id IN (SELECT id FROM projects WHERE org_id = ?)", orgID,
+	).Scan(&total)
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT al.id, al.project_id, COALESCE(p.name,''), al.action, al.resource_type,
+		        COALESCE(al.resource_id,''), al.method, al.path, al.status_code,
+		        COALESCE(al.ip_address,''), al.created_at
+		 FROM audit_logs al
+		 LEFT JOIN projects p ON p.id = al.project_id
+		 WHERE al.project_id IN (SELECT id FROM projects WHERE org_id = ?)
+		 ORDER BY al.created_at DESC LIMIT ? OFFSET ?`, orgID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("organizations: list activity: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []*ActivityEntry
+	for rows.Next() {
+		e := &ActivityEntry{}
+		if err := rows.Scan(&e.ID, &e.ProjectID, &e.ProjectName, &e.Action, &e.ResourceType,
+			&e.ResourceID, &e.Method, &e.Path, &e.StatusCode, &e.IPAddress, &e.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		entries = append(entries, e)
+	}
+	if entries == nil {
+		entries = []*ActivityEntry{}
+	}
+	return entries, total, nil
 }
 
 func generateInviteToken() string {

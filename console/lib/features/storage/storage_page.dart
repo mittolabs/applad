@@ -1,13 +1,25 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
 
-// --- Providers -----------------------------------------------------------
+// --- Constants ---------------------------------------------------------------
 
-final _storageTabProvider = StateProvider<int>((ref) => 0);
+const _bgColor = Color(0xFF0B0B0F);
+const _cardColor = Color(0xFF16171B);
+const _accent = Color(0xFF3472A4);
+const _dimText = Color(0x80FFFFFF);
+const _subtleText = Color(0x40FFFFFF);
+const _border = Color(0x0FFFFFFF);
+const _red = Color(0xFFEF4444);
+
+// --- Providers ---------------------------------------------------------------
+
 final _bucketSearchProvider = StateProvider<String>((ref) => '');
 final _bucketPerPageProvider = StateProvider<int>((ref) => 12);
 final _bucketPageProvider = StateProvider<int>((ref) => 1);
@@ -24,17 +36,22 @@ final bucketsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   return res.data as Map<String, dynamic>;
 });
 
-final selectedBucketProvider = StateProvider<String?>((ref) => null);
-
-final filesProvider =
+final _filesProvider =
     FutureProvider.family<Map<String, dynamic>, String>((ref, bucketId) async {
   final api = ref.read(apiClientProvider);
   final res =
-      await api.get('/storage/buckets/$bucketId/files', params: {'limit': 50});
+      await api.get('/storage/buckets/$bucketId/files', params: {'limit': 100});
   return res.data as Map<String, dynamic>;
 });
 
-// --- Page ----------------------------------------------------------------
+final _bucketDetailProvider =
+    FutureProvider.family<Map<String, dynamic>, String>((ref, bucketId) async {
+  final api = ref.read(apiClientProvider);
+  final res = await api.get('/storage/buckets/$bucketId');
+  return res.data as Map<String, dynamic>;
+});
+
+// --- Page --------------------------------------------------------------------
 
 class StoragePage extends ConsumerStatefulWidget {
   const StoragePage({super.key});
@@ -45,6 +62,8 @@ class StoragePage extends ConsumerStatefulWidget {
 
 class _StoragePageState extends ConsumerState<StoragePage> {
   final _searchCtrl = TextEditingController();
+  String? _selectedBucketId;
+  String? _selectedFileId;
 
   @override
   void dispose() {
@@ -59,142 +78,170 @@ class _StoragePageState extends ConsumerState<StoragePage> {
 
   @override
   Widget build(BuildContext context) {
-    final tab = ref.watch(_storageTabProvider);
+    if (_selectedFileId != null && _selectedBucketId != null) {
+      return _FileDetailView(
+        bucketId: _selectedBucketId!,
+        fileId: _selectedFileId!,
+        onBack: () => setState(() => _selectedFileId = null),
+      );
+    }
+    if (_selectedBucketId != null) {
+      return _BucketDetailView(
+        bucketId: _selectedBucketId!,
+        onBack: () => setState(() => _selectedBucketId = null),
+        onFileSelect: (fileId) =>
+            setState(() => _selectedFileId = fileId),
+      );
+    }
+    return _buildBucketsList();
+  }
+
+  Widget _buildBucketsList() {
+    final bucketsAsync = ref.watch(bucketsProvider);
+    final perPage = ref.watch(_bucketPerPageProvider);
+    final currentPage = ref.watch(_bucketPageProvider);
+    final total =
+        bucketsAsync.whenOrNull(data: (d) => d['total'] as int? ?? 0) ?? 0;
 
     return Scaffold(
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-            child: Text('Storage',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(color: Colors.white)),
-          ),
-          PageTabs(
-            tabs: const ['Buckets', 'Usage'],
-            selected: tab,
-            onChanged: (i) =>
-                ref.read(_storageTabProvider.notifier).state = i,
-          ),
-          const Divider(height: 1, color: Color(0xFF2A2B30)),
-          Expanded(child: tab == 0 ? _bucketsTab() : const _UsageTab()),
-        ],
+      backgroundColor: _bgColor,
+      body: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 32),
+            const Text('Storage',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 24),
+            PageTabs(
+              tabs: const ['Buckets', 'Usage'],
+              selected: 0,
+              onChanged: (_) {},
+            ),
+            const SizedBox(height: 20),
+            // Search + create
+            Row(
+              children: [
+                SizedBox(
+                  width: 280,
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onSubmitted: (_) => _doSearch(),
+                    style: const TextStyle(fontSize: 13, color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Search by name or ID',
+                      hintStyle:
+                          const TextStyle(color: _subtleText, fontSize: 13),
+                      prefixIcon: const Padding(
+                        padding: EdgeInsets.only(left: 10, right: 6),
+                        child:
+                            Icon(Icons.search, size: 16, color: _subtleText),
+                      ),
+                      prefixIconConstraints:
+                          const BoxConstraints(minWidth: 32, minHeight: 0),
+                      filled: true,
+                      fillColor: const Color(0x0AFFFFFF),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 12),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                              color: Colors.white.withOpacity(0.08))),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                              color: Colors.white.withOpacity(0.08))),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: _accent)),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _accent,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(LucideIcons.plus, size: 14),
+                  label: const Text('Create bucket',
+                      style: TextStyle(fontSize: 12)),
+                  onPressed: () => _showCreateBucketDialog(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Table
+            Expanded(
+              child: bucketsAsync.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Center(
+                    child: Text('Error: $e',
+                        style: const TextStyle(color: _red))),
+                data: (data) {
+                  final buckets = List<Map<String, dynamic>>.from(
+                      data['buckets'] ?? []);
+                  if (buckets.isEmpty) {
+                    return _EmptyState(
+                      icon: LucideIcons.folderClosed,
+                      title: 'No buckets',
+                      subtitle: 'Create a bucket to start storing files',
+                      actionLabel: 'Create bucket',
+                      onAction: () => _showCreateBucketDialog(),
+                    );
+                  }
+                  return _BucketsTable(
+                    buckets: buckets,
+                    onSelect: (id) =>
+                        setState(() => _selectedBucketId = id),
+                    onDelete: _deleteBucket,
+                  );
+                },
+              ),
+            ),
+            // Footer
+            SearchListFooter(
+              total: total,
+              perPage: perPage,
+              currentPage: currentPage,
+              onPrev: () =>
+                  ref.read(_bucketPageProvider.notifier).update((s) => s - 1),
+              onNext: () =>
+                  ref.read(_bucketPageProvider.notifier).update((s) => s + 1),
+              onPerPageChanged: (v) {
+                ref.read(_bucketPerPageProvider.notifier).state = v;
+                ref.read(_bucketPageProvider.notifier).state = 1;
+              },
+              itemLabel: 'Buckets',
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _bucketsTab() {
-    final bucketsAsync = ref.watch(bucketsProvider);
-    final selectedBucket = ref.watch(selectedBucketProvider);
-    final perPage = ref.watch(_bucketPerPageProvider);
-    final currentPage = ref.watch(_bucketPageProvider);
-
-    return Column(
-      children: [
-        SearchListHeader(
-          searchController: _searchCtrl,
-          total: bucketsAsync.whenOrNull(
-                  data: (d) => d['total'] as int? ?? 0) ??
-              0,
-          perPage: perPage,
-          currentPage: currentPage,
-          onPerPageChanged: (v) {
-            ref.read(_bucketPerPageProvider.notifier).state = v;
-            ref.read(_bucketPageProvider.notifier).state = 1;
-          },
-          onPrev: () =>
-              ref.read(_bucketPageProvider.notifier).update((s) => s - 1),
-          onNext: () =>
-              ref.read(_bucketPageProvider.notifier).update((s) => s + 1),
-          onSearch: _doSearch,
-          trailing: FilledButton.icon(
-            onPressed: () => _showCreateBucketDialog(context, ref),
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text('Create Bucket'),
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              // Buckets list
-              SizedBox(
-                width: 260,
-                child: bucketsAsync.when(
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Center(child: Text('Error: $e')),
-                  data: (data) {
-                    final buckets = List<Map<String, dynamic>>.from(
-                        data['buckets'] ?? []);
-                    if (buckets.isEmpty) {
-                      return const Center(child: Text('No buckets'));
-                    }
-                    return ListView.builder(
-                      itemCount: buckets.length,
-                      itemBuilder: (context, i) {
-                        final b = buckets[i];
-                        final id = b['\$id'] as String;
-                        return ListTile(
-                          leading: const Icon(Icons.folder),
-                          title: Text(b['name'] ?? id),
-                          subtitle:
-                              Text(id.length > 8 ? id.substring(0, 8) : id),
-                          selected: selectedBucket == id,
-                          onTap: () => ref
-                              .read(selectedBucketProvider.notifier)
-                              .state = id,
-                          trailing: IconButton(
-                            icon:
-                                const Icon(Icons.delete_outline, size: 18),
-                            onPressed: () => _deleteBucket(ref, id),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-              const VerticalDivider(width: 1),
-              // Files panel
-              if (selectedBucket != null)
-                Expanded(child: _FilesPanel(bucketId: selectedBucket)),
-              if (selectedBucket == null)
-                const Expanded(
-                    child: Center(child: Text('Select a bucket'))),
-            ],
-          ),
-        ),
-        SearchListFooter(
-          total: bucketsAsync.whenOrNull(
-                  data: (d) => d['total'] as int? ?? 0) ??
-              0,
-          perPage: perPage,
-          currentPage: currentPage,
-          onPrev: () =>
-              ref.read(_bucketPageProvider.notifier).update((s) => s - 1),
-          onNext: () =>
-              ref.read(_bucketPageProvider.notifier).update((s) => s + 1),
-          onPerPageChanged: (v) {
-            ref.read(_bucketPerPageProvider.notifier).state = v;
-            ref.read(_bucketPageProvider.notifier).state = 1;
-          },
-        ),
-      ],
-    );
-  }
-
-  void _showCreateBucketDialog(BuildContext context, WidgetRef ref) {
+  void _showCreateBucketDialog() {
     final nameCtrl = TextEditingController();
     showAppDialog(
       context: context,
-      title: 'Create Bucket',
+      title: 'Create bucket',
+      subtitle: 'Storage buckets organize your files',
       content: AppDialogField(
         controller: nameCtrl,
-        label: 'Name',
-        hint: 'Bucket name',
+        label: 'Bucket name',
+        hint: 'e.g. user-avatars',
         autofocus: true,
       ),
       actions: [
@@ -202,14 +249,15 @@ class _StoragePageState extends ConsumerState<StoragePage> {
         AppDialogAction(
           label: 'Create',
           onTap: () async {
+            if (nameCtrl.text.trim().isEmpty) return;
             final api = ref.read(apiClientProvider);
             await api.post('/storage/buckets', data: {
               'bucketId': 'unique()',
-              'name': nameCtrl.text,
+              'name': nameCtrl.text.trim(),
               'permissions': <String>[],
               'allowedFileExtensions': <String>[],
             });
-            if (context.mounted) Navigator.pop(context);
+            if (mounted) Navigator.of(context, rootNavigator: true).pop();
             ref.invalidate(bucketsProvider);
           },
         ),
@@ -217,150 +265,75 @@ class _StoragePageState extends ConsumerState<StoragePage> {
     );
   }
 
-  Future<void> _deleteBucket(WidgetRef ref, String id) async {
-    final api = ref.read(apiClientProvider);
-    await api.delete('/storage/buckets/$id');
-    ref.read(selectedBucketProvider.notifier).state = null;
-    ref.invalidate(bucketsProvider);
+  Future<void> _deleteBucket(String id) async {
+    final confirmed = await showAppDialog<bool>(
+      context: context,
+      title: 'Delete bucket',
+      content: Text('All files in this bucket will be permanently deleted.',
+          style: TextStyle(color: Colors.white.withOpacity(0.6))),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Delete',
+          destructive: true,
+          onTap: () => Navigator.of(context, rootNavigator: true).pop(true),
+        ),
+      ],
+    );
+    if (confirmed == true) {
+      await ref.read(apiClientProvider).delete('/storage/buckets/$id');
+      ref.invalidate(bucketsProvider);
+    }
   }
 }
 
-// --- Usage tab -----------------------------------------------------------
+// =============================================================================
+// Buckets Table
+// =============================================================================
 
-class _UsageTab extends StatelessWidget {
-  const _UsageTab();
+class _BucketsTable extends StatelessWidget {
+  final List<Map<String, dynamic>> buckets;
+  final ValueChanged<String> onSelect;
+  final Future<void> Function(String) onDelete;
+
+  const _BucketsTable({
+    required this.buckets,
+    required this.onSelect,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Storage Usage',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 24),
-          Row(children: [
-            _statCard('Total Files', '—', Icons.insert_drive_file_outlined),
-            const SizedBox(width: 16),
-            _statCard('Storage Used', '—', Icons.storage),
-            const SizedBox(width: 16),
-            _statCard('Bandwidth', '—', Icons.cloud_download_outlined),
-          ]),
-          const SizedBox(height: 32),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: const Color(0xFF16171B),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0x14FFFFFF)),
-            ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Storage by bucket',
-                  style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14)),
-              const SizedBox(height: 16),
-              Text('Usage data is collected hourly. Check back after your first file uploads.',
-                  style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 13)),
-            ]),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statCard(String label, String value, IconData icon) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF16171B),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0x14FFFFFF)),
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 20, color: const Color(0x60FFFFFF)),
-          const SizedBox(height: 12),
-          Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
-        ]),
-      ),
-    );
-  }
-}
-
-// --- Files panel ---------------------------------------------------------
-
-class _FilesPanel extends ConsumerWidget {
-  final String bucketId;
-  const _FilesPanel({required this.bucketId});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final filesAsync = ref.watch(filesProvider(bucketId));
-
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
+        // Header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            border:
+                Border(bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
+          ),
           child: Row(
             children: [
-              Text('Files',
-                  style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
+              _col('Bucket ID', flex: 3),
+              _col('Name', flex: 3),
+              _col('Created', flex: 2),
+              _col('Updated', flex: 2),
+              const SizedBox(width: 40),
             ],
           ),
         ),
+        // Rows
         Expanded(
-          child: filesAsync.when(
-            loading: () =>
-                const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
-            data: (data) {
-              final files = List<Map<String, dynamic>>.from(
-                  data['files'] ?? []);
-              if (files.isEmpty) {
-                return const Center(child: Text('No files'));
-              }
-              return ListView.builder(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: files.length,
-                itemBuilder: (context, i) {
-                  final f = files[i];
-                  return ListTile(
-                    leading: _iconForMime(
-                        f['mimeType'] as String? ?? ''),
-                    title: Text(f['name'] ?? 'Untitled'),
-                    subtitle: Text(
-                        '${_formatSize(f['sizeOriginal'] ?? 0)}  •  ${f['mimeType'] ?? ''}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.download),
-                          tooltip: 'Download',
-                          onPressed: () {
-                            final fileId = f['\$id'];
-                            final api = ref.read(apiClientProvider);
-                            final url =
-                                '${api.dio.options.baseUrl}/storage/buckets/$bucketId/files/$fileId/download';
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Download: $url')),
-                            );
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () =>
-                              _deleteFile(ref, f['\$id']),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+          child: ListView.builder(
+            itemCount: buckets.length,
+            itemBuilder: (context, i) {
+              final b = buckets[i];
+              final id = b['\$id'] as String? ?? '';
+              return _BucketRow(
+                bucket: b,
+                onTap: () => onSelect(id),
+                onDelete: () => onDelete(id),
               );
             },
           ),
@@ -369,23 +342,1710 @@ class _FilesPanel extends ConsumerWidget {
     );
   }
 
-  Widget _iconForMime(String mime) {
-    if (mime.startsWith('image/')) return const Icon(Icons.image);
-    if (mime.startsWith('video/')) return const Icon(Icons.videocam);
-    if (mime.contains('pdf')) return const Icon(Icons.picture_as_pdf);
-    return const Icon(Icons.insert_drive_file);
+  Widget _col(String label, {int flex = 1}) {
+    return Expanded(
+      flex: flex,
+      child: Text(label,
+          style: const TextStyle(
+              color: _dimText,
+              fontSize: 12,
+              fontWeight: FontWeight.w500)),
+    );
+  }
+}
+
+class _BucketRow extends StatefulWidget {
+  final Map<String, dynamic> bucket;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  const _BucketRow({
+    required this.bucket,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  @override
+  State<_BucketRow> createState() => _BucketRowState();
+}
+
+class _BucketRowState extends State<_BucketRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = widget.bucket;
+    final id = b['\$id'] as String? ?? '';
+    final name = b['name'] as String? ?? '';
+    final created = _formatDate(b['createdAt'] ?? b['\$createdAt']);
+    final updated = _formatDate(b['updatedAt'] ?? b['\$updatedAt']);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: _hovered ? Colors.white.withOpacity(0.02) : null,
+            border: Border(
+                bottom:
+                    BorderSide(color: Colors.white.withOpacity(0.04))),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Row(
+                  children: [
+                    Icon(LucideIcons.folderClosed,
+                        size: 14, color: _accent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(id,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontFamily: 'monospace'),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(name,
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 13)),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(created,
+                    style:
+                        const TextStyle(color: _dimText, fontSize: 12)),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(updated,
+                    style:
+                        const TextStyle(color: _dimText, fontSize: 12)),
+              ),
+              SizedBox(
+                width: 40,
+                child: _hovered
+                    ? GestureDetector(
+                        onTap: widget.onDelete,
+                        child: const Icon(LucideIcons.trash2,
+                            size: 14, color: _subtleText),
+                      )
+                    : const SizedBox(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(dynamic raw) {
+    if (raw == null) return '—';
+    try {
+      final dt = raw is DateTime ? raw : DateTime.parse(raw.toString());
+      return '${_monthName(dt.month)} ${dt.day}, ${dt.year}';
+    } catch (_) {
+      return '—';
+    }
+  }
+
+  String _monthName(int m) {
+    const names = [
+      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return names[m.clamp(1, 12)];
+  }
+}
+
+// =============================================================================
+// Bucket Detail View (Files, Usage, Settings)
+// =============================================================================
+
+class _BucketDetailView extends ConsumerStatefulWidget {
+  final String bucketId;
+  final VoidCallback onBack;
+  final ValueChanged<String> onFileSelect;
+
+  const _BucketDetailView({
+    required this.bucketId,
+    required this.onBack,
+    required this.onFileSelect,
+  });
+
+  @override
+  ConsumerState<_BucketDetailView> createState() =>
+      _BucketDetailViewState();
+}
+
+class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
+  int _tabIndex = 0;
+  final _fileSearchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _fileSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bucketAsync = ref.watch(_bucketDetailProvider(widget.bucketId));
+    final bucketName = bucketAsync.valueOrNull?['name'] as String? ?? widget.bucketId;
+
+    return Scaffold(
+      backgroundColor: _bgColor,
+      body: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 32),
+            // Back + title
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: widget.onBack,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Icon(LucideIcons.arrowLeft,
+                        size: 20, color: Colors.white.withOpacity(0.5)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(bucketName,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(width: 12),
+                Row(
+                  children: [
+                    Icon(LucideIcons.folderClosed,
+                        size: 13,
+                        color: Colors.white.withOpacity(0.3)),
+                    const SizedBox(width: 4),
+                    Text(widget.bucketId,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.3),
+                            fontSize: 13,
+                            fontFamily: 'monospace')),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            PageTabs(
+              tabs: const ['Files', 'Usage', 'Settings'],
+              selected: _tabIndex,
+              onChanged: (i) => setState(() => _tabIndex = i),
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: _tabIndex == 0
+                  ? _buildFilesTab()
+                  : _tabIndex == 1
+                      ? _buildUsageTab()
+                      : _buildSettingsTab(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilesTab() {
+    final filesAsync = ref.watch(_filesProvider(widget.bucketId));
+
+    return Column(
+      children: [
+        // Search + upload
+        Row(
+          children: [
+            SizedBox(
+              width: 280,
+              child: TextField(
+                controller: _fileSearchCtrl,
+                style: const TextStyle(fontSize: 13, color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Search files',
+                  hintStyle:
+                      const TextStyle(color: _subtleText, fontSize: 13),
+                  prefixIcon: const Padding(
+                    padding: EdgeInsets.only(left: 10, right: 6),
+                    child:
+                        Icon(Icons.search, size: 16, color: _subtleText),
+                  ),
+                  prefixIconConstraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 0),
+                  filled: true,
+                  fillColor: const Color(0x0AFFFFFF),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                      vertical: 10, horizontal: 12),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                          color: Colors.white.withOpacity(0.08))),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                          color: Colors.white.withOpacity(0.08))),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _accent)),
+                ),
+              ),
+            ),
+            const Spacer(),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: _accent,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(LucideIcons.plus, size: 14),
+              label:
+                  const Text('Create file', style: TextStyle(fontSize: 12)),
+              onPressed: () {},
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // Files table
+        Expanded(
+          child: filesAsync.when(
+            loading: () =>
+                const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(
+                child: Text('Error: $e',
+                    style: const TextStyle(color: _red))),
+            data: (data) {
+              final files = List<Map<String, dynamic>>.from(
+                  data['files'] ?? []);
+              if (files.isEmpty) {
+                return _EmptyState(
+                  icon: LucideIcons.file,
+                  title: 'No files',
+                  subtitle: 'Upload a file to this bucket',
+                  actionLabel: 'Upload file',
+                  onAction: () {},
+                );
+              }
+              return _FilesTable(
+                files: files,
+                bucketId: widget.bucketId,
+                onSelect: widget.onFileSelect,
+                onDelete: (fileId) => _deleteFile(fileId),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUsageTab() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _UsageStatCard(label: 'Total Files', value: '—'),
+              const SizedBox(width: 16),
+              _UsageStatCard(label: 'Storage Used', value: '—'),
+              const SizedBox(width: 16),
+              _UsageStatCard(label: 'Bandwidth', value: '—'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsTab() {
+    final bucketAsync = ref.watch(_bucketDetailProvider(widget.bucketId));
+
+    return bucketAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+      data: (bucket) {
+        final name = bucket['name'] as String? ?? '';
+        final enabled = bucket['enabled'] as bool? ?? true;
+        final fileSecurity = bucket['fileSecurity'] as bool? ?? false;
+        final encryption = bucket['encryption'] as bool? ?? true;
+        final antivirus = bucket['antivirus'] as bool? ?? false;
+        final compression = bucket['compression'] as String? ?? 'none';
+        final maxSize = bucket['maximumFileSize'] as int? ?? 0;
+        final extensions = List<String>.from(
+            bucket['allowedFileExtensions'] ?? []);
+        final created = bucket['createdAt'] ?? bucket['\$createdAt'] ?? '';
+        final updated = bucket['updatedAt'] ?? bucket['\$updatedAt'] ?? '';
+
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. Bucket status
+              _SettingsSection(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(name,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 4),
+                            Text('Created: $created',
+                                style: const TextStyle(
+                                    color: _subtleText, fontSize: 12)),
+                            Text('Last updated: $updated',
+                                style: const TextStyle(
+                                    color: _subtleText, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      _SettingsToggle(
+                        label: 'Enabled',
+                        value: enabled,
+                        onChanged: (_) {},
+                      ),
+                    ],
+                  ),
+                ],
+                onUpdate: () => _updateBucket({'enabled': !enabled}),
+              ),
+
+              // 2. Name
+              _SettingsSection(
+                title: 'Name',
+                children: [
+                  _SettingsTextField(
+                    label: 'Name',
+                    initialValue: name,
+                    onSaved: (v) => _updateBucket({'name': v}),
+                  ),
+                ],
+              ),
+
+              // 3. Permissions
+              _SettingsSection(
+                title: 'Permissions',
+                subtitle:
+                    'Choose who can access your buckets and files.',
+                children: [
+                  _PermissionsTable(),
+                ],
+                onUpdate: () {},
+              ),
+
+              // 4. File security
+              _SettingsSection(
+                title: 'File security',
+                children: [
+                  _SettingsToggle(
+                    label: 'File security',
+                    value: fileSecurity,
+                    onChanged: (_) {},
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    fileSecurity
+                        ? 'When file security is enabled, users will be able to access files for which they have been granted either file or bucket permissions.'
+                        : 'If file security is disabled, users can access files only if they have bucket permissions. File permissions will be ignored.',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.35),
+                        fontSize: 12),
+                  ),
+                ],
+                onUpdate: () =>
+                    _updateBucket({'fileSecurity': !fileSecurity}),
+              ),
+
+              // 5. Security settings
+              _SettingsSection(
+                title: 'Security settings',
+                subtitle:
+                    'Enable or disable security features for this bucket.',
+                children: [
+                  _SettingsToggle(
+                    label: 'Encryption',
+                    value: encryption,
+                    onChanged: (_) {},
+                    subtitle:
+                        'Files inside this bucket will be encrypted. Files larger than 20MB will not be encrypted.',
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsToggle(
+                    label: 'Antivirus',
+                    value: antivirus,
+                    onChanged: (_) {},
+                    subtitle:
+                        'Files inside this bucket will be scanned by the antivirus scanner.',
+                  ),
+                ],
+                onUpdate: () => _updateBucket({
+                  'encryption': !encryption,
+                }),
+              ),
+
+              // 6. Compression
+              _SettingsSection(
+                title: 'Compression',
+                subtitle:
+                    'Choose an algorithm for compression. For files larger than 20MB, compression will be skipped.',
+                children: [
+                  _SettingsDropdown(
+                    label: 'Algorithm',
+                    value: compression,
+                    options: const {
+                      'none': 'None',
+                      'gzip': 'gzip',
+                      'zstd': 'zstd',
+                    },
+                    onChanged: (_) {},
+                  ),
+                ],
+                onUpdate: () {},
+              ),
+
+              // 7. Maximum file size
+              _SettingsSection(
+                title: 'Maximum file size',
+                subtitle:
+                    'Set the maximum file size allowed in this bucket.',
+                children: [
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 120,
+                        child: Text(
+                            maxSize > 0
+                                ? '${(maxSize / (1024 * 1024)).toStringAsFixed(0)}'
+                                : 'Unlimited',
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 14)),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('MB',
+                          style: TextStyle(
+                              color: _dimText, fontSize: 13)),
+                    ],
+                  ),
+                ],
+                onUpdate: () {},
+              ),
+
+              // 8. Allowed file extensions
+              _SettingsSection(
+                title: 'Allowed file extensions',
+                subtitle:
+                    'Allowed file extensions. A maximum of 100 file extensions can be added. Leave empty to allow all file types.',
+                children: [
+                  if (extensions.isEmpty)
+                    Text('All file types allowed',
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 13))
+                  else
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: extensions
+                          .map((ext) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _accent.withOpacity(0.15),
+                                  borderRadius:
+                                      BorderRadius.circular(4),
+                                ),
+                                child: Text(ext,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontFamily: 'monospace')),
+                              ))
+                          .toList(),
+                    ),
+                ],
+                onUpdate: () {},
+              ),
+
+              // 9. Delete bucket
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                margin: const EdgeInsets.only(bottom: 40),
+                decoration: BoxDecoration(
+                  color: _cardColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _red.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              const Text('Delete bucket',
+                                  style: TextStyle(
+                                      color: _red,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 4),
+                              Text(
+                                  'The bucket will be permanently deleted, including all the files within it. This action is irreversible.',
+                                  style: TextStyle(
+                                      color:
+                                          Colors.white.withOpacity(0.4),
+                                      fontSize: 13)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.03),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: _border),
+                          ),
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              Text(name,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500)),
+                              Text('Last updated: $updated',
+                                  style: const TextStyle(
+                                      color: _subtleText,
+                                      fontSize: 11)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _red,
+                          side: const BorderSide(color: _red),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () async {
+                          final api = ref.read(apiClientProvider);
+                          await api.delete(
+                              '/storage/buckets/${widget.bucketId}');
+                          ref.invalidate(bucketsProvider);
+                          widget.onBack();
+                        },
+                        child: const Text('Delete',
+                            style: TextStyle(fontSize: 13)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _updateBucket(Map<String, dynamic> data) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.put('/storage/buckets/${widget.bucketId}', data: data);
+      ref.invalidate(_bucketDetailProvider(widget.bucketId));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _deleteFile(String fileId) async {
+    await ref
+        .read(apiClientProvider)
+        .delete('/storage/buckets/${widget.bucketId}/files/$fileId');
+    ref.invalidate(_filesProvider(widget.bucketId));
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    final i = (math.log(bytes) / math.log(1024)).floor().clamp(0, 3);
+    return '${(bytes / math.pow(1024, i)).toStringAsFixed(1)} ${units[i]}';
+  }
+}
+
+// =============================================================================
+// Files Table
+// =============================================================================
+
+class _FilesTable extends StatelessWidget {
+  final List<Map<String, dynamic>> files;
+  final String bucketId;
+  final ValueChanged<String> onSelect;
+  final Future<void> Function(String) onDelete;
+
+  const _FilesTable({
+    required this.files,
+    required this.bucketId,
+    required this.onSelect,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            border: Border(
+                bottom:
+                    BorderSide(color: Colors.white.withOpacity(0.06))),
+          ),
+          child: Row(
+            children: const [
+              SizedBox(width: 32), // checkbox placeholder
+              Expanded(flex: 4, child: Text('Filename', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
+              Expanded(flex: 2, child: Text('Type', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
+              Expanded(flex: 1, child: Text('Size', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
+              Expanded(flex: 2, child: Text('Created', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
+              SizedBox(width: 40),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: files.length,
+            itemBuilder: (context, i) {
+              final f = files[i];
+              return _FileRow(
+                file: f,
+                onTap: () => onSelect(f['\$id'] as String),
+                onDelete: () => onDelete(f['\$id'] as String),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FileRow extends StatefulWidget {
+  final Map<String, dynamic> file;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  const _FileRow({
+    required this.file,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  @override
+  State<_FileRow> createState() => _FileRowState();
+}
+
+class _FileRowState extends State<_FileRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final f = widget.file;
+    final name = f['name'] as String? ?? 'Untitled';
+    final mime = f['mimeType'] as String? ?? '';
+    final size = _formatSize(f['sizeOriginal'] ?? 0);
+    final created = _timeAgo(f['createdAt'] ?? f['\$createdAt']);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: _hovered ? Colors.white.withOpacity(0.02) : null,
+            border: Border(
+                bottom:
+                    BorderSide(color: Colors.white.withOpacity(0.04))),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 32),
+              Expanded(
+                flex: 4,
+                child: Row(
+                  children: [
+                    _mimeIcon(mime),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(name,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(mime,
+                    style:
+                        const TextStyle(color: _dimText, fontSize: 12)),
+              ),
+              Expanded(
+                flex: 1,
+                child: Text(size,
+                    style:
+                        const TextStyle(color: _dimText, fontSize: 12)),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(created,
+                    style:
+                        const TextStyle(color: _dimText, fontSize: 12)),
+              ),
+              SizedBox(
+                width: 40,
+                child: PopupMenuButton<String>(
+                  color: const Color(0xFF1A1A22),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                  iconSize: 16,
+                  icon: Icon(LucideIcons.moreHorizontal,
+                      size: 16,
+                      color: _hovered ? _dimText : Colors.transparent),
+                  onSelected: (v) {
+                    if (v == 'delete') widget.onDelete();
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Delete',
+                          style: TextStyle(
+                              color: _red, fontSize: 13)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mimeIcon(String mime) {
+    IconData icon;
+    Color color;
+    if (mime.startsWith('image/')) {
+      icon = LucideIcons.image;
+      color = const Color(0xFF10B981);
+    } else if (mime.startsWith('video/')) {
+      icon = LucideIcons.video;
+      color = const Color(0xFF7C3AED);
+    } else if (mime.contains('pdf')) {
+      icon = LucideIcons.fileText;
+      color = _red;
+    } else {
+      icon = LucideIcons.file;
+      color = _accent;
+    }
+    return Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Icon(icon, size: 14, color: color),
+    );
   }
 
   String _formatSize(dynamic bytes) {
     final b = (bytes is int) ? bytes : 0;
     if (b < 1024) return '$b B';
-    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
+    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(0)} KB';
     return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  Future<void> _deleteFile(WidgetRef ref, String fileId) async {
+  String _timeAgo(dynamic raw) {
+    if (raw == null) return '—';
+    try {
+      final dt = raw is DateTime ? raw : DateTime.parse(raw.toString());
+      final diff = DateTime.now().difference(dt);
+      if (diff.inDays == 0) return 'Today';
+      if (diff.inDays == 1) return 'Yesterday';
+      if (diff.inDays < 30) return '${diff.inDays} days ago';
+      return '${_monthName(dt.month)} ${dt.day}, ${dt.year}';
+    } catch (_) {
+      return '—';
+    }
+  }
+
+  String _monthName(int m) {
+    const names = [
+      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return names[m.clamp(1, 12)];
+  }
+}
+
+// =============================================================================
+// File Detail View
+// =============================================================================
+
+class _FileDetailView extends ConsumerWidget {
+  final String bucketId;
+  final String fileId;
+  final VoidCallback onBack;
+
+  const _FileDetailView({
+    required this.bucketId,
+    required this.fileId,
+    required this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final filesAsync = ref.watch(_filesProvider(bucketId));
+
+    // Find file from cache
+    final file = filesAsync.valueOrNull?['files'] != null
+        ? (filesAsync.value!['files'] as List)
+            .cast<Map<String, dynamic>>()
+            .firstWhere((f) => f['\$id'] == fileId,
+                orElse: () => <String, dynamic>{})
+        : <String, dynamic>{};
+
+    final name = file['name'] as String? ?? fileId;
+    final mime = file['mimeType'] as String? ?? '';
+    final size = file['sizeOriginal'] as int? ?? 0;
+    final created = file['createdAt'] ?? file['\$createdAt'];
+    final updated = file['updatedAt'] ?? file['\$updatedAt'];
     final api = ref.read(apiClientProvider);
-    await api.delete('/storage/buckets/$bucketId/files/$fileId');
-    ref.invalidate(filesProvider(bucketId));
+    final fileUrl =
+        '${api.dio.options.baseUrl}/storage/buckets/$bucketId/files/$fileId/view';
+
+    return Scaffold(
+      backgroundColor: _bgColor,
+      body: SingleChildScrollView(
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          vertical: 32,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Back + title
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: onBack,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Icon(LucideIcons.arrowLeft,
+                        size: 20,
+                        color: Colors.white.withOpacity(0.5)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(name,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: 12),
+                Row(
+                  children: [
+                    Icon(LucideIcons.file,
+                        size: 13,
+                        color: Colors.white.withOpacity(0.3)),
+                    const SizedBox(width: 4),
+                    Text(
+                        fileId.length > 16
+                            ? '${fileId.substring(0, 16)}...'
+                            : fileId,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.3),
+                            fontSize: 13,
+                            fontFamily: 'monospace')),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // File info card with preview
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: _cardColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _border),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Preview
+                  if (mime.startsWith('image/'))
+                    Container(
+                      width: 200,
+                      height: 160,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _border),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.network(fileUrl,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Center(
+                              child: Icon(LucideIcons.image,
+                                  size: 32, color: _subtleText))),
+                    )
+                  else
+                    Container(
+                      width: 200,
+                      height: 160,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _border),
+                      ),
+                      child: Center(
+                          child: Icon(LucideIcons.file,
+                              size: 48, color: _subtleText)),
+                    ),
+                  const SizedBox(width: 24),
+                  // Metadata
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _MetaRow(label: 'Filename', value: name),
+                        _MetaRow(label: 'MIME type', value: mime),
+                        _MetaRow(label: 'Size', value: _fmtBytes(size)),
+                        if (created != null)
+                          _MetaRow(label: 'Created', value: '$created'),
+                        if (updated != null)
+                          _MetaRow(
+                              label: 'Last updated', value: '$updated'),
+                        const SizedBox(height: 16),
+                        // File URL
+                        const Text('File URL',
+                            style: TextStyle(
+                                color: _dimText, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.03),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: _border),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(fileUrl,
+                                    style: const TextStyle(
+                                        color: _dimText,
+                                        fontSize: 12,
+                                        fontFamily: 'monospace'),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              GestureDetector(
+                                onTap: () {
+                                  Clipboard.setData(
+                                      ClipboardData(text: fileUrl));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content:
+                                            Text('Copied to clipboard')),
+                                  );
+                                },
+                                child: MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  child: Icon(LucideIcons.copy,
+                                      size: 14,
+                                      color:
+                                          Colors.white.withOpacity(0.3)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // Download button
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: BorderSide(
+                                color: Colors.white.withOpacity(0.12)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                          icon: const Icon(LucideIcons.download, size: 14),
+                          label: const Text('Download',
+                              style: TextStyle(fontSize: 13)),
+                          onPressed: () {},
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Permissions card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: _cardColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Permissions',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Assign read or write permissions at the bucket level or file level.',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.4),
+                        fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Delete card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: _cardColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _red.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Delete file',
+                            style: TextStyle(
+                                color: _red,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 4),
+                        Text(
+                            'The file will be permanently deleted. This action is irreversible.',
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.4),
+                                fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _red,
+                      side: const BorderSide(color: _red),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () async {
+                      await ref
+                          .read(apiClientProvider)
+                          .delete(
+                              '/storage/buckets/$bucketId/files/$fileId');
+                      ref.invalidate(_filesProvider(bucketId));
+                      onBack();
+                    },
+                    child: const Text('Delete',
+                        style: TextStyle(fontSize: 13)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _fmtBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    final i = (math.log(bytes) / math.log(1024)).floor().clamp(0, 3);
+    return '${(bytes / math.pow(1024, i)).toStringAsFixed(1)} ${units[i]}';
+  }
+}
+
+class _MetaRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _MetaRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(label,
+                style: const TextStyle(color: _dimText, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Shared
+// =============================================================================
+
+class _InfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InfoRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(label,
+                style: const TextStyle(color: _dimText, fontSize: 13)),
+          ),
+          Expanded(
+            child: SelectableText(value,
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 13,
+                    fontFamily: 'monospace')),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UsageStatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  const _UsageStatCard({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: _cardColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(value,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(label,
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.4),
+                    fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 22, color: _subtleText),
+          ),
+          const SizedBox(height: 16),
+          Text(title,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500)),
+          const SizedBox(height: 6),
+          Text(subtitle,
+              style: const TextStyle(color: _dimText, fontSize: 13)),
+          const SizedBox(height: 16),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _accent,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: onAction,
+            child:
+                Text(actionLabel, style: const TextStyle(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Settings Widgets
+// =============================================================================
+
+class _SettingsSection extends StatelessWidget {
+  final String? title;
+  final String? subtitle;
+  final List<Widget> children;
+  final VoidCallback? onUpdate;
+
+  const _SettingsSection({
+    this.title,
+    this.subtitle,
+    required this.children,
+    this.onUpdate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (title != null) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title!,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600)),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 4),
+                        Text(subtitle!,
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.4),
+                                fontSize: 13)),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+          ...children,
+          if (onUpdate != null) ...[
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _accent,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: onUpdate,
+                child: const Text('Update',
+                    style: TextStyle(fontSize: 13)),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsToggle extends StatelessWidget {
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final String? subtitle;
+
+  const _SettingsToggle({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Switch(
+              value: value,
+              onChanged: onChanged,
+              activeColor: _accent,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500)),
+            ),
+          ],
+        ),
+        if (subtitle != null) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 52),
+            child: Text(subtitle!,
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.35),
+                    fontSize: 12)),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SettingsTextField extends StatefulWidget {
+  final String label;
+  final String initialValue;
+  final ValueChanged<String> onSaved;
+
+  const _SettingsTextField({
+    required this.label,
+    required this.initialValue,
+    required this.onSaved,
+  });
+
+  @override
+  State<_SettingsTextField> createState() => _SettingsTextFieldState();
+}
+
+class _SettingsTextFieldState extends State<_SettingsTextField> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.label,
+            style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontSize: 12,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _ctrl,
+                style:
+                    const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: const Color(0x0AFFFFFF),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide:
+                          const BorderSide(color: Color(0x1AFFFFFF))),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide:
+                          const BorderSide(color: Color(0x1AFFFFFF))),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _accent)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: _accent,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => widget.onSaved(_ctrl.text.trim()),
+              child:
+                  const Text('Update', style: TextStyle(fontSize: 13)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SettingsDropdown extends StatelessWidget {
+  final String label;
+  final String value;
+  final Map<String, String> options;
+  final ValueChanged<String?> onChanged;
+
+  const _SettingsDropdown({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontSize: 12,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0x0AFFFFFF),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0x1AFFFFFF)),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: options.containsKey(value) ? value : options.keys.first,
+              isExpanded: true,
+              dropdownColor: const Color(0xFF1E1F24),
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 13),
+              icon: const Icon(LucideIcons.chevronDown,
+                  size: 14, color: _dimText),
+              items: options.entries
+                  .map((e) => DropdownMenuItem(
+                      value: e.key, child: Text(e.value)))
+                  .toList(),
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PermissionsTable extends StatelessWidget {
+  const _PermissionsTable();
+
+  @override
+  Widget build(BuildContext context) {
+    const roles = ['Users', 'Guests', 'Any'];
+    const perms = ['Create', 'Read', 'Update', 'Delete'];
+
+    return Column(
+      children: [
+        // Header
+        Row(
+          children: [
+            const SizedBox(width: 80),
+            ...perms.map((p) => Expanded(
+                  child: Center(
+                    child: Text(p,
+                        style: const TextStyle(
+                            color: _dimText,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500)),
+                  ),
+                )),
+            const SizedBox(width: 32),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Rows
+        ...roles.map((role) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 80,
+                    child: Text(role,
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 13)),
+                  ),
+                  ...perms.map((_) => Expanded(
+                        child: Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: Checkbox(
+                              value: false,
+                              onChanged: (_) {},
+                              activeColor: _accent,
+                              side: BorderSide(
+                                  color: Colors.white.withOpacity(0.2)),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(3)),
+                            ),
+                          ),
+                        ),
+                      )),
+                  const SizedBox(width: 32),
+                ],
+              ),
+            )),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () {},
+            icon: const Icon(LucideIcons.plus, size: 14),
+            label:
+                const Text('Add role', style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(foregroundColor: _accent),
+          ),
+        ),
+      ],
+    );
   }
 }

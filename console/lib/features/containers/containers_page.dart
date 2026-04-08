@@ -397,7 +397,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
             if (result.repoConfig != null) 'repository': result.repoConfig!['cloneUrl'] ?? result.repoConfig!['url'] ?? '',
           });
           ref.invalidate(_containersProvider);
-          if (mounted) Navigator.pop(context);
+          if (mounted) Navigator.of(context, rootNavigator: true).pop();
         }),
       ],
     );

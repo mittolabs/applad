@@ -74,8 +74,8 @@ class Workflows {
     String workflowId,
     String executionId,
   ) async {
-    final res = await _dio
-        .get('/v1/workflows/$workflowId/executions/$executionId');
+    final res =
+        await _dio.get('/v1/workflows/$workflowId/executions/$executionId');
     return res.data;
   }
 }

@@ -62,13 +62,15 @@ func TestCreateBucket_Success(t *testing.T) {
 			"none",           // compression
 			false,            // encryption
 			false,            // antivirus
+			false,            // file_security
+			true,             // image_transformations
 			sqlmock.AnyArg(), // created_at
 			sqlmock.AnyArg(), // updated_at
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	bucket, err := svc.CreateBucket(context.Background(), "proj1", "unique()", "My Bucket",
-		[]string{"read"}, 10485760, []string{"image/png"}, "", false, false)
+		[]string{"read"}, 10485760, []string{"image/png"}, "", false, false, false, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,10 +115,10 @@ func TestListBuckets_ReturnsAll(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "name", "permissions", "file_size_limit", "allowed_mime_types",
-		"compression", "encryption", "antivirus", "enabled", "created_at", "updated_at",
+		"compression", "encryption", "antivirus", "file_security", "image_transformations", "enabled", "created_at", "updated_at",
 	}).
-		AddRow("b1", "Bucket 1", []byte(`["read"]`), int64(1000), []byte(`["image/png"]`), "none", false, false, true, time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)).
-		AddRow("b2", "Bucket 2", []byte(`[]`), int64(2000), []byte(`[]`), "gzip", true, false, true, time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC))
+		AddRow("b1", "Bucket 1", []byte(`["read"]`), int64(1000), []byte(`["image/png"]`), "none", false, false, false, true, true, time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)).
+		AddRow("b2", "Bucket 2", []byte(`[]`), int64(2000), []byte(`[]`), "gzip", true, false, false, true, true, time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC))
 
 	mock.ExpectQuery("SELECT .+ FROM buckets WHERE").
 		WithArgs("proj1").

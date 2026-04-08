@@ -166,6 +166,15 @@ services:
     depends_on: *worker-deps
     restart: unless-stopped
 
+  worker-cron:
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: cron
+    environment: *worker-env
+    depends_on: *worker-deps
+    restart: unless-stopped
+
   mariadb:
     image: mariadb:11.2
     environment:
@@ -198,8 +207,6 @@ services:
     image: clamav/clamav:stable
     volumes:
       - clamav_data:/var/lib/clamav
-    profiles:
-      - antivirus
     restart: unless-stopped
 
 volumes:

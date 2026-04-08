@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import '../providers/auth_provider.dart';
 import '../providers/project_provider.dart';
 import '../providers/org_provider.dart';
 import '../api/client.dart';
@@ -51,12 +50,7 @@ class _NavChild {
 }
 
 List<_NavGroup> _buildGroups() => [
-      _NavGroup('overview', 'Overview', LucideIcons.layoutDashboard, [
-        _NavChild('Dashboard', 'overview', LucideIcons.barChart3),
-        _NavChild('Getting started', 'overview', LucideIcons.checkCircle),
-        _NavChild('Activity', 'overview', LucideIcons.activity,
-            placeholder: true),
-      ]),
+      _NavGroup('overview', 'Overview', LucideIcons.barChart3, []),
       _NavGroup('specify', 'Specify', LucideIcons.fileText, [
         _NavChild('Feature specs', 'specify', LucideIcons.fileText,
             placeholder: true),
@@ -80,7 +74,6 @@ List<_NavGroup> _buildGroups() => [
         _NavChild('Auth', 'auth', LucideIcons.users),
         _NavChild('Databases', 'databases', LucideIcons.database),
         _NavChild('Storage', 'storage', LucideIcons.folderClosed),
-        _NavChild('Functions', 'functions', LucideIcons.zap),
         _NavChild('Messaging', 'messaging', LucideIcons.messageSquare),
         _NavChild('Workflows', 'workflows', LucideIcons.gitBranch),
       ]),
@@ -97,10 +90,12 @@ List<_NavGroup> _buildGroups() => [
             placeholder: true),
       ]),
       _NavGroup('deploy', 'Deploy', LucideIcons.rocket, [
+        _NavChild('Functions', 'functions', LucideIcons.zap),
         _NavChild('Sites', 'sites', LucideIcons.globe),
-        _NavChild('Containers', 'containers', LucideIcons.box),
         _NavChild('Mobile', 'mobile', LucideIcons.smartphone),
         _NavChild('Desktop', 'desktop', LucideIcons.monitor),
+        _NavChild('Containers', 'containers', LucideIcons.box),
+        _NavChild('Environments', 'environments', LucideIcons.layers),
         _NavChild('Feature Flags', 'flags', LucideIcons.toggleRight),
       ]),
       _NavGroup('observe', 'Observe', LucideIcons.activity, [
@@ -112,16 +107,7 @@ List<_NavGroup> _buildGroups() => [
         _NavChild('Errors', 'errors', LucideIcons.alertTriangle,
             placeholder: true),
       ]),
-      _NavGroup('secure', 'Secure', LucideIcons.shield, [
-        _NavChild('Credentials', 'credentials', LucideIcons.lock,
-            placeholder: true),
-        _NavChild('API Keys', 'settings', LucideIcons.key),
-        _NavChild('RBAC', 'rbac', LucideIcons.userCheck,
-            placeholder: true),
-        _NavChild(
-            'Audit log', 'audit', LucideIcons.scroll, placeholder: true),
-      ]),
-      _NavGroup('settings', 'Settings', LucideIcons.settings, [
+_NavGroup('settings', 'Settings', LucideIcons.settings, [
         _NavChild('General', 'settings', LucideIcons.settings),
         _NavChild('Platforms', 'settings', LucideIcons.smartphone),
         _NavChild('Team', 'settings', LucideIcons.users),
@@ -211,7 +197,7 @@ class _AppShellState extends ConsumerState<AppShell> {
               await api.post('/organizations', data: {'name': nameCtrl.text});
               ref.invalidate(orgsProvider);
             } catch (_) {}
-            if (context.mounted) Navigator.pop(context);
+            if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
           },
         ),
       ],
@@ -228,7 +214,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       'auth': 'build',
       'databases': 'build',
       'storage': 'build',
-      'functions': 'build',
+      'functions': 'deploy',
       'messaging': 'build',
       'workflows': 'build',
       'deploy': 'deploy',
@@ -237,6 +223,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       'mobile': 'deploy',
       'desktop': 'deploy',
       'flags': 'deploy',
+      'environments': 'deploy',
       'settings': 'settings',
       'specify': 'specify',
       'design': 'design',
@@ -244,9 +231,6 @@ class _AppShellState extends ConsumerState<AppShell> {
       'analytics': 'observe',
       'logs': 'observe',
       'health': 'observe',
-      'credentials': 'secure',
-      'rbac': 'secure',
-      'audit': 'secure',
     };
     return routeToGroup[segment] ?? 'overview';
   }
@@ -306,6 +290,19 @@ class _AppShellState extends ConsumerState<AppShell> {
                         activeGroup: activeGroup,
                         expandedGroup: _expandedGroup,
                         onGroupTap: (id) {
+                          // Direct-navigate groups (tabs are on the page)
+                          const directGroups = {
+                            'overview': 'overview',
+                            'settings': 'settings',
+                          };
+                          if (directGroups.containsKey(id)) {
+                            setState(() => _expandedGroup = null);
+                            if (projectId != null) {
+                              context.go(
+                                  '/project/$projectId/${directGroups[id]}');
+                            }
+                            return;
+                          }
                           setState(() {
                             if (id == 'ai') {
                               _aiChatOpen = !_aiChatOpen;
@@ -315,11 +312,27 @@ class _AppShellState extends ConsumerState<AppShell> {
                               _expandedGroup = null;
                             } else {
                               _expandedGroup = id;
+                              // Auto-navigate to first non-placeholder child
+                              if (projectId != null) {
+                                final group = groups.firstWhere(
+                                    (g) => g.id == id,
+                                    orElse: () => groups.first);
+                                final firstChild =
+                                    group.children.cast<_NavChild?>().firstWhere(
+                                        (c) => c != null && !c.placeholder,
+                                        orElse: () => null);
+                                if (firstChild != null) {
+                                  context.go(
+                                      '/project/$projectId/${firstChild.route}');
+                                }
+                              }
                             }
                           });
                         },
                         aiChatOpen: _aiChatOpen,
                         showAiButton: experiments.aiChat,
+                        projectId: projectId,
+                        currentPath: currentPath,
                       ),
                       // Expanded detail panel
                       if (_expandedGroup != null)
@@ -333,7 +346,14 @@ class _AppShellState extends ConsumerState<AppShell> {
                               setState(() => _expandedGroup = null),
                         ),
                       // Main content
-                      Expanded(child: widget.child),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Expanded(child: widget.child),
+                            const ConsoleFooter(),
+                          ],
+                        ),
+                      ),
                       // AI chat panel (right overlay)
                       if (_aiChatOpen && experiments.aiChat)
                         _AIChatPanel(
@@ -343,7 +363,6 @@ class _AppShellState extends ConsumerState<AppShell> {
                     ],
                   ),
                 ),
-                const ConsoleFooter(),
               ],
             ),
           ),
@@ -364,6 +383,8 @@ class _IconRail extends StatelessWidget {
   final ValueChanged<String> onGroupTap;
   final bool aiChatOpen;
   final bool showAiButton;
+  final String? projectId;
+  final String currentPath;
 
   const _IconRail({
     required this.groups,
@@ -372,12 +393,16 @@ class _IconRail extends StatelessWidget {
     required this.onGroupTap,
     required this.aiChatOpen,
     this.showAiButton = false,
+    this.projectId,
+    this.currentPath = '',
   });
 
   @override
   Widget build(BuildContext context) {
     final topGroups = groups.where((g) => !g.pinBottom).toList();
     final bottomGroups = groups.where((g) => g.pinBottom).toList();
+    final isOnGetStarted = projectId != null &&
+        currentPath.endsWith('/get-started');
 
     return Container(
       width: _railWidth,
@@ -389,12 +414,21 @@ class _IconRail extends StatelessWidget {
       child: Column(
         children: [
           const SizedBox(height: 8),
+          // Get started progress ring
+          if (projectId != null)
+            _GetStartedRailItem(
+              projectId: projectId!,
+              isActive: isOnGetStarted,
+              onTap: () => context.go('/project/$projectId/get-started'),
+            ),
           // Top groups
           ...topGroups
               .map((g) => _RailIcon(
                     icon: g.icon,
                     tooltip: g.label,
-                    isActive: expandedGroup == null && activeGroup == g.id,
+                    isActive: !isOnGetStarted &&
+                        expandedGroup == null &&
+                        activeGroup == g.id,
                     isExpanded: expandedGroup == g.id,
                     onTap: () => onGroupTap(g.id),
                   )),
@@ -456,11 +490,11 @@ class _RailIconState extends State<_RailIcon> {
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.accentColor ?? _accent;
+    final accentColor = widget.accentColor ?? _accent;
     final active = widget.isActive || widget.isExpanded;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Tooltip(
         message: widget.tooltip,
         preferBelow: false,
@@ -471,26 +505,52 @@ class _RailIconState extends State<_RailIcon> {
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
             onTap: widget.onTap,
-            child: Container(
-              width: 40,
-              height: 40,
-              margin: const EdgeInsets.symmetric(horizontal: 14),
-              decoration: BoxDecoration(
-                color: active
-                    ? color.withOpacity(0.12)
-                    : _hovered
-                        ? Colors.white.withOpacity(0.06)
-                        : Colors.transparent,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                widget.icon,
-                size: 20,
-                color: active
-                    ? color
-                    : _hovered
-                        ? Colors.white.withOpacity(0.7)
-                        : Colors.white.withOpacity(0.35),
+            child: SizedBox(
+              width: _railWidth,
+              height: 44,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Left accent bar — only when active
+                  if (active)
+                    Positioned(
+                      left: 0,
+                      top: 6,
+                      bottom: 6,
+                      child: Container(
+                        width: 3,
+                        decoration: BoxDecoration(
+                          color: accentColor,
+                          borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(3),
+                            bottomRight: Radius.circular(3),
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Icon box
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: active
+                          ? Colors.white.withOpacity(0.08)
+                          : _hovered
+                              ? Colors.white.withOpacity(0.04)
+                              : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      widget.icon,
+                      size: 18,
+                      color: active
+                          ? Colors.white
+                          : _hovered
+                              ? Colors.white.withOpacity(0.65)
+                              : Colors.white.withOpacity(0.28),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -499,6 +559,147 @@ class _RailIconState extends State<_RailIcon> {
     );
   }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Get Started rail item (progress ring)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _GetStartedRailItem extends ConsumerWidget {
+  final String projectId;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _GetStartedRailItem({
+    required this.projectId,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Reuse the stats provider from overview to compute completion
+    final statsAsync = ref.watch(_getStartedProgressProvider(projectId));
+    final progress = statsAsync.valueOrNull ?? 0.0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Tooltip(
+        message: 'Get started',
+        preferBelow: false,
+        waitDuration: const Duration(milliseconds: 400),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: onTap,
+            child: SizedBox(
+              width: _railWidth,
+              height: 44,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (isActive)
+                    Positioned(
+                      left: 0,
+                      top: 6,
+                      bottom: 6,
+                      child: Container(
+                        width: 3,
+                        decoration: BoxDecoration(
+                          color: _accent,
+                          borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(3),
+                            bottomRight: Radius.circular(3),
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Progress ring
+                  SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Background ring
+                        SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(
+                            value: 1.0,
+                            strokeWidth: 2.5,
+                            color: Colors.white.withOpacity(0.08),
+                          ),
+                        ),
+                        // Progress ring
+                        SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(
+                            value: progress,
+                            strokeWidth: 2.5,
+                            color: progress >= 1.0
+                                ? const Color(0xFF10B981)
+                                : _accent,
+                            strokeCap: StrokeCap.round,
+                          ),
+                        ),
+                        // Percentage text
+                        Text(
+                          '${(progress * 100).round()}',
+                          style: TextStyle(
+                            color: isActive
+                                ? Colors.white
+                                : Colors.white.withOpacity(0.5),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Computes get-started progress (0.0 to 1.0) from resource counts.
+final _getStartedProgressProvider =
+    FutureProvider.family<double, String>((ref, projectId) async {
+  final api = ref.read(apiClientProvider);
+  int done = 1; // "Create project" is always done
+  const total = 3; // Create project, Connect platform, Build your app
+
+  Future<int> count(String path, String key) async {
+    try {
+      final res = await api.get(path);
+      final data = res.data;
+      if (data is Map && data[key] is List) return (data[key] as List).length;
+      if (data is Map && data['total'] is int) return data['total'] as int;
+    } catch (_) {}
+    return 0;
+  }
+
+  final results = await Future.wait([
+    count('/projects/$projectId/platforms', 'platforms'),
+    count('/databases', 'databases'),
+    count('/storage/buckets', 'buckets'),
+    count('/functions', 'functions'),
+    count('/deploy/targets', 'targets'),
+    count('/workflows', 'workflows'),
+  ]);
+
+  // Connect platform
+  if (results[0] > 0) done++;
+  // Build your app (any resource)
+  if (results.skip(1).any((c) => c > 0)) done++;
+
+  return done / total;
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Detail Panel (expandable, 220px)
@@ -1077,35 +1278,7 @@ class _TopNavBar extends ConsumerWidget {
 
           const SizedBox(width: 8),
 
-          Consumer(builder: (context, ref, _) {
-            final user = ref.watch(consoleAuthProvider).valueOrNull;
-            if (user == null) return const SizedBox.shrink();
-            final initials = _initials(user.name, user.email);
-            return GestureDetector(
-              onTap: () => context.go('/account'),
-              child: Tooltip(
-                message: user.email,
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: const BoxDecoration(
-                    color: _accent,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      initials,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }),
+          const UserMenuButton(),
 
           const SizedBox(width: 4),
         ],
@@ -1124,17 +1297,6 @@ class _TopNavBar extends ConsumerWidget {
 
   String _short(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
-  String _initials(String name, String email) {
-    if (name.isNotEmpty) {
-      final parts = name.trim().split(' ');
-      if (parts.length >= 2) {
-        return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-      }
-      return name[0].toUpperCase();
-    }
-    if (email.isNotEmpty) return email[0].toUpperCase();
-    return '?';
-  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

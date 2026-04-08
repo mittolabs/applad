@@ -59,8 +59,7 @@ class Auth {
   }
 
   /// Update the current user's preferences.
-  Future<Map<String, dynamic>> updatePrefs(
-      Map<String, dynamic> prefs) async {
+  Future<Map<String, dynamic>> updatePrefs(Map<String, dynamic> prefs) async {
     final res = await _dio.patch('/v1/account/prefs', data: {'prefs': prefs});
     return res.data;
   }
@@ -167,8 +166,7 @@ class Users {
   }
 
   /// Update a user's status.
-  Future<Map<String, dynamic>> updateStatus(
-      String userId, bool status) async {
+  Future<Map<String, dynamic>> updateStatus(String userId, bool status) async {
     final res = await _dio.patch('/v1/users/$userId/status', data: {
       'status': status,
     });
@@ -176,8 +174,7 @@ class Users {
   }
 
   /// Update a user's email (admin, no password required).
-  Future<Map<String, dynamic>> updateEmail(
-      String userId, String email) async {
+  Future<Map<String, dynamic>> updateEmail(String userId, String email) async {
     final res = await _dio.patch('/v1/users/$userId/email', data: {
       'email': email,
     });
@@ -185,8 +182,7 @@ class Users {
   }
 
   /// Update a user's name.
-  Future<Map<String, dynamic>> updateName(
-      String userId, String name) async {
+  Future<Map<String, dynamic>> updateName(String userId, String name) async {
     final res = await _dio.patch('/v1/users/$userId/name', data: {
       'name': name,
     });

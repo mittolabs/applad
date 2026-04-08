@@ -380,7 +380,7 @@ class _MobilePageState extends ConsumerState<MobilePage> {
             if (result.repoConfig != null) 'branch': result.repoConfig!['defaultBranch'] ?? 'main',
           });
           ref.invalidate(_mobileProvider);
-          if (mounted) Navigator.pop(context);
+          if (mounted) Navigator.of(context, rootNavigator: true).pop();
         }),
       ],
     );

@@ -31,6 +31,12 @@ class Client:
         self._messaging = None
         self._deploy = None
         self._flags = None
+        self._analytics = None
+        self._search = None
+        self._vectors = None
+        self._edge = None
+        self._billing = None
+        self._regions = None
 
     # -----------------------------------------------------------------
     # Internal helpers
@@ -120,3 +126,45 @@ class Client:
             from .flags import Flags
             self._flags = Flags(self)
         return self._flags
+
+    @property
+    def analytics(self):
+        if self._analytics is None:
+            from .analytics import Analytics
+            self._analytics = Analytics(self)
+        return self._analytics
+
+    @property
+    def search(self):
+        if self._search is None:
+            from .search import Search
+            self._search = Search(self)
+        return self._search
+
+    @property
+    def vectors(self):
+        if self._vectors is None:
+            from .vectors import Vectors
+            self._vectors = Vectors(self)
+        return self._vectors
+
+    @property
+    def edge(self):
+        if self._edge is None:
+            from .edge import Edge
+            self._edge = Edge(self)
+        return self._edge
+
+    @property
+    def billing(self):
+        if self._billing is None:
+            from .billing import Billing
+            self._billing = Billing(self)
+        return self._billing
+
+    @property
+    def regions(self):
+        if self._regions is None:
+            from .regions import Regions
+            self._regions = Regions(self)
+        return self._regions

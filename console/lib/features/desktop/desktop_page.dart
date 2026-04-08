@@ -25,7 +25,7 @@ final _desktopProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final pid = ref.watch(currentProjectProvider);
   if (pid == null) return {'targets': []};
   final api = ref.read(apiClientProvider);
-  final res = await api.get('/deploy/targets?type=desktop');
+  final res = await api.get('/deploy/targets?type=desktop&projectId=$pid');
   return res.data as Map<String, dynamic>;
 });
 
@@ -691,7 +691,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
             if (templateConfig != null) 'templateId': templateConfig['\$id'],
           });
           ref.invalidate(_desktopProvider);
-          if (ctx.mounted) Navigator.pop(ctx);
+          if (mounted) Navigator.of(context, rootNavigator: true).pop();
         }),
       ],
     );

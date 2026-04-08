@@ -87,19 +87,24 @@ class Realtime {
     void Function(RealtimeEvent event) callback,
   ) {
     // Send subscribe message
-    _send({'type': 'subscribe', 'channels': [channel]});
+    _send({
+      'type': 'subscribe',
+      'channels': [channel]
+    });
 
     // Filter stream for this channel
-    final sub = _controller.stream
-        .where((e) => e.channel == channel)
-        .listen(callback);
+    final sub =
+        _controller.stream.where((e) => e.channel == channel).listen(callback);
 
     return RealtimeSubscription(channel, sub);
   }
 
   /// Unsubscribe from a channel.
   void unsubscribe(String channel) {
-    _send({'type': 'unsubscribe', 'channels': [channel]});
+    _send({
+      'type': 'unsubscribe',
+      'channels': [channel]
+    });
   }
 
   /// Disconnect from the realtime server.

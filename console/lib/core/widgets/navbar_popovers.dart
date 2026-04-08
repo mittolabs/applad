@@ -3,7 +3,9 @@ import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
 
 // ── Shared overlay helper ────────────────────────────────────────────────────
@@ -673,6 +675,368 @@ class _SupportCardState extends State<_SupportCard> {
 }
 
 // ── Theme toggle ─────────────────────────────────────────────────────────────
+
+// ── User avatar + dropdown menu ──────────────────────────────────────────────
+
+class UserMenuButton extends ConsumerStatefulWidget {
+  const UserMenuButton({super.key});
+
+  @override
+  ConsumerState<UserMenuButton> createState() => _UserMenuButtonState();
+}
+
+class _UserMenuButtonState extends ConsumerState<UserMenuButton> {
+  OverlayEntry? _overlay;
+
+  void _open(BuildContext context) {
+    if (_overlay != null) {
+      _close();
+      return;
+    }
+    final box = context.findRenderObject() as RenderBox;
+    final pos = box.localToGlobal(Offset.zero);
+    final screenW = MediaQuery.of(context).size.width;
+    final right = screenW - pos.dx - box.size.width;
+
+    _overlay = _buildOverlay(
+      top: pos.dy + box.size.height + 6,
+      right: right,
+      onClose: _close,
+      panel: _UserMenuPanel(onClose: _close),
+    );
+    Overlay.of(context).insert(_overlay!);
+    setState(() {});
+  }
+
+  void _close() {
+    _overlay?.remove();
+    _overlay = null;
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _overlay?.remove();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(consoleAuthProvider).valueOrNull;
+    if (user == null) return const SizedBox.shrink();
+
+    final initials = _userInitials(user.name, user.email);
+    final isOpen = _overlay != null;
+
+    return GestureDetector(
+      onTap: () => _open(context),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: isOpen
+                ? const Color(0xFF3472A4)
+                : const Color(0xFF3472A4).withOpacity(0.85),
+            shape: BoxShape.circle,
+            border: isOpen
+                ? Border.all(color: Colors.white.withOpacity(0.2), width: 2)
+                : null,
+          ),
+          child: Center(
+            child: Text(
+              initials,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _userInitials(String name, String email) {
+  if (name.trim().isNotEmpty) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return parts[0][0].toUpperCase();
+  }
+  return email.isNotEmpty ? email[0].toUpperCase() : '?';
+}
+
+class _UserMenuPanel extends ConsumerWidget {
+  final VoidCallback onClose;
+  const _UserMenuPanel({required this.onClose});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(consoleAuthProvider).valueOrNull;
+    final isLight = ref.watch(themeModeProvider);
+
+    return Container(
+      width: 280,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C1C24),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Email
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+            child: Text(
+              user?.email ?? '',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+
+          _divider(),
+
+          // Account
+          _MenuItemTrailing(
+            label: 'Account',
+            icon: LucideIcons.user,
+            onTap: () {
+              onClose();
+              context.go('/account');
+            },
+          ),
+
+          _divider(),
+
+          // Sign out
+          _MenuItemTrailing(
+            label: 'Sign out',
+            icon: LucideIcons.logOut,
+            onTap: () {
+              onClose();
+              ref.read(consoleAuthProvider.notifier).logout();
+              context.go('/login');
+            },
+          ),
+
+          _divider(),
+
+          // Theme row
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            child: Row(
+              children: [
+                Text(
+                  'Theme',
+                  style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                ),
+                const Spacer(),
+                _ThemeToggle(isLight: isLight),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 2),
+        ],
+      ),
+    );
+  }
+
+  Widget _divider() => Container(
+        height: 1,
+        color: Colors.white.withOpacity(0.06),
+      );
+}
+
+class _MenuItem extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool danger;
+  const _MenuItem({required this.icon, required this.label, required this.onTap, this.danger = false});
+
+  @override
+  State<_MenuItem> createState() => _MenuItemState();
+}
+
+class _MenuItemState extends State<_MenuItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.danger ? Colors.red : Colors.white.withOpacity(0.8);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          width: double.infinity,
+          color: _hovered
+              ? Colors.white.withOpacity(0.04)
+              : Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          child: Row(
+            children: [
+              Icon(widget.icon, size: 15, color: color.withOpacity(0.7)),
+              const SizedBox(width: 10),
+              Text(widget.label, style: TextStyle(color: color, fontSize: 13)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MenuItemTrailing extends StatefulWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  const _MenuItemTrailing({required this.label, required this.icon, required this.onTap});
+
+  @override
+  State<_MenuItemTrailing> createState() => _MenuItemTrailingState();
+}
+
+class _MenuItemTrailingState extends State<_MenuItemTrailing> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          width: double.infinity,
+          color: _hovered
+              ? Colors.white.withOpacity(0.04)
+              : Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          child: Row(
+            children: [
+              Text(widget.label,
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.8), fontSize: 14)),
+              const Spacer(),
+              Icon(widget.icon,
+                  size: 16, color: Colors.white.withOpacity(0.35)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ThemeToggle extends ConsumerWidget {
+  final bool isLight;
+  const _ThemeToggle({required this.isLight});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ThemeOption(
+            icon: LucideIcons.sun,
+            active: isLight,
+            tooltip: 'Light',
+            onTap: () => ref.read(themeModeProvider.notifier).setLight(),
+          ),
+          _ThemeOption(
+            icon: LucideIcons.moon,
+            active: !isLight,
+            tooltip: 'Dark',
+            onTap: () => ref.read(themeModeProvider.notifier).setDark(),
+          ),
+          _ThemeOption(
+            icon: LucideIcons.contrast,
+            active: false,
+            tooltip: 'System',
+            onTap: () => ref.read(themeModeProvider.notifier).setDark(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemeOption extends StatefulWidget {
+  final IconData icon;
+  final bool active;
+  final String tooltip;
+  final VoidCallback onTap;
+  const _ThemeOption({required this.icon, required this.active, required this.tooltip, required this.onTap});
+
+  @override
+  State<_ThemeOption> createState() => _ThemeOptionState();
+}
+
+class _ThemeOptionState extends State<_ThemeOption> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: widget.active
+                  ? Colors.white.withOpacity(0.12)
+                  : _hovered
+                      ? Colors.white.withOpacity(0.06)
+                      : Colors.transparent,
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Icon(
+              widget.icon,
+              size: 13,
+              color: widget.active
+                  ? Colors.white
+                  : Colors.white.withOpacity(0.4),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Theme toggle (standalone navbar button) ──────────────────────────────────
 
 class ThemeToggleButton extends ConsumerWidget {
   const ThemeToggleButton({super.key});

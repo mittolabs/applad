@@ -1,6 +1,6 @@
 name: applad
-description: Official Dart/Flutter client SDK for Applad.
-version: 0.1.0
+description: Official Dart SDK for Applad — client-side (Dio) and server-side (http) in one package.
+version: 0.2.0
 homepage: https://github.com/mittolabs/applad
 
 environment:
@@ -8,6 +8,7 @@ environment:
 
 dependencies:
   dio: ^5.4.3
+  http: ^1.2.0
   web_socket_channel: ^3.0.0
 
 dev_dependencies:

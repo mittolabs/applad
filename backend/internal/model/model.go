@@ -168,17 +168,19 @@ func (d Row) MarshalJSON() ([]byte, error) {
 
 // Bucket represents a storage bucket.
 type Bucket struct {
-	ID                    string     `json:"$id"`
-	CreatedAt             time.Time  `json:"$createdAt"`
-	UpdatedAt             time.Time  `json:"$updatedAt"`
-	Name                  string     `json:"name"`
-	Enabled               bool       `json:"enabled"`
-	Permissions           []string   `json:"$permissions"`
-	FileSizeLimit         int64      `json:"maximumFileSize"`
-	AllowedFileExtensions []string   `json:"allowedFileExtensions"`
-	Compression           string     `json:"compression"`
-	Encryption            bool       `json:"encryption"`
-	Antivirus             bool       `json:"antivirus"`
+	ID                    string    `json:"$id"`
+	CreatedAt             time.Time `json:"$createdAt"`
+	UpdatedAt             time.Time `json:"$updatedAt"`
+	Name                  string    `json:"name"`
+	Enabled               bool      `json:"enabled"`
+	Permissions           []string  `json:"$permissions"`
+	FileSizeLimit         int64     `json:"maximumFileSize"`
+	AllowedFileExtensions []string  `json:"allowedFileExtensions"`
+	Compression           string    `json:"compression"`
+	Encryption            bool      `json:"encryption"`
+	Antivirus             bool      `json:"antivirus"`
+	FileSecurity          bool      `json:"fileSecurity"`
+	ImageTransformations  bool      `json:"imageTransformations"`
 }
 
 // File represents a stored file's metadata.

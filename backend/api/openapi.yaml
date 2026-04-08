@@ -1011,3 +1011,1009 @@ paths:
       responses:
         '202':
           description: Execution started
+
+  # ── Feature Flags ──────────────────────────────────────────────────────────
+
+  /flags:
+    post:
+      summary: Create a feature flag
+      tags: [Flags]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, name]
+              properties:
+                key:
+                  type: string
+                name:
+                  type: string
+                description:
+                  type: string
+                enabled:
+                  type: boolean
+                variants:
+                  type: object
+                rules:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '201':
+          description: Flag created
+    get:
+      summary: List feature flags
+      tags: [Flags]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Flag list
+
+  /flags/{flagId}:
+    get:
+      summary: Get a flag
+      tags: [Flags]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: flagId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Flag details
+    put:
+      summary: Update a flag
+      tags: [Flags]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: flagId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Flag updated
+    delete:
+      summary: Delete a flag
+      tags: [Flags]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: flagId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  /flags/{flagId}/toggle:
+    patch:
+      summary: Toggle a flag on or off
+      tags: [Flags]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: flagId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Flag toggled
+
+  /flags/evaluate:
+    post:
+      summary: Evaluate flags for a context
+      tags: [Flags]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                context:
+                  type: object
+      responses:
+        '200':
+          description: Evaluation result
+
+  /flags/evaluate/{key}:
+    get:
+      summary: Evaluate a single flag by key
+      tags: [Flags]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Flag evaluation
+
+  # ── Analytics ──────────────────────────────────────────────────────────────
+
+  /analytics/events:
+    post:
+      summary: Track an analytics event
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                properties:
+                  type: object
+      responses:
+        '201':
+          description: Event tracked
+    get:
+      summary: List analytics events
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Event list
+
+  /analytics/events/batch:
+    post:
+      summary: Batch track events
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '201':
+          description: Events tracked
+
+  /analytics/events/counts:
+    get:
+      summary: Get event counts
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Event counts
+
+  /analytics/dau:
+    get:
+      summary: Get daily active users
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: DAU data
+
+  /analytics/funnels:
+    post:
+      summary: Create a funnel
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [steps]
+              properties:
+                steps:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Funnel created
+    get:
+      summary: List funnels
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Funnel list
+
+  # ── Search ─────────────────────────────────────────────────────────────────
+
+  /search/indexes:
+    post:
+      summary: Create a search index
+      tags: [Search]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Index created
+    get:
+      summary: List search indexes
+      tags: [Search]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Index list
+
+  /search/indexes/{indexId}:
+    get:
+      summary: Get a search index
+      tags: [Search]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Index details
+    delete:
+      summary: Delete a search index
+      tags: [Search]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  /search/indexes/{indexId}/query:
+    post:
+      summary: Search an index
+      tags: [Search]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [q]
+              properties:
+                q:
+                  type: string
+                limit:
+                  type: integer
+      responses:
+        '200':
+          description: Search results
+
+  /search/indexes/{indexId}/documents/{docId}:
+    put:
+      summary: Upsert a document into a search index
+      tags: [Search]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Document upserted
+    delete:
+      summary: Delete a document from a search index
+      tags: [Search]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  # ── Vectors ────────────────────────────────────────────────────────────────
+
+  /vectors/indexes:
+    post:
+      summary: Create a vector index
+      tags: [Vectors]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, dimensions]
+              properties:
+                name:
+                  type: string
+                dimensions:
+                  type: integer
+                metric:
+                  type: string
+                  enum: [cosine, euclidean, dot]
+                  default: cosine
+      responses:
+        '201':
+          description: Index created
+    get:
+      summary: List vector indexes
+      tags: [Vectors]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Index list
+
+  /vectors/indexes/{indexId}:
+    get:
+      summary: Get a vector index
+      tags: [Vectors]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Index details
+    delete:
+      summary: Delete a vector index
+      tags: [Vectors]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  /vectors/indexes/{indexId}/embeddings/{docId}:
+    put:
+      summary: Upsert an embedding
+      tags: [Vectors]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vector]
+              properties:
+                vector:
+                  type: array
+                  items:
+                    type: number
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Embedding upserted
+    delete:
+      summary: Delete an embedding
+      tags: [Vectors]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  /vectors/indexes/{indexId}/query:
+    post:
+      summary: Query similar vectors
+      tags: [Vectors]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: indexId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vector]
+              properties:
+                vector:
+                  type: array
+                  items:
+                    type: number
+                topK:
+                  type: integer
+                  default: 10
+      responses:
+        '200':
+          description: Similar vectors
+
+  # ── Audit ──────────────────────────────────────────────────────────────────
+
+  /audit:
+    get:
+      summary: List audit logs
+      tags: [Audit]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+      responses:
+        '200':
+          description: Audit log list
+
+  /audit/{logId}:
+    get:
+      summary: Get an audit log entry
+      tags: [Audit]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: logId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit log entry
+
+  # ── Edge Functions ─────────────────────────────────────────────────────────
+
+  /edge/functions:
+    post:
+      summary: Create an edge function
+      tags: [Edge]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                source:
+                  type: string
+      responses:
+        '201':
+          description: Edge function created
+    get:
+      summary: List edge functions
+      tags: [Edge]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Edge function list
+
+  /edge/functions/{functionId}:
+    get:
+      summary: Get an edge function
+      tags: [Edge]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: functionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Edge function details
+    put:
+      summary: Update an edge function
+      tags: [Edge]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: functionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete an edge function
+      tags: [Edge]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: functionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  /edge/functions/{functionId}/deploy:
+    post:
+      summary: Deploy an edge function
+      tags: [Edge]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: functionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deployment triggered
+
+  # ── Billing ────────────────────────────────────────────────────────────────
+
+  /billing/plans:
+    get:
+      summary: List available plans
+      tags: [Billing]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Plan list
+
+  /billing/subscription:
+    get:
+      summary: Get current subscription
+      tags: [Billing]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Subscription details
+    post:
+      summary: Subscribe to a plan
+      tags: [Billing]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [planId]
+              properties:
+                planId:
+                  type: string
+      responses:
+        '201':
+          description: Subscribed
+    delete:
+      summary: Cancel subscription
+      tags: [Billing]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '204':
+          description: Cancelled
+
+  /billing/usage:
+    get:
+      summary: Get usage summary
+      tags: [Billing]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Usage summary
+
+  /billing/invoices:
+    get:
+      summary: List invoices
+      tags: [Billing]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Invoice list
+
+  # ── Regions ────────────────────────────────────────────────────────────────
+
+  /regions:
+    get:
+      summary: List available regions
+      tags: [Regions]
+      responses:
+        '200':
+          description: Region list
+
+  /regions/{regionId}:
+    get:
+      summary: Get region details
+      tags: [Regions]
+      parameters:
+        - name: regionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Region details
+
+  /regions/project:
+    get:
+      summary: List regions assigned to the project
+      tags: [Regions]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Project regions
+    post:
+      summary: Assign a region to the project
+      tags: [Regions]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [regionId]
+              properties:
+                regionId:
+                  type: string
+      responses:
+        '201':
+          description: Region assigned
+
+  # ── Webhooks ───────────────────────────────────────────────────────────────
+
+  /webhooks:
+    post:
+      summary: Create a webhook
+      tags: [Webhooks]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Webhook created
+    get:
+      summary: List webhooks
+      tags: [Webhooks]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+      responses:
+        '200':
+          description: Webhook list
+
+  /webhooks/{webhookId}:
+    get:
+      summary: Get a webhook
+      tags: [Webhooks]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook details
+    put:
+      summary: Update a webhook
+      tags: [Webhooks]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete a webhook
+      tags: [Webhooks]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/projectHeader'
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted

@@ -1,5 +1,7 @@
 export { ApplAdServer } from './client';
 export type { ApplAdServerConfig } from './client';
+export { Analytics } from './analytics';
+export { Billing } from './billing';
 export { Users } from './users';
 export { Databases } from './databases';
 export { Storage } from './storage';
@@ -8,4 +10,8 @@ export { Teams } from './teams';
 export { Workflows } from './workflows';
 export { Messaging } from './messaging';
 export { Deploy } from './deploy';
+export { Edge } from './edge';
 export { Flags } from './flags';
+export { Regions } from './regions';
+export { Search } from './search';
+export { Vectors } from './vectors';

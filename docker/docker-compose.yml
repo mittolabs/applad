@@ -198,8 +198,6 @@ services:
     image: clamav/clamav:stable
     volumes:
       - clamav_data:/var/lib/clamav
-    profiles:
-      - antivirus
     restart: unless-stopped
 
 volumes:

@@ -1419,7 +1419,86 @@ class _OverviewTab extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 10),
                           ),
-                          onPressed: () {},
+                          onPressed: releasesAsync.hasValue
+                              ? () async {
+                                  final list =
+                                      List<Map<String, dynamic>>.from(
+                                          releasesAsync.value!['releases'] ??
+                                              []);
+                                  final successes = list
+                                      .where((r) => r['status'] == 'success')
+                                      .toList();
+                                  if (successes.isEmpty) {
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content: Text(
+                                              'No successful deployment to roll back to')),
+                                    );
+                                    return;
+                                  }
+                                  final target = successes.first;
+                                  final releaseId =
+                                      (target['\$id'] ?? target['id'])
+                                          as String;
+                                  if (!context.mounted) return;
+                                  final confirmed = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      backgroundColor: _surface,
+                                      title: const Text('Instant rollback',
+                                          style:
+                                              TextStyle(color: Colors.white)),
+                                      content: Text(
+                                          'Roll back to deployment ${releaseId.length > 8 ? releaseId.substring(0, 8) : releaseId}…?',
+                                          style: const TextStyle(
+                                              color: _dimText)),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        FilledButton(
+                                          style: FilledButton.styleFrom(
+                                              backgroundColor: _red),
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: const Text('Rollback'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirmed != true || !context.mounted) {
+                                    return;
+                                  }
+                                  try {
+                                    final api = ref.read(apiClientProvider);
+                                    await api.post(
+                                        '/deploy/releases/$releaseId/rollback',
+                                        data: {});
+                                    ref.invalidate(
+                                        _siteReleasesProvider(siteId));
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                            content:
+                                                Text('Rollback initiated')),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                            content: Text(
+                                                'Rollback failed: $e')),
+                                      );
+                                    }
+                                  }
+                                }
+                              : null,
                           icon: const Icon(LucideIcons.rotateCcw, size: 14),
                           label: const Text('Instant rollback',
                               style: TextStyle(fontSize: 13)),

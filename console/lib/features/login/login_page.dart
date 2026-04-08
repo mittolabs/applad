@@ -289,19 +289,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 // Submit button
                 SizedBox(
                   width: double.infinity,
-                  height: 44,
+                  height: 36,
                   child: FilledButton(
                     onPressed: _loading ? null : _submit,
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF3472A4),
+                      padding: const EdgeInsets.symmetric(vertical: 0),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
                     child: _loading
                         ? const SizedBox(
-                            width: 20,
-                            height: 20,
+                            width: 16,
+                            height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white,
@@ -310,8 +311,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         : Text(
                             _isSignup ? 'Sign up' : 'Sign in',
                             style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                   ),
@@ -420,14 +421,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       controller: ctrl,
       keyboardType: type,
       textInputAction: TextInputAction.next,
-      style: const TextStyle(color: Colors.white, fontSize: 14),
+      style: const TextStyle(color: Colors.white, fontSize: 13),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: TextStyle(color: Colors.white.withOpacity(0.2)),
+        hintStyle: TextStyle(color: Colors.white.withOpacity(0.2), fontSize: 13),
         filled: true,
         fillColor: Colors.white.withOpacity(0.04),
+        isDense: true,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
@@ -449,14 +451,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       controller: _passwordCtrl,
       obscureText: _obscure,
       onSubmitted: (_) => _submit(),
-      style: const TextStyle(color: Colors.white, fontSize: 14),
+      style: const TextStyle(color: Colors.white, fontSize: 13),
       decoration: InputDecoration(
         hintText: 'Your password',
-        hintStyle: TextStyle(color: Colors.white.withOpacity(0.2)),
+        hintStyle: TextStyle(color: Colors.white.withOpacity(0.2), fontSize: 13),
         filled: true,
         fillColor: Colors.white.withOpacity(0.04),
+        isDense: true,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
@@ -469,14 +472,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: Color(0xFF3472A4)),
         ),
-        suffixIcon: IconButton(
-          icon: Icon(
-            _obscure ? LucideIcons.eyeOff : LucideIcons.eye,
-            size: 18,
-            color: Colors.white.withOpacity(0.3),
+        suffixIcon: GestureDetector(
+          onTap: () => setState(() => _obscure = !_obscure),
+          child: Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Icon(
+              _obscure ? LucideIcons.eyeOff : LucideIcons.eye,
+              size: 16,
+              color: Colors.white.withOpacity(0.3),
+            ),
           ),
-          onPressed: () => setState(() => _obscure = !_obscure),
         ),
+        suffixIconConstraints: const BoxConstraints(minHeight: 0, minWidth: 0),
       ),
     );
   }

@@ -42,6 +42,7 @@ func Routes(h *Handler) http.Handler {
 		r.Get("/{targetId}/executions/{execId}", h.getExecution)
 		r.Get("/{targetId}/stats", h.getTargetStats)
 		r.Get("/{targetId}/stats/detailed", h.getTargetDetailedStats)
+		r.Get("/{targetId}/logs", h.getTargetLogs)
 	})
 
 	// Pipelines
@@ -542,6 +543,19 @@ func (h *Handler) getTargetDetailedStats(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// ── Target logs handler ──
+
+func (h *Handler) getTargetLogs(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	targetID := chi.URLParam(r, "targetId")
+	result, err := h.svc.GetTargetLogs(r.Context(), targetID, projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // ── Custom domain handlers (web deploy targets) ──

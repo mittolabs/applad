@@ -4,11 +4,336 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Applad</title>
-  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
   <base href="/">
-  <link rel="stylesheet" type="text/css" href="flutter_bootstrap.js">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0B0B0F;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    /* ── Splash ── */
+    #splash {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      opacity: 1;
+      transition: opacity 0.35s ease;
+    }
+
+    #splash.fade-out { opacity: 0; }
+
+    #splash-logo {
+      width: 72px;
+      height: 72px;
+      filter:
+        drop-shadow(0 0 8px rgba(52, 114, 164, 0.9))
+        drop-shadow(0 0 24px rgba(52, 114, 164, 0.7))
+        drop-shadow(0 0 60px rgba(52, 114, 164, 0.4));
+    }
+
+    #splash-bar-track {
+      width: 200px;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 99px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #splash-bar-fill {
+      position: absolute;
+      top: 0; left: 0;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #1e5a8a, #3472A4, #5b9fd4);
+      border-radius: 99px;
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 10px rgba(52, 114, 164, 0.7), 0 0 24px rgba(52, 114, 164, 0.35);
+      overflow: hidden;
+    }
+
+    #splash-bar-fill::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%);
+      animation: shimmer 1.4s infinite;
+    }
+
+    @keyframes shimmer {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    #splash-message {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.35);
+      letter-spacing: 0.01em;
+      height: 18px;
+      opacity: 1;
+      transition: opacity 0.3s ease;
+      text-align: center;
+    }
+
+    #splash-message.fade { opacity: 0; }
+
+    /* ── Error screen ── */
+    #error-screen {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 20px;
+      max-width: 380px;
+      padding: 0 24px;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    #error-screen.visible {
+      display: flex;
+      opacity: 1;
+    }
+
+    #error-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+
+    #error-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+      line-height: 1.3;
+    }
+
+    #error-body {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.4);
+      line-height: 1.6;
+    }
+
+    #error-detail {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.2);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 6px;
+      padding: 10px 14px;
+      width: 100%;
+      text-align: left;
+      word-break: break-all;
+      display: none;
+    }
+
+    #error-detail.visible { display: block; }
+
+    #error-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .err-btn {
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+    }
+
+    .err-btn:hover { opacity: 0.8; }
+
+    .err-btn-primary {
+      background: #3472A4;
+      color: #fff;
+    }
+
+    .err-btn-ghost {
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.6);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+  </style>
 </head>
 <body>
+  <div id="splash">
+    <img id="splash-logo" src="applad-logo.png" alt="Applad">
+    <div id="splash-bar-track">
+      <div id="splash-bar-fill"></div>
+    </div>
+    <div id="splash-message">Starting up…</div>
+  </div>
+
+  <div id="error-screen">
+    <div id="error-icon">⚠️</div>
+    <div id="error-title">Couldn't open Applad</div>
+    <div id="error-body" id="error-body"></div>
+    <pre id="error-detail"></pre>
+    <div id="error-actions">
+      <button class="err-btn err-btn-primary" onclick="location.reload()">Try again</button>
+      <button class="err-btn err-btn-ghost" id="detail-toggle" onclick="toggleDetail()">Show details</button>
+    </div>
+  </div>
+
+  <script>
+    /* ── Compatibility check ── */
+    function checkCompatibility() {
+      var issues = [];
+      if (typeof WebAssembly === 'undefined') issues.push('WebAssembly');
+      if (typeof Promise === 'undefined') issues.push('Promises');
+      if (typeof fetch === 'undefined') issues.push('Fetch API');
+      return issues;
+    }
+
+    function showError(title, body, detail) {
+      clearInterval(interval);
+      clearInterval(msgInterval);
+
+      var splash = document.getElementById('splash');
+      splash.classList.add('fade-out');
+
+      setTimeout(function () {
+        splash.style.display = 'none';
+        var screen = document.getElementById('error-screen');
+        document.getElementById('error-title').textContent = title;
+        document.getElementById('error-body').textContent = body;
+        if (detail) {
+          var pre = document.getElementById('error-detail');
+          pre.textContent = detail;
+        }
+        screen.style.display = 'flex';
+        requestAnimationFrame(function () { screen.classList.add('visible'); });
+      }, 380);
+    }
+
+    function toggleDetail() {
+      var pre = document.getElementById('error-detail');
+      var btn = document.getElementById('detail-toggle');
+      var showing = pre.classList.toggle('visible');
+      btn.textContent = showing ? 'Hide details' : 'Show details';
+    }
+
+    var issues = checkCompatibility();
+    if (issues.length > 0) {
+      document.addEventListener('DOMContentLoaded', function () {
+        showError(
+          'Your browser isn\'t quite ready',
+          'Applad needs a modern browser to run. Try updating ' +
+          'Chrome, Edge, Firefox, or Safari to the latest version, ' +
+          'then refresh the page.',
+          'Missing: ' + issues.join(', ')
+        );
+      });
+    }
+
+    /* ── Loading messages ── */
+    var messages = [
+      "Starting up…",
+      "Wiring up your workspace…",
+      "Thinking about databases…",
+      "Securing your API keys…",
+      "Connecting to the edge…",
+      "Warming up the functions…",
+      "Syncing your projects…",
+      "Almost there…",
+      "Checking in with the backend…",
+      "Making sure nothing is on fire…",
+      "Polishing the UI…",
+      "Reading the docs (just kidding)…",
+      "One moment of patience…",
+    ];
+
+    var msgEl = document.getElementById('splash-message');
+    var msgIndex = 0;
+
+    function cycleMessage() {
+      msgEl.classList.add('fade');
+      setTimeout(function () {
+        msgIndex = (msgIndex + 1) % messages.length;
+        msgEl.textContent = messages[msgIndex];
+        msgEl.classList.remove('fade');
+      }, 300);
+    }
+
+    var msgInterval = setInterval(cycleMessage, 2200);
+
+    /* ── Progress bar ── */
+    var fill = document.getElementById('splash-bar-fill');
+    var progress = 0;
+    var interval = setInterval(function () {
+      var step = progress < 70 ? 3 : progress < 90 ? 0.8 : 0.1;
+      progress = Math.min(progress + step, 95);
+      fill.style.width = progress + '%';
+    }, 80);
+
+    /* ── Timeout: if Flutter hasn't loaded in 20s, show an error ── */
+    var loadTimeout = setTimeout(function () {
+      if (document.getElementById('error-screen').style.display !== 'flex') {
+        showError(
+          'Taking longer than expected',
+          'Applad is having trouble starting up. This could be a ' +
+          'temporary network hiccup. Try refreshing — if the problem ' +
+          'keeps happening, check your connection.',
+          null
+        );
+      }
+    }, 20000);
+
+    /* ── Flutter ready ── */
+    window.addEventListener('flutter-first-frame', function () {
+      clearTimeout(loadTimeout);
+      clearInterval(interval);
+      clearInterval(msgInterval);
+      msgEl.classList.add('fade');
+      setTimeout(function () { msgEl.textContent = 'Ready.'; msgEl.classList.remove('fade'); }, 300);
+      fill.style.width = '100%';
+      setTimeout(function () {
+        var splash = document.getElementById('splash');
+        if (splash) {
+          splash.classList.add('fade-out');
+          setTimeout(function () { splash.style.display = 'none'; }, 360);
+        }
+      }, 120);
+    });
+
+    /* ── Catch JS errors during boot ── */
+    window.addEventListener('error', function (e) {
+      if (document.getElementById('splash').style.display !== 'none' &&
+          document.getElementById('error-screen').style.display !== 'flex') {
+        showError(
+          'Something went wrong on startup',
+          'Applad ran into an unexpected problem while loading. ' +
+          'A refresh usually fixes it — if not, try clearing your browser cache.',
+          e.message || String(e)
+        );
+      }
+    });
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

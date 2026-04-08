@@ -82,9 +82,7 @@ class Storage {
       'file': MultipartFile.fromBytes(
         fileBytes,
         filename: fileName,
-        contentType: mimeType != null
-            ? DioMediaType.parse(mimeType)
-            : null,
+        contentType: mimeType != null ? DioMediaType.parse(mimeType) : null,
       ),
       if (permissions != null) 'permissions': permissions,
     });
@@ -117,8 +115,7 @@ class Storage {
     required String bucketId,
     required String fileId,
   }) async {
-    final res = await _dio.get(
-        '/v1/storage/buckets/$bucketId/files/$fileId');
+    final res = await _dio.get('/v1/storage/buckets/$bucketId/files/$fileId');
     return res.data;
   }
 
@@ -151,7 +148,6 @@ class Storage {
     required String bucketId,
     required String fileId,
   }) async {
-    await _dio.delete(
-        '/v1/storage/buckets/$bucketId/files/$fileId');
+    await _dio.delete('/v1/storage/buckets/$bucketId/files/$fileId');
   }
 }

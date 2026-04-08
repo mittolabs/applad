@@ -202,6 +202,7 @@ class AppDialogField extends StatelessWidget {
                 color: Colors.white.withOpacity(0.22), fontSize: 13),
             filled: true,
             fillColor: _fieldFill,
+            isDense: true,
             contentPadding: _isMultiLine
                 ? const EdgeInsets.all(12)
                 : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

@@ -1,12 +1,19 @@
 import 'package:dio/dio.dart';
 
+import 'analytics.dart';
 import 'auth.dart';
+import 'billing.dart';
 import 'databases.dart';
 import 'deploy.dart';
+import 'edge.dart';
+import 'flags.dart';
 import 'functions.dart';
 import 'messaging.dart';
 import 'realtime.dart';
+import 'regions.dart';
+import 'search.dart';
 import 'storage.dart';
+import 'vectors.dart';
 import 'workflows.dart';
 
 class Applad {
@@ -14,14 +21,21 @@ class Applad {
   final String projectId;
   final Dio _dio;
 
+  late final Analytics analytics;
   late final Auth auth;
+  late final Billing billing;
   late final Users users;
   late final Databases databases;
   late final Storage storage;
   late final Deploy deploy;
+  late final Edge edge;
+  late final Flags flags;
   late final Messaging messaging;
   late final Realtime realtime;
   late final Functions functions;
+  late final Regions regions;
+  late final Search search;
+  late final Vectors vectors;
   late final Workflows workflows;
 
   Applad({required this.endpoint, required this.projectId})
@@ -32,14 +46,21 @@ class Applad {
             'Content-Type': 'application/json',
           },
         )) {
+    analytics = Analytics(_dio);
     auth = Auth(_dio);
+    billing = Billing(_dio);
     users = Users(_dio);
     databases = Databases(_dio);
     storage = Storage(_dio);
     deploy = Deploy(_dio);
+    edge = Edge(_dio);
+    flags = Flags(_dio);
     messaging = Messaging(_dio);
     realtime = Realtime(endpoint: endpoint, projectId: projectId);
     functions = Functions(_dio);
+    regions = Regions(_dio);
+    search = Search(_dio);
+    vectors = Vectors(_dio);
     workflows = Workflows(_dio);
   }
 

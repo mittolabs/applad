@@ -68,7 +68,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	deployQueue := queue.New(cacheClient.Client())
 	deploySvc := deploy.NewService(database, deployQueue)
 	healthHandler := health.NewHandler(database, cacheClient)
-	messagingSvc := messaging.NewService(messaging.Config{
+	messagingSvc := messaging.NewService(database, messaging.Config{
 		Host:         cfg.SMTPHost,
 		Port:         cfg.SMTPPort,
 		Username:     cfg.SMTPUser,

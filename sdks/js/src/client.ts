@@ -1,9 +1,19 @@
+import { Analytics } from './analytics';
 import { Auth } from './auth';
 import { Avatars } from './avatars';
+import { Billing } from './billing';
 import { Databases } from './databases';
+import { Deploy } from './deploy';
+import { Edge } from './edge';
+import { Flags } from './flags';
 import { Functions } from './functions';
 import { Locale } from './locale';
+import { Messaging } from './messaging';
+import { Realtime } from './realtime';
+import { Regions } from './regions';
+import { Search } from './search';
 import { Storage } from './storage';
+import { Vectors } from './vectors';
 import { Workflows } from './workflows';
 
 export interface ApplAdConfig {
@@ -16,12 +26,22 @@ export class Applad {
   readonly projectId: string;
   private headers: Record<string, string>;
 
+  readonly analytics: Analytics;
   readonly auth: Auth;
   readonly avatars: Avatars;
+  readonly billing: Billing;
   readonly databases: Databases;
+  readonly deploy: Deploy;
+  readonly edge: Edge;
+  readonly flags: Flags;
   readonly functions: Functions;
   readonly locale: Locale;
+  readonly messaging: Messaging;
+  readonly realtime: Realtime;
+  readonly regions: Regions;
+  readonly search: Search;
   readonly storage: Storage;
+  readonly vectors: Vectors;
   readonly workflows: Workflows;
 
   constructor(config: ApplAdConfig) {
@@ -31,12 +51,22 @@ export class Applad {
       'x-applad-project': config.projectId,
       'Content-Type': 'application/json',
     };
+    this.analytics = new Analytics(this);
     this.auth = new Auth(this);
     this.avatars = new Avatars(this);
+    this.billing = new Billing(this);
     this.databases = new Databases(this);
+    this.deploy = new Deploy(this);
+    this.edge = new Edge(this);
+    this.flags = new Flags(this);
     this.functions = new Functions(this);
     this.locale = new Locale(this);
+    this.messaging = new Messaging(this);
+    this.realtime = new Realtime({ endpoint: this.endpoint, projectId: this.projectId });
+    this.regions = new Regions(this);
+    this.search = new Search(this);
     this.storage = new Storage(this);
+    this.vectors = new Vectors(this);
     this.workflows = new Workflows(this);
   }
 

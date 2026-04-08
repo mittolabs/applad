@@ -70,8 +70,16 @@ func RateLimitRedis(requestsPerMinute int, rdb *redis.Client) func(http.Handler)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := realClientIP(r)
+			projectID := ProjectFromContext(r.Context())
 			bucket := time.Now().Unix() / 60
-			key := fmt.Sprintf("rl:%s:%d", ip, bucket)
+
+			// Key by project+IP when project context is available, IP-only otherwise
+			var key string
+			if projectID != "" {
+				key = fmt.Sprintf("rl:%s:%s:%d", projectID, ip, bucket)
+			} else {
+				key = fmt.Sprintf("rl:%s:%d", ip, bucket)
+			}
 
 			ctx := r.Context()
 			count, err := rdb.Incr(ctx, key).Result()
@@ -83,7 +91,19 @@ func RateLimitRedis(requestsPerMinute int, rdb *redis.Client) func(http.Handler)
 			if count == 1 {
 				rdb.Expire(ctx, key, 2*time.Minute) //nolint:errcheck
 			}
-			if count > int64(requestsPerMinute) {
+
+			limit := int64(requestsPerMinute)
+			remaining := limit - count
+			if remaining < 0 {
+				remaining = 0
+			}
+
+			// Always set rate limit headers for transparency
+			w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
+			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", (bucket+1)*60))
+
+			if count > limit {
 				w.Header().Set("Retry-After", "60")
 				WriteError(w, http.StatusTooManyRequests,
 					"general_rate_limit_exceeded",

@@ -59,8 +59,8 @@ class Functions {
 
   Future<Map<String, dynamic>> getExecution(
       String functionId, String executionId) async {
-    final res = await _dio
-        .get('/v1/functions/$functionId/executions/$executionId');
+    final res =
+        await _dio.get('/v1/functions/$functionId/executions/$executionId');
     return res.data;
   }
 }

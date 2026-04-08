@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,7 +9,17 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/mittolabs/applad/internal/model"
 )
+
+type testAPIKeyProvider struct {
+	key *model.APIKey
+	err error
+}
+
+func (p testAPIKeyProvider) GetKeyBySecret(_ context.Context, _ string) (*model.APIKey, error) {
+	return p.key, p.err
+}
 
 func TestCORS_SetsHeaders(t *testing.T) {
 	handler := CORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +163,62 @@ func TestAuthenticate_APIKey(t *testing.T) {
 	}
 	if gotUser == "" {
 		t.Fatal("expected user to be set from API key")
+	}
+}
+
+func TestAuthenticate_APIKeyRejectsProjectMismatch(t *testing.T) {
+	provider := testAPIKeyProvider{key: &model.APIKey{ID: "key1", ProjectID: "proj-a", Scopes: []string{"databases"}}}
+	handler := Authenticate("secret", provider)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called for project mismatch")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/databases", nil)
+	req.Header.Set("X-Applad-Key", "applad_key_abc123def456")
+	req.Header.Set("X-Applad-Project", "proj-b")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestAuthenticate_APIKeyRejectsMissingScope(t *testing.T) {
+	provider := testAPIKeyProvider{key: &model.APIKey{ID: "key1", ProjectID: "proj-a", Scopes: []string{"storage.read"}}}
+	handler := Authenticate("secret", provider)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called without required scope")
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/databases", nil)
+	req.Header.Set("X-Applad-Key", "applad_key_abc123def456")
+	req.Header.Set("X-Applad-Project", "proj-a")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestAuthenticate_APIKeyAllowsReadScope(t *testing.T) {
+	provider := testAPIKeyProvider{key: &model.APIKey{ID: "key1", ProjectID: "proj-a", Scopes: []string{"databases.read"}}}
+	called := false
+	handler := Authenticate("secret", provider)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/databases", nil)
+	req.Header.Set("X-Applad-Key", "applad_key_abc123def456")
+	req.Header.Set("X-Applad-Project", "proj-a")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !called {
+		t.Fatal("expected handler to be called")
 	}
 }
 

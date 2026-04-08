@@ -1,3 +1,5 @@
+import { Analytics } from './analytics';
+import { Billing } from './billing';
 import { Users } from './users';
 import { Databases } from './databases';
 import { Storage } from './storage';
@@ -6,6 +8,11 @@ import { Teams } from './teams';
 import { Workflows } from './workflows';
 import { Messaging } from './messaging';
 import { Deploy } from './deploy';
+import { Edge } from './edge';
+import { Flags } from './flags';
+import { Regions } from './regions';
+import { Search } from './search';
+import { Vectors } from './vectors';
 
 export interface ApplAdServerConfig {
   endpoint: string;
@@ -18,6 +25,8 @@ export class ApplAdServer {
   readonly projectId: string;
   private headers: Record<string, string>;
 
+  readonly analytics: Analytics;
+  readonly billing: Billing;
   readonly users: Users;
   readonly databases: Databases;
   readonly storage: Storage;
@@ -26,6 +35,11 @@ export class ApplAdServer {
   readonly workflows: Workflows;
   readonly messaging: Messaging;
   readonly deploy: Deploy;
+  readonly edge: Edge;
+  readonly flags: Flags;
+  readonly regions: Regions;
+  readonly search: Search;
+  readonly vectors: Vectors;
 
   constructor(config: ApplAdServerConfig) {
     this.endpoint = config.endpoint.replace(/\/$/, '');
@@ -35,6 +49,8 @@ export class ApplAdServer {
       'X-Applad-Key': config.apiKey,
       'Content-Type': 'application/json',
     };
+    this.analytics = new Analytics(this);
+    this.billing = new Billing(this);
     this.users = new Users(this);
     this.databases = new Databases(this);
     this.storage = new Storage(this);
@@ -43,6 +59,11 @@ export class ApplAdServer {
     this.workflows = new Workflows(this);
     this.messaging = new Messaging(this);
     this.deploy = new Deploy(this);
+    this.edge = new Edge(this);
+    this.flags = new Flags(this);
+    this.regions = new Regions(this);
+    this.search = new Search(this);
+    this.vectors = new Vectors(this);
   }
 
   async call<T = any>(method: string, path: string, body?: unknown): Promise<T> {

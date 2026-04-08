@@ -53,6 +53,15 @@ func (s *Service) Get(ctx context.Context, id string) (*model.Project, error) {
 
 // GetByKey looks up a project by raw API key secret.
 func (s *Service) GetByKey(ctx context.Context, secret string) (*model.Project, error) {
+	key, err := s.GetKeyBySecret(ctx, secret)
+	if err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, key.ProjectID)
+}
+
+// GetKeyBySecret looks up an API key by raw secret.
+func (s *Service) GetKeyBySecret(ctx context.Context, secret string) (*model.APIKey, error) {
 	if !strings.HasPrefix(secret, "applad_key_") {
 		return nil, fmt.Errorf("projects: invalid key format")
 	}
@@ -60,20 +69,20 @@ func (s *Service) GetByKey(ctx context.Context, secret string) (*model.Project, 
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(secret)))
 
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT k.project_id FROM api_keys k WHERE k.secret_prefix = ? AND k.secret_hash = ?",
+		"SELECT id, project_id, name, scopes, expires_at, created_at FROM api_keys WHERE secret_prefix = ? AND secret_hash = ?",
 		prefix, hash)
 	if err != nil {
-		return nil, fmt.Errorf("projects: getbykey query: %w", err)
+		return nil, fmt.Errorf("projects: get key by secret query: %w", err)
 	}
 	defer rows.Close()
 	if !rows.Next() {
 		return nil, fmt.Errorf("projects: key not found")
 	}
-	var projectID string
-	if err := rows.Scan(&projectID); err != nil {
+	key, err := scanAPIKey(rows)
+	if err != nil {
 		return nil, err
 	}
-	return s.Get(ctx, projectID)
+	return key, nil
 }
 
 // List returns all projects, optionally filtered by org ID.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/mittolabs/applad/internal/apperr"
+	"github.com/mittolabs/applad/internal/model"
 )
 
 // contextKey is a typed key to avoid collisions.
@@ -21,6 +22,7 @@ const (
 	sessionKey
 	apiKeyKey
 	projectIDKey
+	apiKeyScopesKey
 )
 
 // Claims is the JWT claims structure.
@@ -34,6 +36,11 @@ type Claims struct {
 type ProjectProvider interface {
 	GetByKey(ctx context.Context, secret string) (interface{}, error)
 	Get(ctx context.Context, id string) (interface{}, error)
+}
+
+// APIKeyProvider resolves raw API keys to stored key metadata.
+type APIKeyProvider interface {
+	GetKeyBySecret(ctx context.Context, secret string) (*model.APIKey, error)
 }
 
 // WriteJSON writes v as JSON to w.
@@ -72,6 +79,12 @@ func IsAPIKey(ctx context.Context) bool {
 	return v
 }
 
+// APIKeyScopesFromContext returns scopes for the authenticated API key.
+func APIKeyScopesFromContext(ctx context.Context) []string {
+	v, _ := ctx.Value(apiKeyScopesKey).([]string)
+	return v
+}
+
 // CORS applies permissive CORS headers.
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +115,7 @@ func ProjectContext(next http.Handler) http.Handler {
 
 // Authenticate reads either x-applad-key or Authorization: Bearer <jwt> and validates.
 // It does NOT reject unauthenticated requests; use RequireAuth for that.
-func Authenticate(jwtSecret string, _ interface{}) func(http.Handler) http.Handler {
+func Authenticate(jwtSecret string, provider interface{}) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -111,8 +124,28 @@ func Authenticate(jwtSecret string, _ interface{}) func(http.Handler) http.Handl
 			if apiKey := r.Header.Get("X-Applad-Key"); apiKey != "" {
 				// Validate format: applad_key_<hex>
 				if strings.HasPrefix(apiKey, "applad_key_") {
+					if keyProvider, ok := provider.(APIKeyProvider); ok {
+						storedKey, err := keyProvider.GetKeyBySecret(ctx, apiKey)
+						if err == nil {
+							projectID := r.Header.Get("X-Applad-Project")
+							if projectID != "" && storedKey.ProjectID != "" && storedKey.ProjectID != projectID {
+								apperr.Write(w, http.StatusUnauthorized, "general_unauthorized_scope", "API key does not belong to the requested project.")
+								return
+							}
+							if !apiKeyAllowed(storedKey.Scopes, r.Method, r.URL.Path) {
+								apperr.Write(w, http.StatusForbidden, "permission_denied", "API key does not have the required scope for this resource.")
+								return
+							}
+							ctx = context.WithValue(ctx, apiKeyScopesKey, storedKey.Scopes)
+							ctx = context.WithValue(ctx, userKey, "api:"+storedKey.ID)
+							ctx = context.WithValue(ctx, apiKeyKey, true)
+							next.ServeHTTP(w, r.WithContext(ctx))
+							return
+						}
+					}
 					hash := fmt.Sprintf("%x", sha256.Sum256([]byte(apiKey)))
 					ctx = context.WithValue(ctx, apiKeyKey, true)
+					ctx = context.WithValue(ctx, apiKeyScopesKey, []string{})
 					ctx = context.WithValue(ctx, userKey, "api:"+hash[:16])
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
@@ -165,6 +198,75 @@ func Authenticate(jwtSecret string, _ interface{}) func(http.Handler) http.Handl
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
+	}
+}
+
+func apiKeyAllowed(scopes []string, method, path string) bool {
+	if len(scopes) == 0 {
+		return true
+	}
+	required := apiKeyResourceScope(path)
+	if required == "" {
+		return true
+	}
+	isRead := method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+	for _, scope := range scopes {
+		normalized := strings.TrimSpace(strings.ToLower(scope))
+		switch normalized {
+		case "*", "all":
+			return true
+		case "read":
+			if isRead {
+				return true
+			}
+		case required:
+			return true
+		case required + ".read", required + ":read":
+			if isRead {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func apiKeyResourceScope(path string) string {
+	trimmed := strings.TrimPrefix(path, "/v1")
+	switch {
+	case strings.HasPrefix(trimmed, "/account"):
+		return "auth"
+	case strings.HasPrefix(trimmed, "/users"):
+		return "users"
+	case strings.HasPrefix(trimmed, "/teams"):
+		return "teams"
+	case strings.HasPrefix(trimmed, "/databases"):
+		return "databases"
+	case strings.HasPrefix(trimmed, "/storage"):
+		return "storage"
+	case strings.HasPrefix(trimmed, "/functions"):
+		return "functions"
+	case strings.HasPrefix(trimmed, "/messaging"):
+		return "messaging"
+	case strings.HasPrefix(trimmed, "/deploy"):
+		return "deploy"
+	case strings.HasPrefix(trimmed, "/workflows"):
+		return "workflows"
+	case strings.HasPrefix(trimmed, "/flags"):
+		return "flags"
+	case strings.HasPrefix(trimmed, "/analytics"):
+		return "analytics"
+	case strings.HasPrefix(trimmed, "/search"):
+		return "search"
+	case strings.HasPrefix(trimmed, "/vectors"):
+		return "vectors"
+	case strings.HasPrefix(trimmed, "/edge"):
+		return "edge"
+	case strings.HasPrefix(trimmed, "/billing"):
+		return "billing"
+	case strings.HasPrefix(trimmed, "/regions"):
+		return "regions"
+	default:
+		return ""
 	}
 }
 

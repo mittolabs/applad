@@ -2753,7 +2753,7 @@ class _EditorState extends ConsumerState<_Editor> {
             if (ctrl.text.trim().isNotEmpty) {
               setState(() => _tags.add(ctrl.text.trim()));
             }
-            Navigator.pop(context);
+            Navigator.of(context, rootNavigator: true).pop();
           },
         ),
       ],
@@ -2983,7 +2983,7 @@ class _EditorState extends ConsumerState<_Editor> {
                         fontWeight: FontWeight.w600)),
                 const Spacer(),
                 IconButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
                     icon: const Icon(LucideIcons.x,
                         size: 16, color: _dimText)),
               ]),
@@ -3380,7 +3380,7 @@ class _ExecDialog extends StatelessWidget {
                       fontWeight: FontWeight.w600)),
               const Spacer(),
               IconButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
                   icon: const Icon(LucideIcons.x, size: 16, color: _dimText)),
             ]),
           ),

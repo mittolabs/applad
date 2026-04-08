@@ -134,14 +134,20 @@ func (c *Client) upload(path string, fields map[string]string, fileName string, 
 // ---------------------------------------------------------------------------
 
 func (c *Client) Users() *UsersService         { return &UsersService{client: c} }
-func (c *Client) Databases() *DatabasesService  { return &DatabasesService{client: c} }
-func (c *Client) Storage() *StorageService      { return &StorageService{client: c} }
-func (c *Client) Functions() *FunctionsService   { return &FunctionsService{client: c} }
-func (c *Client) Teams() *TeamsService           { return &TeamsService{client: c} }
-func (c *Client) Workflows() *WorkflowsService   { return &WorkflowsService{client: c} }
-func (c *Client) Messaging() *MessagingService   { return &MessagingService{client: c} }
-func (c *Client) Deploy() *DeployService         { return &DeployService{client: c} }
-func (c *Client) Flags() *FlagsService           { return &FlagsService{client: c} }
+func (c *Client) Databases() *DatabasesService { return &DatabasesService{client: c} }
+func (c *Client) Storage() *StorageService     { return &StorageService{client: c} }
+func (c *Client) Functions() *FunctionsService { return &FunctionsService{client: c} }
+func (c *Client) Teams() *TeamsService         { return &TeamsService{client: c} }
+func (c *Client) Workflows() *WorkflowsService { return &WorkflowsService{client: c} }
+func (c *Client) Messaging() *MessagingService { return &MessagingService{client: c} }
+func (c *Client) Deploy() *DeployService       { return &DeployService{client: c} }
+func (c *Client) Flags() *FlagsService         { return &FlagsService{client: c} }
+func (c *Client) Analytics() *AnalyticsService { return &AnalyticsService{client: c} }
+func (c *Client) Search() *SearchService       { return &SearchService{client: c} }
+func (c *Client) Vectors() *VectorsService     { return &VectorsService{client: c} }
+func (c *Client) Edge() *EdgeService           { return &EdgeService{client: c} }
+func (c *Client) Billing() *BillingService     { return &BillingService{client: c} }
+func (c *Client) Regions() *RegionsService     { return &RegionsService{client: c} }
 
 // ---------------------------------------------------------------------------
 // Users
@@ -525,4 +531,248 @@ func (s *FlagsService) EvaluateFlag(key string, context map[string]interface{}) 
 		body["context"] = context
 	}
 	return s.client.call("POST", "/flags/evaluate", body)
+}
+
+// ---------------------------------------------------------------------------
+// Analytics
+// ---------------------------------------------------------------------------
+
+type AnalyticsService struct{ client *Client }
+
+func (s *AnalyticsService) TrackEvent(event string, properties map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"event": event}
+	if properties != nil {
+		body["properties"] = properties
+	}
+	return s.client.call("POST", "/analytics/events", body)
+}
+
+func (s *AnalyticsService) ListEvents(params map[string]string) (map[string]interface{}, error) {
+	path := "/analytics/events"
+	if len(params) > 0 {
+		query := make([]string, 0, len(params))
+		for key, value := range params {
+			query = append(query, fmt.Sprintf("%s=%s", key, value))
+		}
+		path += "?" + strings.Join(query, "&")
+	}
+	return s.client.call("GET", path, nil)
+}
+
+func (s *AnalyticsService) GetStats(params map[string]string) (map[string]interface{}, error) {
+	path := "/analytics/stats"
+	if len(params) > 0 {
+		query := make([]string, 0, len(params))
+		for key, value := range params {
+			query = append(query, fmt.Sprintf("%s=%s", key, value))
+		}
+		path += "?" + strings.Join(query, "&")
+	}
+	return s.client.call("GET", path, nil)
+}
+
+func (s *AnalyticsService) GetRealtimeCount() (map[string]interface{}, error) {
+	return s.client.call("GET", "/analytics/realtime", nil)
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+type SearchService struct{ client *Client }
+
+func (s *SearchService) CreateIndex(indexID string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"indexId": indexID}
+	for key, value := range opts {
+		body[key] = value
+	}
+	return s.client.call("POST", "/search/indexes", body)
+}
+
+func (s *SearchService) ListIndexes() (map[string]interface{}, error) {
+	return s.client.call("GET", "/search/indexes", nil)
+}
+
+func (s *SearchService) GetIndex(indexID string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/search/indexes/"+indexID, nil)
+}
+
+func (s *SearchService) DeleteIndex(indexID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", "/search/indexes/"+indexID, nil)
+}
+
+func (s *SearchService) IndexDocument(indexID, documentID string, data map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/search/indexes/%s/documents", indexID), map[string]interface{}{
+		"documentId": documentID,
+		"data":       data,
+	})
+}
+
+func (s *SearchService) Query(indexID, query string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"query": query}
+	for key, value := range opts {
+		body[key] = value
+	}
+	return s.client.call("POST", fmt.Sprintf("/search/indexes/%s/search", indexID), body)
+}
+
+func (s *SearchService) DeleteDocument(indexID, documentID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", fmt.Sprintf("/search/indexes/%s/documents/%s", indexID, documentID), nil)
+}
+
+// ---------------------------------------------------------------------------
+// Vectors
+// ---------------------------------------------------------------------------
+
+type VectorsService struct{ client *Client }
+
+func (s *VectorsService) CreateIndex(indexID string, dimensions int, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"indexId":    indexID,
+		"dimensions": dimensions,
+	}
+	for key, value := range opts {
+		body[key] = value
+	}
+	return s.client.call("POST", "/vectors/indexes", body)
+}
+
+func (s *VectorsService) ListIndexes() (map[string]interface{}, error) {
+	return s.client.call("GET", "/vectors/indexes", nil)
+}
+
+func (s *VectorsService) GetIndex(indexID string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/vectors/indexes/"+indexID, nil)
+}
+
+func (s *VectorsService) DeleteIndex(indexID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", "/vectors/indexes/"+indexID, nil)
+}
+
+func (s *VectorsService) Upsert(indexID string, vectors []map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/vectors/indexes/%s/vectors", indexID), map[string]interface{}{
+		"vectors": vectors,
+	})
+}
+
+func (s *VectorsService) Query(indexID string, vector []float64, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"vector": vector}
+	for key, value := range opts {
+		body[key] = value
+	}
+	return s.client.call("POST", fmt.Sprintf("/vectors/indexes/%s/query", indexID), body)
+}
+
+func (s *VectorsService) DeleteVectors(indexID string, ids []string) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/vectors/indexes/%s/delete", indexID), map[string]interface{}{
+		"ids": ids,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Edge
+// ---------------------------------------------------------------------------
+
+type EdgeService struct{ client *Client }
+
+func (s *EdgeService) Create(name, code string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"name": name,
+		"code": code,
+	}
+	for key, value := range opts {
+		body[key] = value
+	}
+	return s.client.call("POST", "/edge/functions", body)
+}
+
+func (s *EdgeService) List() (map[string]interface{}, error) {
+	return s.client.call("GET", "/edge/functions", nil)
+}
+
+func (s *EdgeService) Get(functionID string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/edge/functions/"+functionID, nil)
+}
+
+func (s *EdgeService) Update(functionID string, opts map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("PUT", "/edge/functions/"+functionID, opts)
+}
+
+func (s *EdgeService) Delete(functionID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", "/edge/functions/"+functionID, nil)
+}
+
+func (s *EdgeService) Invoke(functionID string, data map[string]interface{}) (map[string]interface{}, error) {
+	if data == nil {
+		data = map[string]interface{}{}
+	}
+	return s.client.call("POST", fmt.Sprintf("/edge/functions/%s/invoke", functionID), data)
+}
+
+func (s *EdgeService) ListExecutions(functionID string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/edge/functions/%s/executions", functionID), nil)
+}
+
+// ---------------------------------------------------------------------------
+// Billing
+// ---------------------------------------------------------------------------
+
+type BillingService struct{ client *Client }
+
+func (s *BillingService) ListPlans() (map[string]interface{}, error) {
+	return s.client.call("GET", "/billing/plans", nil)
+}
+
+func (s *BillingService) GetSubscription() (map[string]interface{}, error) {
+	return s.client.call("GET", "/billing/subscription", nil)
+}
+
+func (s *BillingService) Subscribe(planID string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"planId": planID}
+	for key, value := range opts {
+		body[key] = value
+	}
+	return s.client.call("POST", "/billing/subscription", body)
+}
+
+func (s *BillingService) CancelSubscription() (map[string]interface{}, error) {
+	return s.client.call("DELETE", "/billing/subscription", nil)
+}
+
+func (s *BillingService) GetUsage() (map[string]interface{}, error) {
+	return s.client.call("GET", "/billing/usage", nil)
+}
+
+func (s *BillingService) ListInvoices() (map[string]interface{}, error) {
+	return s.client.call("GET", "/billing/invoices", nil)
+}
+
+func (s *BillingService) GetInvoice(invoiceID string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/billing/invoices/"+invoiceID, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Regions
+// ---------------------------------------------------------------------------
+
+type RegionsService struct{ client *Client }
+
+func (s *RegionsService) List() (map[string]interface{}, error) {
+	return s.client.call("GET", "/regions", nil)
+}
+
+func (s *RegionsService) Get(regionID string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/regions/"+regionID, nil)
+}
+
+func (s *RegionsService) GetActive() (map[string]interface{}, error) {
+	return s.client.call("GET", "/regions/active", nil)
+}
+
+func (s *RegionsService) SetActive(regionID string) (map[string]interface{}, error) {
+	return s.client.call("PUT", "/regions/active", map[string]interface{}{"regionId": regionID})
+}
+
+func (s *RegionsService) GetHealth(regionID string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/regions/%s/health", regionID), nil)
 }

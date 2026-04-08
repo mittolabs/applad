@@ -54,14 +54,16 @@ func Routes(h *Handler) http.Handler {
 func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	var body struct {
-		BucketID         string   `json:"bucketId"`
-		Name             string   `json:"name"`
-		Permissions      []string `json:"permissions"`
-		FileSizeLimit    int64    `json:"maximumFileSize"`
-		AllowedMimeTypes []string `json:"allowedFileExtensions"`
-		Compression      string   `json:"compression"`
-		Encryption       bool     `json:"encryption"`
-		Antivirus        bool     `json:"antivirus"`
+		BucketID            string   `json:"bucketId"`
+		Name                string   `json:"name"`
+		Permissions         []string `json:"permissions"`
+		FileSizeLimit       int64    `json:"maximumFileSize"`
+		AllowedMimeTypes    []string `json:"allowedFileExtensions"`
+		Compression         string   `json:"compression"`
+		Encryption          bool     `json:"encryption"`
+		Antivirus           bool     `json:"antivirus"`
+		FileSecurity        bool     `json:"fileSecurity"`
+		ImageTransformations *bool   `json:"imageTransformations"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
@@ -73,7 +75,11 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request) {
 	if body.AllowedMimeTypes == nil {
 		body.AllowedMimeTypes = []string{}
 	}
-	b, err := h.svc.CreateBucket(r.Context(), projectID, body.BucketID, body.Name, body.Permissions, body.FileSizeLimit, body.AllowedMimeTypes, body.Compression, body.Encryption, body.Antivirus)
+	imgTransform := true
+	if body.ImageTransformations != nil {
+		imgTransform = *body.ImageTransformations
+	}
+	b, err := h.svc.CreateBucket(r.Context(), projectID, body.BucketID, body.Name, body.Permissions, body.FileSizeLimit, body.AllowedMimeTypes, body.Compression, body.Encryption, body.Antivirus, body.FileSecurity, imgTransform)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -109,20 +115,62 @@ func (h *Handler) updateBucket(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	bucketID := chi.URLParam(r, "bucketId")
 	var body struct {
-		Name          string   `json:"name"`
-		Permissions   []string `json:"permissions"`
-		FileSizeLimit int64    `json:"maximumFileSize"`
-		Enabled       *bool    `json:"enabled"`
+		Name                 string   `json:"name"`
+		Permissions          []string `json:"permissions"`
+		FileSizeLimit        int64    `json:"maximumFileSize"`
+		Enabled              *bool    `json:"enabled"`
+		AllowedMimeTypes     []string `json:"allowedFileExtensions"`
+		Compression          string   `json:"compression"`
+		Encryption           *bool    `json:"encryption"`
+		Antivirus            *bool    `json:"antivirus"`
+		FileSecurity         *bool    `json:"fileSecurity"`
+		ImageTransformations *bool    `json:"imageTransformations"`
 	}
 	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
-	enabled := true
+
+	// Fetch current bucket to use as defaults for unset fields
+	current, err := h.svc.GetBucket(r.Context(), bucketID, projectID)
+	if err != nil {
+		apperr.NotFound(w, "bucket")
+		return
+	}
+	if body.Name == "" {
+		body.Name = current.Name
+	}
+	if body.Permissions == nil {
+		body.Permissions = current.Permissions
+	}
+	if body.FileSizeLimit == 0 {
+		body.FileSizeLimit = current.FileSizeLimit
+	}
+	if body.AllowedMimeTypes == nil {
+		body.AllowedMimeTypes = current.AllowedFileExtensions
+	}
+	if body.Compression == "" {
+		body.Compression = current.Compression
+	}
+	enabled := current.Enabled
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
-	if body.Permissions == nil {
-		body.Permissions = []string{}
+	encryption := current.Encryption
+	if body.Encryption != nil {
+		encryption = *body.Encryption
 	}
-	b, err := h.svc.UpdateBucket(r.Context(), bucketID, projectID, body.Name, body.Permissions, body.FileSizeLimit, enabled)
+	antivirus := current.Antivirus
+	if body.Antivirus != nil {
+		antivirus = *body.Antivirus
+	}
+	fileSecurity := current.FileSecurity
+	if body.FileSecurity != nil {
+		fileSecurity = *body.FileSecurity
+	}
+	imgTransform := current.ImageTransformations
+	if body.ImageTransformations != nil {
+		imgTransform = *body.ImageTransformations
+	}
+
+	b, err := h.svc.UpdateBucket(r.Context(), bucketID, projectID, body.Name, body.Permissions, body.FileSizeLimit, body.AllowedMimeTypes, body.Compression, encryption, antivirus, fileSecurity, imgTransform, enabled)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

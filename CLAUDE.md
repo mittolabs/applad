@@ -56,8 +56,7 @@ backend/        Go backend — single Go module (github.com/mittolabs/applad)
   internal/     26 packages (see below)
   tests/        Integration tests (build-tag gated: integration)
 console/        Flutter Web admin app (Lucide icons, dark Railway-style UI)
-sdks/dart/      Flutter/Dart client SDK
-sdks/dart-server/  Dart server SDK (http package, no Flutter dep)
+sdks/dart/      Dart SDK — client (Dio) + server (http) in one package
 sdks/js/        TypeScript client SDK
 sdks/node/      Node.js server SDK
 sdks/go/        Go server SDK (zero deps)
@@ -173,16 +172,15 @@ Feature pages: `console/lib/features/`:
 | `workflows` | DAG builder: node editor, manual execute, step-by-step logs |
 | `settings` | Project management + API keys |
 
-### SDKs (6 total)
+### SDKs (5 total)
 
 | SDK | Path | Auth | Services |
 |---|---|---|---|
-| Dart client | `sdks/dart/` | Session/JWT | Auth, Users, Databases, Storage, Deploy, Functions, Messaging, Realtime, Workflows |
-| JS/TS client | `sdks/js/` | Session/JWT | Auth, Avatars, Databases, Functions, Locale, Messaging, Realtime, Storage, Deploy, Workflows |
-| Node.js server | `sdks/node/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy |
-| Dart server | `sdks/dart-server/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy |
-| Go server | `sdks/go/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy |
-| Python server | `sdks/python/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy |
+| Dart | `sdks/dart/` | Session/JWT (client) or API key (server) | Client: Auth, Users, Databases, Storage, Deploy, Functions, Messaging, Realtime, Workflows, Flags. Server: Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy, Flags |
+| JS/TS client | `sdks/js/` | Session/JWT | Auth, Avatars, Databases, Functions, Locale, Messaging, Realtime, Storage, Deploy, Workflows, Flags, Analytics, Search, Vectors, Edge, Billing, Regions |
+| Node.js server | `sdks/node/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy, Flags, Analytics, Search, Vectors, Edge, Billing, Regions |
+| Go server | `sdks/go/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy, Flags |
+| Python server | `sdks/python/` | API key | Users, Databases, Storage, Functions, Teams, Workflows, Messaging, Deploy, Flags |
 
 ### Testing
 

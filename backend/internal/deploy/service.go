@@ -1065,6 +1065,9 @@ type TargetStats struct {
 	FailedReleases  int     `json:"failedReleases"`
 	TotalExecutions int     `json:"totalExecutions"`
 	AvgDurationMs   float64 `json:"avgDurationMs"`
+	Requests        int     `json:"requests"`
+	BuildMinutes    float64 `json:"buildMinutes"`
+	Bandwidth       int64   `json:"bandwidth"`
 }
 
 // GetTargetStats returns statistics for a specific target.
@@ -1072,16 +1075,65 @@ func (s *Service) GetTargetStats(ctx context.Context, targetID, projectID string
 	stats := &TargetStats{TargetID: targetID}
 
 	s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0)
+		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0),
+		        COALESCE(SUM(duration_ms),0)/60000.0
 		 FROM deploy_releases WHERE target_id = ? AND project_id = ?`, targetID, projectID,
-	).Scan(&stats.TotalReleases, &stats.SuccessReleases, &stats.FailedReleases)
+	).Scan(&stats.TotalReleases, &stats.SuccessReleases, &stats.FailedReleases, &stats.BuildMinutes)
 
 	s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*), COALESCE(AVG(duration_ms),0)
 		 FROM deploy_executions WHERE target_id = ? AND project_id = ?`, targetID, projectID,
 	).Scan(&stats.TotalExecutions, &stats.AvgDurationMs)
 
+	stats.Requests = stats.TotalExecutions
+
 	return stats, nil
+}
+
+// GetTargetLogs returns the latest build/deploy logs for a target as structured log entries.
+func (s *Service) GetTargetLogs(ctx context.Context, targetID, projectID string) (map[string]interface{}, error) {
+	var releaseID, buildLog, deployLog string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, COALESCE(build_log,''), COALESCE(deploy_log,'')
+		 FROM deploy_releases WHERE target_id = ? AND project_id = ?
+		 ORDER BY created_at DESC LIMIT 1`, targetID, projectID,
+	).Scan(&releaseID, &buildLog, &deployLog)
+
+	if err == sql.ErrNoRows {
+		return map[string]interface{}{"logs": []interface{}{}}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("deploy: get target logs: %w", err)
+	}
+
+	var logs []map[string]interface{}
+	combined := buildLog
+	if deployLog != "" {
+		if combined != "" {
+			combined += "\n"
+		}
+		combined += deployLog
+	}
+	now := time.Now().UTC()
+	for i, line := range strings.Split(combined, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		logs = append(logs, map[string]interface{}{
+			"$id":        fmt.Sprintf("%s-%d", releaseID, i),
+			"path":       "/",
+			"method":     "LOG",
+			"statusCode": 200,
+			"duration":   0,
+			"message":    line,
+			"$createdAt": now,
+		})
+	}
+	if logs == nil {
+		logs = []map[string]interface{}{}
+	}
+	return map[string]interface{}{"logs": logs}, nil
 }
 
 // AggregateStats holds project-wide deploy statistics.

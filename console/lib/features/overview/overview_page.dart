@@ -1,206 +1,70 @@
-import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/widgets/page_tabs.dart';
 
-// -- Providers that load real project resources --
+// --- Constants ---------------------------------------------------------------
 
-final _projectResourcesProvider =
-    FutureProvider.family<List<_ResourceNode>, String>((ref, projectId) async {
+const _bgColor = Color(0xFF0B0B0F);
+const _cardColor = Color(0xFF16171B);
+const _accent = Color(0xFF3472A4);
+const _dimText = Color(0x80FFFFFF);
+const _subtleText = Color(0x40FFFFFF);
+const _border = Color(0x0FFFFFFF);
+
+// --- Providers ---------------------------------------------------------------
+
+final _projectStatsProvider =
+    FutureProvider.family<Map<String, dynamic>, String>((ref, projectId) async {
   final api = ref.read(apiClientProvider);
-  final nodes = <_ResourceNode>[];
-  double x = 100, y = 120;
 
-  // Central project node
-  nodes.add(_ResourceNode(
-    id: 'project',
-    type: 'project',
-    name: 'Project',
-    subtitle: projectId.length > 12 ? projectId.substring(0, 12) : projectId,
-    icon: Icons.cloud,
-    color: const Color(0xFF3472A4),
-    status: 'active',
-    position: Offset(x, 300),
-    targetIds: [],
-    route: '/settings',
-  ));
-  x += 320;
-
-  // Databases → tables
-  try {
-    final dbRes = await api.get('/databases');
-    final dbs = List<Map<String, dynamic>>.from(dbRes.data['databases'] ?? []);
-    for (final db in dbs) {
-      final dbId = db['\$id'] as String;
-      final dbNodeId = 'db_$dbId';
-      nodes[0].targetIds.add(dbNodeId);
-      nodes.add(_ResourceNode(
-        id: dbNodeId, type: 'database', name: db['name'] ?? 'Database',
-        subtitle: dbId, icon: Icons.table_chart, color: Colors.indigo,
-        status: 'active', position: Offset(x, y), targetIds: [], route: '/databases',
-      ));
-
-      // Load tables for this database
-      try {
-        final tRes = await api.get('/databases/$dbId/tables');
-        final tables = List<Map<String, dynamic>>.from(tRes.data['tables'] ?? []);
-        double tx = x + 300;
-        for (final t in tables) {
-          final tId = 'tbl_${t['\$id']}';
-          nodes.last.targetIds.add(tId);
-          nodes.add(_ResourceNode(
-            id: tId, type: 'table', name: t['name'] ?? 'Table',
-            subtitle: '${t['columns']?.length ?? 0} columns',
-            icon: Icons.grid_on, color: Colors.deepPurple,
-            status: 'active', position: Offset(tx, y), targetIds: [], route: '/databases',
-          ));
-          y += 90;
-        }
-      } catch (_) {}
-      y += 30;
+  Future<dynamic> safeFetch(String path) async {
+    try {
+      final res = await api.get(path);
+      return res.data;
+    } catch (_) {
+      return null;
     }
-  } catch (_) {}
-
-  // Functions
-  y = 120;
-  x += 300;
-  try {
-    final fnRes = await api.get('/functions');
-    final fns = List<Map<String, dynamic>>.from(fnRes.data['functions'] ?? []);
-    if (fns.isNotEmpty) {
-      for (final fn in fns) {
-        final fnId = 'fn_${fn['\$id']}';
-        nodes[0].targetIds.add(fnId);
-        final status = fn['status'] ?? 'active';
-        nodes.add(_ResourceNode(
-          id: fnId, type: 'function', name: fn['name'] ?? 'Function',
-          subtitle: '${fn['runtime'] ?? 'unknown'} runtime',
-          icon: Icons.functions, color: Colors.pink,
-          status: status, position: Offset(x, y), targetIds: [], route: '/functions',
-        ));
-        y += 100;
-      }
-    }
-  } catch (_) {}
-
-  // Deployments (web apps, containers)
-  y = 120;
-  x += 300;
-  try {
-    final depRes = await api.get('/deploy');
-    final deps = List<Map<String, dynamic>>.from(depRes.data['deployments'] ?? []);
-    for (final dep in deps) {
-      final depId = 'dep_${dep['\$id']}';
-      nodes[0].targetIds.add(depId);
-      final depType = dep['type'] ?? 'web';
-      IconData icon;
-      Color color;
-      switch (depType) {
-        case 'container':
-          icon = Icons.inventory_2;
-          color = Colors.teal;
-        case 'function':
-          icon = Icons.functions;
-          color = Colors.pink;
-        case 'mobile':
-          icon = Icons.phone_android;
-          color = Colors.orange;
-        default:
-          icon = Icons.web;
-          color = Colors.cyan;
-      }
-      nodes.add(_ResourceNode(
-        id: depId, type: depType, name: dep['name'] ?? 'Deployment',
-        subtitle: '${dep['status'] ?? 'pending'} — $depType',
-        icon: icon, color: color,
-        status: dep['status'] ?? 'pending', position: Offset(x, y),
-        targetIds: [], route: '/deploy',
-      ));
-      y += 100;
-    }
-  } catch (_) {}
-
-  // Workflows
-  y = 120;
-  x += 300;
-  try {
-    final wfRes = await api.get('/workflows');
-    final wfs = List<Map<String, dynamic>>.from(wfRes.data['workflows'] ?? []);
-    for (final wf in wfs) {
-      final wfId = 'wf_${wf['\$id']}';
-      nodes[0].targetIds.add(wfId);
-      final nodeCount = (wf['nodes'] as List?)?.length ?? 0;
-      nodes.add(_ResourceNode(
-        id: wfId, type: 'workflow', name: wf['name'] ?? 'Workflow',
-        subtitle: '${wf['triggerType'] ?? 'manual'} — $nodeCount nodes',
-        icon: Icons.account_tree, color: Colors.amber,
-        status: wf['status'] ?? 'draft', position: Offset(x, y),
-        targetIds: [], route: '/workflows',
-      ));
-      y += 100;
-    }
-  } catch (_) {}
-
-  // Storage buckets
-  y = 120;
-  x += 300;
-  try {
-    final stRes = await api.get('/storage/buckets');
-    final buckets = List<Map<String, dynamic>>.from(stRes.data['buckets'] ?? []);
-    for (final b in buckets) {
-      final bId = 'bkt_${b['\$id']}';
-      nodes[0].targetIds.add(bId);
-      nodes.add(_ResourceNode(
-        id: bId, type: 'bucket', name: b['name'] ?? 'Bucket',
-        subtitle: b['\$id'] ?? '',
-        icon: Icons.folder, color: Colors.green,
-        status: 'active', position: Offset(x, y),
-        targetIds: [], route: '/storage',
-      ));
-      y += 100;
-    }
-  } catch (_) {}
-
-  // If nothing besides the project node, show a hint
-  if (nodes.length == 1) {
-    nodes.add(_ResourceNode(
-      id: 'empty', type: 'hint', name: 'Get started',
-      subtitle: 'Create a database, function, or deployment',
-      icon: Icons.add_circle_outline, color: Colors.white24,
-      status: 'hint', position: Offset(x - 900, 300),
-      targetIds: [], route: '/databases',
-    ));
-    nodes[0].targetIds.add('empty');
   }
 
-  return nodes;
+  final futures = await Future.wait([
+    safeFetch('/databases'),
+    safeFetch('/functions'),
+    safeFetch('/storage/buckets'),
+    safeFetch('/account/users'),
+    safeFetch('/deploy/targets'),
+    safeFetch('/workflows'),
+    safeFetch('/projects/$projectId/usage'),
+    safeFetch('/projects/$projectId/platforms'),
+    safeFetch('/projects/$projectId/keys'),
+  ]);
+
+  int count(dynamic data, String key) {
+    if (data == null) return 0;
+    if (data is Map && data[key] is List) return (data[key] as List).length;
+    if (data is Map && data['total'] is int) return data['total'] as int;
+    return 0;
+  }
+
+  return {
+    'databases': count(futures[0], 'databases'),
+    'functions': count(futures[1], 'functions'),
+    'buckets': count(futures[2], 'buckets'),
+    'users': count(futures[3], 'users'),
+    'deployments': count(futures[4], 'targets'),
+    'workflows': count(futures[5], 'workflows'),
+    'usage': futures[6] ?? {},
+    'platforms': count(futures[7], 'platforms'),
+    'apiKeys': count(futures[8], 'keys'),
+  };
 });
 
-// -- Node model --
-
-class _ResourceNode {
-  final String id;
-  final String type;
-  final String name;
-  final String subtitle;
-  final IconData icon;
-  final Color color;
-  final String status;
-  Offset position;
-  final List<String> targetIds;
-  final String route;
-
-  _ResourceNode({
-    required this.id, required this.type, required this.name,
-    required this.subtitle, required this.icon, required this.color,
-    required this.status, required this.position, required this.targetIds,
-    required this.route,
-  });
-}
-
-// -- Main page --
+// --- Page --------------------------------------------------------------------
 
 class OverviewPage extends ConsumerStatefulWidget {
   const OverviewPage({super.key});
@@ -210,386 +74,945 @@ class OverviewPage extends ConsumerStatefulWidget {
 }
 
 class _OverviewPageState extends ConsumerState<OverviewPage> {
-  // Track dragged positions (overrides from provider)
-  final Map<String, Offset> _dragOffsets = {};
+  int _tabIndex = 0;
 
   @override
   Widget build(BuildContext context) {
     final projectId = ref.watch(currentProjectProvider);
 
     if (projectId == null) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF0B0B0F),
+      return const Scaffold(
+        backgroundColor: _bgColor,
         body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cloud_outlined, size: 64, color: Colors.white.withOpacity(0.2)),
-              const SizedBox(height: 16),
-              Text('Select a project in Settings', style: TextStyle(color: Colors.white.withOpacity(0.5))),
-            ],
-          ),
+          child: Text('Select a project',
+              style: TextStyle(color: _dimText, fontSize: 15)),
         ),
       );
     }
 
-    final resourcesAsync = ref.watch(_projectResourcesProvider(projectId));
+    final projectsAsync = ref.watch(projectsProvider);
+    final projectName = projectsAsync.valueOrNull
+            ?.firstWhere((p) => p['\$id'] == projectId,
+                orElse: () => <String, dynamic>{})['name'] as String? ??
+        'Project';
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0B0B0F),
-      body: resourcesAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.red))),
-        data: (nodes) => _buildCanvas(context, nodes, projectId),
-      ),
-    );
-  }
-
-  Widget _buildCanvas(BuildContext context, List<_ResourceNode> nodes, String projectId) {
-    // Apply drag offsets
-    for (final node in nodes) {
-      if (_dragOffsets.containsKey(node.id)) {
-        node.position = _dragOffsets[node.id]!;
-      }
-    }
-
-    return Stack(
-      children: [
-        // Zoomable canvas
-        InteractiveViewer(
-          boundaryMargin: const EdgeInsets.all(2000),
-          minScale: 0.2,
-          maxScale: 2.0,
-          child: SizedBox(
-            width: 2400,
-            height: 1200,
-            child: Stack(
-              children: [
-                const Positioned.fill(child: _DottedGrid()),
-
-                // Connection lines
-                CustomPaint(
-                  size: const Size(2400, 1200),
-                  painter: _ConnectionPainter(nodes: nodes),
-                ),
-
-                // Resource nodes
-                ...nodes.map((node) => Positioned(
-                  left: node.position.dx,
-                  top: node.position.dy,
-                  child: GestureDetector(
-                    onPanUpdate: (d) {
-                      setState(() {
-                        node.position += d.delta;
-                        _dragOffsets[node.id] = node.position;
-                      });
-                    },
-                    onDoubleTap: () => context.go(node.route),
-                    child: _ResourceCard(node: node),
-                  ),
-                )),
-              ],
-            ),
-          ),
+      backgroundColor: _bgColor,
+      body: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
         ),
-
-        // Top bar
-        Positioned(
-          top: 0, left: 0, right: 0,
-          child: Container(
-            height: 52,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0B0B0F).withOpacity(0.92),
-              border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
-            ),
-            child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 32),
+            // Project name + ID
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                const Icon(Icons.cloud, color: Colors.white, size: 22),
-                const SizedBox(width: 10),
-                const Text('Applad', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                Text(' / ', style: TextStyle(color: Colors.white.withOpacity(0.15))),
-                Text(
-                  projectId.length > 12 ? '${projectId.substring(0, 12)}...' : projectId,
-                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13),
-                ),
-                const Spacer(),
-                _TopBadge(Icons.view_in_ar, '${nodes.length - 1}', 'resources'),
+                Text(projectName,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700)),
                 const SizedBox(width: 12),
-                Text('Double-click a node to open',
-                  style: TextStyle(color: Colors.white.withOpacity(0.2), fontSize: 11)),
-              ],
-            ),
-          ),
-        ),
-
-        // Bottom controls
-        Positioned(
-          left: 16, bottom: 16,
-          child: Column(
-            children: [
-              _CanvasBtn(Icons.refresh, onTap: () {
-                _dragOffsets.clear();
-                ref.invalidate(_projectResourcesProvider(projectId));
-              }),
-              const SizedBox(height: 8),
-              _CanvasBtn(Icons.auto_fix_high, onTap: () {
-                // Auto-layout: reset positions
-                _dragOffsets.clear();
-                ref.invalidate(_projectResourcesProvider(projectId));
-              }),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// -- Top bar badge --
-
-class _TopBadge extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  const _TopBadge(this.icon, this.value, this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: Colors.white24, size: 14),
-        const SizedBox(width: 4),
-        Text(value, style: const TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.bold)),
-        const SizedBox(width: 3),
-        Text(label, style: TextStyle(color: Colors.white.withOpacity(0.25), fontSize: 11)),
-      ],
-    );
-  }
-}
-
-// -- Resource card node --
-
-class _ResourceCard extends StatelessWidget {
-  final _ResourceNode node;
-  const _ResourceCard({required this.node});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 220,
-      decoration: BoxDecoration(
-        color: const Color(0xFF16171B),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: node.color.withOpacity(0.15)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20)],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: node.color.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(node.icon, color: node.color, size: 18),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Row(
                     children: [
-                      Text(node.name,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                        overflow: TextOverflow.ellipsis),
-                      Text(_typeLabel(node.type),
-                        style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 10)),
+                      Icon(LucideIcons.folder,
+                          size: 13,
+                          color: Colors.white.withOpacity(0.3)),
+                      const SizedBox(width: 4),
+                      SelectableText(
+                        projectId.length > 16
+                            ? '${projectId.substring(0, 16)}...'
+                            : projectId,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.3),
+                            fontSize: 13,
+                            fontFamily: 'monospace'),
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-            child: Row(
-              children: [
-                _StatusDot(status: node.status),
-                const SizedBox(width: 8),
-                Text(node.status,
-                  style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 11)),
-              ],
+            const SizedBox(height: 24),
+            PageTabs(
+              tabs: const ['Overview', 'Activity'],
+              selected: _tabIndex,
+              onChanged: (i) => setState(() => _tabIndex = i),
             ),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.02),
-              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
-              border: Border(top: BorderSide(color: Colors.white.withOpacity(0.04))),
+            const SizedBox(height: 24),
+            Expanded(
+              child: SingleChildScrollView(
+                child: _tabIndex == 0
+                    ? _OverviewTab(projectId: projectId)
+                    : _ActivityTab(projectId: projectId),
+              ),
             ),
-            child: Text(node.subtitle,
-              style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11),
-              overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Overview Tab
+// =============================================================================
+
+class _OverviewTab extends ConsumerWidget {
+  final String projectId;
+  const _OverviewTab({required this.projectId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statsAsync = ref.watch(_projectStatsProvider(projectId));
+
+    return statsAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.only(top: 80),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) => Padding(
+        padding: const EdgeInsets.only(top: 80),
+        child: Center(
+            child: Text('Error: $e',
+                style: const TextStyle(color: Colors.red))),
+      ),
+      data: (stats) {
+        final usage = stats['usage'] as Map<String, dynamic>? ?? {};
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Usage graphs row
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final wide = constraints.maxWidth > 700;
+                final graphWidth = wide
+                    ? (constraints.maxWidth - 16) / 2
+                    : constraints.maxWidth;
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    _UsageGraph(
+                      width: graphWidth,
+                      title: 'Requests',
+                      value: _formatNumber(
+                          usage['requests'] as int? ?? 0),
+                      unit: '',
+                      period: '30d',
+                      data: _generateGraphData(
+                          usage['requestsHistory'] as List? ?? [],
+                          30),
+                    ),
+                    _UsageGraph(
+                      width: graphWidth,
+                      title: 'Bandwidth',
+                      value: _formatBytes(
+                          usage['bandwidth'] as int? ?? 0),
+                      unit: '',
+                      period: '30d',
+                      data: _generateGraphData(
+                          usage['bandwidthHistory'] as List? ?? [],
+                          30),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Stat cards row
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final cardWidth =
+                    (constraints.maxWidth - 16 * 3) / 4;
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    _StatCard(
+                      icon: LucideIcons.database,
+                      label: 'DATABASE',
+                      value: '${stats['databases'] ?? 0}',
+                      sublabel: 'Databases',
+                      width: cardWidth,
+                      onTap: () =>
+                          context.go('/project/$projectId/databases'),
+                    ),
+                    _StatCard(
+                      icon: LucideIcons.folderClosed,
+                      label: 'STORAGE',
+                      value: _formatBytes(
+                          usage['storageBytes'] as int? ?? 0),
+                      sublabel: 'Storage',
+                      width: cardWidth,
+                      onTap: () =>
+                          context.go('/project/$projectId/storage'),
+                    ),
+                    _StatCard(
+                      icon: LucideIcons.users,
+                      label: 'AUTH',
+                      value: '${stats['users'] ?? 0}',
+                      sublabel: 'Users',
+                      width: cardWidth,
+                      onTap: () =>
+                          context.go('/project/$projectId/auth'),
+                    ),
+                    _StatCard(
+                      icon: LucideIcons.zap,
+                      label: 'FUNCTIONS',
+                      value: '${stats['functions'] ?? 0}',
+                      sublabel: 'Executions',
+                      width: cardWidth,
+                      onTap: () =>
+                          context.go('/project/$projectId/functions'),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 32),
+
+            // Project info + SDK quickstart
+            _ProjectInfoSection(projectId: projectId),
+
+            const SizedBox(height: 40),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatNumber(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
+    return '$n';
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    final i = (math.log(bytes) / math.log(1024)).floor().clamp(0, 4);
+    final v = bytes / math.pow(1024, i);
+    return '${v.toStringAsFixed(v < 10 ? 2 : 1)} ${units[i]}';
+  }
+
+  List<double> _generateGraphData(List<dynamic> history, int points) {
+    if (history.isNotEmpty) {
+      return history
+          .take(points)
+          .map((e) => (e is num ? e.toDouble() : 0.0))
+          .toList();
+    }
+    // Return zeros if no history
+    return List.filled(points, 0);
+  }
+}
+
+// =============================================================================
+// Usage Graph
+// =============================================================================
+
+class _UsageGraph extends StatelessWidget {
+  final double width;
+  final String title;
+  final String value;
+  final String unit;
+  final String period;
+  final List<double> data;
+
+  const _UsageGraph({
+    required this.width,
+    required this.title,
+    required this.value,
+    required this.unit,
+    required this.period,
+    required this.data,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(value,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w700)),
+                      if (unit.isNotEmpty) ...[
+                        const SizedBox(width: 4),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(unit,
+                              style: const TextStyle(
+                                  color: _dimText, fontSize: 14)),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(title,
+                      style: const TextStyle(
+                          color: _dimText, fontSize: 13)),
+                ],
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.04),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: _border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(period,
+                        style: const TextStyle(
+                            color: _dimText, fontSize: 12)),
+                    const SizedBox(width: 4),
+                    const Icon(LucideIcons.chevronDown,
+                        size: 12, color: _dimText),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          // Graph
+          SizedBox(
+            height: 100,
+            child: CustomPaint(
+              size: Size(width - 40, 100),
+              painter: _GraphPainter(data: data, color: _accent),
+            ),
           ),
         ],
       ),
     );
   }
-
-  String _typeLabel(String type) {
-    switch (type) {
-      case 'project': return 'PROJECT';
-      case 'database': return 'DATABASE';
-      case 'table': return 'TABLE';
-      case 'function': return 'FUNCTION';
-      case 'web': return 'WEB APP';
-      case 'mobile': return 'MOBILE APP';
-      case 'container': return 'CONTAINER';
-      case 'workflow': return 'WORKFLOW';
-      case 'bucket': return 'STORAGE BUCKET';
-      case 'hint': return '';
-      default: return type.toUpperCase();
-    }
-  }
 }
 
-class _StatusDot extends StatelessWidget {
-  final String status;
-  const _StatusDot({required this.status});
+class _GraphPainter extends CustomPainter {
+  final List<double> data;
+  final Color color;
 
-  @override
-  Widget build(BuildContext context) {
-    Color color;
-    switch (status) {
-      case 'active':
-      case 'Running':
-      case 'Healthy':
-        color = Colors.green;
-      case 'building':
-        color = Colors.orange;
-      case 'failed':
-        color = Colors.red;
-      case 'paused':
-      case 'draft':
-        color = Colors.grey;
-      case 'hint':
-        color = Colors.white24;
-      default:
-        color = Colors.yellow;
-    }
-    return Container(
-      width: 7, height: 7,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-    );
-  }
-}
-
-// -- Bézier connection lines --
-
-class _ConnectionPainter extends CustomPainter {
-  final List<_ResourceNode> nodes;
-  _ConnectionPainter({required this.nodes});
+  _GraphPainter({required this.data, required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final linePaint = Paint()
-      ..color = Colors.white.withOpacity(0.08)
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
+    if (data.isEmpty) return;
 
-    final dotPaint = Paint()
-      ..color = Colors.white.withOpacity(0.2)
+    final maxVal = data.reduce(math.max);
+    final effectiveMax = maxVal > 0 ? maxVal : 1.0;
+
+    // Grid lines
+    final gridPaint = Paint()
+      ..color = Colors.white.withOpacity(0.04)
+      ..strokeWidth = 1;
+    for (var i = 0; i < 5; i++) {
+      final y = size.height * i / 4;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    // Bars
+    final barWidth = (size.width / data.length) * 0.6;
+    final gap = (size.width / data.length) * 0.4;
+    final barPaint = Paint()
+      ..color = color
       ..style = PaintingStyle.fill;
 
-    final nodeMap = {for (var n in nodes) n.id: n};
-
-    for (var node in nodes) {
-      for (var targetId in node.targetIds) {
-        final target = nodeMap[targetId];
-        if (target == null) continue;
-
-        final start = node.position + const Offset(220, 45);
-        final end = target.position + const Offset(0, 45);
-
-        final path = Path();
-        path.moveTo(start.dx, start.dy);
-
-        final dx = (end.dx - start.dx).abs() / 2;
-        path.cubicTo(
-          start.dx + dx, start.dy,
-          end.dx - dx, end.dy,
-          end.dx, end.dy,
+    for (var i = 0; i < data.length; i++) {
+      final x = i * (barWidth + gap) + gap / 2;
+      final h = (data[i] / effectiveMax) * (size.height - 4);
+      if (h > 0) {
+        final rect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, size.height - h, barWidth, h),
+          const Radius.circular(2),
         );
-        canvas.drawPath(path, linePaint);
-
-        canvas.drawCircle(start, 3, dotPaint);
-        canvas.drawCircle(end, 3, dotPaint);
+        canvas.drawRRect(rect, barPaint);
       }
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _GraphPainter old) =>
+      data != old.data || color != old.color;
 }
 
-// -- Dotted grid --
+// =============================================================================
+// Stat Card
+// =============================================================================
 
-class _DottedGrid extends StatelessWidget {
-  const _DottedGrid();
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(painter: _GridPainter());
-  }
-}
-
-class _GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withOpacity(0.03)
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 1.5;
-    for (double x = 0; x < size.width; x += 30) {
-      for (double y = 0; y < size.height; y += 30) {
-        canvas.drawPoints(PointMode.points, [Offset(x, y)], paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-// -- Canvas button --
-
-class _CanvasBtn extends StatelessWidget {
+class _StatCard extends StatefulWidget {
   final IconData icon;
-  final VoidCallback? onTap;
-  const _CanvasBtn(this.icon, {this.onTap});
+  final String label;
+  final String value;
+  final String sublabel;
+  final double width;
+  final VoidCallback onTap;
+
+  const _StatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.sublabel,
+    required this.width,
+    required this.onTap,
+  });
+
+  @override
+  State<_StatCard> createState() => _StatCardState();
+}
+
+class _StatCardState extends State<_StatCard> {
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF16171B),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: widget.width,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: _hovered
+                ? Colors.white.withOpacity(0.04)
+                : _cardColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+                color: _hovered
+                    ? Colors.white.withOpacity(0.1)
+                    : _border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(widget.icon, size: 14, color: _accent),
+                  const SizedBox(width: 8),
+                  Text(widget.label,
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(widget.value,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text(widget.sublabel,
+                  style:
+                      const TextStyle(color: _dimText, fontSize: 13)),
+            ],
+          ),
         ),
-        child: Icon(icon, color: Colors.white38, size: 18),
       ),
     );
   }
+}
+
+// =============================================================================
+// Project Info + SDK Quickstart
+// =============================================================================
+
+class _ProjectInfoSection extends StatefulWidget {
+  final String projectId;
+  const _ProjectInfoSection({required this.projectId});
+
+  @override
+  State<_ProjectInfoSection> createState() => _ProjectInfoSectionState();
+}
+
+class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
+  int _sdkTab = 0;
+
+  static const _sdks = [
+    _SdkInfo('Flutter', 'dart', 'applad: ^1.0.0',
+        'dependencies:', LucideIcons.smartphone),
+    _SdkInfo('JavaScript', 'bash', 'npm install applad',
+        'Terminal', LucideIcons.terminal),
+    _SdkInfo('Node.js', 'bash', 'npm install applad-node',
+        'Terminal', LucideIcons.server),
+    _SdkInfo('Python', 'bash', 'pip install applad',
+        'Terminal', LucideIcons.terminal),
+    _SdkInfo('Go', 'bash', 'go get github.com/mittolabs/applad-go',
+        'Terminal', LucideIcons.terminal),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final endpoint = '${Uri.base.origin}/v1';
+    final sdk = _sdks[_sdkTab];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Project info row
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth > 700;
+            final infoWidth = wide
+                ? (constraints.maxWidth - 16) / 2
+                : constraints.maxWidth;
+
+            return Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                _InfoCard(
+                  width: infoWidth,
+                  label: 'Project ID',
+                  value: widget.projectId,
+                  icon: LucideIcons.folder,
+                ),
+                _InfoCard(
+                  width: infoWidth,
+                  label: 'API Endpoint',
+                  value: endpoint,
+                  icon: LucideIcons.link,
+                ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+
+        // SDK quickstart
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Quick start',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text('Install an SDK to start building with Applad',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.4),
+                      fontSize: 13)),
+              const SizedBox(height: 16),
+              // SDK tabs
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: List.generate(_sdks.length, (i) {
+                    final s = _sdks[i];
+                    final active = _sdkTab == i;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _sdkTab = i),
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? Colors.white.withOpacity(0.08)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                  color: active
+                                      ? Colors.white.withOpacity(0.12)
+                                      : Colors.white.withOpacity(0.06)),
+                            ),
+                            child: Text(s.name,
+                                style: TextStyle(
+                                    color: active
+                                        ? Colors.white
+                                        : _dimText,
+                                    fontSize: 12,
+                                    fontWeight: active
+                                        ? FontWeight.w500
+                                        : FontWeight.w400)),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Install command
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.03),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _border),
+                ),
+                child: Row(
+                  children: [
+                    Text(sdk.contextLabel,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.3),
+                            fontSize: 12)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: SelectableText(sdk.installCmd,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontFamily: 'monospace')),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        Clipboard.setData(
+                            ClipboardData(text: sdk.installCmd));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Copied to clipboard')),
+                        );
+                      },
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: Icon(LucideIcons.copy,
+                            size: 14,
+                            color: Colors.white.withOpacity(0.3)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Init snippet
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.03),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SelectableText(
+                            _initSnippet(sdk.name, endpoint,
+                                widget.projectId),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontFamily: 'monospace',
+                                height: 1.5),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.topRight,
+                          child: GestureDetector(
+                            onTap: () {
+                              Clipboard.setData(ClipboardData(
+                                  text: _initSnippet(sdk.name,
+                                      endpoint, widget.projectId)));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content:
+                                        Text('Copied to clipboard')),
+                              );
+                            },
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: Icon(LucideIcons.copy,
+                                  size: 14,
+                                  color:
+                                      Colors.white.withOpacity(0.3)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _initSnippet(String sdk, String endpoint, String projectId) {
+    switch (sdk) {
+      case 'Flutter':
+        return "import 'package:applad/applad.dart';\n\nfinal client = AppladClient()\n  .setEndpoint('$endpoint')\n  .setProject('$projectId');";
+      case 'JavaScript':
+        return "import { Client } from 'applad';\n\nconst client = new Client()\n  .setEndpoint('$endpoint')\n  .setProject('$projectId');";
+      case 'Node.js':
+        return "const { Client } = require('applad-node');\n\nconst client = new Client()\n  .setEndpoint('$endpoint')\n  .setProject('$projectId')\n  .setKey('YOUR_API_KEY');";
+      case 'Python':
+        return "from applad import Client\n\nclient = Client()\nclient.set_endpoint('$endpoint')\nclient.set_project('$projectId')\nclient.set_key('YOUR_API_KEY')";
+      case 'Go':
+        return 'import "github.com/mittolabs/applad-go"\n\nclient := applad.NewClient()\nclient.SetEndpoint("$endpoint")\nclient.SetProject("$projectId")\nclient.SetKey("YOUR_API_KEY")';
+      default:
+        return '';
+    }
+  }
+}
+
+class _SdkInfo {
+  final String name;
+  final String lang;
+  final String installCmd;
+  final String contextLabel;
+  final IconData icon;
+
+  const _SdkInfo(
+      this.name, this.lang, this.installCmd, this.contextLabel, this.icon);
+}
+
+class _InfoCard extends StatelessWidget {
+  final double width;
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _InfoCard({
+    required this.width,
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: _dimText),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.4),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              SelectableText(value,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontFamily: 'monospace')),
+            ],
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: value));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Copied to clipboard')),
+              );
+            },
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Icon(LucideIcons.copy,
+                  size: 14, color: Colors.white.withOpacity(0.3)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Activity Tab
+// =============================================================================
+
+class _ActivityTab extends ConsumerWidget {
+  final String projectId;
+  const _ActivityTab({required this.projectId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statsAsync = ref.watch(_projectStatsProvider(projectId));
+
+    return statsAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.only(top: 80),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) => const SizedBox(),
+      data: (stats) {
+        final items = <_ActivityItem>[];
+
+        void addIf(String key, String singular, String plural,
+            String service, IconData icon) {
+          final count = stats[key] as int? ?? 0;
+          if (count > 0) {
+            items.add(_ActivityItem(
+              icon: icon,
+              title: '$count ${count == 1 ? singular : plural}',
+              subtitle: service,
+            ));
+          }
+        }
+
+        addIf('databases', 'database created', 'databases created',
+            'Databases', LucideIcons.database);
+        addIf('users', 'user registered', 'users registered', 'Auth',
+            LucideIcons.users);
+        addIf('buckets', 'bucket created', 'buckets created', 'Storage',
+            LucideIcons.folderClosed);
+        addIf('functions', 'function deployed', 'functions deployed',
+            'Functions', LucideIcons.zap);
+        addIf('deployments', 'deployment active', 'deployments active',
+            'Deploy', LucideIcons.rocket);
+        addIf('workflows', 'workflow configured', 'workflows configured',
+            'Workflows', LucideIcons.gitBranch);
+
+        if (items.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 80),
+            child: Center(
+              child: Column(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.04),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(LucideIcons.activity,
+                        size: 22, color: _subtleText),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('No activity yet',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 6),
+                  const Text(
+                      'Activity will appear here as you use your project',
+                      style:
+                          TextStyle(color: _dimText, fontSize: 13)),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ...items.map((item) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: _cardColor,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _border),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: _accent.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(item.icon,
+                            size: 18, color: _accent),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            Text(item.title,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500)),
+                            const SizedBox(height: 2),
+                            Text(item.subtitle,
+                                style: const TextStyle(
+                                    color: _dimText,
+                                    fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+            const SizedBox(height: 40),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ActivityItem {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _ActivityItem({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
 }

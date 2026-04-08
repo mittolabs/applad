@@ -77,8 +77,7 @@ class Databases {
   /// Get a table.
   Future<Map<String, dynamic>> getTable(
       String databaseId, String tableId) async {
-    final res = await _dio.get(
-        '/v1/databases/$databaseId/tables/$tableId');
+    final res = await _dio.get('/v1/databases/$databaseId/tables/$tableId');
     return res.data;
   }
 
@@ -102,10 +101,8 @@ class Databases {
   }
 
   /// Delete a table.
-  Future<void> deleteTable(
-      String databaseId, String tableId) async {
-    await _dio.delete(
-        '/v1/databases/$databaseId/tables/$tableId');
+  Future<void> deleteTable(String databaseId, String tableId) async {
+    await _dio.delete('/v1/databases/$databaseId/tables/$tableId');
   }
 
   // --- Columns ---
@@ -205,16 +202,15 @@ class Databases {
   /// List columns of a table.
   Future<Map<String, dynamic>> listColumns(
       String databaseId, String tableId) async {
-    final res = await _dio.get(
-        '/v1/databases/$databaseId/tables/$tableId/columns');
+    final res =
+        await _dio.get('/v1/databases/$databaseId/tables/$tableId/columns');
     return res.data;
   }
 
   /// Delete a column.
   Future<void> deleteColumn(
       String databaseId, String tableId, String key) async {
-    await _dio.delete(
-        '/v1/databases/$databaseId/tables/$tableId/columns/$key');
+    await _dio.delete('/v1/databases/$databaseId/tables/$tableId/columns/$key');
   }
 
   // --- Indexes ---
@@ -243,16 +239,15 @@ class Databases {
   /// List indexes of a table.
   Future<Map<String, dynamic>> listIndexes(
       String databaseId, String tableId) async {
-    final res = await _dio.get(
-        '/v1/databases/$databaseId/tables/$tableId/indexes');
+    final res =
+        await _dio.get('/v1/databases/$databaseId/tables/$tableId/indexes');
     return res.data;
   }
 
   /// Delete an index.
   Future<void> deleteIndex(
       String databaseId, String tableId, String key) async {
-    await _dio.delete(
-        '/v1/databases/$databaseId/tables/$tableId/indexes/$key');
+    await _dio.delete('/v1/databases/$databaseId/tables/$tableId/indexes/$key');
   }
 
   // --- Rows ---
@@ -299,8 +294,8 @@ class Databases {
     required String tableId,
     required String rowId,
   }) async {
-    final res = await _dio.get(
-        '/v1/databases/$databaseId/tables/$tableId/rows/$rowId');
+    final res =
+        await _dio.get('/v1/databases/$databaseId/tables/$tableId/rows/$rowId');
     return res.data;
   }
 
@@ -328,7 +323,6 @@ class Databases {
     required String tableId,
     required String rowId,
   }) async {
-    await _dio.delete(
-        '/v1/databases/$databaseId/tables/$tableId/rows/$rowId');
+    await _dio.delete('/v1/databases/$databaseId/tables/$tableId/rows/$rowId');
   }
 }

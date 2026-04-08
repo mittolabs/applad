@@ -3,6 +3,7 @@ package organizations
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -39,6 +40,8 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/{orgId}/members/{memberId}", h.updateMemberRole)
 	r.Get("/{orgId}/projects", h.listProjects)
 	r.Post("/{orgId}/projects", h.createProject)
+	r.Get("/{orgId}/stats", h.getStats)
+	r.Get("/{orgId}/activity", h.listActivity)
 	r.Post("/invites/{token}/accept", h.acceptInvite)
 	return r
 }
@@ -132,12 +135,24 @@ func (h *Handler) inviteMember(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email string `json:"email"`
 		Name  string `json:"name"`
+		Role  string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
 		apperr.BadRequest(w, "email is required")
 		return
 	}
-	member, token, err := h.svc.InviteMember(r.Context(), orgID, body.Email, body.Name)
+	if body.Role == "" {
+		body.Role = "member"
+	}
+	// Validate role
+	switch body.Role {
+	case "owner", "admin", "member":
+		// valid
+	default:
+		apperr.BadRequest(w, "role must be owner, admin, or member")
+		return
+	}
+	member, token, err := h.svc.InviteMember(r.Context(), orgID, body.Email, body.Name, body.Role)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -201,6 +216,35 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, project)
+}
+
+func (h *Handler) getStats(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "orgId")
+	stats, err := h.svc.GetOrgStats(r.Context(), orgID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (h *Handler) listActivity(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "orgId")
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	if limit == 0 {
+		limit = 50
+	}
+	entries, total, err := h.svc.ListActivity(r.Context(), orgID, limit, offset)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":    total,
+		"activity": entries,
+	})
 }
 
 func (h *Handler) acceptInvite(w http.ResponseWriter, r *http.Request) {

@@ -105,6 +105,9 @@ type ContainerConfig struct {
 }
 
 // CreateContainer creates and starts a container, returning its ID.
+// Containers are hardened by default: no privilege escalation, read-only rootfs
+// (with /tmp writable), no capabilities, isolated PID namespace, and restricted
+// syscalls via the default seccomp profile.
 func (c *Client) CreateContainer(ctx context.Context, name string, cfg ContainerConfig) (string, error) {
 	body := map[string]interface{}{
 		"Image":  cfg.Image,
@@ -116,8 +119,16 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 		"HostConfig": map[string]interface{}{
 			"PublishAllPorts": true,
 			"Memory":         int64(256 * 1024 * 1024), // 256MB
+			"MemorySwap":     int64(256 * 1024 * 1024), // no swap
 			"NanoCPUs":       int64(1e9),                // 1 CPU
+			"PidsLimit":      int64(256),                // limit process count
 			"NetworkMode":    "bridge",
+			"ReadonlyRootfs": true,
+			"SecurityOpt":    []string{"no-new-privileges"},
+			"CapDrop":        []string{"ALL"},
+			"Tmpfs": map[string]string{
+				"/tmp": "rw,noexec,nosuid,size=64m",
+			},
 		},
 	}
 
