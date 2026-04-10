@@ -7,43 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
-
-bool _isLight(BuildContext context) =>
-  Theme.of(context).brightness == Brightness.light;
-
-Color _popoverSurface(BuildContext context) =>
-  _isLight(context) ? Colors.white : const Color(0xFF1C1C24);
-
-Color _popoverBorder(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.08)
-  : Colors.white.withOpacity(0.08);
-
-Color _popoverShadow(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.08)
-  : Colors.black.withOpacity(0.4);
-
-Color _primaryText(BuildContext context) =>
-  _isLight(context) ? const Color(0xFF1A1A2E) : Colors.white;
-
-Color _secondaryText(BuildContext context) => _isLight(context)
-  ? const Color(0xFF1A1A2E).withOpacity(0.8)
-  : Colors.white.withOpacity(0.8);
-
-Color _mutedText(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.35)
-  : Colors.white.withOpacity(0.35);
-
-Color _subtleFill(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.04)
-  : Colors.white.withOpacity(0.06);
-
-Color _hoverFill(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.04)
-  : Colors.white.withOpacity(0.04);
-
-Color _dividerColor(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.08)
-  : Colors.white.withOpacity(0.06);
+import '../theme/console_colors.dart';
 
 // ── Shared overlay helper ────────────────────────────────────────────────────
 
@@ -95,6 +59,7 @@ class _NavGhostButtonState extends State<NavGhostButton> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     final highlight = _hovered || widget.active;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -104,18 +69,13 @@ class _NavGhostButtonState extends State<NavGhostButton> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: highlight
-                ? _subtleFill(context)
-                : Colors.transparent,
+            color: highlight ? cs.fill : Colors.transparent,
             borderRadius: BorderRadius.circular(7),
           ),
           child: Text(
             widget.label,
             style: TextStyle(
-              color: (_isLight(context)
-                      ? const Color(0xFF1A1A2E)
-                      : Colors.white)
-                  .withOpacity(highlight ? 0.8 : 0.45),
+              color: highlight ? cs.textSecondary : cs.textMuted,
               fontSize: 13,
             ),
           ),
@@ -187,6 +147,7 @@ class _FeedbackPanel extends StatefulWidget {
 }
 
 class _FeedbackPanelState extends State<_FeedbackPanel> {
+  late ConsoleColors _cs;
   final _ctrl = TextEditingController();
   String _category = 'General';
   bool _loading = false;
@@ -213,15 +174,16 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return Container(
       width: 400,
       decoration: BoxDecoration(
-        color: const Color(0xFF16171B),
+        color: _cs.popupSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: _cs.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.5),
+            color: _cs.shadow,
             blurRadius: 32,
             offset: const Offset(0, 8),
           ),
@@ -248,10 +210,10 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
                 size: 22, color: Color(0xFF3472A4)),
           ),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             'Feedback received',
             style: TextStyle(
-              color: Colors.white,
+              color: _cs.textPrimary,
               fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
@@ -260,16 +222,15 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
           Text(
             'Thank you for helping us improve Applad. We read every submission.',
             textAlign: TextAlign.center,
-            style:
-                TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13),
+            style: TextStyle(color: _cs.textMuted, fontSize: 13),
           ),
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             child: FilledButton(
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.08),
-                foregroundColor: Colors.white70,
+                backgroundColor: _cs.fill,
+                foregroundColor: _cs.textSecondary,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8)),
               ),
@@ -297,10 +258,10 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Feedback',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: _cs.textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                       ),
@@ -309,7 +270,7 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
                     Text(
                       'Applad evolves with your input. Share your thoughts and help us improve.',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.45), fontSize: 13),
+                          color: _cs.textMuted, fontSize: 13),
                     ),
                   ],
                 ),
@@ -318,7 +279,7 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
               GestureDetector(
                 onTap: widget.onClose,
                 child: Icon(LucideIcons.x,
-                    size: 16, color: Colors.white.withOpacity(0.3)),
+                    size: 16, color: _cs.textSubtle),
               ),
             ],
           ),
@@ -327,8 +288,7 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
         const SizedBox(height: 16),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-              height: 1, color: Colors.white.withOpacity(0.06)),
+          child: Container(height: 1, color: _cs.border),
         ),
         const SizedBox(height: 16),
 
@@ -341,7 +301,7 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
               Text(
                 'Category',
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
+                    color: _cs.textMuted,
                     fontSize: 12,
                     fontWeight: FontWeight.w500),
               ),
@@ -359,12 +319,12 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
                         decoration: BoxDecoration(
                           color: selected
                               ? const Color(0xFF3472A4).withOpacity(0.15)
-                              : Colors.white.withOpacity(0.05),
+                              : _cs.fill,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                             color: selected
                                 ? const Color(0xFF3472A4).withOpacity(0.6)
-                                : Colors.white.withOpacity(0.1),
+                                : _cs.border,
                           ),
                         ),
                         child: Text(
@@ -372,7 +332,7 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
                           style: TextStyle(
                             color: selected
                                 ? const Color(0xFF3472A4)
-                                : Colors.white.withOpacity(0.5),
+                                : _cs.textMuted,
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                           ),
@@ -397,7 +357,7 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
               Text(
                 'Tell us more about your experience',
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
+                    color: _cs.textMuted,
                     fontSize: 12,
                     fontWeight: FontWeight.w500),
               ),
@@ -406,22 +366,20 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
                 controller: _ctrl,
                 minLines: 4,
                 maxLines: 6,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: TextStyle(color: _cs.textPrimary, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'Share your suggestions and feature requests...',
                   hintStyle: TextStyle(
-                      color: Colors.white.withOpacity(0.22), fontSize: 13),
+                      color: _cs.textSubtle, fontSize: 13),
                   filled: true,
-                  fillColor: Colors.white.withOpacity(0.04),
+                  fillColor: _cs.fieldFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        BorderSide(color: Colors.white.withOpacity(0.1)),
+                    borderSide: BorderSide(color: _cs.fieldBorder),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        BorderSide(color: Colors.white.withOpacity(0.1)),
+                    borderSide: BorderSide(color: _cs.fieldBorder),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -446,7 +404,7 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
               TextButton(
                 onPressed: widget.onClose,
                 style: TextButton.styleFrom(
-                  foregroundColor: Colors.white54,
+                  foregroundColor: _cs.textMuted,
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 10),
                 ),
@@ -541,15 +499,16 @@ class _SupportPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       width: 360,
       decoration: BoxDecoration(
-        color: const Color(0xFF16171B),
+        color: cs.popupSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: cs.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.5),
+            color: cs.shadow,
             blurRadius: 32,
             offset: const Offset(0, 8),
           ),
@@ -562,10 +521,10 @@ class _SupportPanel extends StatelessWidget {
           // Title
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-            child: const Text(
+            child: Text(
               'Support',
               style: TextStyle(
-                color: Colors.white,
+                color: cs.textPrimary,
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
@@ -645,21 +604,22 @@ class _SupportCardState extends State<_SupportCard> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
+        color: cs.fill,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             widget.title,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: cs.textPrimary,
               fontSize: 14,
               fontWeight: FontWeight.w500,
             ),
@@ -667,8 +627,7 @@ class _SupportCardState extends State<_SupportCard> {
           const SizedBox(height: 4),
           Text(
             widget.subtitle,
-            style: TextStyle(
-                color: Colors.white.withOpacity(0.4), fontSize: 12),
+            style: TextStyle(color: cs.textMuted, fontSize: 12),
           ),
           const SizedBox(height: 12),
           MouseRegion(
@@ -681,24 +640,21 @@ class _SupportCardState extends State<_SupportCard> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 14, vertical: 9),
                 decoration: BoxDecoration(
-                  color: _hovered
-                      ? Colors.white.withOpacity(0.1)
-                      : Colors.white.withOpacity(0.06),
+                  color: _hovered ? cs.fillHover : cs.fill,
                   borderRadius: BorderRadius.circular(8),
-                  border:
-                      Border.all(color: Colors.white.withOpacity(0.08)),
+                  border: Border.all(color: cs.border),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(widget.buttonIcon,
                         size: 14,
-                        color: Colors.white.withOpacity(0.65)),
+                        color: cs.textSecondary),
                     const SizedBox(width: 8),
                     Text(
                       widget.buttonLabel,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
+                        color: cs.textSecondary,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
@@ -815,18 +771,19 @@ class _UserMenuPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final user = ref.watch(consoleAuthProvider).valueOrNull;
     final isLight = ref.watch(themeModeProvider);
 
     return Container(
       width: 280,
       decoration: BoxDecoration(
-        color: _popoverSurface(context),
+        color: cs.popupSurface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _popoverBorder(context)),
+        border: Border.all(color: cs.border),
         boxShadow: [
           BoxShadow(
-            color: _popoverShadow(context),
+            color: cs.shadow,
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -842,7 +799,7 @@ class _UserMenuPanel extends ConsumerWidget {
             child: Text(
               user?.email ?? '',
               style: TextStyle(
-                color: _primaryText(context),
+                color: cs.textPrimary,
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
@@ -850,7 +807,7 @@ class _UserMenuPanel extends ConsumerWidget {
             ),
           ),
 
-          _divider(context),
+          _divider(cs),
 
           // Account
           _MenuItemTrailing(
@@ -862,7 +819,7 @@ class _UserMenuPanel extends ConsumerWidget {
             },
           ),
 
-          _divider(context),
+          _divider(cs),
 
           // Sign out
           _MenuItemTrailing(
@@ -875,7 +832,7 @@ class _UserMenuPanel extends ConsumerWidget {
             },
           ),
 
-          _divider(context),
+          _divider(cs),
 
           // Theme row
           Padding(
@@ -884,7 +841,7 @@ class _UserMenuPanel extends ConsumerWidget {
               children: [
                 Text(
                   'Theme',
-                  style: TextStyle(color: _secondaryText(context), fontSize: 14),
+                  style: TextStyle(color: cs.textSecondary, fontSize: 14),
                 ),
                 const Spacer(),
                 _ThemeToggle(isLight: isLight),
@@ -898,10 +855,7 @@ class _UserMenuPanel extends ConsumerWidget {
     );
   }
 
-    Widget _divider(BuildContext context) => Container(
-        height: 1,
-      color: _dividerColor(context),
-      );
+  Widget _divider(ConsoleColors cs) => Container(height: 1, color: cs.border);
 }
 
 class _MenuItemTrailing extends StatefulWidget {
@@ -919,6 +873,7 @@ class _MenuItemTrailingState extends State<_MenuItemTrailing> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -927,17 +882,14 @@ class _MenuItemTrailingState extends State<_MenuItemTrailing> {
         onTap: widget.onTap,
         child: Container(
           width: double.infinity,
-          color: _hovered
-              ? _hoverFill(context)
-              : Colors.transparent,
+          color: _hovered ? cs.fillHover : Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           child: Row(
             children: [
               Text(widget.label,
-                  style: TextStyle(
-                      color: _secondaryText(context), fontSize: 14)),
+                  style: TextStyle(color: cs.textSecondary, fontSize: 14)),
               const Spacer(),
-              Icon(widget.icon, size: 16, color: _mutedText(context)),
+              Icon(widget.icon, size: 16, color: cs.textMuted),
             ],
           ),
         ),
@@ -952,9 +904,10 @@ class _ThemeToggle extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     return Container(
       decoration: BoxDecoration(
-        color: _subtleFill(context),
+        color: cs.fill,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -1000,6 +953,7 @@ class _ThemeOptionState extends State<_ThemeOption> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -1013,11 +967,9 @@ class _ThemeOptionState extends State<_ThemeOption> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
               color: widget.active
-                  ? (_isLight(context)
-                      ? const Color(0xFF3472A4).withOpacity(0.12)
-                      : Colors.white.withOpacity(0.12))
+                  ? cs.fillActive
                   : _hovered
-                      ? _subtleFill(context)
+                      ? cs.fill
                       : Colors.transparent,
               borderRadius: BorderRadius.circular(5),
             ),
@@ -1025,12 +977,8 @@ class _ThemeOptionState extends State<_ThemeOption> {
               widget.icon,
               size: 13,
               color: widget.active
-                  ? (_isLight(context)
-                      ? const Color(0xFF3472A4)
-                      : Colors.white)
-                  : (_isLight(context)
-                      ? const Color(0xFF1A1A2E).withOpacity(0.45)
-                      : Colors.white.withOpacity(0.4)),
+                  ? const Color(0xFF3472A4)
+                  : cs.textMuted,
             ),
           ),
         ),
@@ -1046,6 +994,7 @@ class ThemeToggleButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final isLight = ref.watch(themeModeProvider);
     return Tooltip(
       message: isLight ? 'Switch to dark mode' : 'Switch to light mode',
@@ -1058,9 +1007,7 @@ class ThemeToggleButton extends ConsumerWidget {
           child: Icon(
             isLight ? LucideIcons.moon : LucideIcons.sun,
             size: 17,
-            color: isLight
-                ? Colors.black.withOpacity(0.45)
-                : Colors.white.withOpacity(0.45),
+            color: cs.textMuted,
           ),
         ),
       ),

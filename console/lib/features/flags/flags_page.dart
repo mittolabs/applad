@@ -2,20 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
+import '../../core/theme/console_colors.dart';
+import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
-import '../../core/widgets/search_list.dart';
 
 // --- Colors ----------------------------------------------------------------
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _border = Color(0xFF2A2B30);
-const _fieldFill = Color(0x0AFFFFFF);
-const _fieldBorder = Color(0x1AFFFFFF);
 
 // --- Providers -------------------------------------------------------------
 
@@ -69,6 +63,7 @@ class FlagsPage extends ConsumerStatefulWidget {
 
 class _FlagsPageState extends ConsumerState<FlagsPage> {
   final _searchCtrl = TextEditingController();
+  late ConsoleColors _cs;
 
   @override
   void dispose() {
@@ -83,10 +78,11 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     final selected = ref.watch(_selectedFlagProvider);
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: _cs.background,
       body: selected != null
           ? _FlagDetailView(
               flag: selected,
@@ -102,134 +98,113 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
     final perPage = ref.watch(_flagPerPageProvider);
     final currentPage = ref.watch(_flagPageProvider);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Title
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-          child: Text('Feature Flags',
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(color: Colors.white)),
-        ),
-        const SizedBox(height: 16),
-        // Search header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SearchListHeader(
-            searchController: _searchCtrl,
-            total: flagsAsync.whenOrNull(
-                    data: (d) => d['total'] as int? ?? 0) ??
-                0,
-            perPage: perPage,
-            currentPage: currentPage,
-            onPerPageChanged: (v) {
-              ref.read(_flagPerPageProvider.notifier).state = v;
-              ref.read(_flagPageProvider.notifier).state = 1;
-            },
-            onPrev: () =>
-                ref.read(_flagPageProvider.notifier).update((s) => s - 1),
-            onNext: () =>
-                ref.read(_flagPageProvider.notifier).update((s) => s + 1),
-            onSearch: _doSearch,
-            trailing: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: _accent,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: () => _showCreateFlagDialog(context, ref),
-              icon: const Icon(LucideIcons.plus, size: 16),
-              label: const Text('Create Flag'),
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 32),
+          Text(
+            'Feature Flags',
+            style: TextStyle(
+              color: _cs.textPrimary,
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        const Divider(height: 1, color: _border),
-        // Table
-        Expanded(
-          child: flagsAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(LucideIcons.alertCircle,
-                      size: 48, color: _subtleText),
-                  const SizedBox(height: 16),
-                  Text('Failed to load flags: $e',
-                      style: const TextStyle(color: _dimText)),
-                  const SizedBox(height: 8),
-                  FilledButton(
-                    onPressed: () => ref.invalidate(flagsProvider),
-                    child: const Text('Retry'),
-                  ),
-                ],
+          const SizedBox(height: 24),
+          Expanded(
+            child: flagsAsync.when(
+              loading: () =>
+                  const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              error: (e, _) => Center(
+                child: Text('Error: $e',
+                    style: const TextStyle(color: Color(0xFFEF4444))),
               ),
-            ),
-            data: (data) {
-              final flags =
-                  List<Map<String, dynamic>>.from(data['flags'] ?? []);
-              if (flags.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(LucideIcons.flag, size: 64, color: _subtleText),
-                      const SizedBox(height: 16),
-                      const Text('No feature flags yet',
-                          style: TextStyle(color: _dimText)),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _accent,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8)),
-                        ),
-                        onPressed: () =>
-                            _showCreateFlagDialog(context, ref),
-                        icon: const Icon(LucideIcons.plus, size: 16),
-                        label: const Text('Create Flag'),
-                      ),
-                    ],
-                  ),
+              data: (data) {
+                final flags =
+                    List<Map<String, dynamic>>.from(data['flags'] ?? []);
+                final total = data['total'] as int? ?? flags.length;
+                return AppDataTable(
+                  columns: const [
+                    AppTableColumn(
+                        key: r'$id', label: 'ID', flex: 3, defaultVisible: false),
+                    AppTableColumn(key: 'key',     label: 'Key',     flex: 3),
+                    AppTableColumn(key: 'name',    label: 'Name',    flex: 3),
+                    AppTableColumn(
+                        key: 'type', label: 'Type', flex: 2, sortable: false),
+                    AppTableColumn(
+                        key: 'enabled', label: 'Enabled', flex: 2, sortable: false),
+                  ],
+                  rows: flags,
+                  getCellValue: (row, key) => switch (key) {
+                    r'$id'    => row[r'$id'] as String? ?? '',
+                    'key'     => row['key'] as String? ?? '',
+                    'name'    => row['name'] as String? ?? '',
+                    'type'    => row['type'] as String? ?? 'boolean',
+                    'enabled' => (row['enabled'] == true) ? 'enabled' : 'disabled',
+                    _         => '',
+                  },
+                  cellBuilder: (row, key) {
+                    if (key == 'enabled') {
+                      return Switch(
+                        value: row['enabled'] == true,
+                        onChanged: (_) => _toggleFlag(ref, row),
+                        activeColor: _accent,
+                      );
+                    }
+                    if (key == 'type') {
+                      return _TypeBadge(
+                          type: row['type'] as String? ?? 'boolean');
+                    }
+                    return null;
+                  },
+                  getRowIcon: (_) => LucideIcons.flag,
+                  getRowIconColor: (row) => row['enabled'] == true
+                      ? const Color(0xFF22C55E)
+                      : const Color(0xFF6B7280),
+                  onRowTap: (row) =>
+                      ref.read(_selectedFlagProvider.notifier).state = row,
+                  onDeleteRow: (row) => _deleteFlag(context, ref, row),
+                  createLabel: 'Create flag',
+                  onCreateTap: () => _showCreateFlagDialog(context, ref),
+                  total: total,
+                  perPage: perPage,
+                  currentPage: currentPage,
+                  onPrev: () =>
+                      ref.read(_flagPageProvider.notifier).update((s) => s - 1),
+                  onNext: () =>
+                      ref.read(_flagPageProvider.notifier).update((s) => s + 1),
+                  onPerPageChanged: (v) {
+                    ref.read(_flagPerPageProvider.notifier).state = v;
+                    ref.read(_flagPageProvider.notifier).state = 1;
+                  },
+                  itemLabel: 'flags',
+                  searchController: _searchCtrl,
+                  onSearch: _doSearch,
+                  searchHint: 'Search by key or name',
+                  emptyIcon: LucideIcons.flag,
+                  emptyTitle: 'No feature flags',
+                  emptySubtitle:
+                      'Create a flag to start managing feature rollouts.',
+                  filters: const [
+                    AppTableFilter(
+                        key: 'type',
+                        label: 'Type',
+                        options: ['boolean', 'string', 'number', 'json']),
+                    AppTableFilter(
+                        key: 'enabled',
+                        label: 'Status',
+                        options: ['enabled', 'disabled']),
+                  ],
                 );
-              }
-              return _FlagTable(
-                flags: flags,
-                onSelect: (f) =>
-                    ref.read(_selectedFlagProvider.notifier).state = f,
-                onToggle: (f) => _toggleFlag(ref, f),
-                onEdit: (f) => _showEditFlagDialog(context, ref, f),
-                onDelete: (f) => _deleteFlag(context, ref, f),
-              );
-            },
+              },
+            ),
           ),
-        ),
-        // Footer
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SearchListFooter(
-            total: flagsAsync.whenOrNull(
-                    data: (d) => d['total'] as int? ?? 0) ??
-                0,
-            perPage: perPage,
-            currentPage: currentPage,
-            itemLabel: 'flags',
-            onPrev: () =>
-                ref.read(_flagPageProvider.notifier).update((s) => s - 1),
-            onNext: () =>
-                ref.read(_flagPageProvider.notifier).update((s) => s + 1),
-            onPerPageChanged: (v) {
-              ref.read(_flagPerPageProvider.notifier).state = v;
-              ref.read(_flagPageProvider.notifier).state = 1;
-            },
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
+        ],
+      ),
     );
   }
 
@@ -250,140 +225,144 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 480,
-              constraints: const BoxConstraints(maxHeight: 600),
-              decoration: BoxDecoration(
-                color: _surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    blurRadius: 32,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text('Create Flag',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              )),
-                        ),
-                        GestureDetector(
-                          onTap: () => Navigator.of(ctx).pop(),
-                          child: Icon(LucideIcons.x,
-                              size: 16,
-                              color: Colors.white.withOpacity(0.3)),
-                        ),
-                      ],
+        builder: (ctx, setDialogState) {
+          final cs = consoleColors(ctx);
+          return Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 480,
+                constraints: const BoxConstraints(maxHeight: 600),
+                decoration: BoxDecoration(
+                  color: cs.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 32,
+                      offset: const Offset(0, 8),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                        height: 1, color: Colors.white.withOpacity(0.06)),
-                  ),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                      child: Row(
                         children: [
-                          AppDialogField(
-                            controller: keyCtrl,
-                            label: 'Key',
-                            hint: 'e.g. enable_dark_mode',
-                            autofocus: true,
+                          Expanded(
+                            child: Text('Create Flag',
+                                style: TextStyle(
+                                  color: cs.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                )),
                           ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: nameCtrl,
-                            label: 'Name',
-                            hint: 'Dark Mode',
-                          ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: descCtrl,
-                            label: 'Description',
-                            hint: 'Controls whether dark mode is available',
-                            maxLines: 3,
-                          ),
-                          const SizedBox(height: 12),
-                          _buildDropdown(
-                            label: 'Type',
-                            value: selectedType,
-                            items: const [
-                              'boolean',
-                              'string',
-                              'number',
-                              'json'
-                            ],
-                            onChanged: (v) =>
-                                setDialogState(() => selectedType = v!),
-                          ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: defaultValCtrl,
-                            label: 'Default Value',
-                            hint: selectedType == 'boolean'
-                                ? 'true or false'
-                                : selectedType == 'number'
-                                    ? '0'
-                                    : selectedType == 'json'
-                                        ? '{}'
-                                        : 'value',
+                          GestureDetector(
+                            onTap: () => Navigator.of(ctx).pop(),
+                            child: Icon(LucideIcons.x,
+                                size: 16,
+                                color: cs.textSubtle),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        const AppDialogCancel(),
-                        AppDialogAction(
-                          label: 'Create',
-                          onTap: () async {
-                            final api = ref.read(apiClientProvider);
-                            await api.post('/flags', data: {
-                              'key': keyCtrl.text,
-                              'name': nameCtrl.text,
-                              'description': descCtrl.text,
-                              'type': selectedType,
-                              'defaultValue': defaultValCtrl.text,
-                            });
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            ref.invalidate(flagsProvider);
-                          },
-                        ),
-                      ],
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Container(
+                          height: 1, color: cs.border),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AppDialogField(
+                              controller: keyCtrl,
+                              label: 'Key',
+                              hint: 'e.g. enable_dark_mode',
+                              autofocus: true,
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: nameCtrl,
+                              label: 'Name',
+                              hint: 'Dark Mode',
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: descCtrl,
+                              label: 'Description',
+                              hint: 'Controls whether dark mode is available',
+                              maxLines: 3,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildDropdown(
+                              cs: cs,
+                              label: 'Type',
+                              value: selectedType,
+                              items: const [
+                                'boolean',
+                                'string',
+                                'number',
+                                'json'
+                              ],
+                              onChanged: (v) =>
+                                  setDialogState(() => selectedType = v!),
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: defaultValCtrl,
+                              label: 'Default Value',
+                              hint: selectedType == 'boolean'
+                                  ? 'true or false'
+                                  : selectedType == 'number'
+                                      ? '0'
+                                      : selectedType == 'json'
+                                          ? '{}'
+                                          : 'value',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          const AppDialogCancel(),
+                          AppDialogAction(
+                            label: 'Create',
+                            onTap: () async {
+                              final api = ref.read(apiClientProvider);
+                              await api.post('/flags', data: {
+                                'key': keyCtrl.text,
+                                'name': nameCtrl.text,
+                                'description': descCtrl.text,
+                                'type': selectedType,
+                                'defaultValue': defaultValCtrl.text,
+                              });
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              ref.invalidate(flagsProvider);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -401,140 +380,144 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 480,
-              constraints: const BoxConstraints(maxHeight: 600),
-              decoration: BoxDecoration(
-                color: _surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    blurRadius: 32,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text('Edit Flag',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              )),
-                        ),
-                        GestureDetector(
-                          onTap: () => Navigator.of(ctx).pop(),
-                          child: Icon(LucideIcons.x,
-                              size: 16,
-                              color: Colors.white.withOpacity(0.3)),
-                        ),
-                      ],
+        builder: (ctx, setDialogState) {
+          final cs = consoleColors(ctx);
+          return Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 480,
+                constraints: const BoxConstraints(maxHeight: 600),
+                decoration: BoxDecoration(
+                  color: cs.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 32,
+                      offset: const Offset(0, 8),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                        height: 1, color: Colors.white.withOpacity(0.06)),
-                  ),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                      child: Row(
                         children: [
-                          AppDialogField(
-                            controller: keyCtrl,
-                            label: 'Key',
-                            hint: 'e.g. enable_dark_mode',
-                            autofocus: true,
+                          Expanded(
+                            child: Text('Edit Flag',
+                                style: TextStyle(
+                                  color: cs.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                )),
                           ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: nameCtrl,
-                            label: 'Name',
-                            hint: 'Dark Mode',
-                          ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: descCtrl,
-                            label: 'Description',
-                            hint: 'Controls whether dark mode is available',
-                            maxLines: 3,
-                          ),
-                          const SizedBox(height: 12),
-                          _buildDropdown(
-                            label: 'Type',
-                            value: selectedType,
-                            items: const [
-                              'boolean',
-                              'string',
-                              'number',
-                              'json'
-                            ],
-                            onChanged: (v) =>
-                                setDialogState(() => selectedType = v!),
-                          ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: defaultValCtrl,
-                            label: 'Default Value',
-                            hint: selectedType == 'boolean'
-                                ? 'true or false'
-                                : selectedType == 'number'
-                                    ? '0'
-                                    : selectedType == 'json'
-                                        ? '{}'
-                                        : 'value',
+                          GestureDetector(
+                            onTap: () => Navigator.of(ctx).pop(),
+                            child: Icon(LucideIcons.x,
+                                size: 16,
+                                color: cs.textSubtle),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        const AppDialogCancel(),
-                        AppDialogAction(
-                          label: 'Save',
-                          onTap: () async {
-                            final api = ref.read(apiClientProvider);
-                            await api.put('/flags/${flag['\$id']}', data: {
-                              'key': keyCtrl.text,
-                              'name': nameCtrl.text,
-                              'description': descCtrl.text,
-                              'type': selectedType,
-                              'defaultValue': defaultValCtrl.text,
-                            });
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            ref.invalidate(flagsProvider);
-                          },
-                        ),
-                      ],
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Container(
+                          height: 1, color: cs.border),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AppDialogField(
+                              controller: keyCtrl,
+                              label: 'Key',
+                              hint: 'e.g. enable_dark_mode',
+                              autofocus: true,
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: nameCtrl,
+                              label: 'Name',
+                              hint: 'Dark Mode',
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: descCtrl,
+                              label: 'Description',
+                              hint: 'Controls whether dark mode is available',
+                              maxLines: 3,
+                            ),
+                            const SizedBox(height: 12),
+                            _buildDropdown(
+                              cs: cs,
+                              label: 'Type',
+                              value: selectedType,
+                              items: const [
+                                'boolean',
+                                'string',
+                                'number',
+                                'json'
+                              ],
+                              onChanged: (v) =>
+                                  setDialogState(() => selectedType = v!),
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: defaultValCtrl,
+                              label: 'Default Value',
+                              hint: selectedType == 'boolean'
+                                  ? 'true or false'
+                                  : selectedType == 'number'
+                                      ? '0'
+                                      : selectedType == 'json'
+                                          ? '{}'
+                                          : 'value',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          const AppDialogCancel(),
+                          AppDialogAction(
+                            label: 'Save',
+                            onTap: () async {
+                              final api = ref.read(apiClientProvider);
+                              await api.put('/flags/${flag['\$id']}', data: {
+                                'key': keyCtrl.text,
+                                'name': nameCtrl.text,
+                                'description': descCtrl.text,
+                                'type': selectedType,
+                                'defaultValue': defaultValCtrl.text,
+                              });
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              ref.invalidate(flagsProvider);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -547,7 +530,7 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
       content: Text(
         'Are you sure you want to delete "${flag['name'] ?? flag['key']}"? '
         'This action cannot be undone.',
-        style: TextStyle(color: Colors.white.withOpacity(0.7)),
+        style: TextStyle(color: _cs.textSecondary),
       ),
       actions: [
         const AppDialogCancel(),
@@ -569,6 +552,7 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
 // --- Shared dropdown builder -----------------------------------------------
 
 Widget _buildDropdown({
+  required ConsoleColors cs,
   required String label,
   required String value,
   required List<String> items,
@@ -579,24 +563,24 @@ Widget _buildDropdown({
     children: [
       Text(label,
           style: TextStyle(
-              color: Colors.white.withOpacity(0.5),
+              color: cs.textMuted,
               fontSize: 12,
               fontWeight: FontWeight.w500)),
       const SizedBox(height: 6),
       DropdownButtonFormField<String>(
         value: value,
-        dropdownColor: _surface,
-        style: const TextStyle(color: Colors.white, fontSize: 13),
+        dropdownColor: cs.surface,
+        style: TextStyle(color: cs.textPrimary, fontSize: 13),
         decoration: InputDecoration(
           filled: true,
-          fillColor: _fieldFill,
+          fillColor: cs.fieldFill,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _fieldBorder),
+            borderSide: BorderSide(color: cs.fieldBorder),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _fieldBorder),
+            borderSide: BorderSide(color: cs.fieldBorder),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
@@ -612,128 +596,6 @@ Widget _buildDropdown({
       ),
     ],
   );
-}
-
-// --- Flag table ------------------------------------------------------------
-
-class _FlagTable extends StatelessWidget {
-  final List<Map<String, dynamic>> flags;
-  final ValueChanged<Map<String, dynamic>> onSelect;
-  final ValueChanged<Map<String, dynamic>> onToggle;
-  final ValueChanged<Map<String, dynamic>> onEdit;
-  final ValueChanged<Map<String, dynamic>> onDelete;
-
-  const _FlagTable({
-    required this.flags,
-    required this.onSelect,
-    required this.onToggle,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SingleChildScrollView(
-        child: DataTable(
-          columnSpacing: 24,
-          headingRowColor: WidgetStateProperty.all(_surface),
-          dataRowColor: WidgetStateProperty.all(_bg),
-          columns: const [
-            DataColumn(
-                label: Text('Toggle',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: _dimText))),
-            DataColumn(
-                label: Text('Key',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: _dimText))),
-            DataColumn(
-                label: Text('Name',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: _dimText))),
-            DataColumn(
-                label: Text('Type',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: _dimText))),
-            DataColumn(
-                label: Text('Status',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: _dimText))),
-            DataColumn(
-                label: Text('Actions',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: _dimText))),
-          ],
-          rows: flags.map((flag) {
-            final enabled = flag['enabled'] == true;
-            return DataRow(
-              cells: [
-                DataCell(
-                  Switch(
-                    value: enabled,
-                    activeColor: _accent,
-                    onChanged: (_) => onToggle(flag),
-                  ),
-                ),
-                DataCell(
-                  GestureDetector(
-                    onTap: () => onSelect(flag),
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: Text(
-                        flag['key'] ?? '',
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 13,
-                          color: _accent,
-                          decoration: TextDecoration.underline,
-                          decorationColor: _accent,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                DataCell(
-                  GestureDetector(
-                    onTap: () => onSelect(flag),
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: Text(flag['name'] ?? '',
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 13)),
-                    ),
-                  ),
-                ),
-                DataCell(_TypeBadge(type: flag['type'] ?? 'boolean')),
-                DataCell(_StatusChip(enabled: enabled)),
-                DataCell(
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(LucideIcons.pencil,
-                            size: 16, color: _dimText),
-                        tooltip: 'Edit',
-                        onPressed: () => onEdit(flag),
-                      ),
-                      IconButton(
-                        icon: const Icon(LucideIcons.trash2,
-                            size: 16, color: _dimText),
-                        tooltip: 'Delete',
-                        onPressed: () => onDelete(flag),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
 }
 
 // --- Type badge ------------------------------------------------------------
@@ -820,6 +682,7 @@ class _FlagDetailView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final tab = ref.watch(_detailTabProvider);
     final flagId = flag['\$id'] as String;
 
@@ -838,27 +701,27 @@ class _FlagDetailView extends ConsumerWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(LucideIcons.arrowLeft,
-                          size: 16, color: _dimText),
+                      Icon(LucideIcons.arrowLeft,
+                          size: 16, color: cs.textMuted),
                       const SizedBox(width: 8),
                       Text('Feature Flags',
                           style: TextStyle(
-                              color: _dimText,
+                              color: cs.textMuted,
                               fontSize: 14)),
                     ],
                   ),
                 ),
               ),
               const SizedBox(width: 12),
-              const Icon(LucideIcons.chevronRight,
-                  size: 14, color: _subtleText),
+              Icon(LucideIcons.chevronRight,
+                  size: 14, color: cs.textSubtle),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(flag['name'] ?? flag['key'] ?? '',
                     style: Theme.of(context)
                         .textTheme
                         .headlineSmall
-                        ?.copyWith(color: Colors.white)),
+                        ?.copyWith(color: cs.textPrimary)),
               ),
               _StatusChip(enabled: flag['enabled'] == true),
             ],
@@ -870,13 +733,13 @@ class _FlagDetailView extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Row(
             children: [
-              Icon(LucideIcons.key, size: 12, color: _subtleText),
+              Icon(LucideIcons.key, size: 12, color: cs.textSubtle),
               const SizedBox(width: 6),
               Text(flag['key'] ?? '',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 12,
-                      color: _dimText)),
+                      color: cs.textMuted)),
               const SizedBox(width: 16),
               _TypeBadge(type: flag['type'] ?? 'boolean'),
             ],
@@ -926,56 +789,57 @@ class _SettingsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: _surface,
+          color: cs.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _border),
+          border: Border.all(color: cs.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _settingRow('Key', flag['key'] ?? '', mono: true),
-            const Divider(color: _border, height: 24),
-            _settingRow('Name', flag['name'] ?? ''),
-            const Divider(color: _border, height: 24),
-            _settingRow('Description', flag['description'] ?? 'No description'),
-            const Divider(color: _border, height: 24),
-            _settingRow('Type', flag['type'] ?? 'boolean'),
-            const Divider(color: _border, height: 24),
-            _settingRow('Default Value', '${flag['defaultValue'] ?? 'N/A'}',
+            _settingRow(cs, 'Key', flag['key'] ?? '', mono: true),
+            Divider(color: cs.border, height: 24),
+            _settingRow(cs, 'Name', flag['name'] ?? ''),
+            Divider(color: cs.border, height: 24),
+            _settingRow(cs, 'Description', flag['description'] ?? 'No description'),
+            Divider(color: cs.border, height: 24),
+            _settingRow(cs, 'Type', flag['type'] ?? 'boolean'),
+            Divider(color: cs.border, height: 24),
+            _settingRow(cs, 'Default Value', '${flag['defaultValue'] ?? 'N/A'}',
                 mono: true),
-            const Divider(color: _border, height: 24),
+            Divider(color: cs.border, height: 24),
             _settingRow(
-                'Status', flag['enabled'] == true ? 'Enabled' : 'Disabled'),
-            const Divider(color: _border, height: 24),
-            _settingRow('Created', _formatTimestamp(flag['\$createdAt'])),
-            const Divider(color: _border, height: 24),
-            _settingRow('Updated', _formatTimestamp(flag['\$updatedAt'])),
+                cs, 'Status', flag['enabled'] == true ? 'Enabled' : 'Disabled'),
+            Divider(color: cs.border, height: 24),
+            _settingRow(cs, 'Created', _formatTimestamp(flag['\$createdAt'])),
+            Divider(color: cs.border, height: 24),
+            _settingRow(cs, 'Updated', _formatTimestamp(flag['\$updatedAt'])),
           ],
         ),
       ),
     );
   }
 
-  Widget _settingRow(String label, String value, {bool mono = false}) {
+  Widget _settingRow(ConsoleColors cs, String label, String value, {bool mono = false}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
           width: 140,
           child: Text(label,
-              style: const TextStyle(
-                  color: _dimText, fontSize: 13, fontWeight: FontWeight.w500)),
+              style: TextStyle(
+                  color: cs.textMuted, fontSize: 13, fontWeight: FontWeight.w500)),
         ),
         Expanded(
           child: SelectableText(
             value,
             style: TextStyle(
-              color: Colors.white,
+              color: cs.textPrimary,
               fontSize: 13,
               fontFamily: mono ? 'monospace' : null,
             ),
@@ -1007,6 +871,7 @@ class _RulesTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final rulesAsync = ref.watch(_flagRulesProvider(flagId));
 
     return Column(
@@ -1016,11 +881,11 @@ class _RulesTab extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
           child: Row(
             children: [
-              const Icon(LucideIcons.gitBranch, size: 16, color: _dimText),
+              Icon(LucideIcons.gitBranch, size: 16, color: cs.textMuted),
               const SizedBox(width: 8),
               Text('Targeting Rules',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: cs.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
@@ -1039,7 +904,7 @@ class _RulesTab extends ConsumerWidget {
             ],
           ),
         ),
-        const Divider(height: 1, color: _border),
+        Divider(height: 1, color: cs.border),
         // Rules list
         Expanded(
           child: rulesAsync.when(
@@ -1049,7 +914,7 @@ class _RulesTab extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('Failed to load rules: $e',
-                      style: const TextStyle(color: _dimText)),
+                      style: TextStyle(color: cs.textMuted)),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: () =>
@@ -1063,17 +928,17 @@ class _RulesTab extends ConsumerWidget {
               final rules =
                   List<Map<String, dynamic>>.from(data['rules'] ?? []);
               if (rules.isEmpty) {
-                return const Center(
+                return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(LucideIcons.gitBranch, size: 48, color: _subtleText),
-                      SizedBox(height: 16),
+                      Icon(LucideIcons.gitBranch, size: 48, color: cs.textSubtle),
+                      const SizedBox(height: 16),
                       Text('No rules defined',
-                          style: TextStyle(color: _dimText)),
-                      SizedBox(height: 4),
+                          style: TextStyle(color: cs.textMuted)),
+                      const SizedBox(height: 4),
                       Text('All users will receive the default value.',
-                          style: TextStyle(color: _subtleText, fontSize: 12)),
+                          style: TextStyle(color: cs.textSubtle, fontSize: 12)),
                     ],
                   ),
                 );
@@ -1101,168 +966,172 @@ class _RulesTab extends ConsumerWidget {
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 480,
-              constraints: const BoxConstraints(maxHeight: 560),
-              decoration: BoxDecoration(
-                color: _surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    blurRadius: 32,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text('Add Rule',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              )),
-                        ),
-                        GestureDetector(
-                          onTap: () => Navigator.of(ctx).pop(),
-                          child: Icon(LucideIcons.x,
-                              size: 16,
-                              color: Colors.white.withOpacity(0.3)),
-                        ),
-                      ],
+        builder: (ctx, setDialogState) {
+          final cs = consoleColors(ctx);
+          return Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 480,
+                constraints: const BoxConstraints(maxHeight: 560),
+                decoration: BoxDecoration(
+                  color: cs.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 32,
+                      offset: const Offset(0, 8),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                        height: 1, color: Colors.white.withOpacity(0.06)),
-                  ),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                      child: Row(
                         children: [
-                          _buildDropdown(
-                            label: 'Rule Type',
-                            value: selectedType,
-                            items: const [
-                              'percentage',
-                              'attribute',
-                              'segment',
-                              'schedule'
-                            ],
-                            onChanged: (v) =>
-                                setDialogState(() => selectedType = v!),
+                          Expanded(
+                            child: Text('Add Rule',
+                                style: TextStyle(
+                                  color: cs.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                )),
                           ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: conditionsCtrl,
-                            label: 'Conditions (JSON)',
-                            hint:
-                                '{"attribute": "country", "operator": "eq", "value": "US"}',
-                            maxLines: 3,
-                          ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: valueCtrl,
-                            label: 'Value',
-                            hint: 'Value when rule matches',
-                          ),
-                          const SizedBox(height: 16),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Rollout Percentage',
-                                  style: TextStyle(
-                                      color: Colors.white.withOpacity(0.5),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500)),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: SliderTheme(
-                                      data: SliderThemeData(
-                                        activeTrackColor: _accent,
-                                        inactiveTrackColor:
-                                            _accent.withOpacity(0.2),
-                                        thumbColor: _accent,
-                                        overlayColor:
-                                            _accent.withOpacity(0.12),
-                                      ),
-                                      child: Slider(
-                                        value: rollout,
-                                        min: 0,
-                                        max: 100,
-                                        divisions: 100,
-                                        onChanged: (v) =>
-                                            setDialogState(() => rollout = v),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  SizedBox(
-                                    width: 48,
-                                    child: Text(
-                                      '${rollout.round()}%',
-                                      style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                          GestureDetector(
+                            onTap: () => Navigator.of(ctx).pop(),
+                            child: Icon(LucideIcons.x,
+                                size: 16,
+                                color: cs.textSubtle),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        const AppDialogCancel(),
-                        AppDialogAction(
-                          label: 'Add Rule',
-                          onTap: () async {
-                            final api = ref.read(apiClientProvider);
-                            await api.post('/flags/$flagId/rules', data: {
-                              'type': selectedType,
-                              'conditions': conditionsCtrl.text,
-                              'value': valueCtrl.text,
-                              'rolloutPercentage': rollout.round(),
-                            });
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            ref.invalidate(_flagRulesProvider(flagId));
-                          },
-                        ),
-                      ],
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Container(
+                          height: 1, color: cs.border),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildDropdown(
+                              cs: cs,
+                              label: 'Rule Type',
+                              value: selectedType,
+                              items: const [
+                                'percentage',
+                                'attribute',
+                                'segment',
+                                'schedule'
+                              ],
+                              onChanged: (v) =>
+                                  setDialogState(() => selectedType = v!),
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: conditionsCtrl,
+                              label: 'Conditions (JSON)',
+                              hint:
+                                  '{"attribute": "country", "operator": "eq", "value": "US"}',
+                              maxLines: 3,
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: valueCtrl,
+                              label: 'Value',
+                              hint: 'Value when rule matches',
+                            ),
+                            const SizedBox(height: 16),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Rollout Percentage',
+                                    style: TextStyle(
+                                        color: cs.textMuted,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500)),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: SliderTheme(
+                                        data: SliderThemeData(
+                                          activeTrackColor: _accent,
+                                          inactiveTrackColor:
+                                              _accent.withOpacity(0.2),
+                                          thumbColor: _accent,
+                                          overlayColor:
+                                              _accent.withOpacity(0.12),
+                                        ),
+                                        child: Slider(
+                                          value: rollout,
+                                          min: 0,
+                                          max: 100,
+                                          divisions: 100,
+                                          onChanged: (v) =>
+                                              setDialogState(() => rollout = v),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    SizedBox(
+                                      width: 48,
+                                      child: Text(
+                                        '${rollout.round()}%',
+                                        style: TextStyle(
+                                            color: cs.textPrimary,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          const AppDialogCancel(),
+                          AppDialogAction(
+                            label: 'Add Rule',
+                            onTap: () async {
+                              final api = ref.read(apiClientProvider);
+                              await api.post('/flags/$flagId/rules', data: {
+                                'type': selectedType,
+                                'conditions': conditionsCtrl.text,
+                                'value': valueCtrl.text,
+                                'rolloutPercentage': rollout.round(),
+                              });
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              ref.invalidate(_flagRulesProvider(flagId));
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -1277,6 +1146,7 @@ class _RuleCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final ruleType = rule['type'] ?? 'percentage';
     final enabled = rule['enabled'] != false;
     final rollout = (rule['rolloutPercentage'] ?? 100).toDouble();
@@ -1285,9 +1155,9 @@ class _RuleCard extends ConsumerWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _surface,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1300,8 +1170,8 @@ class _RuleCard extends ConsumerWidget {
               Expanded(
                 child: Text(
                   rule['conditions']?.toString() ?? 'No conditions',
-                  style: const TextStyle(
-                      color: _dimText, fontSize: 12, fontFamily: 'monospace'),
+                  style: TextStyle(
+                      color: cs.textMuted, fontSize: 12, fontFamily: 'monospace'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1314,8 +1184,8 @@ class _RuleCard extends ConsumerWidget {
                 },
               ),
               IconButton(
-                icon: const Icon(LucideIcons.trash2,
-                    size: 16, color: _dimText),
+                icon: Icon(LucideIcons.trash2,
+                    size: 16, color: cs.textMuted),
                 tooltip: 'Delete rule',
                 onPressed: () async {
                   final api = ref.read(apiClientProvider);
@@ -1329,13 +1199,13 @@ class _RuleCard extends ConsumerWidget {
           // Value
           Row(
             children: [
-              const Icon(LucideIcons.arrowRight, size: 12, color: _subtleText),
+              Icon(LucideIcons.arrowRight, size: 12, color: cs.textSubtle),
               const SizedBox(width: 6),
               Text('Value: ',
-                  style: TextStyle(color: _dimText, fontSize: 12)),
+                  style: TextStyle(color: cs.textMuted, fontSize: 12)),
               Text('${rule['value'] ?? 'N/A'}',
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                      color: cs.textPrimary,
                       fontSize: 12,
                       fontFamily: 'monospace')),
             ],
@@ -1344,10 +1214,10 @@ class _RuleCard extends ConsumerWidget {
           // Rollout bar
           Row(
             children: [
-              const Icon(LucideIcons.users, size: 12, color: _subtleText),
+              Icon(LucideIcons.users, size: 12, color: cs.textSubtle),
               const SizedBox(width: 6),
               Text('Rollout: ${rollout.round()}%',
-                  style: const TextStyle(color: _dimText, fontSize: 12)),
+                  style: TextStyle(color: cs.textMuted, fontSize: 12)),
               const SizedBox(width: 12),
               Expanded(
                 child: ClipRRect(
@@ -1377,6 +1247,7 @@ class _RuleTypeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     Color badgeColor;
     IconData icon;
     switch (type) {
@@ -1393,7 +1264,7 @@ class _RuleTypeBadge extends StatelessWidget {
         badgeColor = const Color(0xFF22C55E);
         icon = LucideIcons.clock;
       default:
-        badgeColor = _dimText;
+        badgeColor = cs.textMuted;
         icon = LucideIcons.helpCircle;
     }
     return Container(
@@ -1424,6 +1295,7 @@ class _OverridesTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final overridesAsync = ref.watch(_flagOverridesProvider(flagId));
 
     return Column(
@@ -1433,11 +1305,11 @@ class _OverridesTab extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
           child: Row(
             children: [
-              const Icon(LucideIcons.userCog, size: 16, color: _dimText),
+              Icon(LucideIcons.userCog, size: 16, color: cs.textMuted),
               const SizedBox(width: 8),
               Text('Target Overrides',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: cs.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
@@ -1457,7 +1329,7 @@ class _OverridesTab extends ConsumerWidget {
             ],
           ),
         ),
-        const Divider(height: 1, color: _border),
+        Divider(height: 1, color: cs.border),
         // Overrides list
         Expanded(
           child: overridesAsync.when(
@@ -1467,7 +1339,7 @@ class _OverridesTab extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('Failed to load overrides: $e',
-                      style: const TextStyle(color: _dimText)),
+                      style: TextStyle(color: cs.textMuted)),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: () =>
@@ -1481,19 +1353,19 @@ class _OverridesTab extends ConsumerWidget {
               final overrides =
                   List<Map<String, dynamic>>.from(data['overrides'] ?? []);
               if (overrides.isEmpty) {
-                return const Center(
+                return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(LucideIcons.userCog, size: 48, color: _subtleText),
-                      SizedBox(height: 16),
+                      Icon(LucideIcons.userCog, size: 48, color: cs.textSubtle),
+                      const SizedBox(height: 16),
                       Text('No overrides set',
-                          style: TextStyle(color: _dimText)),
-                      SizedBox(height: 4),
+                          style: TextStyle(color: cs.textMuted)),
+                      const SizedBox(height: 4),
                       Text(
                           'Override flag values for specific users or teams.',
                           style:
-                              TextStyle(color: _subtleText, fontSize: 12)),
+                              TextStyle(color: cs.textSubtle, fontSize: 12)),
                     ],
                   ),
                 );
@@ -1510,16 +1382,16 @@ class _OverridesTab extends ConsumerWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: _surface,
+                      color: cs.surface,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _border),
+                      border: Border.all(color: cs.border),
                     ),
                     child: Row(
                       children: [
                         Icon(
                           isUser ? LucideIcons.user : LucideIcons.users,
                           size: 16,
-                          color: _dimText,
+                          color: cs.textMuted,
                         ),
                         const SizedBox(width: 10),
                         Container(
@@ -1546,15 +1418,15 @@ class _OverridesTab extends ConsumerWidget {
                         Expanded(
                           child: Text(
                             o['targetId'] ?? '',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 12,
-                              color: Colors.white,
+                              color: cs.textPrimary,
                             ),
                           ),
                         ),
-                        const Icon(LucideIcons.arrowRight,
-                            size: 14, color: _subtleText),
+                        Icon(LucideIcons.arrowRight,
+                            size: 14, color: cs.textSubtle),
                         const SizedBox(width: 12),
                         Text(
                           '${o['value'] ?? 'N/A'}',
@@ -1567,8 +1439,8 @@ class _OverridesTab extends ConsumerWidget {
                         ),
                         const SizedBox(width: 12),
                         IconButton(
-                          icon: const Icon(LucideIcons.trash2,
-                              size: 16, color: _dimText),
+                          icon: Icon(LucideIcons.trash2,
+                              size: 16, color: cs.textMuted),
                           tooltip: 'Remove override',
                           onPressed: () async {
                             final api = ref.read(apiClientProvider);
@@ -1599,118 +1471,122 @@ class _OverridesTab extends ConsumerWidget {
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 440,
-              constraints: const BoxConstraints(maxHeight: 420),
-              decoration: BoxDecoration(
-                color: _surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    blurRadius: 32,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text('Add Override',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              )),
-                        ),
-                        GestureDetector(
-                          onTap: () => Navigator.of(ctx).pop(),
-                          child: Icon(LucideIcons.x,
-                              size: 16,
-                              color: Colors.white.withOpacity(0.3)),
-                        ),
-                      ],
+        builder: (ctx, setDialogState) {
+          final cs = consoleColors(ctx);
+          return Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 440,
+                constraints: const BoxConstraints(maxHeight: 420),
+                decoration: BoxDecoration(
+                  color: cs.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 32,
+                      offset: const Offset(0, 8),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                        height: 1, color: Colors.white.withOpacity(0.06)),
-                  ),
-                  const SizedBox(height: 16),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                      child: Row(
                         children: [
-                          _buildDropdown(
-                            label: 'Target Type',
-                            value: targetType,
-                            items: const ['user', 'team'],
-                            onChanged: (v) =>
-                                setDialogState(() => targetType = v!),
+                          Expanded(
+                            child: Text('Add Override',
+                                style: TextStyle(
+                                  color: cs.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                )),
                           ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: targetIdCtrl,
-                            label: 'Target ID',
-                            hint: targetType == 'user'
-                                ? 'User ID'
-                                : 'Team ID',
-                            autofocus: true,
-                          ),
-                          const SizedBox(height: 12),
-                          AppDialogField(
-                            controller: valueCtrl,
-                            label: 'Value',
-                            hint: 'Override value for this target',
+                          GestureDetector(
+                            onTap: () => Navigator.of(ctx).pop(),
+                            child: Icon(LucideIcons.x,
+                                size: 16,
+                                color: cs.textSubtle),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        const AppDialogCancel(),
-                        AppDialogAction(
-                          label: 'Add Override',
-                          onTap: () async {
-                            final api = ref.read(apiClientProvider);
-                            await api.post('/flags/$flagId/overrides',
-                                data: {
-                                  'targetType': targetType,
-                                  'targetId': targetIdCtrl.text,
-                                  'value': valueCtrl.text,
-                                });
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            ref.invalidate(
-                                _flagOverridesProvider(flagId));
-                          },
-                        ),
-                      ],
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Container(
+                          height: 1, color: cs.border),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildDropdown(
+                              cs: cs,
+                              label: 'Target Type',
+                              value: targetType,
+                              items: const ['user', 'team'],
+                              onChanged: (v) =>
+                                  setDialogState(() => targetType = v!),
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: targetIdCtrl,
+                              label: 'Target ID',
+                              hint: targetType == 'user'
+                                  ? 'User ID'
+                                  : 'Team ID',
+                              autofocus: true,
+                            ),
+                            const SizedBox(height: 12),
+                            AppDialogField(
+                              controller: valueCtrl,
+                              label: 'Value',
+                              hint: 'Override value for this target',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          const AppDialogCancel(),
+                          AppDialogAction(
+                            label: 'Add Override',
+                            onTap: () async {
+                              final api = ref.read(apiClientProvider);
+                              await api.post('/flags/$flagId/overrides',
+                                  data: {
+                                    'targetType': targetType,
+                                    'targetId': targetIdCtrl.text,
+                                    'value': valueCtrl.text,
+                                  });
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              ref.invalidate(
+                                  _flagOverridesProvider(flagId));
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -1724,6 +1600,7 @@ class _StatsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final statsAsync = ref.watch(_flagStatsProvider(flagId));
 
     return statsAsync.when(
@@ -1733,7 +1610,7 @@ class _StatsTab extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('Failed to load stats: $e',
-                style: const TextStyle(color: _dimText)),
+                style: TextStyle(color: cs.textMuted)),
             const SizedBox(height: 8),
             FilledButton(
               onPressed: () =>
@@ -1787,32 +1664,32 @@ class _StatsTab extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: _surface,
+                  color: cs.surface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _border),
+                  border: Border.all(color: cs.border),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
+                    Row(
                       children: [
                         Icon(LucideIcons.pieChart,
-                            size: 16, color: _dimText),
-                        SizedBox(width: 8),
+                            size: 16, color: cs.textMuted),
+                        const SizedBox(width: 8),
                         Text('Value Distribution',
                             style: TextStyle(
-                                color: Colors.white,
+                                color: cs.textPrimary,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500)),
                       ],
                     ),
                     const SizedBox(height: 16),
                     if (distribution.isEmpty)
-                      const Center(
+                      Center(
                         child: Padding(
-                          padding: EdgeInsets.all(24),
+                          padding: const EdgeInsets.all(24),
                           child: Text('No evaluation data yet',
-                              style: TextStyle(color: _subtleText)),
+                              style: TextStyle(color: cs.textSubtle)),
                         ),
                       )
                     else
@@ -1832,15 +1709,15 @@ class _StatsTab extends ConsumerWidget {
                               Row(
                                 children: [
                                   Text(entry.key,
-                                      style: const TextStyle(
-                                          color: Colors.white,
+                                      style: TextStyle(
+                                          color: cs.textPrimary,
                                           fontSize: 13,
                                           fontFamily: 'monospace')),
                                   const Spacer(),
                                   Text(
                                     '$count (${pct.toStringAsFixed(1)}%)',
-                                    style: const TextStyle(
-                                        color: _dimText, fontSize: 12),
+                                    style: TextStyle(
+                                        color: cs.textMuted, fontSize: 12),
                                   ),
                                 ],
                               ),
@@ -1895,12 +1772,13 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _surface,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1910,13 +1788,13 @@ class _StatCard extends StatelessWidget {
               Icon(icon, size: 16, color: _accent),
               const SizedBox(width: 8),
               Text(label,
-                  style: const TextStyle(color: _dimText, fontSize: 12)),
+                  style: TextStyle(color: cs.textMuted, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 12),
           Text(value,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: cs.textPrimary,
                   fontSize: 28,
                   fontWeight: FontWeight.w600)),
         ],

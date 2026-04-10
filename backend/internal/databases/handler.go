@@ -57,6 +57,8 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/{databaseId}/tables/{tableId}/columns/point", h.createColumn("point"))
 	r.Get("/{databaseId}/tables/{tableId}/columns", h.listColumns)
 	r.Delete("/{databaseId}/tables/{tableId}/columns/{key}", h.deleteColumn)
+	r.Get("/{databaseId}/tables/{tableId}/columns/{key}/permissions", h.getColumnPermissions)
+	r.Post("/{databaseId}/tables/{tableId}/columns/{key}/permissions", h.setColumnPermissions)
 
 	// Relationships
 	r.Post("/{databaseId}/tables/{tableId}/columns/relationship", h.createRelationship)
@@ -80,8 +82,17 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/{databaseId}/tables/{tableId}/rows", h.createRow)
 	r.Get("/{databaseId}/tables/{tableId}/rows", h.listRows)
 	r.Get("/{databaseId}/tables/{tableId}/rows/{rowId}", h.getRow)
+	r.Put("/{databaseId}/tables/{tableId}/rows/{rowId}", h.upsertRow)
 	r.Patch("/{databaseId}/tables/{tableId}/rows/{rowId}", h.updateRow)
 	r.Delete("/{databaseId}/tables/{tableId}/rows/{rowId}", h.deleteRow)
+
+	// Bulk / atomic row operations
+	r.Post("/{databaseId}/tables/{tableId}/rows/bulk", h.bulkCreateRows)
+	r.Patch("/{databaseId}/tables/{tableId}/rows/bulk", h.bulkUpdateRows)
+	r.Delete("/{databaseId}/tables/{tableId}/rows/bulk", h.bulkDeleteRows)
+	r.Post("/{databaseId}/tables/{tableId}/rows/{rowId}/increment", h.atomicIncrement)
+	r.Post("/{databaseId}/tables/{tableId}/rows/{rowId}/decrement", h.atomicDecrement)
+	r.Post("/{databaseId}/tables/{tableId}/rows/{rowId}/append", h.atomicAppend)
 
 	// Permissions
 	r.Post("/{databaseId}/tables/{tableId}/permissions", h.setTablePermissions)
@@ -215,16 +226,13 @@ func (h *Handler) updateTable(w http.ResponseWriter, r *http.Request) {
 		Name        string   `json:"name"`
 		Permissions []string `json:"permissions"`
 		Enabled     *bool    `json:"enabled"`
+		RowSecurity *bool    `json:"rowSecurity"`
 	}
 	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
-	enabled := true
-	if body.Enabled != nil {
-		enabled = *body.Enabled
-	}
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	table, err := h.svc.UpdateTable(r.Context(), tableID, dbID, projectID, body.Name, body.Permissions, enabled)
+	table, err := h.svc.UpdateTable(r.Context(), tableID, dbID, projectID, body.Name, body.Permissions, body.Enabled, body.RowSecurity)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -247,10 +255,11 @@ func (h *Handler) createColumn(attrType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tableID := chi.URLParam(r, "tableId")
 		var body struct {
-			Key      string      `json:"key"`
-			Required bool        `json:"required"`
-			Array    bool        `json:"array"`
-			Default  interface{} `json:"default"`
+			Key        string                  `json:"key"`
+			Required   bool                    `json:"required"`
+			Array      bool                    `json:"array"`
+			Default    interface{}             `json:"default"`
+			Validation *model.ColumnValidation `json:"validation"`
 			// type-specific
 			Size     int         `json:"size"`
 			Min      interface{} `json:"min"`
@@ -277,7 +286,7 @@ func (h *Handler) createColumn(attrType string) http.HandlerFunc {
 		case "enum":
 			options["elements"] = body.Elements
 		}
-		column, err := h.svc.CreateColumn(r.Context(), tableID, body.Key, attrType, body.Required, body.Array, body.Default, options)
+		column, err := h.svc.CreateColumn(r.Context(), tableID, body.Key, attrType, body.Required, body.Array, body.Default, options, body.Validation)
 		if err != nil {
 			apperr.Internal(w, err)
 			return
@@ -304,6 +313,49 @@ func (h *Handler) deleteColumn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) getColumnPermissions(w http.ResponseWriter, r *http.Request) {
+	tableID := chi.URLParam(r, "tableId")
+	key := chi.URLParam(r, "key")
+	perms, err := h.svc.GetColumnPermissions(r.Context(), tableID, key)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "column")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"$permissions": perms})
+}
+
+func (h *Handler) setColumnPermissions(w http.ResponseWriter, r *http.Request) {
+	tableID := chi.URLParam(r, "tableId")
+	key := chi.URLParam(r, "key")
+	var body struct {
+		Permissions []string `json:"permissions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	// Validate: only "read" and "write" are valid column permissions.
+	for _, p := range body.Permissions {
+		if p != "read" && p != "write" {
+			apperr.BadRequest(w, "column permissions must be \"read\" or \"write\"")
+			return
+		}
+	}
+	if err := h.svc.SetColumnPermissions(r.Context(), tableID, key, body.Permissions); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "column")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"$permissions": body.Permissions})
 }
 
 func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
@@ -416,6 +468,10 @@ func (h *Handler) createRow(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
 			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to create rows in this table")
+			return
+		}
+		if verr, ok := err.(*ValidationErr); ok {
+			apperr.ValidationError(w, []apperr.ValidationFieldError{{Field: verr.Field, Rule: verr.Rule, Message: verr.Message}})
 			return
 		}
 		apperr.Internal(w, err)
@@ -590,6 +646,10 @@ func (h *Handler) updateRow(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
 			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to update this row")
+			return
+		}
+		if verr, ok := err.(*ValidationErr); ok {
+			apperr.ValidationError(w, []apperr.ValidationFieldError{{Field: verr.Field, Rule: verr.Rule, Message: verr.Message}})
 			return
 		}
 		apperr.Internal(w, err)

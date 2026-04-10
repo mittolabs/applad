@@ -4,22 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/deploy_create_entry.dart';
 import '../../core/widgets/search_list.dart';
 import '../../core/widgets/page_tabs.dart';
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _border = Color(0x14FFFFFF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 const _green = Color(0xFF10B981);
 const _red = Color(0xFFEF4444);
 const _orange = Color(0xFFF59E0B);
-const _fieldFill = Color(0x0AFFFFFF);
-const _fieldBorder = Color(0x1AFFFFFF);
 
 final _desktopProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final pid = ref.watch(currentProjectProvider);
@@ -41,52 +36,68 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
   final _searchCtrl = TextEditingController();
   int _page = 1;
   int _perPage = 6;
+  late ConsoleColors _cs;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     if (_selectedId != null) return _detailView();
 
     final dataAsync = ref.watch(_desktopProvider);
 
-    return Container(
-      color: _bg,
-      child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
-          child: Row(children: [
-            const Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Desktop Apps', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700)),
-                SizedBox(height: 4),
-                Text('Build and distribute macOS, Windows, and Linux desktop applications',
-                    style: TextStyle(color: _dimText, fontSize: 14)),
-              ]),
+    return Scaffold(
+      backgroundColor: _cs.background,
+      body: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Desktop Apps',
+                      style: TextStyle(
+                          color: _cs.textPrimary,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600)),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _accent,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                  ),
+                  icon: const Icon(LucideIcons.plus, size: 16),
+                  label: const Text('Create app', style: TextStyle(fontSize: 13)),
+                  onPressed: _create,
+                ),
+              ],
             ),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: _accent,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            const SizedBox(height: 24),
+            Divider(height: 1, color: _cs.border),
+            const SizedBox(height: 20),
+            Expanded(
+              child: dataAsync.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator(color: _accent)),
+                error: (e, _) =>
+                    Center(child: Text('$e', style: TextStyle(color: _cs.textMuted))),
+                data: (data) {
+                  final targets = List<Map<String, dynamic>>.from(
+                      data['targets'] ?? []);
+                  if (targets.isEmpty) return _emptyState();
+                  return _list(targets);
+                },
               ),
-              icon: const Icon(LucideIcons.plus, size: 16),
-              label: const Text('Create app', style: TextStyle(fontSize: 13)),
-              onPressed: _create,
             ),
-          ]),
+          ],
         ),
-        const SizedBox(height: 24),
-        Expanded(
-          child: dataAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
-            error: (e, _) => Center(child: Text('$e', style: const TextStyle(color: _dimText))),
-            data: (data) {
-              final targets = List<Map<String, dynamic>>.from(data['targets'] ?? []);
-              if (targets.isEmpty) return _emptyState();
-              return _list(targets);
-            },
-          ),
-        ),
-      ]),
+      ),
     );
   }
 
@@ -100,9 +111,9 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
           child: const Icon(LucideIcons.laptop, size: 24, color: _green)),
       ]),
       const SizedBox(height: 24),
-      const Text('No desktop apps yet', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+      Text('No desktop apps yet', style: TextStyle(color: _cs.textPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
-      const Text('Build for macOS, Windows, and Linux from source', style: TextStyle(color: _dimText, fontSize: 14)),
+      Text('Build for macOS, Windows, and Linux from source', style: TextStyle(color: _cs.textMuted, fontSize: 14)),
       const SizedBox(height: 24),
       FilledButton.icon(
         style: FilledButton.styleFrom(backgroundColor: _accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
@@ -114,9 +125,9 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
   );
 
   Widget _list(List<Map<String, dynamic>> targets) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         SearchListHeader(
           searchController: _searchCtrl,
           total: targets.length,
@@ -131,6 +142,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
         const SizedBox(height: 16),
         Expanded(
           child: ListView.separated(
+            padding: EdgeInsets.zero,
             itemCount: targets.length,
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (ctx, i) {
@@ -145,8 +157,8 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: _surface, borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _border),
+                      color: _cs.surface, borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _cs.border),
                     ),
                     child: Row(children: [
                       Container(
@@ -156,8 +168,8 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
                       ),
                       const SizedBox(width: 14),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(t['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
-                        Text(t['framework'] ?? 'No framework', style: const TextStyle(color: _subtleText, fontSize: 12)),
+                        Text(t['name'] ?? '', style: TextStyle(color: _cs.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+                        Text(t['framework'] ?? 'No framework', style: TextStyle(color: _cs.textSubtle, fontSize: 12)),
                       ])),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -173,7 +185,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
             },
           ),
         ),
-      ]),
+      ],
     );
   }
 
@@ -181,8 +193,8 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
     if (status == null || status.isEmpty) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(color: _subtleText.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-        child: const Text('No builds', style: TextStyle(color: _subtleText, fontSize: 11)),
+        decoration: BoxDecoration(color: _cs.textSubtle.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+        child: Text('No builds', style: TextStyle(color: _cs.textSubtle, fontSize: 11)),
       );
     }
     final color = status == 'completed' ? _green : status == 'failed' ? _red : _orange;
@@ -230,14 +242,14 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
         final target = snap.data as Map<String, dynamic>;
 
         return Container(
-          color: _bg,
+          color: _cs.background,
           child: Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(32, 20, 32, 16),
               child: Row(children: [
-                IconButton(icon: const Icon(LucideIcons.arrowLeft, size: 18, color: _dimText), onPressed: () => setState(() => _selectedId = null)),
+                IconButton(icon: Icon(LucideIcons.arrowLeft, size: 18, color: _cs.textMuted), onPressed: () => setState(() => _selectedId = null)),
                 const SizedBox(width: 8),
-                Expanded(child: Text(target['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600))),
+                Expanded(child: Text(target['name'] ?? '', style: TextStyle(color: _cs.textPrimary, fontSize: 20, fontWeight: FontWeight.w600))),
               ]),
             ),
             Padding(
@@ -301,7 +313,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
       builder: (ctx, snap) {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: _accent));
         final releases = List<Map<String, dynamic>>.from((snap.data as Map)['releases'] ?? []);
-        if (releases.isEmpty) return const Center(child: Text('No builds yet', style: TextStyle(color: _dimText)));
+        if (releases.isEmpty) return Center(child: Text('No builds yet', style: TextStyle(color: _cs.textMuted)));
         return ListView.separated(
           padding: const EdgeInsets.all(32),
           itemCount: releases.length,
@@ -312,13 +324,13 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
             final sc = status == 'completed' ? _green : status == 'failed' ? _red : _orange;
             return Container(
               padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+              decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _cs.border)),
               child: Row(children: [
                 Container(width: 8, height: 8, decoration: BoxDecoration(color: sc, shape: BoxShape.circle)),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(r['\$id'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace')),
-                  Text('${r['triggerType'] ?? 'manual'} • ${r['durationMs'] ?? 0}ms', style: const TextStyle(color: _subtleText, fontSize: 11)),
+                  IdText(id: r['\$id'] ?? '', fontSize: 12),
+                  Text('${r['triggerType'] ?? 'manual'} • ${r['durationMs'] ?? 0}ms', style: TextStyle(color: _cs.textSubtle, fontSize: 11)),
                 ])),
                 Text(status, style: TextStyle(color: sc, fontSize: 12)),
               ]),
@@ -336,7 +348,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Code Signing', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        Text('Code Signing', style: TextStyle(color: _cs.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 24),
         // macOS signing
         if (platform == 'macos' || platform == 'cross-platform') ...[
@@ -391,14 +403,14 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
   Widget _signingSection({required String title, required String description, required String buttonLabel}) {
     return Container(
       width: double.infinity, padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+      decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _cs.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: const TextStyle(color: Colors.white, fontSize: 14)),
+        Text(title, style: TextStyle(color: _cs.textPrimary, fontSize: 14)),
         const SizedBox(height: 4),
-        Text(description, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+        Text(description, style: TextStyle(color: _cs.textSubtle, fontSize: 13)),
         const SizedBox(height: 12),
         OutlinedButton.icon(
-          style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: BorderSide(color: Colors.white.withOpacity(0.12))),
+          style: OutlinedButton.styleFrom(foregroundColor: _cs.textSecondary, side: BorderSide(color: _cs.border)),
           icon: const Icon(LucideIcons.upload, size: 14),
           label: Text(buttonLabel, style: const TextStyle(fontSize: 12)),
           onPressed: () {},
@@ -410,11 +422,11 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
   Widget _configSection({required String title, required String description, required List<Widget> fields}) {
     return Container(
       width: double.infinity, padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+      decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _cs.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: const TextStyle(color: Colors.white, fontSize: 14)),
+        Text(title, style: TextStyle(color: _cs.textPrimary, fontSize: 14)),
         const SizedBox(height: 4),
-        Text(description, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+        Text(description, style: TextStyle(color: _cs.textSubtle, fontSize: 13)),
         const SizedBox(height: 16),
         ...fields,
       ]),
@@ -425,11 +437,11 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(children: [
-        SizedBox(width: 180, child: Text(label, style: const TextStyle(color: _subtleText, fontSize: 13))),
+        SizedBox(width: 180, child: Text(label, style: TextStyle(color: _cs.textSubtle, fontSize: 13))),
         Expanded(child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(color: _fieldFill, borderRadius: BorderRadius.circular(6), border: Border.all(color: _fieldBorder)),
-          child: Text(value.isEmpty ? '—' : value, style: TextStyle(color: value.isEmpty ? _subtleText : Colors.white, fontSize: 13)),
+          decoration: BoxDecoration(color: _cs.fieldFill, borderRadius: BorderRadius.circular(6), border: Border.all(color: _cs.fieldBorder)),
+          child: Text(value.isEmpty ? '—' : value, style: TextStyle(color: value.isEmpty ? _cs.textSubtle : _cs.textPrimary, fontSize: 13)),
         )),
       ]),
     );
@@ -442,7 +454,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Distribution', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        Text('Distribution', style: TextStyle(color: _cs.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 24),
         // macOS distribution
         if (platform == 'macos' || platform == 'cross-platform') ...[
@@ -491,12 +503,12 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
   Widget _distributionSection({required IconData icon, required String title, required List<Widget> items}) {
     return Container(
       width: double.infinity, padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+      decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _cs.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Icon(icon, size: 16, color: _accent),
           const SizedBox(width: 8),
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+          Text(title, style: TextStyle(color: _cs.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
         ]),
         const SizedBox(height: 16),
         ...items,
@@ -511,19 +523,19 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
         Container(
           width: 32, height: 32,
           decoration: BoxDecoration(
-            color: enabled ? _green.withOpacity(0.1) : _subtleText.withOpacity(0.05),
+            color: enabled ? _green.withOpacity(0.1) : _cs.textSubtle.withOpacity(0.05),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Icon(
             enabled ? LucideIcons.check : LucideIcons.minus,
             size: 14,
-            color: enabled ? _green : _subtleText,
+            color: enabled ? _green : _cs.textSubtle,
           ),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
-          Text(description, style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 11)),
+          Text(title, style: TextStyle(color: _cs.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(description, style: TextStyle(color: _cs.textSubtle, fontSize: 11)),
         ])),
         GestureDetector(
           onTap: () {},
@@ -545,7 +557,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
     return Padding(
       padding: const EdgeInsets.all(32),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('App Settings', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        Text('App Settings', style: TextStyle(color: _cs.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 24),
         _settingRow('Name', t['name'] ?? ''),
         _settingRow('Platform', _platformLabel((t['platform'] ?? 'cross-platform') as String)),
@@ -556,11 +568,11 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
         const SizedBox(height: 32),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withOpacity(0.3))),
+          decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withOpacity(0.3))),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('Danger zone', style: TextStyle(color: _red, fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            Text('Delete this app and all its builds.', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+            Text('Delete this app and all its builds.', style: TextStyle(color: _cs.textSubtle, fontSize: 13)),
             const SizedBox(height: 12),
             OutlinedButton(
               style: OutlinedButton.styleFrom(foregroundColor: _red, side: const BorderSide(color: _red)),
@@ -580,11 +592,11 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
   Widget _infoCard(String label, String value) => Expanded(
     child: Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+      decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _cs.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: const TextStyle(color: _subtleText, fontSize: 12)),
+        Text(label, style: TextStyle(color: _cs.textSubtle, fontSize: 12)),
         const SizedBox(height: 6),
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+        Text(value, style: TextStyle(color: _cs.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
       ]),
     ),
   );
@@ -592,8 +604,8 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
   Widget _settingRow(String label, String value) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: Row(children: [
-      SizedBox(width: 140, child: Text(label, style: const TextStyle(color: _subtleText, fontSize: 13))),
-      Expanded(child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 13))),
+      SizedBox(width: 140, child: Text(label, style: TextStyle(color: _cs.textSubtle, fontSize: 13))),
+      Expanded(child: Text(value, style: TextStyle(color: _cs.textPrimary, fontSize: 13))),
     ]),
   );
 
@@ -660,7 +672,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
       content: StatefulBuilder(builder: (ctx, setD) => Column(mainAxisSize: MainAxisSize.min, children: [
         AppDialogField(controller: nameCtrl, label: 'App name', hint: 'my-desktop-app', autofocus: true),
         const SizedBox(height: 16),
-        Text('Platform', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.w500)),
+        Text('Platform', style: TextStyle(color: _cs.textMuted, fontSize: 12, fontWeight: FontWeight.w500)),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
           _platformChip('macOS', 'macos', LucideIcons.apple, platform, (v) => setD(() => platform = v)),
@@ -669,7 +681,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
           _platformChip('Cross-platform', 'cross-platform', LucideIcons.laptop, platform, (v) => setD(() => platform = v)),
         ]),
         const SizedBox(height: 16),
-        Text('Framework', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.w500)),
+        Text('Framework', style: TextStyle(color: _cs.textMuted, fontSize: 12, fontWeight: FontWeight.w500)),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
           _frameworkChip('Flutter', 'flutter', framework, (v) => setD(() => framework = v)),
@@ -707,14 +719,14 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
           width: 110,
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: active ? _accent.withOpacity(0.15) : _surface,
+            color: active ? _accent.withOpacity(0.15) : _cs.surface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: active ? _accent : _border),
+            border: Border.all(color: active ? _accent : _cs.border),
           ),
           child: Column(children: [
-            Icon(icon, size: 18, color: active ? _accent : _dimText),
+            Icon(icon, size: 18, color: active ? _accent : _cs.textMuted),
             const SizedBox(height: 5),
-            Text(label, style: TextStyle(color: active ? Colors.white : _dimText, fontSize: 12, fontWeight: active ? FontWeight.w600 : FontWeight.w400)),
+            Text(label, style: TextStyle(color: active ? _cs.textPrimary : _cs.textMuted, fontSize: 12, fontWeight: active ? FontWeight.w600 : FontWeight.w400)),
           ]),
         ),
       ),
@@ -730,11 +742,11 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: active ? _accent.withOpacity(0.15) : _surface,
+            color: active ? _accent.withOpacity(0.15) : _cs.surface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: active ? _accent : _border),
+            border: Border.all(color: active ? _accent : _cs.border),
           ),
-          child: Text(label, style: TextStyle(color: active ? Colors.white : _dimText, fontSize: 13, fontWeight: active ? FontWeight.w600 : FontWeight.w400)),
+          child: Text(label, style: TextStyle(color: active ? _cs.textPrimary : _cs.textMuted, fontSize: 13, fontWeight: active ? FontWeight.w600 : FontWeight.w400)),
         ),
       ),
     );

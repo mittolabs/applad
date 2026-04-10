@@ -97,7 +97,7 @@ func findBaseImage(runtimeID string) *BaseImage {
 // imageExists checks if a Docker image exists locally.
 func imageExists(ctx context.Context, docker *Client, imageName string) bool {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("http://docker/v1.43/images/%s/json", imageName), nil)
+		fmt.Sprintf(docker.baseURL + "/v1.43/images/%s/json", imageName), nil)
 	if err != nil {
 		return false
 	}

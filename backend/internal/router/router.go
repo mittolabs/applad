@@ -2,6 +2,8 @@ package router
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -26,6 +28,7 @@ import (
 	"github.com/mittolabs/applad/internal/jobs"
 	"github.com/mittolabs/applad/internal/locale"
 	"github.com/mittolabs/applad/internal/messaging"
+	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/migrations"
 	mw "github.com/mittolabs/applad/internal/middleware"
 	oauthpkg "github.com/mittolabs/applad/internal/oauth"
@@ -37,6 +40,7 @@ import (
 	"github.com/mittolabs/applad/internal/search"
 	"github.com/mittolabs/applad/internal/storage"
 	"github.com/mittolabs/applad/internal/teams"
+	"github.com/mittolabs/applad/internal/trace"
 	"github.com/mittolabs/applad/internal/usage"
 	"github.com/mittolabs/applad/internal/vectors"
 	"github.com/mittolabs/applad/internal/webhooks"
@@ -47,27 +51,37 @@ import (
 func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux {
 	r := chi.NewRouter()
 
+	// Audit log middleware — records all authenticated API calls
+	auditSvc := audit.NewService(database)
+
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
-	r.Use(chimw.Logger)
+	r.Use(trace.Middleware)
+	r.Use(observabilityMiddleware)
 	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS)
 	r.Use(mw.SecurityHeaders)
 	r.Use(mw.RateLimitRedis(100, cacheClient.Client()))
 	r.Use(mw.MaxBodySize(10 << 20))
-
-	// Audit log middleware — records all authenticated API calls
-	auditSvc := audit.NewService(database)
 	r.Use(audit.Middleware(auditSvc))
+
+	// Metrics endpoint — expose on a separate path so it can be firewall-restricted.
+	// In Kubernetes, restrict access with a NetworkPolicy to allow only Prometheus pods.
+	r.Handle("/metrics", metrics.Default.Handler())
 
 	projectSvc := projects.NewService(database)
 	authSvc := auth.NewService(database, cfg.JWTSecret)
-	dbSvc := databases.NewService(database, cfg.PostgRESTURL, cfg.JWTSecret)
-	storageSvc := storage.NewService(database, cfg.StoragePath)
+	dbSvc := databases.NewService(database)
+	storageSvc := storage.NewService(database, cfg.StoragePath, cfg.JWTSecret)
+	if cfg.StorageDriver == "s3" {
+		storageSvc.SetDriver(storage.NewS3Driver(
+			cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey,
+		))
+	}
 	teamSvc := teams.NewService(database)
 	deployQueue := queue.New(cacheClient.Client())
 	deploySvc := deploy.NewService(database, deployQueue)
-	healthHandler := health.NewHandler(database, cacheClient, cfg.PostgRESTURL)
+	healthHandler := health.NewHandler(database, cacheClient)
 	messagingSvc := messaging.NewService(database, messaging.Config{
 		Host:         cfg.SMTPHost,
 		Port:         cfg.SMTPPort,
@@ -96,8 +110,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	functionQueue := queue.New(cacheClient.Client())
 	functionSvc := functions.NewService(database, functionQueue)
 
-	// Realtime hub — wire into services for auto-publishing
-	hub := realtime.NewHub(cfg.DatabaseDSN)
+	// Realtime hub — wire into services for auto-publishing.
+	// Pass RedisAddr so events are fanned through Redis when scaling horizontally.
+	hub := realtime.NewHub(cfg.DatabaseDSN, cfg.RedisAddr)
 	realtimeHandler := realtime.NewHandler(hub)
 	dbSvc.SetEventPublisher(hub)
 	storageSvc.SetEventPublisher(hub)
@@ -110,6 +125,26 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	// Console auth
 	consoleSvc := console.NewService(database, cfg.JWTSecret)
 	consoleHandler := console.NewHandler(consoleSvc, cfg.ConsoleSignupEnabled)
+
+	// Console OAuth providers (Google, GitHub, SSO) — for admin console login only.
+	// Per-project OAuth is configured through the console UI.
+	consoleOAuthConfigs := map[string]oauthpkg.ProviderConfig{
+		"github": {ClientID: cfg.ConsoleGitHubClientID, ClientSecret: cfg.ConsoleGitHubClientSecret},
+		"google": {ClientID: cfg.ConsoleGoogleClientID, ClientSecret: cfg.ConsoleGoogleClientSecret},
+	}
+	consoleProviders := oauthpkg.Providers(consoleOAuthConfigs)
+	if cfg.ConsoleSSOClientID != "" && cfg.ConsoleSSOAuthURL != "" {
+		ssoProviders := oauthpkg.ProvidersWithDomain(
+			map[string]oauthpkg.ProviderConfig{
+				"sso": {ClientID: cfg.ConsoleSSOClientID, ClientSecret: cfg.ConsoleSSOClientSecret},
+			},
+			"", "", cfg.ConsoleSSOAuthURL, cfg.ConsoleSSOTokenURL, cfg.ConsoleSSOUserInfoURL,
+		)
+		for k, v := range ssoProviders {
+			consoleProviders[k] = v
+		}
+	}
+	consoleHandler.SetProviders(consoleProviders)
 
 	r.Route("/v1", func(r chi.Router) {
 		// Health — no auth required
@@ -200,6 +235,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			// Server-side routes — require auth
 			r.Group(func(r chi.Router) {
 				r.Use(mw.RequireAuth)
+				r.Use(mw.RateLimitUser(300, cacheClient.Client()))
 				r.Mount("/users", auth.UserRoutes(auth.NewHandler(authSvc)))
 				r.Mount("/teams", teams.Routes(teams.NewHandler(teamSvc)))
 				r.Mount("/databases", databases.Routes(databases.NewHandler(dbSvc)))
@@ -220,6 +256,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				webhookSvc := webhooks.NewService(database)
 				r.Mount("/webhooks", webhooks.Routes(webhooks.NewHandler(webhookSvc)))
 
+				// Audit logs
+				r.Mount("/audit", audit.Routes(audit.NewHandler(auditSvc)))
+
 				// Usage analytics
 				usageSvc := usage.NewService(database)
 				r.Mount("/usage", usage.Routes(usage.NewHandler(usageSvc)))
@@ -239,6 +278,33 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	})
 
 	return r
+}
+
+// observabilityMiddleware records HTTP request metrics (count + latency) using
+// the built-in metrics package.  It wraps the response writer to capture the
+// status code written by downstream handlers.
+func observabilityMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(ww, r)
+		// Use chi's route pattern if available for low-cardinality labels.
+		pattern := r.URL.Path
+		if rctx := chi.RouteContext(r.Context()); rctx != nil && rctx.RoutePattern() != "" {
+			pattern = rctx.RoutePattern()
+		}
+		metrics.ObserveRequest(r.Method, pattern, ww.status, start)
+	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.status = code
+	sw.ResponseWriter.WriteHeader(code)
 }
 
 // oauthAdapter adapts oauth.Provider to auth.OAuthProvider interface.

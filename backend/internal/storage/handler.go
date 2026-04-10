@@ -44,6 +44,7 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/buckets/{bucketId}/files/{fileId}/download", h.downloadFile)
 	r.Get("/buckets/{bucketId}/files/{fileId}/view", h.viewFile)
 	r.Get("/buckets/{bucketId}/files/{fileId}/preview", h.previewFile)
+	r.Post("/buckets/{bucketId}/files/{fileId}/signed", h.createSignedURL)
 	r.Post("/buckets/{bucketId}/files/chunked", h.initChunkedUpload)
 	r.Patch("/buckets/{bucketId}/files/{fileId}/chunks", h.uploadChunk)
 	r.Post("/buckets/{bucketId}/files/{fileId}/chunks/complete", h.completeChunkedUpload)
@@ -215,9 +216,21 @@ func (h *Handler) createFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	content, err := io.ReadAll(file)
+	// Reject oversized uploads before reading into memory.
+	// header.Size comes from the multipart Content-Disposition and may be 0
+	// when omitted, so we also enforce a hard cap via LimitReader (500 MB).
+	const hardMaxBytes = 500 << 20 // 500 MB
+	if header.Size > hardMaxBytes {
+		apperr.Write(w, http.StatusRequestEntityTooLarge, "storage_file_too_large", "file exceeds maximum allowed size")
+		return
+	}
+	content, err := io.ReadAll(io.LimitReader(file, hardMaxBytes+1))
 	if err != nil {
 		apperr.Internal(w, fmt.Errorf("read upload: %w", err))
+		return
+	}
+	if int64(len(content)) > hardMaxBytes {
+		apperr.Write(w, http.StatusRequestEntityTooLarge, "storage_file_too_large", "file exceeds maximum allowed size")
 		return
 	}
 
@@ -271,11 +284,43 @@ func (h *Handler) viewFile(w http.ResponseWriter, r *http.Request) {
 	h.serveFile(w, r, false)
 }
 
+func (h *Handler) createSignedURL(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	bucketID := chi.URLParam(r, "bucketId")
+	fileID := chi.URLParam(r, "fileId")
+
+	var body struct {
+		ExpiresIn int64 `json:"expiresIn"`
+	}
+	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+
+	token, err := h.svc.CreateSignedURL(ctx, fileID, bucketID, projectID, body.ExpiresIn)
+	if err != nil {
+		apperr.NotFound(w, "file")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
 func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, download bool) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	bucketID := chi.URLParam(r, "bucketId")
 	fileID := chi.URLParam(r, "fileId")
+
+	// If a signed token is provided, validate it instead of requiring auth context.
+	if token := r.URL.Query().Get("token"); token != "" {
+		tBucketID, tFileID, ok := h.svc.VerifySignedToken(token)
+		if !ok || tBucketID != bucketID || tFileID != fileID {
+			apperr.Unauthorized(w)
+			return
+		}
+		// Use the IDs from the validated token — project resolved from bucket.
+		bucketID = tBucketID
+		fileID = tFileID
+	}
+
 	content, mimeType, err := h.svc.GetFileContent(ctx, fileID, bucketID, projectID)
 	if err != nil {
 		apperr.NotFound(w, "file")

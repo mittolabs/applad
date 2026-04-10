@@ -1,4 +1,6 @@
 import type { ApplAdServer } from './client';
+import { QueryBuilder } from './query_builder';
+export type { QueryResult } from './query_builder';
 
 export class Databases {
   constructor(private client: ApplAdServer) {}
@@ -141,6 +143,21 @@ export class Databases {
     );
   }
 
+  getColumnPermissions(databaseId: string, tableId: string, key: string) {
+    return this.client.call(
+      'GET',
+      `/databases/${databaseId}/tables/${tableId}/columns/${key}/permissions`
+    );
+  }
+
+  setColumnPermissions(databaseId: string, tableId: string, key: string, permissions: ('read' | 'write')[]) {
+    return this.client.call(
+      'POST',
+      `/databases/${databaseId}/tables/${tableId}/columns/${key}/permissions`,
+      { permissions }
+    );
+  }
+
   // --- Indexes ---
 
   createIndex(
@@ -234,5 +251,38 @@ export class Databases {
       'DELETE',
       `/databases/${databaseId}/tables/${tableId}/rows/${rowId}`
     );
+  }
+
+  // --- Query builder ---
+
+  /**
+   * Returns a fluent {@link QueryBuilder} for the given table.
+   *
+   * @example
+   * ```ts
+   * const result = await server.databases
+   *   .from('myDb', 'orders')
+   *   .equal('status', 'pending')
+   *   .orderAsc('created_at')
+   *   .limit(50)
+   *   .get();
+   * ```
+   */
+  from(databaseId: string, tableId: string): QueryBuilder {
+    return new QueryBuilder(async (params) => {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) {
+        if (Array.isArray(v)) {
+          v.forEach((item) => qs.append(k, String(item)));
+        } else if (v !== undefined) {
+          qs.set(k, String(v));
+        }
+      }
+      const query = qs.toString();
+      return this.client.call(
+        'GET',
+        `/databases/${databaseId}/tables/${tableId}/rows${query ? `?${query}` : ''}`
+      );
+    });
   }
 }

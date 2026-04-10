@@ -3,9 +3,8 @@ x-worker-build: &worker-build
   dockerfile: ../docker/worker/Dockerfile
 
 x-worker-env: &worker-env
-  DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad?sslmode=disable"
+  DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@pgbouncer:5432/applad?sslmode=disable"
   REDIS_ADDR: "redis:6379"
-  POSTGREST_URL: "http://postgrest:3000"
   STORAGE_PATH: "/var/applad/storage"
   APP_ENV: "${APP_ENV:-development}"
   SMTP_HOST: "${SMTP_HOST:-}"
@@ -13,12 +12,20 @@ x-worker-env: &worker-env
   SMTP_USER: "${SMTP_USER:-}"
   SMTP_PASS: "${SMTP_PASS:-}"
   SMTP_FROM: "${SMTP_FROM:-noreply@applad.local}"
+  # Storage driver (local or s3)
+  STORAGE_DRIVER: "${STORAGE_DRIVER:-local}"
+  S3_ENDPOINT: "${S3_ENDPOINT:-}"
+  S3_BUCKET: "${S3_BUCKET:-}"
+  S3_REGION: "${S3_REGION:-us-east-1}"
+  S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
+  S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+  # DB connection pool
+  DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-25}"
+  DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
 
 x-worker-deps: &worker-deps
-  postgres:
+  pgbouncer:
     condition: service_healthy
-  postgrest:
-    condition: service_started
   redis:
     condition: service_healthy
 
@@ -34,12 +41,19 @@ services:
       - "8080:8080"
     environment:
       PORT: "8080"
-      DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad?sslmode=disable"
+      DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@pgbouncer:5432/applad?sslmode=disable"
       REDIS_ADDR: "redis:6379"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
-      POSTGREST_URL: "http://postgrest:3000"
       STORAGE_PATH: "/var/applad/storage"
       APP_ENV: "${APP_ENV:-development}"
+      STORAGE_DRIVER: "${STORAGE_DRIVER:-local}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+      DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-25}"
+      DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
     volumes:
       - storage_data:/var/applad/storage
     depends_on: *worker-deps
@@ -71,7 +85,9 @@ services:
       <<: *worker-build
       args:
         WORKER_TYPE: builds
-    environment: *worker-env
+    environment:
+      <<: *worker-env
+      DOCKER_HOST: "${DOCKER_HOST:-unix:///var/run/docker.sock}"
     volumes:
       - storage_data:/var/applad/storage
       - /var/run/docker.sock:/var/run/docker.sock
@@ -177,6 +193,29 @@ services:
     depends_on: *worker-deps
     restart: unless-stopped
 
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "applad"
+      DB_USER: "applad"
+      DB_PASSWORD: "${DB_PASSWORD:-applad}"
+      LISTEN_PORT: "5432"
+      POOL_MODE: "session"
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "${DB_MAX_OPEN_CONNS:-25}"
+      AUTH_TYPE: "scram-sha-256"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -191,19 +230,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
-
-  postgrest:
-    image: postgrest/postgrest:v12.2.3
-    environment:
-      PGRST_DB_URI: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad"
-      PGRST_DB_SCHEMAS: "public,applad"
-      PGRST_DB_ANON_ROLE: "applad_anon"
-      PGRST_JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
-      PGRST_DB_PRE_REQUEST: "applad.check_jwt"
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
 
   redis:

@@ -2,17 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
+import '../../core/theme/console_colors.dart';
+import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const _bgColor = Color(0xFF0B0B0F);
-const _cardColor = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _border = Color(0x14FFFFFF);
-const _red = Color(0xFFEF4444);
 
 // ── Message model ─────────────────────────────────────────────────────────────
 class _Msg {
@@ -51,16 +48,30 @@ class _Msg {
 // ── Providers ──────────────────────────────────────────────────────────────────
 final _msgTabProvider = StateProvider<int>((ref) => 0);
 final _msgSearchProvider = StateProvider<String>((ref) => '');
+final _msgPerPageProvider = StateProvider<int>((ref) => 12);
+final _msgPageProvider = StateProvider<int>((ref) => 1);
 final _msgRefreshProvider = StateProvider<int>((ref) => 0);
+final _tmplRefreshProvider = StateProvider<int>((ref) => 0);
 
 final _messagesApiProvider =
     FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final api = ref.read(apiClientProvider);
-  ref.watch(_msgRefreshProvider); // rebuild on refresh
+  ref.watch(_msgRefreshProvider);
   final search = ref.watch(_msgSearchProvider);
-  final params = <String, dynamic>{'limit': 50};
+  final limit = ref.watch(_msgPerPageProvider);
+  final page = ref.watch(_msgPageProvider);
+  final offset = (page - 1) * limit;
+  final params = <String, dynamic>{'limit': limit, 'offset': offset};
   if (search.isNotEmpty) params['search'] = search;
   final res = await api.get('/messaging/messages', params: params);
+  return res.data as Map<String, dynamic>;
+});
+
+final _templatesApiProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final api = ref.read(apiClientProvider);
+  ref.watch(_tmplRefreshProvider);
+  final res = await api.get('/messaging/templates');
   return res.data as Map<String, dynamic>;
 });
 
@@ -70,10 +81,11 @@ class MessagingPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final tab = ref.watch(_msgTabProvider);
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -82,17 +94,17 @@ class MessagingPage extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 32),
-            const Text(
+            Text(
               'Messaging',
               style: TextStyle(
-                color: Colors.white,
+                color: cs.textPrimary,
                 fontSize: 22,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 24),
             PageTabs(
-              tabs: const ['Messages', 'Topics', 'Providers'],
+              tabs: const ['Messages', 'Topics', 'Templates', 'Providers'],
               selected: tab,
               onChanged: (i) => ref.read(_msgTabProvider.notifier).state = i,
             ),
@@ -103,6 +115,7 @@ class MessagingPage extends ConsumerWidget {
                 children: const [
                   _MessagesTab(),
                   _TopicsTab(),
+                  _TemplatesTab(),
                   _ProvidersTab(),
                 ],
               ),
@@ -132,8 +145,13 @@ class _MessagesTabState extends ConsumerState<_MessagesTab> {
     super.dispose();
   }
 
-  void _refresh() =>
-      ref.read(_msgRefreshProvider.notifier).state++;
+  void _refresh() => ref.read(_msgRefreshProvider.notifier).state++;
+
+  void _doSearch() {
+    ref.read(_msgSearchProvider.notifier).state = _searchCtrl.text.trim();
+    ref.read(_msgPageProvider.notifier).state = 1;
+    _refresh();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -145,234 +163,64 @@ class _MessagesTabState extends ConsumerState<_MessagesTab> {
     }
 
     final async = ref.watch(_messagesApiProvider);
+    final perPage = ref.watch(_msgPerPageProvider);
+    final currentPage = ref.watch(_msgPageProvider);
 
-    return Column(
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 280,
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (v) {
-                    ref.read(_msgSearchProvider.notifier).state = v;
-                    _refresh();
-                  },
-                  style: const TextStyle(fontSize: 13, color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search by description, type, status, or ID',
-                    hintStyle: const TextStyle(color: _subtleText, fontSize: 13),
-                    prefixIcon: const Padding(
-                      padding: EdgeInsets.only(left: 10, right: 6),
-                      child: Icon(Icons.search, size: 16, color: _subtleText),
-                    ),
-                    prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 0),
-                    filled: true,
-                    fillColor: const Color(0x0AFFFFFF),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: _accent),
-                    ),
-                  ),
-                ),
-              ),
-              const Spacer(),
-              _CreateMessageButton(onCreated: _refresh),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: async.when(
-              loading: () => const Center(
-                  child: CircularProgressIndicator(strokeWidth: 2)),
-              error: (e, _) => Center(
-                  child: Text('Error: $e',
-                      style: const TextStyle(color: Color(0xFFEF4444)))),
-              data: (data) {
-                final messages = (data['messages'] as List<dynamic>? ?? [])
-                    .map((e) => _Msg.fromJson(e as Map<String, dynamic>))
-                    .toList();
-                return messages.isEmpty
-                    ? _EmptyMessages(onCreateTap: () {})
-                    : _MessageTable(
-                        messages: messages,
-                        onRowTap: (msg) =>
-                            setState(() => _selected = msg),
-                      );
-              },
-            ),
-          ),
-        ],
-    );
-  }
-}
-
-// ── Empty state ───────────────────────────────────────────────────────────────
-class _EmptyMessages extends StatelessWidget {
-  final VoidCallback onCreateTap;
-  const _EmptyMessages({required this.onCreateTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(LucideIcons.messageSquare,
-                size: 22, color: _subtleText),
-          ),
-          const SizedBox(height: 16),
-          const Text('No messages',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 6),
-          const Text('Create a message to send email, SMS, or push notifications.',
-              style: TextStyle(color: _dimText, fontSize: 13)),
-          const SizedBox(height: 16),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: _accent,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: onCreateTap,
-            child: const Text('Create message', style: TextStyle(fontSize: 13)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Message Table ─────────────────────────────────────────────────────────────
-class _MessageTable extends StatelessWidget {
-  final List<_Msg> messages;
-  final ValueChanged<_Msg> onRowTap;
-
-  const _MessageTable({required this.messages, required this.onRowTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Header row
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            border: Border(
-                bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
-          ),
-          child: const Row(
-            children: [
-              Expanded(flex: 3, child: Text('Message ID', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-              Expanded(flex: 2, child: Text('Type', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-              Expanded(flex: 2, child: Text('Status', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-              Expanded(flex: 2, child: Text('Created', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-            ],
-          ),
-        ),
-        // Data rows
-        Expanded(
-          child: ListView.builder(
-            itemCount: messages.length,
-            itemBuilder: (_, i) => _MsgRow(
-              msg: messages[i],
-              onTap: () => onRowTap(messages[i]),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ── Message row ───────────────────────────────────────────────────────────────
-class _MsgRow extends StatefulWidget {
-  final _Msg msg;
-  final VoidCallback onTap;
-
-  const _MsgRow({required this.msg, required this.onTap});
-
-  @override
-  State<_MsgRow> createState() => _MsgRowState();
-}
-
-class _MsgRowState extends State<_MsgRow> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final msg = widget.msg;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: _hovered ? Colors.white.withOpacity(0.02) : null,
-            border: Border(
-                bottom: BorderSide(color: Colors.white.withOpacity(0.04))),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: Row(
-                  children: [
-                    Icon(_typeIcon(msg.type), size: 14, color: _accent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(msg.id,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontFamily: 'monospace'),
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(_typeName(msg.type),
-                    style: const TextStyle(color: _dimText, fontSize: 13)),
-              ),
-              Expanded(
-                flex: 2,
-                child: _StatusBadge(status: msg.status),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                    msg.createdAt.isNotEmpty ? msg.createdAt : '—',
-                    style: const TextStyle(color: _dimText, fontSize: 12)),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return async.when(
+      loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      error: (e, _) => Center(
+          child: Text('Error: $e', style: const TextStyle(color: Color(0xFFEF4444)))),
+      data: (data) {
+        final rows = List<Map<String, dynamic>>.from(data['messages'] ?? []);
+        final total = data['total'] as int? ?? rows.length;
+        return AppDataTable(
+          columns: const [
+            AppTableColumn(key: r'$id',       label: 'Message ID', flex: 3),
+            AppTableColumn(key: 'type',        label: 'Type',       flex: 2, sortable: false),
+            AppTableColumn(key: 'status',      label: 'Status',     flex: 2, sortable: false),
+            AppTableColumn(key: 'createdAt',   label: 'Created',    flex: 2),
+          ],
+          rows: rows,
+          getCellValue: (row, key) => switch (key) {
+            r'$id'     => row['id'] as String? ?? row[r'$id'] as String? ?? '',
+            'type'     => _typeName(row['type'] as String? ?? ''),
+            'status'   => row['status'] as String? ?? '',
+            'createdAt'=> row['createdAt'] as String? ?? '',
+            _          => '',
+          },
+          cellBuilder: (row, key) {
+            if (key == 'status') return _StatusBadge(status: row['status'] as String? ?? '');
+            return null;
+          },
+          getRowIcon: (row) => _typeIcon(row['type'] as String? ?? ''),
+          onRowTap: (row) {
+            final msg = _Msg.fromJson(row);
+            setState(() => _selected = msg);
+          },
+          createLabel: 'Create message',
+          createWidget: _CreateMessageButton(onCreated: _refresh),
+          total: total,
+          perPage: perPage,
+          currentPage: currentPage,
+          onPrev: () => ref.read(_msgPageProvider.notifier).update((s) => s - 1),
+          onNext: () => ref.read(_msgPageProvider.notifier).update((s) => s + 1),
+          onPerPageChanged: (v) {
+            ref.read(_msgPerPageProvider.notifier).state = v;
+            ref.read(_msgPageProvider.notifier).state = 1;
+          },
+          itemLabel: 'messages',
+          searchController: _searchCtrl,
+          onSearch: _doSearch,
+          searchHint: 'Search by type, status, or ID',
+          emptyIcon: LucideIcons.messageSquare,
+          emptyTitle: 'No messages',
+          emptySubtitle: 'Create a message to send email, SMS, or push notifications.',
+          filters: const [
+            AppTableFilter(key: 'type',   label: 'Type',   options: ['email', 'sms', 'push']),
+            AppTableFilter(key: 'status', label: 'Status', options: ['processing', 'sent', 'failed', 'draft']),
+          ],
+        );
+      },
     );
   }
 
@@ -387,6 +235,7 @@ class _MsgRowState extends State<_MsgRow> {
     if (t == 'sms') return 'SMS';
     return 'Push';
   }
+
 }
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -436,12 +285,13 @@ class _CreateMessageButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     return PopupMenuButton<String>(
       offset: const Offset(0, 40),
-      color: const Color(0xFF1E1F24),
+      color: cs.popupSurface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: _border),
+        side: BorderSide(color: cs.border),
       ),
       itemBuilder: (_) => [
         _menuItem('email', LucideIcons.mail, 'Email'),
@@ -548,8 +398,9 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -576,6 +427,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
   }
 
   Widget _dialogHeader() {
+    final cs = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.only(top: 32, bottom: 4),
       child: Row(
@@ -585,14 +437,14 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
               child: Icon(LucideIcons.arrowLeft,
-                  size: 20, color: Colors.white.withOpacity(0.5)),
+                  size: 20, color: cs.textMuted),
             ),
           ),
           const SizedBox(width: 12),
           Text(
             _title,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: cs.textPrimary,
               fontSize: 22,
               fontWeight: FontWeight.w600,
             ),
@@ -603,10 +455,11 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
   }
 
   Widget _dialogActions() {
+    final cs = consoleColors(context);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
+        border: Border(top: BorderSide(color: cs.border)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
@@ -614,7 +467,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             style: TextButton.styleFrom(
-              foregroundColor: Colors.white54,
+              foregroundColor: cs.textMuted,
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             ),
@@ -625,9 +478,8 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
           OutlinedButton(
             onPressed: _saving ? null : _saveDraft,
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white70,
-              side: BorderSide(
-                  color: Colors.white.withOpacity(0.18)),
+              foregroundColor: cs.textSecondary,
+              side: BorderSide(color: cs.border),
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               shape: RoundedRectangleBorder(
@@ -699,6 +551,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
 
   // ── SMS form ──
   Widget _smsBody() {
+    final cs = consoleColors(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -715,7 +568,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
                 child: Text(
                   '${_msgCtrl.text.length}/900',
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.3),
+                      color: cs.textSubtle,
                       fontSize: 11),
                 ),
               ),
@@ -742,6 +595,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
 
   // ── Push form ──
   Widget _pushBody() {
+    final cs = consoleColors(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -762,7 +616,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
                 child: Text(
                   '${_msgCtrl.text.length}/1000',
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.3),
+                      color: cs.textSubtle,
                       fontSize: 11),
                 ),
               ),
@@ -795,12 +649,13 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
 
   // ── Helpers ──
   Widget _sectionLabel(String label) {
+    final cs = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Text(
         label,
         style: TextStyle(
-          color: Colors.white.withOpacity(0.45),
+          color: cs.textMuted,
           fontSize: 11,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.6,
@@ -810,18 +665,19 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
   }
 
   Widget _fieldLabel(String label, {bool optional = false}) {
+    final cs = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
           Text(label,
-              style: const TextStyle(
-                  color: Colors.white70, fontSize: 13)),
+              style: TextStyle(
+                  color: cs.textSecondary, fontSize: 13)),
           if (optional) ...[
             const SizedBox(width: 4),
             Text('optional',
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.3),
+                    color: cs.textSubtle,
                     fontSize: 11)),
           ],
         ],
@@ -835,32 +691,31 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
     int maxLines = 1,
     bool autofocus = false,
   }) {
+    final cs = consoleColors(context);
     final multi = maxLines > 1;
     return TextField(
       controller: ctrl,
       autofocus: autofocus,
       maxLines: multi ? null : 1,
       minLines: multi ? maxLines : 1,
-      style: const TextStyle(color: Colors.white, fontSize: 13),
+      style: TextStyle(color: cs.textPrimary, fontSize: 13),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(
-            color: Colors.white.withOpacity(0.22), fontSize: 13),
+            color: cs.textSubtle, fontSize: 13),
         filled: true,
-        fillColor: const Color(0x0AFFFFFF),
+        fillColor: cs.fieldFill,
         isDense: true,
         contentPadding: multi
             ? const EdgeInsets.all(12)
             : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide:
-              BorderSide(color: Colors.white.withOpacity(0.1)),
+          borderSide: BorderSide(color: cs.fieldBorder),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide:
-              BorderSide(color: Colors.white.withOpacity(0.1)),
+          borderSide: BorderSide(color: cs.fieldBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -871,6 +726,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
   }
 
   Widget _htmlToggle() {
+    final cs = consoleColors(context);
     return Row(
       children: [
         Switch(
@@ -883,14 +739,12 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('HTML mode',
-                style: TextStyle(color: Colors.white70, fontSize: 13)),
+            Text('HTML mode',
+                style: TextStyle(color: cs.textSecondary, fontSize: 13)),
             const SizedBox(height: 2),
             Text(
               'Enable the HTML mode if your message contains HTML tags.',
-              style: TextStyle(
-                  color: Colors.white.withOpacity(0.3),
-                  fontSize: 11),
+              style: TextStyle(color: cs.textSubtle, fontSize: 11),
             ),
           ],
         ),
@@ -899,41 +753,37 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
   }
 
   Widget _mediaUpload() {
+    final cs = consoleColors(context);
     return Container(
       height: 90,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0x0AFFFFFF),
+        color: cs.fieldFill,
         borderRadius: BorderRadius.circular(8),
-        border:
-            Border.all(color: Colors.white.withOpacity(0.1)),
+        border: Border.all(color: cs.fieldBorder),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(LucideIcons.upload,
               size: 20,
-              color: Colors.white.withOpacity(0.3)),
+              color: cs.textSubtle),
           const SizedBox(height: 6),
           Text('Select a file to upload',
-              style: TextStyle(
-                  color: Colors.white.withOpacity(0.45),
-                  fontSize: 13)),
+              style: TextStyle(color: cs.textMuted, fontSize: 13)),
           const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text('Max file size: 1MB',
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.25),
-                      fontSize: 11)),
+                  style: TextStyle(color: cs.textSubtle, fontSize: 11)),
               const SizedBox(width: 8),
               MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: Text(
                   'Browse',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
+                    color: cs.textMuted,
                     fontSize: 11,
                     decoration: TextDecoration.underline,
                   ),
@@ -947,24 +797,24 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
   }
 
   Widget _scheduleDropdown() {
+    final cs = consoleColors(context);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0x0AFFFFFF),
+        color: cs.fieldFill,
         borderRadius: BorderRadius.circular(8),
-        border:
-            Border.all(color: Colors.white.withOpacity(0.1)),
+        border: Border.all(color: cs.fieldBorder),
       ),
       padding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: _schedule,
           isExpanded: true,
-          dropdownColor: const Color(0xFF1E1F24),
-          style:
-              const TextStyle(color: Colors.white, fontSize: 13),
+          isDense: true,
+          dropdownColor: cs.popupSurface,
+          style: TextStyle(color: cs.textPrimary, fontSize: 13),
           icon: Icon(Icons.keyboard_arrow_down,
-              color: Colors.white.withOpacity(0.4), size: 18),
+              color: cs.textSubtle, size: 18),
           items: const [
             DropdownMenuItem(value: 'Now', child: Text('Now')),
             DropdownMenuItem(
@@ -978,27 +828,26 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
   }
 
   Widget _scheduleHint() {
+    final cs = consoleColors(context);
     return Row(
       children: [
         Icon(Icons.info_outline,
             size: 12,
-            color: Colors.white.withOpacity(0.3)),
+            color: cs.textSubtle),
         const SizedBox(width: 5),
         Text(
           'The message will be sent immediately',
-          style: TextStyle(
-              color: Colors.white.withOpacity(0.3),
-              fontSize: 12),
+          style: TextStyle(color: cs.textSubtle, fontSize: 12),
         ),
       ],
     );
   }
 
   Widget _divider() {
+    final cs = consoleColors(context);
     return Column(
       children: [
-        Divider(
-            color: Colors.white.withOpacity(0.06), height: 1),
+        Divider(color: cs.border, height: 1),
         const SizedBox(height: 20),
       ],
     );
@@ -1323,6 +1172,7 @@ class _MessageDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1330,8 +1180,8 @@ class _MessageDetail extends StatelessWidget {
           Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back,
-                    size: 18, color: Colors.white70),
+                icon: Icon(Icons.arrow_back,
+                    size: 18, color: cs.textMuted),
                 onPressed: onBack,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -1339,8 +1189,8 @@ class _MessageDetail extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 msg.subject.isNotEmpty ? msg.subject : _typeName(),
-                style: const TextStyle(
-                    color: Colors.white,
+                style: TextStyle(
+                    color: cs.textPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.w600),
               ),
@@ -1349,7 +1199,7 @@ class _MessageDetail extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.07),
+                  color: cs.fill,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
@@ -1357,16 +1207,9 @@ class _MessageDetail extends StatelessWidget {
                   children: [
                     Icon(LucideIcons.tag,
                         size: 10,
-                        color: Colors.white.withOpacity(0.35)),
+                        color: cs.textSubtle),
                     const SizedBox(width: 4),
-                    Text(
-                      msg.id,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.45),
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
+                    IdText(id: msg.id, fontSize: 11),
                   ],
                 ),
               ),
@@ -1378,22 +1221,22 @@ class _MessageDetail extends StatelessWidget {
               child: Column(
                 children: [
                   // Type header card
-                  _card(
+                  _card(context,
                     child: Row(
                       children: [
                         Icon(_typeIconData(),
-                            size: 16, color: Colors.white54),
+                            size: 16, color: cs.textMuted),
                         const SizedBox(width: 8),
                         Text(_typeName(),
-                            style: const TextStyle(
-                                color: Colors.white,
+                            style: TextStyle(
+                                color: cs.textPrimary,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500)),
                         const Spacer(),
                         Text(
                           'Created: ${_fmtDate(msg.createdAt)}',
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.4),
+                              color: cs.textSubtle,
                               fontSize: 12),
                         ),
                         const SizedBox(width: 16),
@@ -1403,22 +1246,21 @@ class _MessageDetail extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   // Message card
-                  _card(
+                  _card(context,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Message',
+                        Text('Message',
                             style: TextStyle(
-                                color: Colors.white,
+                                color: cs.textPrimary,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500)),
-                        Divider(
-                            color: Colors.white.withOpacity(0.06)),
+                        Divider(color: cs.border),
                         if (msg.subject.isNotEmpty) ...[
-                          _detailRow('Subject', msg.subject),
+                          _detailRow(context, 'Subject', msg.subject),
                           const SizedBox(height: 12),
                         ],
-                        _detailRow(
+                        _detailRow(context,
                           msg.type == 'push' ? 'Body' : 'Message',
                           msg.body.isEmpty ? '-' : msg.body,
                         ),
@@ -1427,17 +1269,16 @@ class _MessageDetail extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   // Targets card
-                  _card(
+                  _card(context,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Targets',
+                        Text('Targets',
                             style: TextStyle(
-                                color: Colors.white,
+                                color: cs.textPrimary,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500)),
-                        Divider(
-                            color: Colors.white.withOpacity(0.06)),
+                        Divider(color: cs.border),
                         if (msg.recipients.isEmpty)
                           Padding(
                             padding:
@@ -1445,7 +1286,7 @@ class _MessageDetail extends StatelessWidget {
                             child: Text(
                               'No targets selected',
                               style: TextStyle(
-                                  color: Colors.white.withOpacity(0.3),
+                                  color: cs.textSubtle,
                                   fontSize: 13),
                             ),
                           )
@@ -1458,11 +1299,11 @@ class _MessageDetail extends StatelessWidget {
                                 children: [
                                   Icon(_typeIconData(),
                                       size: 13,
-                                      color: Colors.white38),
+                                      color: cs.textMuted),
                                   const SizedBox(width: 8),
                                   Text(r,
-                                      style: const TextStyle(
-                                          color: Colors.white70,
+                                      style: TextStyle(
+                                          color: cs.textSecondary,
                                           fontSize: 13)),
                                 ],
                               ),
@@ -1479,26 +1320,28 @@ class _MessageDetail extends StatelessWidget {
     );
   }
 
-  Widget _card({required Widget child}) {
+  Widget _card(BuildContext context, {required Widget child}) {
+    final cs = consoleColors(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: cs.border),
       ),
       child: child,
     );
   }
 
-  Widget _detailRow(String label, String value) {
+  Widget _detailRow(BuildContext context, String label, String value) {
+    final cs = consoleColors(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.4),
+                color: cs.textSubtle,
                 fontSize: 11,
                 fontWeight: FontWeight.w500)),
         const SizedBox(height: 4),
@@ -1507,14 +1350,13 @@ class _MessageDetail extends StatelessWidget {
           padding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0x08FFFFFF),
+            color: cs.fill,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-                color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: cs.border),
           ),
           child: Text(value,
-              style: const TextStyle(
-                  color: Colors.white70, fontSize: 13)),
+              style: TextStyle(
+                  color: cs.textSecondary, fontSize: 13)),
         ),
       ],
     );
@@ -1593,6 +1435,7 @@ class _TopicsTabState extends ConsumerState<_TopicsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     final topics = _topics ?? [];
     final search = _searchCtrl.text.toLowerCase();
     final filtered = search.isEmpty
@@ -1613,26 +1456,26 @@ class _TopicsTabState extends ConsumerState<_TopicsTab> {
                 child: TextField(
                   controller: _searchCtrl,
                   onChanged: (_) => setState(() {}),
-                  style: const TextStyle(fontSize: 13, color: Colors.white),
+                  style: TextStyle(fontSize: 13, color: cs.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'Search topics',
-                    hintStyle: const TextStyle(color: _subtleText, fontSize: 13),
-                    prefixIcon: const Padding(
-                      padding: EdgeInsets.only(left: 10, right: 6),
-                      child: Icon(Icons.search, size: 16, color: _subtleText),
+                    hintStyle: TextStyle(color: cs.textSubtle, fontSize: 13),
+                    prefixIcon: Padding(
+                      padding: const EdgeInsets.only(left: 10, right: 6),
+                      child: Icon(Icons.search, size: 16, color: cs.textSubtle),
                     ),
                     prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 0),
                     filled: true,
-                    fillColor: const Color(0x0AFFFFFF),
+                    fillColor: cs.fieldFill,
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+                      borderSide: BorderSide(color: cs.fieldBorder),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+                      borderSide: BorderSide(color: cs.fieldBorder),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -1666,32 +1509,31 @@ class _TopicsTabState extends ConsumerState<_TopicsTab> {
                     ? Container(
                         width: double.infinity,
                         decoration: BoxDecoration(
-                          color: _cardColor,
+                          color: cs.surface,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: _border),
+                          border: Border.all(color: cs.border),
                         ),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text(
+                            Text(
                               'Create your first topic',
                               style: TextStyle(
-                                  color: Colors.white,
+                                  color: cs.textPrimary,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w500),
                             ),
                             const SizedBox(height: 8),
-                            const Text(
+                            Text(
                               'Group targets and broadcast messages to all of them at once.',
-                              style:
-                                  TextStyle(color: _dimText, fontSize: 13),
+                              style: TextStyle(color: cs.textSecondary, fontSize: 13),
                             ),
                             const SizedBox(height: 20),
                             OutlinedButton(
                               onPressed: () => _createTopicDialog(context),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white70,
-                                side: const BorderSide(color: _border),
+                                foregroundColor: cs.textSecondary,
+                                side: BorderSide(color: cs.border),
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 10),
                                 shape: RoundedRectangleBorder(
@@ -1714,24 +1556,24 @@ class _TopicsTabState extends ConsumerState<_TopicsTab> {
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: _cardColor,
+                              color: cs.surface,
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: _border),
+                              border: Border.all(color: cs.border),
                             ),
                             child: Row(
                               children: [
                                 Icon(LucideIcons.hash,
                                     size: 14,
-                                    color: Colors.white.withOpacity(0.4)),
+                                    color: cs.textSubtle),
                                 const SizedBox(width: 8),
                                 Text(t['name'] ?? '',
-                                    style: const TextStyle(
-                                        color: Colors.white, fontSize: 14)),
+                                    style: TextStyle(
+                                        color: cs.textPrimary, fontSize: 14)),
                                 const Spacer(),
                                 Text(
                                   '$subs subscriber${subs == 1 ? '' : 's'}',
                                   style: TextStyle(
-                                      color: Colors.white.withOpacity(0.4),
+                                      color: cs.textSubtle,
                                       fontSize: 12),
                                 ),
                               ],
@@ -1843,6 +1685,7 @@ class _ProvidersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     // Group by category
     final categories = ['Email', 'SMS', 'Push'];
     return SingleChildScrollView(
@@ -1856,7 +1699,7 @@ class _ProvidersTab extends StatelessWidget {
               child: Text(
                 cat,
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.4),
+                  color: cs.textSubtle,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.6,
@@ -1867,7 +1710,7 @@ class _ProvidersTab extends StatelessWidget {
                 .where((p) => p.category == cat)
                 .map((p) => Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: _providerCard(p),
+                      child: _providerCard(context, p),
                     ))),
             const SizedBox(height: 16),
           ],
@@ -1876,14 +1719,15 @@ class _ProvidersTab extends StatelessWidget {
     );
   }
 
-  Widget _providerCard(
+  Widget _providerCard(BuildContext context,
       ({IconData icon, String category, String title, String subtitle, String vars}) p) {
+    final cs = consoleColors(context);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1892,11 +1736,11 @@ class _ProvidersTab extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.07),
+              color: cs.fill,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(p.icon,
-                size: 18, color: Colors.white.withOpacity(0.55)),
+                size: 18, color: cs.textMuted),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -1904,20 +1748,20 @@ class _ProvidersTab extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(p.title,
-                    style: const TextStyle(
-                        color: Colors.white,
+                    style: TextStyle(
+                        color: cs.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 4),
                 Text(p.subtitle,
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.45),
+                        color: cs.textMuted,
                         fontSize: 13)),
                 const SizedBox(height: 8),
                 Text(
                   'Env vars: ${p.vars}',
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.28),
+                      color: cs.textSubtle,
                       fontSize: 11,
                       fontFamily: 'monospace'),
                 ),
@@ -1944,40 +1788,366 @@ class _SearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return SizedBox(
       width: 300,
       child: TextField(
         controller: controller,
         onChanged: onChanged,
-        style: const TextStyle(fontSize: 13, color: Colors.white),
+        style: TextStyle(fontSize: 13, color: cs.textPrimary),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle:
-              const TextStyle(color: _subtleText, fontSize: 13),
-          prefixIcon: const Padding(
-            padding: EdgeInsets.only(left: 10, right: 6),
-            child: Icon(Icons.search, size: 16, color: _subtleText),
+          hintStyle: TextStyle(color: cs.textSubtle, fontSize: 13),
+          prefixIcon: Padding(
+            padding: const EdgeInsets.only(left: 10, right: 6),
+            child: Icon(Icons.search, size: 16, color: cs.textSubtle),
           ),
           prefixIconConstraints:
               const BoxConstraints(minWidth: 32),
           filled: true,
-          fillColor: const Color(0x0AFFFFFF),
+          fillColor: cs.fieldFill,
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(
               vertical: 10, horizontal: 12),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _border),
+            borderSide: BorderSide(color: cs.fieldBorder),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _border),
+            borderSide: BorderSide(color: cs.fieldBorder),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
             borderSide: const BorderSide(color: _accent),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Templates Tab ──────────────────────────────────────────────────────────────
+
+class _TemplatesTab extends ConsumerStatefulWidget {
+  const _TemplatesTab();
+
+  @override
+  ConsumerState<_TemplatesTab> createState() => _TemplatesTabState();
+}
+
+class _TemplatesTabState extends ConsumerState<_TemplatesTab> {
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+    final async = ref.watch(_templatesApiProvider);
+
+    return async.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(
+          child: Text('Error: $e',
+              style: TextStyle(color: cs.textSecondary))),
+      data: (data) {
+        final templates = (data['templates'] as List<dynamic>? ?? [])
+            .map((t) => Map<String, dynamic>.from(t as Map))
+            .toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('${templates.length} templates',
+                    style:
+                        TextStyle(color: cs.textSecondary, fontSize: 13)),
+                const Spacer(),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: _accent),
+                  onPressed: () => _showCreateDialog(context),
+                  icon: const Icon(LucideIcons.plus, size: 14),
+                  label: const Text('New Template'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (templates.isEmpty)
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(LucideIcons.fileText,
+                        size: 40, color: cs.textSubtle),
+                    const SizedBox(height: 12),
+                    Text('No templates yet',
+                        style: TextStyle(
+                            color: cs.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 4),
+                    Text('Create reusable message templates with variables.',
+                        style: TextStyle(
+                            color: cs.textSecondary, fontSize: 13)),
+                  ],
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.separated(
+                  itemCount: templates.length,
+                  separatorBuilder: (_, __) =>
+                      Divider(height: 1, color: cs.border),
+                  itemBuilder: (context, i) =>
+                      _TemplateRow(tmpl: templates[i]),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showCreateDialog(BuildContext context) {
+    showAppDialog(
+      context: context,
+      title: 'New Template',
+      subtitle: 'Create a reusable message with {{variable}} placeholders',
+      width: 500,
+      content: _CreateTemplateForm(
+        onCreated: () => ref.invalidate(_templatesApiProvider),
+      ),
+      actions: const [AppDialogCancel()],
+    );
+  }
+}
+
+// ── Create Template Form (stateful widget used inside showAppDialog) ───────────
+
+class _CreateTemplateForm extends ConsumerStatefulWidget {
+  final VoidCallback onCreated;
+  const _CreateTemplateForm({required this.onCreated});
+
+  @override
+  ConsumerState<_CreateTemplateForm> createState() =>
+      _CreateTemplateFormState();
+}
+
+class _CreateTemplateFormState extends ConsumerState<_CreateTemplateForm> {
+  final _nameCtrl = TextEditingController();
+  final _subjectCtrl = TextEditingController();
+  final _bodyCtrl = TextEditingController();
+  String _type = 'email';
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _subjectCtrl.dispose();
+    _bodyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_nameCtrl.text.trim().isEmpty) return;
+    setState(() => _saving = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.post('/messaging/templates', data: {
+        'templateId': 'unique()',
+        'name': _nameCtrl.text.trim(),
+        'type': _type,
+        'subject': _subjectCtrl.text.trim(),
+        'body': _bodyCtrl.text.trim(),
+        'variables': [],
+      });
+      widget.onCreated();
+      if (mounted) Navigator.of(context).pop();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+
+    InputDecoration fieldDeco(String hint) => InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(color: cs.textSubtle),
+          filled: true,
+          fillColor: cs.fieldFill,
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: cs.fieldBorder)),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: cs.fieldBorder)),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: _accent)),
+        );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Name',
+            style: TextStyle(
+                color: cs.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _nameCtrl,
+          style: TextStyle(color: cs.textPrimary, fontSize: 13),
+          decoration: fieldDeco('Welcome Email'),
+        ),
+        const SizedBox(height: 12),
+        Text('Type',
+            style: TextStyle(
+                color: cs.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'email', label: Text('Email')),
+            ButtonSegment(value: 'sms', label: Text('SMS')),
+            ButtonSegment(value: 'push', label: Text('Push')),
+          ],
+          selected: {_type},
+          onSelectionChanged: (s) => setState(() => _type = s.first),
+        ),
+        const SizedBox(height: 12),
+        Text('Subject',
+            style: TextStyle(
+                color: cs.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _subjectCtrl,
+          style: TextStyle(color: cs.textPrimary, fontSize: 13),
+          decoration: fieldDeco('Hello {{name}}!'),
+        ),
+        const SizedBox(height: 12),
+        Text('Body',
+            style: TextStyle(
+                color: cs.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _bodyCtrl,
+          maxLines: 5,
+          style: TextStyle(
+              color: cs.textPrimary,
+              fontSize: 13,
+              fontFamily: 'monospace'),
+          decoration:
+              fieldDeco('Hi {{name}}, welcome to {{appName}}!'),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            AppDialogAction(
+              label: _saving ? 'Creating…' : 'Create',
+              loading: _saving,
+              onTap: _submit,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _TemplateRow extends ConsumerWidget {
+  final Map<String, dynamic> tmpl;
+  const _TemplateRow({required this.tmpl});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
+    final id = tmpl[r'$id'] as String? ?? '';
+    final name = tmpl['name'] as String? ?? '';
+    final type = tmpl['type'] as String? ?? 'email';
+    final subject = tmpl['subject'] as String? ?? '';
+
+    final typeColor = switch (type) {
+      'email' => const Color(0xFF3472A4),
+      'sms' => const Color(0xFF10B981),
+      'push' => const Color(0xFFF59E0B),
+      _ => const Color(0xFF6B7280),
+    };
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: typeColor.withAlpha(30),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              type == 'email'
+                  ? LucideIcons.mail
+                  : type == 'sms'
+                      ? LucideIcons.messageSquare
+                      : LucideIcons.bell,
+              size: 16,
+              color: typeColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: TextStyle(
+                        color: cs.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500)),
+                if (subject.isNotEmpty)
+                  Text(subject,
+                      style: TextStyle(
+                          color: cs.textSubtle, fontSize: 12),
+                      overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: typeColor.withAlpha(30),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(type.toUpperCase(),
+                style: TextStyle(
+                    color: typeColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(LucideIcons.trash2,
+                size: 14, color: cs.textSubtle),
+            onPressed: () async {
+              final api = ref.read(apiClientProvider);
+              await api.delete('/messaging/templates/$id');
+              ref.invalidate(_templatesApiProvider);
+            },
+            tooltip: 'Delete template',
+          ),
+        ],
       ),
     );
   }

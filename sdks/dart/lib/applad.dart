@@ -11,6 +11,7 @@ export 'src/client.dart';
 export 'src/auth.dart';
 export 'src/billing.dart';
 export 'src/databases.dart';
+export 'src/query_builder.dart' show QueryBuilder, QueryResult;
 export 'src/storage.dart';
 export 'src/deploy.dart';
 export 'src/edge.dart';

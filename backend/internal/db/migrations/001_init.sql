@@ -16,6 +16,36 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ---------------------------------------------------------------------------
+-- CDC: fires pg_notify('applad_changes', ...) after INSERT/UPDATE/DELETE on
+-- any user table. Reads project_id and database_id from session config set
+-- by prepareDirectAccessTx (applad.project_id / applad.database_id).
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION applad_notify_change()
+RETURNS TRIGGER AS $$
+DECLARE
+    project_id  TEXT := current_setting('applad.project_id',  true);
+    database_id TEXT := current_setting('applad.database_id', true);
+    payload     TEXT;
+BEGIN
+    IF project_id IS NULL OR project_id = '' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+    payload := json_build_object(
+        'project_id',  project_id,
+        'database_id', database_id,
+        'schema',      TG_TABLE_SCHEMA,
+        'table',       TG_TABLE_NAME,
+        'action',      lower(TG_OP),
+        'old',         CASE WHEN TG_OP = 'DELETE' THEN row_to_json(OLD) ELSE NULL END,
+        'new',         CASE WHEN TG_OP <> 'DELETE' THEN row_to_json(NEW) ELSE NULL END,
+        'timestamp',   to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+    )::text;
+    PERFORM pg_notify('applad_changes', payload);
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+-- ---------------------------------------------------------------------------
 -- Core: projects, api_keys
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS projects (
@@ -239,6 +269,8 @@ CREATE TABLE IF NOT EXISTS columns (
     "array"       BOOLEAN      NOT NULL DEFAULT FALSE,
     default_value TEXT,
     options       JSONB,
+    validation    JSONB        NOT NULL DEFAULT '{}',
+    permissions   JSONB        NOT NULL DEFAULT '["read","write"]',
     status        VARCHAR(32)  NOT NULL DEFAULT 'available',
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_col UNIQUE (table_id, key_name),
@@ -575,6 +607,7 @@ CREATE TABLE IF NOT EXISTS workflows (
     status            VARCHAR(32)  NOT NULL DEFAULT 'draft',
     trigger_type      VARCHAR(32)  NOT NULL DEFAULT 'manual',
     trigger_config    JSONB,
+    webhook_secret    VARCHAR(64),
     nodes             JSONB,
     edges             JSONB,
     tags              JSONB,
@@ -685,6 +718,7 @@ CREATE TABLE IF NOT EXISTS functions (
     timeout     INT          NOT NULL DEFAULT 15,
     env_vars    JSONB,
     source      TEXT,
+    cron        VARCHAR(128),
     status      VARCHAR(50)  NOT NULL DEFAULT 'active',
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
@@ -1306,6 +1340,32 @@ CREATE TABLE IF NOT EXISTS msg_topic_subscribers (
     CONSTRAINT uq_subscriber UNIQUE (topic_id, target)
 );
 CREATE INDEX IF NOT EXISTS idx_subscriber_topic ON msg_topic_subscribers (topic_id);
+
+CREATE TABLE IF NOT EXISTS message_templates (
+    id         VARCHAR(32)  NOT NULL PRIMARY KEY,
+    project_id VARCHAR(32)  NOT NULL,
+    name       VARCHAR(256) NOT NULL,
+    type       VARCHAR(10)  NOT NULL DEFAULT 'email', -- email, sms, push
+    subject    VARCHAR(512) NOT NULL DEFAULT '',
+    body       TEXT         NOT NULL DEFAULT '',
+    variables  TEXT         NOT NULL DEFAULT '[]',   -- JSON array of variable names
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_message_templates_project ON message_templates (project_id);
+
+CREATE TABLE IF NOT EXISTS msg_providers (
+    id          VARCHAR(32)  NOT NULL PRIMARY KEY,
+    project_id  VARCHAR(32)  NOT NULL,
+    name        VARCHAR(256) NOT NULL,
+    type        VARCHAR(10)  NOT NULL,  -- email, sms, push
+    provider    VARCHAR(32)  NOT NULL,  -- smtp, mailgun, sendgrid, resend, twilio, vonage, msg91, fcm, apns
+    config      JSONB        NOT NULL DEFAULT '{}',
+    enabled     BOOLEAN      NOT NULL DEFAULT true,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_msg_providers_project ON msg_providers (project_id);
 
 -- ---------------------------------------------------------------------------
 -- Realtime change notification (used by Phase 6: LISTEN/NOTIFY)

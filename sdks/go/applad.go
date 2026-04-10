@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -243,6 +244,214 @@ func (s *DatabasesService) DeleteRow(databaseID, tableID, rowID string) (map[str
 	return s.client.call("DELETE", fmt.Sprintf("/databases/%s/tables/%s/rows/%s", databaseID, tableID, rowID), nil)
 }
 
+func (s *DatabasesService) GetColumnPermissions(databaseID, tableID, key string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables/%s/columns/%s/permissions", databaseID, tableID, key), nil)
+}
+
+func (s *DatabasesService) SetColumnPermissions(databaseID, tableID, key string, permissions []string) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/databases/%s/tables/%s/columns/%s/permissions", databaseID, tableID, key), map[string]interface{}{
+		"permissions": permissions,
+	})
+}
+
+// From returns a fluent QueryBuilder for the given table.
+//
+//	result, err := client.Databases().From("myDb", "posts").
+//	    Equal("published", "true").
+//	    OrderDesc("created_at").
+//	    Limit(25).
+//	    Get()
+func (s *DatabasesService) From(databaseID, tableID string) *QueryBuilder {
+	return &QueryBuilder{
+		client:     s.client,
+		databaseID: databaseID,
+		tableID:    tableID,
+	}
+}
+
+// QueryResult holds the response from a QueryBuilder.Get call.
+type QueryResult struct {
+	Total int                      `json:"total"`
+	Rows  []map[string]interface{} `json:"rows"`
+}
+
+// QueryBuilder is a fluent builder for querying rows in an Applad table.
+type QueryBuilder struct {
+	client     *Client
+	databaseID string
+	tableID    string
+	queries    []string
+	selectCols string
+	orderAttr  string
+	orderType  string
+	limitVal   int
+	offsetVal  int
+	cursor     string
+}
+
+func (q *QueryBuilder) scalar(method, field string, value interface{}) *QueryBuilder {
+	q.queries = append(q.queries, fmt.Sprintf(`%s("%s","%v")`, method, field, value))
+	return q
+}
+
+// Select specifies which columns to return.
+func (q *QueryBuilder) Select(columns string) *QueryBuilder {
+	q.selectCols = columns
+	return q
+}
+
+// Equal matches rows where field equals value.
+func (q *QueryBuilder) Equal(field string, value interface{}) *QueryBuilder {
+	return q.scalar("equal", field, value)
+}
+
+// NotEqual matches rows where field does not equal value.
+func (q *QueryBuilder) NotEqual(field string, value interface{}) *QueryBuilder {
+	return q.scalar("notEqual", field, value)
+}
+
+// LessThan matches rows where field is less than value.
+func (q *QueryBuilder) LessThan(field string, value interface{}) *QueryBuilder {
+	return q.scalar("lessThan", field, value)
+}
+
+// LessThanOrEqual matches rows where field is less than or equal to value.
+func (q *QueryBuilder) LessThanOrEqual(field string, value interface{}) *QueryBuilder {
+	return q.scalar("lessThanEqual", field, value)
+}
+
+// GreaterThan matches rows where field is greater than value.
+func (q *QueryBuilder) GreaterThan(field string, value interface{}) *QueryBuilder {
+	return q.scalar("greaterThan", field, value)
+}
+
+// GreaterThanOrEqual matches rows where field is greater than or equal to value.
+func (q *QueryBuilder) GreaterThanOrEqual(field string, value interface{}) *QueryBuilder {
+	return q.scalar("greaterThanEqual", field, value)
+}
+
+// Contains matches rows where field contains value (case-insensitive).
+func (q *QueryBuilder) Contains(field, value string) *QueryBuilder {
+	return q.scalar("contains", field, value)
+}
+
+// StartsWith matches rows where field starts with value.
+func (q *QueryBuilder) StartsWith(field, value string) *QueryBuilder {
+	return q.scalar("startsWith", field, value)
+}
+
+// EndsWith matches rows where field ends with value.
+func (q *QueryBuilder) EndsWith(field, value string) *QueryBuilder {
+	return q.scalar("endsWith", field, value)
+}
+
+// Search performs a full-text search on field for value.
+func (q *QueryBuilder) Search(field, value string) *QueryBuilder {
+	return q.scalar("search", field, value)
+}
+
+// IsNull matches rows where field is NULL.
+func (q *QueryBuilder) IsNull(field string) *QueryBuilder {
+	q.queries = append(q.queries, fmt.Sprintf(`isNull("%s")`, field))
+	return q
+}
+
+// IsNotNull matches rows where field is NOT NULL.
+func (q *QueryBuilder) IsNotNull(field string) *QueryBuilder {
+	q.queries = append(q.queries, fmt.Sprintf(`isNotNull("%s")`, field))
+	return q
+}
+
+// Between matches rows where field is between min and max (inclusive).
+func (q *QueryBuilder) Between(field string, min, max interface{}) *QueryBuilder {
+	q.queries = append(q.queries, fmt.Sprintf(`between("%s","%v","%v")`, field, min, max))
+	return q
+}
+
+// OrderAsc orders results by field ascending.
+func (q *QueryBuilder) OrderAsc(field string) *QueryBuilder {
+	q.orderAttr = field
+	q.orderType = "ASC"
+	return q
+}
+
+// OrderDesc orders results by field descending.
+func (q *QueryBuilder) OrderDesc(field string) *QueryBuilder {
+	q.orderAttr = field
+	q.orderType = "DESC"
+	return q
+}
+
+// Limit sets the maximum number of rows to return.
+func (q *QueryBuilder) Limit(n int) *QueryBuilder {
+	q.limitVal = n
+	return q
+}
+
+// Offset sets the number of rows to skip.
+func (q *QueryBuilder) Offset(n int) *QueryBuilder {
+	q.offsetVal = n
+	return q
+}
+
+// CursorAfter sets cursor-based pagination — pass the last seen row ID.
+func (q *QueryBuilder) CursorAfter(rowID string) *QueryBuilder {
+	q.cursor = rowID
+	return q
+}
+
+// Get executes the query and returns a QueryResult.
+func (q *QueryBuilder) Get() (*QueryResult, error) {
+	params := url.Values{}
+	if q.selectCols != "" {
+		params.Set("select", q.selectCols)
+	}
+	if q.orderAttr != "" {
+		params.Set("orderAttr", q.orderAttr)
+		params.Set("orderType", q.orderType)
+	}
+	if q.limitVal > 0 {
+		params.Set("limit", fmt.Sprintf("%d", q.limitVal))
+	}
+	if q.offsetVal > 0 {
+		params.Set("offset", fmt.Sprintf("%d", q.offsetVal))
+	}
+	if q.cursor != "" {
+		params.Set("cursorAfter", q.cursor)
+	}
+	for _, qry := range q.queries {
+		params.Add("queries[]", qry)
+	}
+
+	path := fmt.Sprintf("/databases/%s/tables/%s/rows", q.databaseID, q.tableID)
+	if qs := params.Encode(); qs != "" {
+		path += "?" + qs
+	}
+
+	raw, err := q.client.call("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &QueryResult{}
+	if t, ok := raw["total"]; ok {
+		switch v := t.(type) {
+		case float64:
+			result.Total = int(v)
+		case int:
+			result.Total = v
+		}
+	}
+	if rows, ok := raw["rows"].([]interface{}); ok {
+		for _, r := range rows {
+			if row, ok := r.(map[string]interface{}); ok {
+				result.Rows = append(result.Rows, row)
+			}
+		}
+	}
+	return result, nil
+}
+
 // ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
@@ -293,15 +502,22 @@ func (s *StorageService) DeleteFile(bucketID, fileID string) (map[string]interfa
 
 type FunctionsService struct{ client *Client }
 
-func (s *FunctionsService) Create(name, runtime string) (map[string]interface{}, error) {
-	return s.client.call("POST", "/functions", map[string]interface{}{
+func (s *FunctionsService) Create(name, runtime string, opts ...map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{
 		"name":       name,
 		"runtime":    runtime,
 		"entrypoint": "index.handler",
 		"timeout":    15,
 		"vars":       map[string]string{},
 		"source":     "",
-	})
+		"cron":       "",
+	}
+	if len(opts) > 0 {
+		for k, v := range opts[0] {
+			body[k] = v
+		}
+	}
+	return s.client.call("POST", "/functions", body)
 }
 
 func (s *FunctionsService) List() (map[string]interface{}, error) {
@@ -436,6 +652,55 @@ func (s *MessagingService) SendPush(to []string, title, body string) (map[string
 		"to":    to,
 		"title": title,
 		"body":  body,
+	})
+}
+
+func (s *MessagingService) CreateTemplate(name, typ, subject, body string, variables []string) (map[string]interface{}, error) {
+	if variables == nil {
+		variables = []string{}
+	}
+	return s.client.call("POST", "/messaging/templates", map[string]interface{}{
+		"templateId": "unique()",
+		"name":       name,
+		"type":       typ,
+		"subject":    subject,
+		"body":       body,
+		"variables":  variables,
+	})
+}
+
+func (s *MessagingService) ListTemplates() (map[string]interface{}, error) {
+	return s.client.call("GET", "/messaging/templates", nil)
+}
+
+func (s *MessagingService) GetTemplate(templateID string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/messaging/templates/"+templateID, nil)
+}
+
+func (s *MessagingService) UpdateTemplate(templateID, name, typ, subject, body string, variables []string) (map[string]interface{}, error) {
+	if variables == nil {
+		variables = []string{}
+	}
+	return s.client.call("PUT", "/messaging/templates/"+templateID, map[string]interface{}{
+		"name":      name,
+		"type":      typ,
+		"subject":   subject,
+		"body":      body,
+		"variables": variables,
+	})
+}
+
+func (s *MessagingService) DeleteTemplate(templateID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", "/messaging/templates/"+templateID, nil)
+}
+
+func (s *MessagingService) SendTemplate(templateID string, to []string, variables map[string]string) (map[string]interface{}, error) {
+	if variables == nil {
+		variables = map[string]string{}
+	}
+	return s.client.call("POST", "/messaging/templates/"+templateID+"/send", map[string]interface{}{
+		"to":        to,
+		"variables": variables,
 	})
 }
 

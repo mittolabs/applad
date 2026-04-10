@@ -42,6 +42,13 @@ final _webhooksProvider =
   return List<Map<String, dynamic>>.from(data['webhooks'] ?? []);
 });
 
+final _auditLogsProvider =
+    FutureProvider.family<Map<String, dynamic>, String>((ref, projectId) async {
+  final api = ref.read(apiClientProvider);
+  final res = await api.get('/audit', params: {'limit': '50', 'offset': '0'});
+  return res.data as Map<String, dynamic>;
+});
+
 // --- Page --------------------------------------------------------------------
 
 class SettingsPage extends ConsumerStatefulWidget {
@@ -115,6 +122,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 'API Keys',
                 'Platforms',
                 'Webhooks',
+                'Audit Log',
               ],
               selected: _tabIndex,
               onChanged: (i) => setState(() => _tabIndex = i),
@@ -143,6 +151,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         return _buildPlatformsTab(projectId);
       case 3:
         return _buildWebhooksTab(projectId);
+      case 4:
+        return _buildAuditLogTab(projectId);
       default:
         return const SizedBox();
     }
@@ -1038,6 +1048,190 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       if (projectId != null) {
         ref.invalidate(_webhooksProvider(projectId));
       }
+    }
+  }
+
+  // ===========================================================================
+  // Audit Log Tab
+  // ===========================================================================
+
+  Widget _buildAuditLogTab(String projectId) {
+    final colors = consoleColors(context);
+    final logsAsync = ref.watch(_auditLogsProvider(projectId));
+
+    return logsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(
+          child: Text('Error loading audit logs: $e',
+              style: const TextStyle(color: _red))),
+      data: (data) {
+        final logs = List<Map<String, dynamic>>.from(data['logs'] ?? []);
+        final total = (data['total'] as num?)?.toInt() ?? logs.length;
+
+        if (logs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.clipboardList,
+                    size: 40, color: colors.textSubtle),
+                const SizedBox(height: 12),
+                Text('No audit log entries yet',
+                    style: TextStyle(
+                        color: colors.textSecondary, fontSize: 14)),
+              ],
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$total entries',
+                style: TextStyle(
+                    color: colors.textSecondary, fontSize: 13)),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: colors.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: colors.border),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Table(
+                  columnWidths: const {
+                    0: FlexColumnWidth(1.5),
+                    1: FlexColumnWidth(2),
+                    2: FlexColumnWidth(1),
+                    3: FlexColumnWidth(1),
+                    4: FlexColumnWidth(2),
+                  },
+                  children: [
+                    TableRow(
+                      decoration: BoxDecoration(color: colors.surfaceAlt),
+                      children: [
+                        _auditHeader('Method', colors),
+                        _auditHeader('Path', colors),
+                        _auditHeader('Status', colors),
+                        _auditHeader('Resource', colors),
+                        _auditHeader('Time', colors),
+                      ],
+                    ),
+                    ...logs.map((log) {
+                      final method = log['method'] as String? ?? '';
+                      final path = log['path'] as String? ?? '';
+                      final status =
+                          (log['statusCode'] as num?)?.toInt() ?? 0;
+                      final resource = log['resourceType'] as String? ?? '';
+                      final ts = log[r'$createdAt'] as String? ?? '';
+                      return TableRow(
+                        decoration: BoxDecoration(
+                          border: Border(
+                              top: BorderSide(
+                                  color: colors.border, width: 0.5)),
+                        ),
+                        children: [
+                          _auditCell(_methodChip(method, colors), colors),
+                          _auditCell(
+                              Text(path,
+                                  style: TextStyle(
+                                      color: colors.textPrimary,
+                                      fontSize: 12,
+                                      fontFamily: 'monospace'),
+                                  overflow: TextOverflow.ellipsis),
+                              colors),
+                          _auditCell(_statusChip(status, colors), colors),
+                          _auditCell(
+                              Text(resource,
+                                  style: TextStyle(
+                                      color: colors.textSecondary,
+                                      fontSize: 12)),
+                              colors),
+                          _auditCell(
+                              Text(_formatTs(ts),
+                                  style: TextStyle(
+                                      color: colors.textSubtle,
+                                      fontSize: 12)),
+                              colors),
+                        ],
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _auditHeader(String label, ConsoleColors colors) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Text(label,
+            style: TextStyle(
+                color: colors.textSubtle,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5)),
+      );
+
+  Widget _auditCell(Widget child, ConsoleColors colors) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: child,
+      );
+
+  Widget _methodChip(String method, ConsoleColors colors) {
+    final color = switch (method.toUpperCase()) {
+      'GET' => const Color(0xFF3472A4),
+      'POST' => const Color(0xFF10B981),
+      'PUT' || 'PATCH' => const Color(0xFFF59E0B),
+      'DELETE' => const Color(0xFFEF4444),
+      _ => const Color(0xFF6B7280),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withAlpha(38),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(method.toUpperCase(),
+          style: TextStyle(
+              color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+    );
+  }
+
+  Widget _statusChip(int status, ConsoleColors colors) {
+    final color = status >= 500
+        ? const Color(0xFFEF4444)
+        : status >= 400
+            ? const Color(0xFFF59E0B)
+            : const Color(0xFF10B981);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withAlpha(38),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text('$status',
+          style: TextStyle(
+              color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+    );
+  }
+
+  String _formatTs(String iso) {
+    if (iso.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      final y = dt.year;
+      final mo = dt.month.toString().padLeft(2, '0');
+      final d = dt.day.toString().padLeft(2, '0');
+      final h = dt.hour.toString().padLeft(2, '0');
+      final mi = dt.minute.toString().padLeft(2, '0');
+      return '$y-$mo-$d $h:$mi';
+    } catch (_) {
+      return iso;
     }
   }
 }

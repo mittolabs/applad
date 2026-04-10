@@ -1,7 +1,11 @@
 package workflows
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -228,9 +232,35 @@ func (h *Handler) webhookTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse trigger data from request body
+	// Read body first so we can verify the HMAC signature before processing.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	if err != nil {
+		apperr.BadRequest(w, "failed to read request body")
+		return
+	}
+
+	// Verify HMAC-SHA256 signature when the workflow has a secret configured.
+	// Clients send: X-Applad-Signature: <hex(hmac-sha256(secret, body))>
+	if wf.WebhookSecret != "" {
+		sig := r.Header.Get("X-Applad-Signature")
+		if sig == "" {
+			apperr.Write(w, http.StatusUnauthorized, "missing_signature",
+				"X-Applad-Signature header is required for this webhook.")
+			return
+		}
+		mac := hmac.New(sha256.New, []byte(wf.WebhookSecret))
+		mac.Write(body)
+		expected := hex.EncodeToString(mac.Sum(nil))
+		if !hmac.Equal([]byte(expected), []byte(sig)) {
+			apperr.Write(w, http.StatusUnauthorized, "invalid_signature",
+				"Webhook signature verification failed.")
+			return
+		}
+	}
+
+	// Parse trigger data from the pre-read body
 	var triggerData map[string]interface{}
-	json.NewDecoder(r.Body).Decode(&triggerData)
+	json.Unmarshal(body, &triggerData) //nolint:errcheck
 	if triggerData == nil {
 		triggerData = map[string]interface{}{}
 	}

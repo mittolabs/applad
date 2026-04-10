@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Databases = void 0;
+const query_builder_1 = require("./query_builder");
 class Databases {
     constructor(client) {
         this.client = client;
@@ -121,6 +122,35 @@ class Databases {
     }
     deleteRow(databaseId, tableId, rowId) {
         return this.client.call('DELETE', `/databases/${databaseId}/tables/${tableId}/rows/${rowId}`);
+    }
+    // --- Query builder ---
+    /**
+     * Returns a fluent {@link QueryBuilder} for the given table.
+     *
+     * @example
+     * ```ts
+     * const result = await server.databases
+     *   .from('myDb', 'orders')
+     *   .equal('status', 'pending')
+     *   .orderAsc('created_at')
+     *   .limit(50)
+     *   .get();
+     * ```
+     */
+    from(databaseId, tableId) {
+        return new query_builder_1.QueryBuilder(async (params) => {
+            const qs = new URLSearchParams();
+            for (const [k, v] of Object.entries(params)) {
+                if (Array.isArray(v)) {
+                    v.forEach((item) => qs.append(k, String(item)));
+                }
+                else if (v !== undefined) {
+                    qs.set(k, String(v));
+                }
+            }
+            const query = qs.toString();
+            return this.client.call('GET', `/databases/${databaseId}/tables/${tableId}/rows${query ? `?${query}` : ''}`);
+        });
     }
 }
 exports.Databases = Databases;

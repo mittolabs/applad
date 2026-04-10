@@ -1,10 +1,49 @@
+import '../query_builder.dart';
 import '../server_client.dart';
+
+export '../query_builder.dart' show QueryBuilder, QueryResult;
 
 /// Databases service — manage databases, tables, columns, indexes, and rows.
 class Databases {
   final ApplAdServer _client;
 
   Databases(this._client);
+
+  // --- Query builder ---
+
+  /// Returns a [QueryBuilder] for fluent row queries on [tableId] inside [databaseId].
+  ///
+  /// ```dart
+  /// final result = await server.databases
+  ///     .from('myDb', 'posts')
+  ///     .equal('status', 'active')
+  ///     .orderDesc('created_at')
+  ///     .limit(100)
+  ///     .get();
+  /// ```
+  QueryBuilder from(String databaseId, String tableId) {
+    return QueryBuilder((params) async {
+      final qs = _buildQueryString(params);
+      return _client.get(
+        '/v1/databases/$databaseId/tables/$tableId/rows$qs',
+      );
+    });
+  }
+
+  static String _buildQueryString(Map<String, dynamic> params) {
+    if (params.isEmpty) return '';
+    final parts = <String>[];
+    params.forEach((key, value) {
+      if (value is List) {
+        for (final v in value) {
+          parts.add('${Uri.encodeQueryComponent(key)}=${Uri.encodeQueryComponent(v.toString())}');
+        }
+      } else {
+        parts.add('${Uri.encodeQueryComponent(key)}=${Uri.encodeQueryComponent(value.toString())}');
+      }
+    });
+    return '?${parts.join('&')}';
+  }
 
   // --- Databases ---
 
@@ -175,6 +214,20 @@ class Databases {
       String databaseId, String tableId, String key) async {
     return _client
         .delete('/v1/databases/$databaseId/tables/$tableId/columns/$key');
+  }
+
+  Future<Map<String, dynamic>> getColumnPermissions(
+      String databaseId, String tableId, String key) async {
+    return _client.get(
+        '/v1/databases/$databaseId/tables/$tableId/columns/$key/permissions');
+  }
+
+  Future<Map<String, dynamic>> setColumnPermissions(
+      String databaseId, String tableId, String key, List<String> permissions) async {
+    return _client.post(
+      '/v1/databases/$databaseId/tables/$tableId/columns/$key/permissions',
+      data: {'permissions': permissions},
+    );
   }
 
   // --- Indexes ---

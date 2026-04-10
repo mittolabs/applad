@@ -150,6 +150,17 @@ func TestListBuckets_ReturnsAll(t *testing.T) {
 func TestCreateFile_WritesToDisk(t *testing.T) {
 	svc, mock, tmpDir := setup(t)
 
+	now := time.Now().UTC()
+	bucketRows := sqlmock.NewRows([]string{
+		"id", "name", "permissions", "file_size_limit", "allowed_mime_types",
+		"compression", "encryption", "antivirus", "file_security", "image_transformations",
+		"enabled", "created_at", "updated_at",
+	}).AddRow("bucket1", "Test Bucket", []byte(`[]`), int64(0), []byte(`[]`),
+		"", false, false, false, false, true, now, now)
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("bucket1", "proj1").
+		WillReturnRows(bucketRows)
+
 	mock.ExpectExec("INSERT INTO files").
 		WithArgs(
 			sqlmock.AnyArg(), // id
@@ -187,6 +198,17 @@ func TestCreateFile_WritesToDisk(t *testing.T) {
 
 func TestCreateFile_StoresCorrectSize(t *testing.T) {
 	svc, mock, _ := setup(t)
+
+	now := time.Now().UTC()
+	bucketRows := sqlmock.NewRows([]string{
+		"id", "name", "permissions", "file_size_limit", "allowed_mime_types",
+		"compression", "encryption", "antivirus", "file_security", "image_transformations",
+		"enabled", "created_at", "updated_at",
+	}).AddRow("b1", "Test Bucket", []byte(`[]`), int64(0), []byte(`[]`),
+		"", false, false, false, false, true, now, now)
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRows)
 
 	mock.ExpectExec("INSERT INTO files").
 		WithArgs(

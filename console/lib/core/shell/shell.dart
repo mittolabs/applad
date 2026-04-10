@@ -143,7 +143,6 @@ List<_NavGroup> _buildGroups() => [
         _NavChild('Mobile', 'mobile', LucideIcons.smartphone),
         _NavChild('Desktop', 'desktop', LucideIcons.monitor),
         _NavChild('Containers', 'containers', LucideIcons.box),
-        _NavChild('Environments', 'environments', LucideIcons.layers),
         _NavChild('Feature Flags', 'flags', LucideIcons.toggleRight),
       ]),
       _NavGroup('observe', 'Observe', LucideIcons.activity, [
@@ -159,6 +158,7 @@ _NavGroup('settings', 'Settings', LucideIcons.settings, [
         _NavChild('General', 'settings', LucideIcons.settings),
         _NavChild('Platforms', 'settings', LucideIcons.smartphone),
         _NavChild('Team', 'settings', LucideIcons.users),
+        _NavChild('Vault', 'vault', LucideIcons.shieldCheck),
         _NavChild('Experiments', 'experiments', LucideIcons.flaskConical),
       ], pinBottom: true),
     ];
@@ -274,6 +274,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       'desktop': 'deploy',
       'flags': 'deploy',
       'environments': 'deploy',
+      'vault': 'settings',
       'settings': 'settings',
       'specify': 'specify',
       'design': 'design',
@@ -1525,6 +1526,7 @@ class _EnvironmentBadge extends ConsumerWidget {
     if (envName == 'staging') envColor = const Color(0xFFF59E0B);
     if (envName == 'development') envColor = const Color(0xFF8B5CF6);
 
+    final projectId = ref.read(currentProjectProvider);
     return PopupMenuButton<String>(
       offset: const Offset(0, 36),
       color: _popupSurface(context),
@@ -1532,24 +1534,41 @@ class _EnvironmentBadge extends ConsumerWidget {
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: _dividerColor(context)),
       ),
-      onSelected: (id) => ref.read(currentEnvironmentProvider.notifier).state = id,
-      itemBuilder: (_) => envs.map((e) {
-        final id = e['\$id'] as String;
-        final name = e['slug'] as String? ?? e['name'] as String? ?? '';
-        Color c = const Color(0xFF10B981);
-        if (name == 'staging') c = const Color(0xFFF59E0B);
-        if (name == 'development') c = const Color(0xFF8B5CF6);
-        return PopupMenuItem<String>(
-          value: id,
+      onSelected: (value) {
+        if (value == '__manage__') {
+          if (projectId != null) context.go('/project/$projectId/environments');
+        } else {
+          ref.read(currentEnvironmentProvider.notifier).state = value;
+        }
+      },
+      itemBuilder: (_) => [
+        ...envs.map((e) {
+          final id = e['\$id'] as String;
+          final name = e['slug'] as String? ?? e['name'] as String? ?? '';
+          Color c = const Color(0xFF10B981);
+          if (name == 'staging') c = const Color(0xFFF59E0B);
+          if (name == 'development') c = const Color(0xFF8B5CF6);
+          return PopupMenuItem<String>(
+            value: id,
+            child: Row(children: [
+              Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Text(name, style: TextStyle(
+                color: currentEnvId == id ? _primaryTextColor(context) : _secondaryTextColor(context), fontSize: 13,
+                fontWeight: currentEnvId == id ? FontWeight.w600 : FontWeight.w400)),
+            ]),
+          );
+        }),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: '__manage__',
           child: Row(children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+            Icon(LucideIcons.settings2, size: 13, color: _secondaryTextColor(context)),
             const SizedBox(width: 8),
-            Text(name, style: TextStyle(
-              color: currentEnvId == id ? _primaryTextColor(context) : _secondaryTextColor(context), fontSize: 13,
-              fontWeight: currentEnvId == id ? FontWeight.w600 : FontWeight.w400)),
+            Text('Manage environments', style: TextStyle(color: _secondaryTextColor(context), fontSize: 13)),
           ]),
-        );
-      }).toList(),
+        ),
+      ],
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(

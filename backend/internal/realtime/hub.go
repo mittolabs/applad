@@ -1,5 +1,8 @@
 // Package realtime implements Applad's WebSocket pub/sub service.
 // Clients subscribe to channels; the hub broadcasts events from services.
+// When a Redis address is provided, events are fanned through Redis pub/sub
+// so multiple API instances share a single event stream — enabling horizontal
+// scaling of the WebSocket layer.
 package realtime
 
 import (
@@ -11,7 +14,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/redis/go-redis/v9"
 )
+
+const redisChannel = "applad:realtime"
 
 // Event is a realtime event broadcast to subscribers.
 type Event struct {
@@ -23,26 +29,35 @@ type Event struct {
 
 // Hub manages WebSocket client connections and event broadcasting.
 type Hub struct {
-	mu          sync.RWMutex
-	clients     map[*Client]bool
-	channels    map[string]map[*Client]bool // channel -> set of clients
-	broadcast   chan Event
-	register    chan *Client
-	unregister  chan *Client
+	mu         sync.RWMutex
+	clients    map[*Client]bool
+	channels   map[string]map[*Client]bool // channel -> set of clients
+	broadcast  chan Event
+	register   chan *Client
+	unregister chan *Client
+	rdb        *redis.Client // nil when Redis pub/sub is not configured
 }
 
-// NewHub creates a hub and optionally starts a PostgreSQL LISTEN loop.
-func NewHub(databaseDSN ...string) *Hub {
+// NewHub creates a hub. Pass databaseDSN to enable PostgreSQL CDC and
+// redisAddr (host:port) to enable cross-instance Redis pub/sub.
+func NewHub(databaseDSN, redisAddr string) *Hub {
 	h := &Hub{
 		clients:    make(map[*Client]bool),
 		channels:   make(map[string]map[*Client]bool),
-		broadcast:  make(chan Event, 256),
+		broadcast:  make(chan Event, 512),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
+
+	if strings.TrimSpace(redisAddr) != "" {
+		h.rdb = redis.NewClient(&redis.Options{Addr: redisAddr})
+		go h.subscribeRedis()
+	}
+
 	go h.run()
-	if len(databaseDSN) > 0 && strings.TrimSpace(databaseDSN[0]) != "" {
-		go h.listenPostgres(databaseDSN[0])
+
+	if strings.TrimSpace(databaseDSN) != "" {
+		go h.listenPostgres(databaseDSN)
 	}
 	return h
 }
@@ -87,6 +102,9 @@ func (h *Hub) publishDatabaseNotification(payload string) {
 	if projectID == "" {
 		return
 	}
+	databaseID, _ := message["database_id"].(string)
+	tableName, _ := message["table"].(string)
+
 	action, _ := message["action"].(string)
 	action = strings.ToLower(action)
 	switch action {
@@ -97,16 +115,41 @@ func (h *Hub) publishDatabaseNotification(payload string) {
 	case "delete":
 		action = "delete"
 	}
+
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 	if value, ok := message["timestamp"].(string); ok && value != "" {
 		timestamp = value
 	}
+
+	eventType := "databases.rows." + action
+
+	// Publish to project-wide channel (broad subscription)
 	h.Publish(Event{
-		Type:      "databases.rows." + action,
+		Type:      eventType,
 		Channel:   "projects." + projectID + ".databases.rows",
 		Timestamp: timestamp,
 		Payload:   message,
 	})
+
+	// Publish to database-scoped channel
+	if databaseID != "" {
+		h.Publish(Event{
+			Type:      eventType,
+			Channel:   "databases." + projectID + "." + databaseID,
+			Timestamp: timestamp,
+			Payload:   message,
+		})
+	}
+
+	// Publish to table-scoped channel (most specific — used by onInsert/onUpdate/onDelete)
+	if databaseID != "" && tableName != "" {
+		h.Publish(Event{
+			Type:      eventType,
+			Channel:   "databases." + projectID + "." + databaseID + "." + tableName,
+			Timestamp: timestamp,
+			Payload:   message,
+		})
+	}
 }
 
 func (h *Hub) run() {
@@ -185,9 +228,47 @@ func (h *Hub) Unsubscribe(c *Client, channel string) {
 	}
 }
 
-// Publish sends an event to all subscribers of the given channel.
+// Publish sends an event to subscribers. When Redis is configured the event
+// is published to the Redis channel so all API instances receive it; otherwise
+// it is dispatched directly to this instance's local clients.
 func (h *Hub) Publish(event Event) {
+	if h.rdb != nil {
+		data, err := json.Marshal(event)
+		if err != nil {
+			log.Printf("realtime: marshal event: %v", err)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := h.rdb.Publish(ctx, redisChannel, string(data)).Err(); err != nil {
+			log.Printf("realtime: redis publish: %v", err)
+			// Fall back to local delivery on Redis failure
+			h.broadcast <- event
+		}
+		return
+	}
 	h.broadcast <- event
+}
+
+// subscribeRedis receives events from the Redis channel and fans them out
+// to local WebSocket clients. This is the delivery path in multi-instance mode.
+func (h *Hub) subscribeRedis() {
+	for {
+		ctx := context.Background()
+		sub := h.rdb.Subscribe(ctx, redisChannel)
+		ch := sub.Channel()
+		for msg := range ch {
+			var event Event
+			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
+				log.Printf("realtime: redis unmarshal: %v", err)
+				continue
+			}
+			h.broadcast <- event
+		}
+		sub.Close() //nolint:errcheck
+		log.Printf("realtime: redis subscription closed, reconnecting in 2s")
+		time.Sleep(2 * time.Second)
+	}
 }
 
 // Stats returns the number of connected clients and active channels.

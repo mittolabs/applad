@@ -24,6 +24,7 @@ type Function struct {
 	Timeout    int               `json:"timeout"`    // seconds
 	EnvVars    map[string]string `json:"envVars"`
 	Source     string            `json:"source"` // stored code
+	Cron       string            `json:"cron"`   // cron schedule expression (empty = manual only)
 	Status     string            `json:"status"` // active, inactive, building
 	CreatedAt  time.Time         `json:"$createdAt"`
 	UpdatedAt  time.Time         `json:"$updatedAt"`
@@ -53,15 +54,15 @@ func NewService(database *db.DB, q *queue.Queue) *Service {
 }
 
 // Create creates a new function.
-func (s *Service) Create(ctx context.Context, projectID, name, runtime, entrypoint string, timeout int, envVars map[string]string, source string) (*Function, error) {
+func (s *Service) Create(ctx context.Context, projectID, name, runtime, entrypoint string, timeout int, envVars map[string]string, source, cron string) (*Function, error) {
 	id := uid.New("unique()")
 	now := time.Now().UTC()
 	envJSON, _ := json.Marshal(envVars)
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO functions (id, project_id, name, runtime, entrypoint, timeout, env_vars, source, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'building', ?, ?)`,
-		id, projectID, name, runtime, entrypoint, timeout, envJSON, source, now, now)
+		`INSERT INTO functions (id, project_id, name, runtime, entrypoint, timeout, env_vars, source, cron, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'building', ?, ?)`,
+		id, projectID, name, runtime, entrypoint, timeout, envJSON, source, cron, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("functions: create: %w", err)
 	}
@@ -85,7 +86,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, runtime, entrypoi
 	return &Function{
 		ID: id, ProjectID: projectID, Name: name,
 		Runtime: runtime, Entrypoint: entrypoint, Timeout: timeout,
-		EnvVars: envVars, Source: source, Status: "building",
+		EnvVars: envVars, Source: source, Cron: cron, Status: "building",
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
@@ -95,8 +96,8 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Function, err
 	var f Function
 	var envJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, project_id, name, runtime, entrypoint, timeout, env_vars, source, status, created_at, updated_at FROM functions WHERE id = ? AND project_id = ?",
-		id, projectID).Scan(&f.ID, &f.ProjectID, &f.Name, &f.Runtime, &f.Entrypoint, &f.Timeout, &envJSON, &f.Source, &f.Status, &f.CreatedAt, &f.UpdatedAt)
+		"SELECT id, project_id, name, runtime, entrypoint, timeout, env_vars, source, COALESCE(cron,''), status, created_at, updated_at FROM functions WHERE id = ? AND project_id = ?",
+		id, projectID).Scan(&f.ID, &f.ProjectID, &f.Name, &f.Runtime, &f.Entrypoint, &f.Timeout, &envJSON, &f.Source, &f.Cron, &f.Status, &f.CreatedAt, &f.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("function not found")
 	}
@@ -113,7 +114,7 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Function, err
 // List returns all functions for a project.
 func (s *Service) List(ctx context.Context, projectID string) ([]*Function, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, runtime, entrypoint, timeout, env_vars, source, status, created_at, updated_at FROM functions WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, project_id, name, runtime, entrypoint, timeout, env_vars, source, COALESCE(cron,''), status, created_at, updated_at FROM functions WHERE project_id = ? ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, 0, err
@@ -123,7 +124,7 @@ func (s *Service) List(ctx context.Context, projectID string) ([]*Function, int,
 	for rows.Next() {
 		var f Function
 		var envJSON []byte
-		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Runtime, &f.Entrypoint, &f.Timeout, &envJSON, &f.Source, &f.Status, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Runtime, &f.Entrypoint, &f.Timeout, &envJSON, &f.Source, &f.Cron, &f.Status, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		json.Unmarshal(envJSON, &f.EnvVars)
@@ -136,14 +137,14 @@ func (s *Service) List(ctx context.Context, projectID string) ([]*Function, int,
 }
 
 // Update updates an existing function.
-func (s *Service) Update(ctx context.Context, id, projectID string, name, runtime, entrypoint string, timeout int, envVars map[string]string, source string) (*Function, error) {
+func (s *Service) Update(ctx context.Context, id, projectID string, name, runtime, entrypoint string, timeout int, envVars map[string]string, source, cron string) (*Function, error) {
 	now := time.Now().UTC()
 	envJSON, _ := json.Marshal(envVars)
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE functions SET name = ?, runtime = ?, entrypoint = ?, timeout = ?, env_vars = ?, source = ?, status = 'building', updated_at = ?
+		`UPDATE functions SET name = ?, runtime = ?, entrypoint = ?, timeout = ?, env_vars = ?, source = ?, cron = ?, status = 'building', updated_at = ?
 		 WHERE id = ? AND project_id = ?`,
-		name, runtime, entrypoint, timeout, envJSON, source, now, id, projectID)
+		name, runtime, entrypoint, timeout, envJSON, source, cron, now, id, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("functions: update: %w", err)
 	}

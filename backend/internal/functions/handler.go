@@ -59,6 +59,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		Timeout    int               `json:"timeout"`
 		EnvVars    map[string]string `json:"envVars"`
 		Source     string            `json:"source"`
+		Cron       string            `json:"cron"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
@@ -77,7 +78,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if body.EnvVars == nil {
 		body.EnvVars = map[string]string{}
 	}
-	f, err := h.svc.Create(r.Context(), projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.Source)
+	f, err := h.svc.Create(r.Context(), projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.Source, body.Cron)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -130,6 +131,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		Timeout    int               `json:"timeout"`
 		EnvVars    map[string]string `json:"envVars"`
 		Source     string            `json:"source"`
+		Cron       *string           `json:"cron"` // pointer so explicit "" is preserved
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -155,8 +157,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if body.Source == "" {
 		body.Source = existing.Source
 	}
+	cron := existing.Cron
+	if body.Cron != nil {
+		cron = *body.Cron
+	}
 
-	f, err := h.svc.Update(r.Context(), id, projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.Source)
+	f, err := h.svc.Update(r.Context(), id, projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.Source, cron)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

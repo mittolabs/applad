@@ -5,7 +5,6 @@ x-worker-build: &worker-build
 x-worker-env: &worker-env
   DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad?sslmode=disable"
   REDIS_ADDR: "redis:6379"
-  POSTGREST_URL: "http://postgrest:3000"
   STORAGE_PATH: "/var/applad/storage"
   APP_ENV: "${APP_ENV:-development}"
   SMTP_HOST: "${SMTP_HOST:-}"
@@ -17,8 +16,6 @@ x-worker-env: &worker-env
 x-worker-deps: &worker-deps
   postgres:
     condition: service_healthy
-  postgrest:
-    condition: service_started
   redis:
     condition: service_healthy
 
@@ -37,7 +34,6 @@ services:
       DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad?sslmode=disable"
       REDIS_ADDR: "redis:6379"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
-      POSTGREST_URL: "http://postgrest:3000"
       STORAGE_PATH: "/var/applad/storage"
       APP_ENV: "${APP_ENV:-development}"
     volumes:
@@ -191,19 +187,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
-
-  postgrest:
-    image: postgrest/postgrest:v12.2.3
-    environment:
-      PGRST_DB_URI: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad"
-      PGRST_DB_SCHEMAS: "public,applad"
-      PGRST_DB_ANON_ROLE: "applad_anon"
-      PGRST_JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
-      PGRST_DB_PRE_REQUEST: "applad.check_jwt"
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
 
   redis:

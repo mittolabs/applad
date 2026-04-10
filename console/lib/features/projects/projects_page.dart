@@ -8,21 +8,18 @@ import '../../core/api/client.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/org_provider.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
 import '../../core/widgets/search_modal.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/navbar_popovers.dart';
 import '../../core/widgets/console_footer.dart';
 
 // --- Constants ---------------------------------------------------------------
 
-const _bgColor = Color(0xFF0B0B0F);
-const _cardColor = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _border = Color(0x0DFFFFFF);
 const _green = Color(0xFF10B981);
 const _red = Color(0xFFEF4444);
 
@@ -68,6 +65,7 @@ class ProjectsPage extends ConsumerStatefulWidget {
 }
 
 class _ProjectsPageState extends ConsumerState<ProjectsPage> {
+  late ConsoleColors _cs;
   int _tabIndex = 0;
   final _searchCtrl = TextEditingController();
   int _page = 1;
@@ -108,12 +106,12 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: _cardColor,
-        title: const Text('Delete project',
-            style: TextStyle(color: Colors.white)),
-        content: const Text(
+        backgroundColor: _cs.surface,
+        title: Text('Delete project',
+            style: TextStyle(color: _cs.textPrimary)),
+        content: Text(
             'All data in this project will be permanently deleted.',
-            style: TextStyle(color: _dimText)),
+            style: TextStyle(color: _cs.textMuted)),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -205,7 +203,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
               children: [
                 Text('Role',
                     style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.5),
+                        color: _cs.textMuted,
                         fontSize: 12,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 6),
@@ -213,21 +211,21 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0x0AFFFFFF),
+                    color: _cs.fieldFill,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.1)),
+                        color: _cs.fieldBorder),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: selectedRole,
                       isExpanded: true,
-                      dropdownColor: const Color(0xFF1E1F24),
-                      style: const TextStyle(
-                          color: Colors.white, fontSize: 13),
+                      dropdownColor: _cs.popupSurface,
+                      style: TextStyle(
+                          color: _cs.textPrimary, fontSize: 13),
                       icon: Icon(Icons.keyboard_arrow_down,
                           size: 16,
-                          color: Colors.white.withValues(alpha: 0.4)),
+                          color: _cs.textMuted),
                       items: const [
                         DropdownMenuItem(
                             value: 'owner', child: Text('Owner')),
@@ -252,7 +250,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                           ? 'Manage projects, members, and settings'
                           : 'Access assigned projects only',
                   style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.3),
+                      color: _cs.textSubtle,
                       fontSize: 11),
                 ),
               ],
@@ -348,7 +346,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
       subtitle: 'This action is irreversible',
       content: Text(
         'All projects and data within this organization will be permanently deleted.',
-        style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
+        style: TextStyle(color: _cs.textMuted, fontSize: 13),
       ),
       actions: [
         const AppDialogCancel(),
@@ -411,6 +409,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     final orgs = ref.watch(orgsProvider).valueOrNull ?? [];
     final currentOrgId = ref.watch(currentOrgProvider);
     final projectsAsync = ref.watch(projectsProvider);
@@ -447,7 +446,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
     final initials = _buildInitials(userName, userEmail);
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: _cs.background,
       body: Column(
         children: [
           _topBar(orgs, currentOrgId, orgName, initials, userEmail,
@@ -468,8 +467,8 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                           children: [
                             Expanded(
                               child: Text(orgName,
-                                  style: const TextStyle(
-                                      color: Colors.white,
+                                  style: TextStyle(
+                                      color: _cs.textPrimary,
                                       fontSize: 28,
                                       fontWeight: FontWeight.w700)),
                             ),
@@ -477,9 +476,8 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                             const SizedBox(width: 8),
                             OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white70,
-                                side: BorderSide(
-                                    color: Colors.white.withValues(alpha: 0.12)),
+                                foregroundColor: _cs.textSecondary,
+                                side: BorderSide(color: _cs.border),
                                 shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8)),
                                 padding: const EdgeInsets.symmetric(
@@ -576,9 +574,9 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: _bgColor,
+        color: _cs.background,
         border:
-            Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06))),
+            Border(bottom: BorderSide(color: _cs.border)),
       ),
       child: Row(
         children: [
@@ -596,16 +594,16 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
           const SizedBox(width: 10),
           Text('/',
               style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.18),
+                  color: _cs.textSubtle,
                   fontSize: 18,
                   fontWeight: FontWeight.w300)),
           const SizedBox(width: 10),
           PopupMenuButton<String>(
             offset: const Offset(0, 36),
-            color: const Color(0xFF1A1A22),
+            color: _cs.popupSurface,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+              side: BorderSide(color: _cs.border),
             ),
             onSelected: (value) {
               if (value == '__create__') {
@@ -624,25 +622,25 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                   value: id,
                   child: Row(children: [
                     if (currentOrgId == id)
-                      const Icon(LucideIcons.check,
-                          size: 12, color: Colors.white70)
+                      Icon(LucideIcons.check,
+                          size: 12, color: _cs.textSecondary)
                     else
                       const SizedBox(width: 12),
                     const SizedBox(width: 8),
                     Text(name,
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textSecondary, fontSize: 13)),
                   ]),
                 ));
               }
               items.add(const PopupMenuDivider());
-              items.add(const PopupMenuItem(
+              items.add(PopupMenuItem(
                 value: '__create__',
                 child: Row(children: [
-                  Icon(LucideIcons.plus, size: 14, color: _dimText),
-                  SizedBox(width: 8),
+                  Icon(LucideIcons.plus, size: 14, color: _cs.textMuted),
+                  const SizedBox(width: 8),
                   Text('Create organization',
-                      style: TextStyle(color: _dimText, fontSize: 13)),
+                      style: TextStyle(color: _cs.textMuted, fontSize: 13)),
                 ]),
               ));
               return items;
@@ -651,13 +649,13 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(orgName,
-                    style: const TextStyle(
-                        color: Colors.white,
+                    style: TextStyle(
+                        color: _cs.textPrimary,
                         fontSize: 13,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(width: 4),
                 Icon(LucideIcons.chevronDown,
-                    size: 14, color: Colors.white.withValues(alpha: 0.35)),
+                    size: 14, color: _cs.textMuted),
               ],
             ),
           ),
@@ -677,7 +675,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                 width: 34,
                 height: 34,
                 child: Icon(LucideIcons.search,
-                    size: 17, color: Colors.white.withValues(alpha: 0.45)),
+                    size: 17, color: _cs.textMuted),
               ),
             ),
           ),
@@ -740,7 +738,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                   color: _accent, fontSize: 11, fontWeight: FontWeight.w600)),
         ),
       );
-    }).toList();
+    }).toList();  // _accent is intentional brand color; not a theme token
   }
 
   // ---------------------------------------------------------------------------
@@ -758,7 +756,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
           child: Padding(
               padding: const EdgeInsets.all(64),
               child: Text('Error: $e',
-                  style: const TextStyle(color: Colors.white70)))),
+                  style: TextStyle(color: _cs.textSecondary)))),
       data: (allProjects) {
         final query = _searchCtrl.text.trim().toLowerCase();
         final filtered = query.isEmpty
@@ -806,10 +804,10 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
             Padding(
               padding: const EdgeInsets.all(48),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(LucideIcons.searchX, size: 36, color: _subtleText),
+                Icon(LucideIcons.searchX, size: 36, color: _cs.textSubtle),
                 const SizedBox(height: 12),
                 Text('No projects matching "$query"',
-                    style: const TextStyle(color: _dimText, fontSize: 14)),
+                    style: TextStyle(color: _cs.textMuted, fontSize: 14)),
               ]),
             )
           else
@@ -869,9 +867,9 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        const Text('Members',
+        Text('Members',
             style: TextStyle(
-                color: Colors.white,
+                color: _cs.textPrimary,
                 fontSize: 16,
                 fontWeight: FontWeight.w600)),
         const Spacer(),
@@ -904,9 +902,9 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
           padding:
               const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: _cardColor,
+            color: _cs.surface,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: _border),
+            border: Border.all(color: _cs.border),
           ),
           child: Row(children: [
             CircleAvatar(
@@ -924,21 +922,21 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(m['name'] ?? 'Unnamed',
-                      style: const TextStyle(
-                          color: Colors.white, fontSize: 14)),
+                      style: TextStyle(
+                          color: _cs.textPrimary, fontSize: 14)),
                   if (m['email'] != null)
                     Text(m['email'],
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 12)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 12)),
                 ],
               ),
             ),
             // Role dropdown
             DropdownButton<String>(
               value: role,
-              dropdownColor: const Color(0xFF1A1A22),
+              dropdownColor: _cs.popupSurface,
               underline: const SizedBox.shrink(),
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
+              style: TextStyle(color: _cs.textSecondary, fontSize: 12),
               items: const [
                 DropdownMenuItem(value: 'owner', child: Text('Owner')),
                 DropdownMenuItem(value: 'admin', child: Text('Admin')),
@@ -992,20 +990,20 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Roles & Permissions',
+      Text('Roles & Permissions',
           style: TextStyle(
-              color: Colors.white,
+              color: _cs.textPrimary,
               fontSize: 16,
               fontWeight: FontWeight.w600)),
       const SizedBox(height: 4),
-      const Text('Roles are assigned per member in the Members tab.',
-          style: TextStyle(color: _dimText, fontSize: 13)),
+      Text('Roles are assigned per member in the Members tab.',
+          style: TextStyle(color: _cs.textMuted, fontSize: 13)),
       const SizedBox(height: 20),
       Container(
         decoration: BoxDecoration(
-          color: _cardColor,
+          color: _cs.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _border),
+          border: Border.all(color: _cs.border),
         ),
         child: Column(children: [
           // Header row
@@ -1013,22 +1011,22 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             decoration: BoxDecoration(
               border: Border(
-                  bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06))),
+                  bottom: BorderSide(color: _cs.border)),
             ),
             child: Row(children: [
-              const Expanded(
+              Expanded(
                   flex: 3,
                   child: Text('Permission',
                       style: TextStyle(
-                          color: _dimText,
+                          color: _cs.textMuted,
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.5))),
               ...roles.map((r) => Expanded(
                     child: Center(
                       child: Text(r,
-                          style: const TextStyle(
-                              color: _dimText,
+                          style: TextStyle(
+                              color: _cs.textMuted,
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
                               letterSpacing: 0.5)),
@@ -1049,13 +1047,13 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                   : BoxDecoration(
                       border: Border(
                           bottom: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.04)))),
+                              color: _cs.border))),
               child: Row(children: [
                 Expanded(
                     flex: 3,
                     child: Text(perm.$1,
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 13))),
+                        style: TextStyle(
+                            color: _cs.textPrimary, fontSize: 13))),
                 ...perm.$2.map((allowed) => Expanded(
                       child: Center(
                         child: Icon(
@@ -1097,15 +1095,15 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
       data: (stats) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Usage overview',
+            Text('Usage overview',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: _cs.textPrimary,
                     fontSize: 16,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            const Text(
+            Text(
                 'Aggregated across all projects in this organization.',
-                style: TextStyle(color: _dimText, fontSize: 13)),
+                style: TextStyle(color: _cs.textMuted, fontSize: 13)),
             const SizedBox(height: 20),
             Row(children: [
               _UsageStat(
@@ -1133,23 +1131,23 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: _cardColor,
+                color: _cs.surface,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _border),
+                border: Border.all(color: _cs.border),
               ),
-              child: const Column(
+              child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Members',
                         style: TextStyle(
-                            color: _dimText,
+                            color: _cs.textMuted,
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.5)),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Text('Detailed per-project breakdown is available in '
                         'each project\'s Overview page.',
-                        style: TextStyle(color: _dimText, fontSize: 13)),
+                        style: TextStyle(color: _cs.textMuted, fontSize: 13)),
                   ]),
             ),
           ]),
@@ -1190,17 +1188,16 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
-                const Text('Activity log',
+                Text('Activity log',
                     style: TextStyle(
-                        color: Colors.white,
+                        color: _cs.textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.w600)),
                 const Spacer(),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.12)),
+                    foregroundColor: _cs.textSecondary,
+                    side: BorderSide(color: _cs.border),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8)),
                     padding: const EdgeInsets.symmetric(
@@ -1219,9 +1216,9 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
               else
                 Container(
                   decoration: BoxDecoration(
-                    color: _cardColor,
+                    color: _cs.surface,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _border),
+                    border: Border.all(color: _cs.border),
                   ),
                   child: Column(children: [
                     // Header
@@ -1230,15 +1227,13 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                           horizontal: 20, vertical: 10),
                       decoration: BoxDecoration(
                           border: Border(
-                              bottom: BorderSide(
-                                  color:
-                                      Colors.white.withValues(alpha: 0.06)))),
-                      child: const Row(children: [
+                              bottom: BorderSide(color: _cs.border))),
+                      child: Row(children: [
                         Expanded(
                             flex: 2,
                             child: Text('Action',
                                 style: TextStyle(
-                                    color: _dimText,
+                                    color: _cs.textMuted,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                     letterSpacing: 0.5))),
@@ -1246,7 +1241,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                             flex: 2,
                             child: Text('Project',
                                 style: TextStyle(
-                                    color: _dimText,
+                                    color: _cs.textMuted,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                     letterSpacing: 0.5))),
@@ -1254,14 +1249,14 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                             flex: 2,
                             child: Text('Path',
                                 style: TextStyle(
-                                    color: _dimText,
+                                    color: _cs.textMuted,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                     letterSpacing: 0.5))),
                         Expanded(
                             child: Text('Status',
                                 style: TextStyle(
-                                    color: _dimText,
+                                    color: _cs.textMuted,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                     letterSpacing: 0.5))),
@@ -1269,7 +1264,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                             flex: 2,
                             child: Text('Time',
                                 style: TextStyle(
-                                    color: _dimText,
+                                    color: _cs.textMuted,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                     letterSpacing: 0.5))),
@@ -1288,16 +1283,14 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                             ? null
                             : BoxDecoration(
                                 border: Border(
-                                    bottom: BorderSide(
-                                        color: Colors.white
-                                            .withValues(alpha: 0.04)))),
+                                    bottom: BorderSide(color: _cs.border))),
                         child: Row(children: [
                           Expanded(
                             flex: 2,
                             child: Text(
                               entry['action'] ?? entry['method'] ?? '—',
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 13),
+                              style: TextStyle(
+                                  color: _cs.textPrimary, fontSize: 13),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -1305,8 +1298,8 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                             flex: 2,
                             child: Text(
                               entry['projectName'] ?? entry['projectId'] ?? '—',
-                              style: const TextStyle(
-                                  color: _dimText, fontSize: 12),
+                              style: TextStyle(
+                                  color: _cs.textMuted, fontSize: 12),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -1314,9 +1307,9 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                             flex: 2,
                             child: Text(
                               entry['path'] ?? '—',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontFamily: 'monospace',
-                                  color: _dimText,
+                                  color: _cs.textMuted,
                                   fontSize: 11),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -1345,8 +1338,8 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                             child: Text(
                               _relativeTime(entry['\$createdAt'] ??
                                   entry['createdAt'] ?? ''),
-                              style: const TextStyle(
-                                  color: _dimText, fontSize: 12),
+                              style: TextStyle(
+                                  color: _cs.textMuted, fontSize: 12),
                             ),
                           ),
                         ]),
@@ -1385,8 +1378,8 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
         subtitle: 'Update your organization display name.',
         child: FilledButton(
           style: FilledButton.styleFrom(
-            backgroundColor: Colors.white.withValues(alpha: 0.08),
-            foregroundColor: Colors.white,
+            backgroundColor: _cs.fill,
+            foregroundColor: _cs.textPrimary,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8)),
             padding:
@@ -1402,36 +1395,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
       _settingsCard(
         title: 'Organization ID',
         subtitle: 'Use this ID when referencing this organization via the API.',
-        child: Row(children: [
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-            ),
-            child: Text(orgId,
-                style: const TextStyle(
-                    fontFamily: 'monospace',
-                    color: _dimText,
-                    fontSize: 12)),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(LucideIcons.copy, size: 15),
-            color: _dimText,
-            tooltip: 'Copy ID',
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: orgId));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('Organization ID copied'),
-                    duration: Duration(seconds: 2)),
-              );
-            },
-          ),
-        ]),
+        child: IdText(id: orgId),
       ),
       const SizedBox(height: 24),
 
@@ -1440,7 +1404,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
         width: double.infinity,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: _cardColor,
+          color: _cs.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.red.withValues(alpha: 0.25)),
         ),
@@ -1454,8 +1418,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
           Text(
             'Permanently delete this organization and all its projects. '
             'This action cannot be undone.',
-            style:
-                TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
+            style: TextStyle(color: _cs.textMuted, fontSize: 13),
           ),
           const SizedBox(height: 16),
           FilledButton(
@@ -1483,20 +1446,20 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: _cs.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _border),
+        border: Border.all(color: _cs.border),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(title,
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                color: _cs.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
         Text(subtitle,
             style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.45), fontSize: 13)),
+                color: _cs.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
         child,
       ]),
@@ -1512,14 +1475,14 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
       child: Padding(
         padding: const EdgeInsets.all(48),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 36, color: _subtleText),
+          Icon(icon, size: 36, color: _cs.textSubtle),
           const SizedBox(height: 12),
           Text(title,
-              style: const TextStyle(color: _dimText, fontSize: 14)),
+              style: TextStyle(color: _cs.textMuted, fontSize: 14)),
           if (subtitle.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(subtitle,
-                style: const TextStyle(color: _subtleText, fontSize: 12),
+                style: TextStyle(color: _cs.textSubtle, fontSize: 12),
                 textAlign: TextAlign.center),
           ],
         ]),
@@ -1542,25 +1505,26 @@ class _UsageStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: _cardColor,
+          color: cs.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _border),
+          border: Border.all(color: cs.border),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 18, color: _dimText),
+          Icon(icon, size: 18, color: cs.textMuted),
           const SizedBox(height: 10),
           Text(value,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: cs.textPrimary,
                   fontSize: 22,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 2),
           Text(label,
-              style: const TextStyle(color: _subtleText, fontSize: 11)),
+              style: TextStyle(color: cs.textSubtle, fontSize: 11)),
         ]),
       ),
     );
@@ -1595,6 +1559,7 @@ class _ProjectCardState extends State<_ProjectCard> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     final name = widget.project['name'] as String? ?? 'Untitled';
     final id = widget.project['\$id'] as String? ?? '';
     final desc = widget.project['description'] as String? ?? '';
@@ -1615,13 +1580,13 @@ class _ProjectCardState extends State<_ProjectCard> {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: _hovered
-                ? const Color(0xFF1C1D22)
-                : _cardColor,
+                ? cs.surfaceAlt
+                : cs.surface,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: _hovered
-                  ? Colors.white.withValues(alpha: 0.1)
-                  : _border,
+                  ? cs.fillActive
+                  : cs.border,
             ),
           ),
           child: Column(
@@ -1649,11 +1614,10 @@ class _ProjectCardState extends State<_ProjectCard> {
                   const Spacer(),
                   // 3-dot menu
                   PopupMenuButton<String>(
-                    color: const Color(0xFF1A1A22),
+                    color: cs.popupSurface,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
-                      side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.08)),
+                      side: BorderSide(color: cs.border),
                     ),
                     onSelected: (v) {
                       if (v == 'settings') {
@@ -1663,13 +1627,13 @@ class _ProjectCardState extends State<_ProjectCard> {
                       }
                     },
                     itemBuilder: (_) => [
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'settings',
                         child: Row(children: [
-                          Icon(LucideIcons.settings, size: 14, color: _dimText),
-                          SizedBox(width: 8),
+                          Icon(LucideIcons.settings, size: 14, color: cs.textMuted),
+                          const SizedBox(width: 8),
                           Text('Settings',
-                              style: TextStyle(color: Colors.white70, fontSize: 13)),
+                              style: TextStyle(color: cs.textSecondary, fontSize: 13)),
                         ]),
                       ),
                       const PopupMenuDivider(),
@@ -1686,14 +1650,14 @@ class _ProjectCardState extends State<_ProjectCard> {
                     child: Icon(LucideIcons.moreVertical,
                         size: 16,
                         color: _hovered
-                            ? Colors.white.withValues(alpha: 0.5)
+                            ? cs.textMuted
                             : Colors.transparent),
                   ),
                 ]),
                 const SizedBox(height: 14),
                 Text(name,
-                    style: const TextStyle(
-                        color: Colors.white,
+                    style: TextStyle(
+                        color: cs.textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.w600),
                     maxLines: 1,
@@ -1701,19 +1665,19 @@ class _ProjectCardState extends State<_ProjectCard> {
                 if (desc.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(desc,
-                      style: const TextStyle(color: _dimText, fontSize: 12),
+                      style: TextStyle(color: cs.textMuted, fontSize: 12),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
                 ] else ...[
                   const SizedBox(height: 2),
                   Text(id,
-                      style: const TextStyle(color: _subtleText, fontSize: 11),
+                      style: TextStyle(color: cs.textSubtle, fontSize: 11),
                       overflow: TextOverflow.ellipsis),
                 ],
                 const Spacer(),
                 Text(_formatDate(createdAt),
                     style:
-                        const TextStyle(color: _subtleText, fontSize: 11)),
+                        TextStyle(color: cs.textSubtle, fontSize: 11)),
               ]),
         ),
       ),
@@ -1768,6 +1732,7 @@ class _CreateProjectPlaceholderState
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return GestureDetector(
       onTap: widget.onTap,
       child: MouseRegion(
@@ -1777,8 +1742,8 @@ class _CreateProjectPlaceholderState
         child: CustomPaint(
           painter: _DashedBorderPainter(
             color: _hovered
-                ? Colors.white.withValues(alpha: 0.2)
-                : Colors.white.withValues(alpha: 0.1),
+                ? cs.fillActive
+                : cs.border,
             borderRadius: 12,
             dashWidth: 6,
             dashSpace: 4,
@@ -1798,19 +1763,19 @@ class _CreateProjectPlaceholderState
                     height: 40,
                     decoration: BoxDecoration(
                       color: _hovered
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : Colors.white.withValues(alpha: 0.04),
+                          ? cs.fillHover
+                          : cs.fill,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Center(
+                    child: Center(
                       child:
-                          Icon(LucideIcons.plus, size: 20, color: _dimText),
+                          Icon(LucideIcons.plus, size: 20, color: cs.textMuted),
                     ),
                   ),
                   const SizedBox(height: 14),
                   Text('Create a new project',
                       style: TextStyle(
-                          color: _hovered ? _dimText : _subtleText,
+                          color: _hovered ? cs.textMuted : cs.textSubtle,
                           fontSize: 14,
                           fontWeight: FontWeight.w500)),
                 ]),

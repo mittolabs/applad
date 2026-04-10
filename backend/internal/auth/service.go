@@ -42,8 +42,65 @@ func NewService(database *db.DB, jwtSecret string) *Service {
 	return &Service{db: database, jwtSecret: jwtSecret}
 }
 
+// authSecurity mirrors projects.AuthSecurity for enforcement without a cross-package import.
+type authSecurity struct {
+	UsersLimit                 int  `json:"usersLimit"`
+	SessionLengthSeconds       int  `json:"sessionLengthSeconds"`
+	SessionsPerUser            int  `json:"sessionsPerUser"`
+	PasswordMinLength          int  `json:"passwordMinLength"`
+	PasswordHistory            int  `json:"passwordHistory"`
+	PasswordDictionary         bool `json:"passwordDictionary"`
+	PasswordPersonalData       bool `json:"passwordPersonalData"`
+	MFARequired                bool `json:"mfaRequired"`
+	SessionAlerts              bool `json:"sessionAlerts"`
+	InvalidateOnPasswordChange bool `json:"invalidateOnPasswordChange"`
+}
+
+func (s *Service) loadSecurity(ctx context.Context, projectID string) authSecurity {
+	sec := authSecurity{
+		SessionLengthSeconds:       365 * 24 * 3600,
+		SessionsPerUser:            10,
+		PasswordMinLength:          8,
+		InvalidateOnPasswordChange: true,
+	}
+	var raw sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT auth_config FROM projects WHERE id = ?", projectID).Scan(&raw); err != nil {
+		return sec
+	}
+	if !raw.Valid || raw.String == "" || raw.String == "null" {
+		return sec
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw.String), &cfg); err != nil {
+		return sec
+	}
+	if secRaw, ok := cfg["security"]; ok {
+		_ = json.Unmarshal(secRaw, &sec)
+	}
+	return sec
+}
+
 // CreateAccount creates a new user account.
 func (s *Service) CreateAccount(ctx context.Context, projectID, userID, email, password, name string) (*model.User, error) {
+	sec := s.loadSecurity(ctx, projectID)
+
+	// Enforce password minimum length.
+	if sec.PasswordMinLength > 0 && len(password) < sec.PasswordMinLength {
+		return nil, fmt.Errorf("password_too_short: password must be at least %d characters", sec.PasswordMinLength)
+	}
+
+	// Enforce users limit.
+	if sec.UsersLimit > 0 {
+		var count int
+		if err := s.db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&count); err == nil {
+			if count >= sec.UsersLimit {
+				return nil, fmt.Errorf("users_limit_reached: project has reached its user limit of %d", sec.UsersLimit)
+			}
+		}
+	}
+
 	id := uid.New(userID)
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
@@ -111,6 +168,12 @@ func (s *Service) UpdateEmail(ctx context.Context, userID, projectID, email, pas
 
 // UpdatePassword updates a user's password after verifying the old one.
 func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, password, oldPassword string) (*model.User, error) {
+	sec := s.loadSecurity(ctx, projectID)
+
+	if sec.PasswordMinLength > 0 && len(password) < sec.PasswordMinLength {
+		return nil, fmt.Errorf("password_too_short: password must be at least %d characters", sec.PasswordMinLength)
+	}
+
 	var hash string
 	err := s.db.QueryRowContext(ctx,
 		"SELECT password_hash FROM users WHERE id = ? AND project_id = ?", userID, projectID).Scan(&hash)
@@ -130,6 +193,11 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, passwor
 		"UPDATE users SET password_hash = ? WHERE id = ? AND project_id = ?", string(newHash), userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: update password: %w", err)
+	}
+	// Invalidate all sessions when password changes if configured.
+	if sec.InvalidateOnPasswordChange {
+		s.db.ExecContext(ctx,
+			"DELETE FROM sessions WHERE user_id = ? AND project_id = ?", userID, projectID)
 	}
 	s.logUserEvent(ctx, projectID, userID, "user.password_change", "", "")
 	return s.GetAccount(ctx, userID, projectID)
@@ -253,8 +321,29 @@ func (s *Service) logUserEvent(ctx context.Context, projectID, userID, event, ip
 }
 
 func (s *Service) createSession(ctx context.Context, userID, projectID, provider, ip, ua string) (*model.Session, string, error) {
+	sec := s.loadSecurity(ctx, projectID)
+
+	// Enforce sessions-per-user limit.
+	if sec.SessionsPerUser > 0 {
+		var count int
+		if err := s.db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM sessions WHERE user_id = ? AND project_id = ? AND expires_at > NOW()",
+			userID, projectID).Scan(&count); err == nil && count >= sec.SessionsPerUser {
+			// Evict the oldest session to stay within the limit.
+			s.db.ExecContext(ctx,
+				`DELETE FROM sessions WHERE id = (
+				   SELECT id FROM sessions WHERE user_id = ? AND project_id = ?
+				   ORDER BY created_at ASC LIMIT 1
+				 )`, userID, projectID)
+		}
+	}
+
 	sessionID := uid.New("unique()")
-	expires := time.Now().UTC().Add(365 * 24 * time.Hour)
+	length := time.Duration(sec.SessionLengthSeconds) * time.Second
+	if length <= 0 {
+		length = 365 * 24 * time.Hour
+	}
+	expires := time.Now().UTC().Add(length)
 	now := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,

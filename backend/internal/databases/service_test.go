@@ -3,49 +3,43 @@ package databases
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/mittolabs/applad/internal/db"
 )
 
-func TestSignedPostgRESTJWT_IncludesClaims(t *testing.T) {
-	svc := &Service{jwtSecret: "test-secret"}
-	tokenString, err := svc.signedPostgRESTJWT("proj1", "user1", []string{"admin"})
-	if err != nil {
-		t.Fatalf("signedPostgRESTJWT returned error: %v", err)
-	}
-	if tokenString == "" {
-		t.Fatal("expected signed token")
-	}
-
-	token, err := jwt.ParseWithClaims(tokenString, &postgrestClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte("test-secret"), nil
-	})
-	if err != nil {
-		t.Fatalf("failed to parse token: %v", err)
-	}
-	claims, ok := token.Claims.(*postgrestClaims)
-	if !ok || !token.Valid {
-		t.Fatal("expected valid postgrest claims")
-	}
-	if claims.ProjectID != "proj1" {
-		t.Fatalf("expected project_id proj1, got %q", claims.ProjectID)
-	}
-	if claims.UserID != "user1" {
-		t.Fatalf("expected user_id user1, got %q", claims.UserID)
-	}
-	if claims.Role != "applad_user" {
-		t.Fatalf("expected db role applad_user, got %q", claims.Role)
-	}
-	joinedRoles := strings.Join(claims.Roles, ",")
+func TestSessionClaims_IncludesRoles(t *testing.T) {
+	roles := normalizeRoles("user1", []string{"admin"})
+	joinedRoles := strings.Join(roles, ",")
 	for _, expected := range []string{"admin", "any", "user:user1", "users"} {
 		if !strings.Contains(joinedRoles, expected) {
-			t.Fatalf("expected roles to include %q, got %v", expected, claims.Roles)
+			t.Fatalf("expected roles to include %q, got %v", expected, roles)
 		}
+	}
+
+	claims := sessionClaims{
+		Role:      "applad_user",
+		ProjectID: "proj1",
+		UserID:    "user1",
+		Roles:     roles,
+	}
+	data, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal sessionClaims: %v", err)
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m["project_id"] != "proj1" {
+		t.Fatalf("expected project_id proj1, got %v", m["project_id"])
+	}
+	if m["role"] != "applad_user" {
+		t.Fatalf("expected role applad_user, got %v", m["role"])
 	}
 }
 
@@ -94,8 +88,6 @@ func TestCreateIndex_DefaultTypeUsesStandardIndex(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO indexes`).
 		WithArgs(sqlmock.AnyArg(), "table1", "users_email_idx", "btree", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("NOTIFY pgrst, 'reload schema'")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	index, err := svc.CreateIndex(context.Background(), "table1", "users_email_idx", "btree", []string{"email"}, []string{"ASC"})
 	if err != nil {
@@ -122,8 +114,6 @@ func TestCreateIndex_UniqueTypeUsesUniqueDDL(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO indexes`).
 		WithArgs(sqlmock.AnyArg(), "table1", "users_email_unique", "unique", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("NOTIFY pgrst, 'reload schema'")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	index, err := svc.CreateIndex(context.Background(), "table1", "users_email_unique", "unique", []string{"email"}, []string{"ASC"})
 	if err != nil {
@@ -147,8 +137,6 @@ func TestCreateIndex_FullTextSingleColumnUsesGIN(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO indexes`).
 		WithArgs(sqlmock.AnyArg(), "table1", "articles_body_search", "fulltext", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("NOTIFY pgrst, 'reload schema'")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	index, err := svc.CreateIndex(context.Background(), "table1", "articles_body_search", "fulltext", []string{"body"}, []string{"ASC"})
 	if err != nil {

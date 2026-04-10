@@ -5,6 +5,7 @@ import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
 
@@ -125,44 +126,34 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
     final currentPage  = ref.watch(_funcPageProvider);
     final listTab      = ref.watch(_funcListTabProvider);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Functions',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(color: colors.textPrimary)),
-              const SizedBox(height: 4),
-              Text(
-                'Deploy serverless functions that run on demand.',
-                style: TextStyle(color: colors.textSecondary, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.only(left: 24),
-          child: PageTabs(
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 32),
+          Text('Functions',
+              style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 24),
+          PageTabs(
             tabs: const ['Functions', 'Usage'],
             selected: listTab,
             onChanged: (i) =>
                 ref.read(_funcListTabProvider.notifier).state = i,
           ),
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: listTab == 0
-              ? _buildFunctionsTab(functionsAsync, perPage, currentPage)
-              : const _FuncUsageTab(),
-        ),
-      ],
+          const SizedBox(height: 20),
+          Expanded(
+            child: listTab == 0
+                ? _buildFunctionsTab(functionsAsync, perPage, currentPage)
+                : const _FuncUsageTab(),
+          ),
+        ],
+      ),
     );
   }
 
@@ -174,41 +165,33 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
     final colors = consoleColors(context);
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SearchListHeader(
-            searchController: _searchCtrl,
-            total: functionsAsync.whenOrNull(
-                    data: (d) => d['total'] as int? ?? 0) ??
-                0,
-            perPage: perPage,
-            currentPage: currentPage,
-            onPerPageChanged: (v) {
-              ref.read(_funcPerPageProvider.notifier).state = v;
-              ref.read(_funcPageProvider.notifier).state = 1;
-            },
-            onPrev: () =>
-                ref.read(_funcPageProvider.notifier).update((s) => s - 1),
-            onNext: () =>
-                ref.read(_funcPageProvider.notifier).update((s) => s + 1),
-            onSearch: _doSearch,
-            trailing: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: _accent,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: () => _showCreateDialog(context, ref),
-              icon: const Icon(LucideIcons.plus, size: 16),
-              label: const Text('Create function'),
+        SearchListHeader(
+          searchController: _searchCtrl,
+          total: functionsAsync.whenOrNull(
+                  data: (d) => d['total'] as int? ?? 0) ??
+              0,
+          perPage: perPage,
+          currentPage: currentPage,
+          onPerPageChanged: (v) {
+            ref.read(_funcPerPageProvider.notifier).state = v;
+            ref.read(_funcPageProvider.notifier).state = 1;
+          },
+          onPrev: () =>
+              ref.read(_funcPageProvider.notifier).update((s) => s - 1),
+          onNext: () =>
+              ref.read(_funcPageProvider.notifier).update((s) => s + 1),
+          onSearch: _doSearch,
+          trailing: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: _accent,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
             ),
+            onPressed: () => _showCreateDialog(context, ref),
+            icon: const Icon(LucideIcons.plus, size: 16),
+            label: const Text('Create function'),
           ),
         ),
-        const SizedBox(height: 8),
-        Container(
-            height: 1,
-            margin: const EdgeInsets.symmetric(horizontal: 24),
-          color: colors.border),
         const SizedBox(height: 12),
         Expanded(
           child: functionsAsync.when(
@@ -238,7 +221,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
                 return _buildEmptyState();
               }
               return ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: EdgeInsets.zero,
                 itemCount: fns.length,
                 separatorBuilder: (_, __) =>
                     const SizedBox(height: 8),
@@ -253,24 +236,21 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
             },
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SearchListFooter(
-            total: functionsAsync.whenOrNull(
-                    data: (d) => d['total'] as int? ?? 0) ??
-                0,
-            perPage: perPage,
-            currentPage: currentPage,
-            itemLabel: 'functions',
-            onPrev: () =>
-                ref.read(_funcPageProvider.notifier).update((s) => s - 1),
-            onNext: () =>
-                ref.read(_funcPageProvider.notifier).update((s) => s + 1),
-            onPerPageChanged: (v) {
-              ref.read(_funcPerPageProvider.notifier).state = v;
-              ref.read(_funcPageProvider.notifier).state = 1;
-            },
-          ),
+        SearchListFooter(
+          total: functionsAsync.whenOrNull(
+                  data: (d) => d['total'] as int? ?? 0) ??
+              0,
+          perPage: perPage,
+          currentPage: currentPage,
+          itemLabel: 'functions',
+          onPrev: () =>
+              ref.read(_funcPageProvider.notifier).update((s) => s - 1),
+          onNext: () =>
+              ref.read(_funcPageProvider.notifier).update((s) => s + 1),
+          onPerPageChanged: (v) {
+            ref.read(_funcPerPageProvider.notifier).state = v;
+            ref.read(_funcPageProvider.notifier).state = 1;
+          },
         ),
         const SizedBox(height: 12),
       ],
@@ -812,13 +792,7 @@ class _ExecutionRowState extends State<_ExecutionRow> {
             child: Row(children: [
               Expanded(
                 flex: 3,
-                child: Text(
-                  id.length > 16 ? id.substring(0, 16) : id,
-                  style: TextStyle(
-                      color: colors.textSecondary,
-                      fontSize: 12,
-                      fontFamily: 'monospace'),
-                ),
+                child: IdText(id: id, fontSize: 12),
               ),
               Expanded(flex: 2, child: _StatusBadge(status: status)),
               Expanded(
@@ -1093,6 +1067,7 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
   late TextEditingController _entryCtrl;
   late TextEditingController _timeoutCtrl;
   late TextEditingController _sourceCtrl;
+  late TextEditingController _cronCtrl;
   late String _runtime;
   bool _saving = false;
 
@@ -1104,6 +1079,7 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
     _entryCtrl   = TextEditingController(text: fn['entrypoint'] ?? '');
     _timeoutCtrl = TextEditingController(text: '${fn['timeout'] ?? 15}');
     _sourceCtrl  = TextEditingController(text: fn['source'] ?? '');
+    _cronCtrl    = TextEditingController(text: fn['cron'] ?? '');
     _runtime     = fn['runtime'] ?? 'node-20';
   }
 
@@ -1113,6 +1089,7 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
     _entryCtrl.dispose();
     _timeoutCtrl.dispose();
     _sourceCtrl.dispose();
+    _cronCtrl.dispose();
     super.dispose();
   }
 
@@ -1143,6 +1120,14 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
                 const SizedBox(height: 12),
                 _field('Timeout (seconds)', _timeoutCtrl, '15',
                     keyboard: TextInputType.number),
+                const SizedBox(height: 12),
+                _field('Schedule (cron)', _cronCtrl, '0 * * * *'),
+                const SizedBox(height: 4),
+                Text(
+                  'Standard 5-field cron expression (minute hour day month weekday). Leave empty for manual execution only.',
+                  style: TextStyle(
+                      color: consoleColors(context).textSubtle, fontSize: 11),
+                ),
               ],
             ),
           ),
@@ -1329,6 +1314,7 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
         'entrypoint': _entryCtrl.text.trim(),
         'timeout':    int.tryParse(_timeoutCtrl.text) ?? 15,
         'source':     _sourceCtrl.text,
+        'cron':       _cronCtrl.text.trim(),
       });
       final updated = res.data as Map<String, dynamic>;
       widget.onUpdated(updated);

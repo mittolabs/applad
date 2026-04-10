@@ -176,6 +176,51 @@ func (s *Service) SignupEnabled(ctx context.Context, setting string) (bool, erro
 	}
 }
 
+// LoginOrCreateByOAuth finds an existing console user by email or creates one
+// if signup is currently enabled. OAuth users have no password.
+func (s *Service) LoginOrCreateByOAuth(ctx context.Context, email, name, provider, signupSetting string) (*ConsoleUser, string, error) {
+	var u ConsoleUser
+	var nameNull sql.NullString
+
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id, email, name, created_at, updated_at FROM console_users WHERE email = ?",
+		email).Scan(&u.ID, &u.Email, &nameNull, &u.CreatedAt, &u.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		// First time — only allowed when signup is enabled.
+		enabled, err2 := s.SignupEnabled(ctx, signupSetting)
+		if err2 != nil {
+			return nil, "", err2
+		}
+		if !enabled {
+			return nil, "", fmt.Errorf("console: signup disabled")
+		}
+		id := uid.New("unique()")
+		now := time.Now().UTC()
+		if name == "" {
+			name = email
+		}
+		_, err2 = s.db.ExecContext(ctx,
+			`INSERT INTO console_users (id, email, name, password_hash, created_at, updated_at)
+			 VALUES (?, ?, ?, '', ?, ?)`,
+			id, email, name, now, now)
+		if err2 != nil {
+			return nil, "", fmt.Errorf("console: create oauth user: %w", err2)
+		}
+		u = ConsoleUser{ID: id, Email: email, Name: name, CreatedAt: now, UpdatedAt: now}
+	} else if err != nil {
+		return nil, "", err
+	} else {
+		u.Name = nameNull.String
+	}
+
+	token, err := s.signJWT(u.ID, u.Email)
+	if err != nil {
+		return nil, "", err
+	}
+	return &u, token, nil
+}
+
 // ValidateToken parses and validates a console JWT, returning the user ID.
 func (s *Service) ValidateToken(tokenStr string) (string, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &ConsoleClaims{}, func(t *jwt.Token) (interface{}, error) {

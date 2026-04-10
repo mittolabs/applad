@@ -1,0 +1,458 @@
+# All 10 workers share the same image; WORKER_TYPE selects the binary at runtime.
+# The builds worker requires a Docker socket or DOCKER_HOST (TCP) for image builds.
+
+x-worker-template: &worker-template
+  image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+  envFrom:
+    - configMapRef:
+        name: applad-config
+    - secretRef:
+        name: applad-secret
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  volumeMounts:
+    - name: storage
+      mountPath: /var/applad/storage
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-builds
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-builds
+  template:
+    metadata:
+      labels:
+        app: worker-builds
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["builds"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          env:
+            # Point to a Docker daemon accessible from the cluster.
+            # For DinD: set to tcp://dind:2375
+            # For host socket: mount /var/run/docker.sock and use unix:// path
+            - name: DOCKER_HOST
+              value: "unix:///var/run/docker.sock"
+          volumeMounts:
+            - name: storage
+              mountPath: /var/applad/storage
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: storage-pvc
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-certificates
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-certificates
+  template:
+    metadata:
+      labels:
+        app: worker-certificates
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["certificates"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-databases
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-databases
+  template:
+    metadata:
+      labels:
+        app: worker-databases
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["databases"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-deletes
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-deletes
+  template:
+    metadata:
+      labels:
+        app: worker-deletes
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["deletes"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-executions
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-executions
+  template:
+    metadata:
+      labels:
+        app: worker-executions
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["executions"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-mails
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-mails
+  template:
+    metadata:
+      labels:
+        app: worker-mails
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["mails"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-messaging
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-messaging
+  template:
+    metadata:
+      labels:
+        app: worker-messaging
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["messaging"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-migrations
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-migrations
+  template:
+    metadata:
+      labels:
+        app: worker-migrations
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["migrations"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-usage
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-usage
+  template:
+    metadata:
+      labels:
+        app: worker-usage
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["usage"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-webhooks
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-webhooks
+  template:
+    metadata:
+      labels:
+        app: worker-webhooks
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["webhooks"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/.worker_alive && test 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400( 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date +%s) - 20 20 12 61 79 80 81 98 701 33 100 204 250 395 398 399 400date -r /tmp/.worker_alive +%s) )) -lt 120"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-cron
+  namespace: applad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-cron
+  template:
+    metadata:
+      labels:
+        app: worker-cron
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mittolabs/applad-worker:${APPLAD_VERSION:-latest}
+          args: ["cron"]
+          envFrom:
+            - configMapRef:
+                name: applad-config
+            - secretRef:
+                name: applad-secret
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+# Shared storage volume used by api + builds worker
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: storage-pvc
+  namespace: applad
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 50Gi

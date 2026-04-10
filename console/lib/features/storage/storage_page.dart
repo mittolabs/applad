@@ -4,18 +4,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
+import '../../core/theme/console_colors.dart';
+import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
 
 // --- Constants ---------------------------------------------------------------
 
-const _bgColor = Color(0xFF0B0B0F);
-const _cardColor = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _border = Color(0x0FFFFFFF);
 const _red = Color(0xFFEF4444);
 
 // --- Providers ---------------------------------------------------------------
@@ -97,14 +95,19 @@ class _StoragePageState extends ConsumerState<StoragePage> {
   }
 
   Widget _buildBucketsList() {
+    final cs = consoleColors(context);
     final bucketsAsync = ref.watch(bucketsProvider);
     final perPage = ref.watch(_bucketPerPageProvider);
     final currentPage = ref.watch(_bucketPageProvider);
     final total =
         bucketsAsync.whenOrNull(data: (d) => d['total'] as int? ?? 0) ?? 0;
+    final buckets = bucketsAsync.valueOrNull == null
+        ? <Map<String, dynamic>>[]
+        : List<Map<String, dynamic>>.from(
+            bucketsAsync.valueOrNull!['buckets'] ?? []);
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -113,9 +116,9 @@ class _StoragePageState extends ConsumerState<StoragePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 32),
-            const Text('Storage',
+            Text('Storage',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: cs.textPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 24),
@@ -125,107 +128,62 @@ class _StoragePageState extends ConsumerState<StoragePage> {
               onChanged: (_) {},
             ),
             const SizedBox(height: 20),
-            // Search + create
-            Row(
-              children: [
-                SizedBox(
-                  width: 280,
-                  child: TextField(
-                    controller: _searchCtrl,
-                    onSubmitted: (_) => _doSearch(),
-                    style: const TextStyle(fontSize: 13, color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Search by name or ID',
-                      hintStyle:
-                          const TextStyle(color: _subtleText, fontSize: 13),
-                      prefixIcon: const Padding(
-                        padding: EdgeInsets.only(left: 10, right: 6),
-                        child:
-                            Icon(Icons.search, size: 16, color: _subtleText),
-                      ),
-                      prefixIconConstraints:
-                          const BoxConstraints(minWidth: 32, minHeight: 0),
-                      filled: true,
-                      fillColor: const Color(0x0AFFFFFF),
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                          vertical: 10, horizontal: 12),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                              color: Colors.white.withOpacity(0.08))),
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                              color: Colors.white.withOpacity(0.08))),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: _accent)),
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _accent,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                  ),
-                  icon: const Icon(LucideIcons.plus, size: 14),
-                  label: const Text('Create bucket',
-                      style: TextStyle(fontSize: 12)),
-                  onPressed: () => _showCreateBucketDialog(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            // Table
-            Expanded(
-              child: bucketsAsync.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(
-                    child: Text('Error: $e',
+            if (bucketsAsync.isLoading)
+              const Expanded(
+                  child: Center(child: CircularProgressIndicator()))
+            else if (bucketsAsync.hasError)
+              Expanded(
+                child: Center(
+                    child: Text('Error: ${bucketsAsync.error}',
                         style: const TextStyle(color: _red))),
-                data: (data) {
-                  final buckets = List<Map<String, dynamic>>.from(
-                      data['buckets'] ?? []);
-                  if (buckets.isEmpty) {
-                    return _EmptyState(
-                      icon: LucideIcons.folderClosed,
-                      title: 'No buckets',
-                      subtitle: 'Create a bucket to start storing files',
-                      actionLabel: 'Create bucket',
-                      onAction: () => _showCreateBucketDialog(),
-                    );
-                  }
-                  return _BucketsTable(
-                    buckets: buckets,
-                    onSelect: (id) =>
-                        setState(() => _selectedBucketId = id),
-                    onDelete: _deleteBucket,
-                  );
-                },
+              )
+            else
+              Expanded(
+                child: AppDataTable(
+                  columns: const [
+                    AppTableColumn(key: r'$id',      label: 'Bucket ID', flex: 3),
+                    AppTableColumn(key: 'name',       label: 'Name',      flex: 3),
+                    AppTableColumn(key: 'createdAt',  label: 'Created',   flex: 2),
+                    AppTableColumn(key: 'updatedAt',  label: 'Updated',   flex: 2),
+                  ],
+                  rows: buckets,
+                  getCellValue: (row, key) => switch (key) {
+                    r'$id'       => row[r'$id'] as String? ?? '',
+                    'name'       => row['name'] as String? ?? '',
+                    'createdAt'  => _fmtDate(row['createdAt'] ?? row[r'$createdAt']),
+                    'updatedAt'  => _fmtDate(row['updatedAt'] ?? row[r'$updatedAt']),
+                    _            => '',
+                  },
+                  getRowIcon: (_) => LucideIcons.folderClosed,
+                  onRowTap: (row) =>
+                      setState(() => _selectedBucketId = row[r'$id'] as String?),
+                  onDeleteRow: (row) => _deleteBucket(row[r'$id'] as String),
+                  createLabel: 'Create bucket',
+                  onCreateTap: _showCreateBucketDialog,
+                  total: total,
+                  perPage: perPage,
+                  currentPage: currentPage,
+                  onPrev: () =>
+                      ref.read(_bucketPageProvider.notifier).update((s) => s - 1),
+                  onNext: () =>
+                      ref.read(_bucketPageProvider.notifier).update((s) => s + 1),
+                  onPerPageChanged: (v) {
+                    ref.read(_bucketPerPageProvider.notifier).state = v;
+                    ref.read(_bucketPageProvider.notifier).state = 1;
+                  },
+                  itemLabel: 'Buckets',
+                  searchController: _searchCtrl,
+                  onSearch: _doSearch,
+                  emptyIcon: LucideIcons.folderClosed,
+                  emptyTitle: 'No buckets',
+                  emptySubtitle: 'Create a bucket to start storing files',
+                  gridCardBuilder: (row) => _BucketGridCard(
+                    bucket: row,
+                    onTap: () => setState(
+                        () => _selectedBucketId = row[r'$id'] as String?),
+                  ),
+                ),
               ),
-            ),
-            // Footer
-            SearchListFooter(
-              total: total,
-              perPage: perPage,
-              currentPage: currentPage,
-              onPrev: () =>
-                  ref.read(_bucketPageProvider.notifier).update((s) => s - 1),
-              onNext: () =>
-                  ref.read(_bucketPageProvider.notifier).update((s) => s + 1),
-              onPerPageChanged: (v) {
-                ref.read(_bucketPerPageProvider.notifier).state = v;
-                ref.read(_bucketPageProvider.notifier).state = 1;
-              },
-              itemLabel: 'Buckets',
-            ),
-            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -270,7 +228,7 @@ class _StoragePageState extends ConsumerState<StoragePage> {
       context: context,
       title: 'Delete bucket',
       content: Text('All files in this bucket will be permanently deleted.',
-          style: TextStyle(color: Colors.white.withOpacity(0.6))),
+          style: TextStyle(color: consoleColors(context).textSecondary)),
       actions: [
         const AppDialogCancel(),
         AppDialogAction(
@@ -288,183 +246,87 @@ class _StoragePageState extends ConsumerState<StoragePage> {
 }
 
 // =============================================================================
-// Buckets Table
+// Shared date formatter
 // =============================================================================
 
-class _BucketsTable extends StatelessWidget {
-  final List<Map<String, dynamic>> buckets;
-  final ValueChanged<String> onSelect;
-  final Future<void> Function(String) onDelete;
-
-  const _BucketsTable({
-    required this.buckets,
-    required this.onSelect,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Header
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            border:
-                Border(bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
-          ),
-          child: Row(
-            children: [
-              _col('Bucket ID', flex: 3),
-              _col('Name', flex: 3),
-              _col('Created', flex: 2),
-              _col('Updated', flex: 2),
-              const SizedBox(width: 40),
-            ],
-          ),
-        ),
-        // Rows
-        Expanded(
-          child: ListView.builder(
-            itemCount: buckets.length,
-            itemBuilder: (context, i) {
-              final b = buckets[i];
-              final id = b['\$id'] as String? ?? '';
-              return _BucketRow(
-                bucket: b,
-                onTap: () => onSelect(id),
-                onDelete: () => onDelete(id),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _col(String label, {int flex = 1}) {
-    return Expanded(
-      flex: flex,
-      child: Text(label,
-          style: const TextStyle(
-              color: _dimText,
-              fontSize: 12,
-              fontWeight: FontWeight.w500)),
-    );
+String _fmtDate(dynamic raw) {
+  if (raw == null) return '—';
+  try {
+    final dt = raw is DateTime ? raw : DateTime.parse(raw.toString());
+    const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${m[dt.month.clamp(1, 12)]} ${dt.day}, ${dt.year}';
+  } catch (_) {
+    return '—';
   }
 }
 
-class _BucketRow extends StatefulWidget {
+// =============================================================================
+// Bucket grid card (for grid view)
+// =============================================================================
+
+class _BucketGridCard extends StatefulWidget {
   final Map<String, dynamic> bucket;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
 
-  const _BucketRow({
-    required this.bucket,
-    required this.onTap,
-    required this.onDelete,
-  });
+  const _BucketGridCard({required this.bucket, required this.onTap});
 
   @override
-  State<_BucketRow> createState() => _BucketRowState();
+  State<_BucketGridCard> createState() => _BucketGridCardState();
 }
 
-class _BucketRowState extends State<_BucketRow> {
+class _BucketGridCardState extends State<_BucketGridCard> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    final b = widget.bucket;
-    final id = b['\$id'] as String? ?? '';
-    final name = b['name'] as String? ?? '';
-    final created = _formatDate(b['createdAt'] ?? b['\$createdAt']);
-    final updated = _formatDate(b['updatedAt'] ?? b['\$updatedAt']);
+    final cs = consoleColors(context);
+    final id = widget.bucket[r'$id'] as String? ?? '';
+    final name = widget.bucket['name'] as String? ?? '';
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: _hovered ? Colors.white.withOpacity(0.02) : null,
-            border: Border(
-                bottom:
-                    BorderSide(color: Colors.white.withOpacity(0.04))),
+            color: _hovered ? cs.fillHover : cs.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+                color: _hovered ? _accent.withOpacity(0.35) : cs.border),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                flex: 3,
-                child: Row(
-                  children: [
-                    Icon(LucideIcons.folderClosed,
-                        size: 14, color: _accent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(id,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontFamily: 'monospace'),
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ],
+              Icon(LucideIcons.folderClosed, size: 20, color: _accent),
+              const SizedBox(height: 10),
+              Text(name,
+                  style: TextStyle(
+                      color: cs.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: cs.fill,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: cs.border),
                 ),
-              ),
-              Expanded(
-                flex: 3,
-                child: Text(name,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 13)),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(created,
-                    style:
-                        const TextStyle(color: _dimText, fontSize: 12)),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(updated,
-                    style:
-                        const TextStyle(color: _dimText, fontSize: 12)),
-              ),
-              SizedBox(
-                width: 40,
-                child: _hovered
-                    ? GestureDetector(
-                        onTap: widget.onDelete,
-                        child: const Icon(LucideIcons.trash2,
-                            size: 14, color: _subtleText),
-                      )
-                    : const SizedBox(),
+                child: IdText(id: id, fontSize: 11),
               ),
             ],
           ),
         ),
       ),
     );
-  }
-
-  String _formatDate(dynamic raw) {
-    if (raw == null) return '—';
-    try {
-      final dt = raw is DateTime ? raw : DateTime.parse(raw.toString());
-      return '${_monthName(dt.month)} ${dt.day}, ${dt.year}';
-    } catch (_) {
-      return '—';
-    }
-  }
-
-  String _monthName(int m) {
-    const names = [
-      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return names[m.clamp(1, 12)];
   }
 }
 
@@ -500,11 +362,12 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     final bucketAsync = ref.watch(_bucketDetailProvider(widget.bucketId));
     final bucketName = bucketAsync.valueOrNull?['name'] as String? ?? widget.bucketId;
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -521,13 +384,13 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                   child: MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: Icon(LucideIcons.arrowLeft,
-                        size: 20, color: Colors.white.withOpacity(0.5)),
+                        size: 20, color: cs.textMuted),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Text(bucketName,
-                    style: const TextStyle(
-                        color: Colors.white,
+                    style: TextStyle(
+                        color: cs.textPrimary,
                         fontSize: 22,
                         fontWeight: FontWeight.w600)),
                 const SizedBox(width: 12),
@@ -535,13 +398,9 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                   children: [
                     Icon(LucideIcons.folderClosed,
                         size: 13,
-                        color: Colors.white.withOpacity(0.3)),
+                        color: cs.textSubtle),
                     const SizedBox(width: 4),
-                    Text(widget.bucketId,
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.3),
-                            fontSize: 13,
-                            fontFamily: 'monospace')),
+                    IdText(id: widget.bucketId),
                   ],
                 ),
               ],
@@ -567,6 +426,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
   }
 
   Widget _buildFilesTab() {
+    final cs = consoleColors(context);
     final filesAsync = ref.watch(_filesProvider(widget.bucketId));
 
     return Column(
@@ -578,31 +438,29 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
               width: 280,
               child: TextField(
                 controller: _fileSearchCtrl,
-                style: const TextStyle(fontSize: 13, color: Colors.white),
+                style: TextStyle(fontSize: 13, color: cs.textPrimary),
                 decoration: InputDecoration(
                   hintText: 'Search files',
                   hintStyle:
-                      const TextStyle(color: _subtleText, fontSize: 13),
-                  prefixIcon: const Padding(
-                    padding: EdgeInsets.only(left: 10, right: 6),
+                      TextStyle(color: cs.textSubtle, fontSize: 13),
+                  prefixIcon: Padding(
+                    padding: const EdgeInsets.only(left: 10, right: 6),
                     child:
-                        Icon(Icons.search, size: 16, color: _subtleText),
+                        Icon(Icons.search, size: 16, color: cs.textSubtle),
                   ),
                   prefixIconConstraints:
                       const BoxConstraints(minWidth: 32, minHeight: 0),
                   filled: true,
-                  fillColor: const Color(0x0AFFFFFF),
+                  fillColor: cs.fieldFill,
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(
                       vertical: 10, horizontal: 12),
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(
-                          color: Colors.white.withOpacity(0.08))),
+                      borderSide: BorderSide(color: cs.fieldBorder)),
                   enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(
-                          color: Colors.white.withOpacity(0.08))),
+                      borderSide: BorderSide(color: cs.fieldBorder)),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                       borderSide: const BorderSide(color: _accent)),
@@ -680,6 +538,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
   }
 
   Widget _buildSettingsTab() {
+    final cs = consoleColors(context);
     final bucketAsync = ref.watch(_bucketDetailProvider(widget.bucketId));
 
     return bucketAsync.when(
@@ -712,17 +571,17 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(name,
-                                style: const TextStyle(
-                                    color: Colors.white,
+                                style: TextStyle(
+                                    color: cs.textPrimary,
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600)),
                             const SizedBox(height: 4),
                             Text('Created: $created',
-                                style: const TextStyle(
-                                    color: _subtleText, fontSize: 12)),
+                                style: TextStyle(
+                                    color: cs.textSubtle, fontSize: 12)),
                             Text('Last updated: $updated',
-                                style: const TextStyle(
-                                    color: _subtleText, fontSize: 12)),
+                                style: TextStyle(
+                                    color: cs.textSubtle, fontSize: 12)),
                           ],
                         ),
                       ),
@@ -775,7 +634,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                         ? 'When file security is enabled, users will be able to access files for which they have been granted either file or bucket permissions.'
                         : 'If file security is disabled, users can access files only if they have bucket permissions. File permissions will be ignored.',
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.35),
+                        color: cs.textSubtle,
                         fontSize: 12),
                   ),
                 ],
@@ -844,13 +703,13 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                             maxSize > 0
                                 ? '${(maxSize / (1024 * 1024)).toStringAsFixed(0)}'
                                 : 'Unlimited',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14)),
+                            style: TextStyle(
+                                color: cs.textPrimary, fontSize: 14)),
                       ),
                       const SizedBox(width: 8),
-                      const Text('MB',
+                      Text('MB',
                           style: TextStyle(
-                              color: _dimText, fontSize: 13)),
+                              color: cs.textMuted, fontSize: 13)),
                     ],
                   ),
                 ],
@@ -866,7 +725,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                   if (extensions.isEmpty)
                     Text('All file types allowed',
                         style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
+                            color: cs.textSecondary,
                             fontSize: 13))
                   else
                     Wrap(
@@ -882,8 +741,8 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                                       BorderRadius.circular(4),
                                 ),
                                 child: Text(ext,
-                                    style: const TextStyle(
-                                        color: Colors.white,
+                                    style: TextStyle(
+                                        color: cs.textPrimary,
                                         fontSize: 12,
                                         fontFamily: 'monospace')),
                               ))
@@ -899,7 +758,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                 padding: const EdgeInsets.all(20),
                 margin: const EdgeInsets.only(bottom: 40),
                 decoration: BoxDecoration(
-                  color: _cardColor,
+                  color: cs.surface,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: _red.withOpacity(0.3)),
                 ),
@@ -922,8 +781,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                               Text(
                                   'The bucket will be permanently deleted, including all the files within it. This action is irreversible.',
                                   style: TextStyle(
-                                      color:
-                                          Colors.white.withOpacity(0.4),
+                                      color: cs.textSecondary,
                                       fontSize: 13)),
                             ],
                           ),
@@ -932,22 +790,22 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.03),
+                            color: cs.fill,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: _border),
+                            border: Border.all(color: cs.border),
                           ),
                           child: Column(
                             crossAxisAlignment:
                                 CrossAxisAlignment.start,
                             children: [
                               Text(name,
-                                  style: const TextStyle(
-                                      color: Colors.white,
+                                  style: TextStyle(
+                                      color: cs.textPrimary,
                                       fontSize: 13,
                                       fontWeight: FontWeight.w500)),
                               Text('Last updated: $updated',
-                                  style: const TextStyle(
-                                      color: _subtleText,
+                                  style: TextStyle(
+                                      color: cs.textSubtle,
                                       fontSize: 11)),
                             ],
                           ),
@@ -1034,6 +892,7 @@ class _FilesTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Column(
       children: [
         Container(
@@ -1042,16 +901,16 @@ class _FilesTable extends StatelessWidget {
           decoration: BoxDecoration(
             border: Border(
                 bottom:
-                    BorderSide(color: Colors.white.withOpacity(0.06))),
+                    BorderSide(color: cs.border)),
           ),
           child: Row(
-            children: const [
-              SizedBox(width: 32), // checkbox placeholder
-              Expanded(flex: 4, child: Text('Filename', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-              Expanded(flex: 2, child: Text('Type', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-              Expanded(flex: 1, child: Text('Size', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-              Expanded(flex: 2, child: Text('Created', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-              SizedBox(width: 40),
+            children: [
+              const SizedBox(width: 32), // checkbox placeholder
+              Expanded(flex: 4, child: Text('Filename', style: TextStyle(color: cs.textMuted, fontSize: 12, fontWeight: FontWeight.w500))),
+              Expanded(flex: 2, child: Text('Type', style: TextStyle(color: cs.textMuted, fontSize: 12, fontWeight: FontWeight.w500))),
+              Expanded(flex: 1, child: Text('Size', style: TextStyle(color: cs.textMuted, fontSize: 12, fontWeight: FontWeight.w500))),
+              Expanded(flex: 2, child: Text('Created', style: TextStyle(color: cs.textMuted, fontSize: 12, fontWeight: FontWeight.w500))),
+              const SizedBox(width: 40),
             ],
           ),
         ),
@@ -1093,6 +952,7 @@ class _FileRowState extends State<_FileRow> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     final f = widget.file;
     final name = f['name'] as String? ?? 'Untitled';
     final mime = f['mimeType'] as String? ?? '';
@@ -1109,10 +969,10 @@ class _FileRowState extends State<_FileRow> {
           padding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: _hovered ? Colors.white.withOpacity(0.02) : null,
+            color: _hovered ? cs.fillHover : null,
             border: Border(
                 bottom:
-                    BorderSide(color: Colors.white.withOpacity(0.04))),
+                    BorderSide(color: cs.fill)),
           ),
           child: Row(
             children: [
@@ -1125,8 +985,8 @@ class _FileRowState extends State<_FileRow> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(name,
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 13),
+                          style: TextStyle(
+                              color: cs.textPrimary, fontSize: 13),
                           overflow: TextOverflow.ellipsis),
                     ),
                   ],
@@ -1136,30 +996,30 @@ class _FileRowState extends State<_FileRow> {
                 flex: 2,
                 child: Text(mime,
                     style:
-                        const TextStyle(color: _dimText, fontSize: 12)),
+                        TextStyle(color: cs.textMuted, fontSize: 12)),
               ),
               Expanded(
                 flex: 1,
                 child: Text(size,
                     style:
-                        const TextStyle(color: _dimText, fontSize: 12)),
+                        TextStyle(color: cs.textMuted, fontSize: 12)),
               ),
               Expanded(
                 flex: 2,
                 child: Text(created,
                     style:
-                        const TextStyle(color: _dimText, fontSize: 12)),
+                        TextStyle(color: cs.textMuted, fontSize: 12)),
               ),
               SizedBox(
                 width: 40,
                 child: PopupMenuButton<String>(
-                  color: const Color(0xFF1A1A22),
+                  color: cs.popupSurface,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                   iconSize: 16,
                   icon: Icon(LucideIcons.moreHorizontal,
                       size: 16,
-                      color: _hovered ? _dimText : Colors.transparent),
+                      color: _hovered ? cs.textMuted : Colors.transparent),
                   onSelected: (v) {
                     if (v == 'delete') widget.onDelete();
                   },
@@ -1254,6 +1114,7 @@ class _FileDetailView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final filesAsync = ref.watch(_filesProvider(bucketId));
 
     // Find file from cache
@@ -1274,7 +1135,7 @@ class _FileDetailView extends ConsumerWidget {
         '${api.dio.options.baseUrl}/storage/buckets/$bucketId/files/$fileId/view';
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: cs.background,
       body: SingleChildScrollView(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -1292,14 +1153,14 @@ class _FileDetailView extends ConsumerWidget {
                     cursor: SystemMouseCursors.click,
                     child: Icon(LucideIcons.arrowLeft,
                         size: 20,
-                        color: Colors.white.withOpacity(0.5)),
+                        color: cs.textMuted),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(name,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: cs.textPrimary,
                           fontSize: 22,
                           fontWeight: FontWeight.w600),
                       overflow: TextOverflow.ellipsis),
@@ -1309,16 +1170,9 @@ class _FileDetailView extends ConsumerWidget {
                   children: [
                     Icon(LucideIcons.file,
                         size: 13,
-                        color: Colors.white.withOpacity(0.3)),
+                        color: cs.textSubtle),
                     const SizedBox(width: 4),
-                    Text(
-                        fileId.length > 16
-                            ? '${fileId.substring(0, 16)}...'
-                            : fileId,
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.3),
-                            fontSize: 13,
-                            fontFamily: 'monospace')),
+                    IdText(id: fileId),
                   ],
                 ),
               ],
@@ -1330,9 +1184,9 @@ class _FileDetailView extends ConsumerWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: _cardColor,
+                color: cs.surface,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _border),
+                border: Border.all(color: cs.border),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1343,29 +1197,29 @@ class _FileDetailView extends ConsumerWidget {
                       width: 200,
                       height: 160,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.04),
+                        color: cs.fieldFill,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: _border),
+                        border: Border.all(color: cs.border),
                       ),
                       clipBehavior: Clip.antiAlias,
                       child: Image.network(fileUrl,
                           fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Center(
+                          errorBuilder: (_, __, ___) => Center(
                               child: Icon(LucideIcons.image,
-                                  size: 32, color: _subtleText))),
+                                  size: 32, color: cs.textSubtle))),
                     )
                   else
                     Container(
                       width: 200,
                       height: 160,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.04),
+                        color: cs.fieldFill,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: _border),
+                        border: Border.all(color: cs.border),
                       ),
                       child: Center(
                           child: Icon(LucideIcons.file,
-                              size: 48, color: _subtleText)),
+                              size: 48, color: cs.textSubtle)),
                     ),
                   const SizedBox(width: 24),
                   // Metadata
@@ -1383,24 +1237,24 @@ class _FileDetailView extends ConsumerWidget {
                               label: 'Last updated', value: '$updated'),
                         const SizedBox(height: 16),
                         // File URL
-                        const Text('File URL',
+                        Text('File URL',
                             style: TextStyle(
-                                color: _dimText, fontSize: 12)),
+                                color: cs.textMuted, fontSize: 12)),
                         const SizedBox(height: 4),
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 10, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.03),
+                            color: cs.fieldFill,
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: _border),
+                            border: Border.all(color: cs.fieldBorder),
                           ),
                           child: Row(
                             children: [
                               Expanded(
                                 child: Text(fileUrl,
-                                    style: const TextStyle(
-                                        color: _dimText,
+                                    style: TextStyle(
+                                        color: cs.textMuted,
                                         fontSize: 12,
                                         fontFamily: 'monospace'),
                                     overflow: TextOverflow.ellipsis),
@@ -1419,8 +1273,7 @@ class _FileDetailView extends ConsumerWidget {
                                   cursor: SystemMouseCursors.click,
                                   child: Icon(LucideIcons.copy,
                                       size: 14,
-                                      color:
-                                          Colors.white.withOpacity(0.3)),
+                                      color: cs.textSubtle),
                                 ),
                               ),
                             ],
@@ -1430,9 +1283,8 @@ class _FileDetailView extends ConsumerWidget {
                         // Download button
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
-                            side: BorderSide(
-                                color: Colors.white.withOpacity(0.12)),
+                            foregroundColor: cs.textSecondary,
+                            side: BorderSide(color: cs.border),
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 8),
                             shape: RoundedRectangleBorder(
@@ -1456,23 +1308,23 @@ class _FileDetailView extends ConsumerWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: _cardColor,
+                color: cs.surface,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _border),
+                border: Border.all(color: cs.border),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Permissions',
+                  Text('Permissions',
                       style: TextStyle(
-                          color: Colors.white,
+                          color: cs.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 8),
                   Text(
                     'Assign read or write permissions at the bucket level or file level.',
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.4),
+                        color: cs.textSubtle,
                         fontSize: 13),
                   ),
                 ],
@@ -1485,7 +1337,7 @@ class _FileDetailView extends ConsumerWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: _cardColor,
+                color: cs.surface,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: _red.withOpacity(0.3)),
               ),
@@ -1504,7 +1356,7 @@ class _FileDetailView extends ConsumerWidget {
                         Text(
                             'The file will be permanently deleted. This action is irreversible.',
                             style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
+                                color: cs.textSubtle,
                                 fontSize: 13)),
                       ],
                     ),
@@ -1554,6 +1406,7 @@ class _MetaRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -1562,12 +1415,12 @@ class _MetaRow extends StatelessWidget {
           SizedBox(
             width: 110,
             child: Text(label,
-                style: const TextStyle(color: _dimText, fontSize: 13)),
+                style: TextStyle(color: cs.textMuted, fontSize: 13)),
           ),
           Expanded(
             child: Text(value,
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 13)),
+                style: TextStyle(
+                    color: cs.textPrimary, fontSize: 13)),
           ),
         ],
       ),
@@ -1586,6 +1439,7 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -1593,12 +1447,12 @@ class _InfoRow extends StatelessWidget {
           SizedBox(
             width: 120,
             child: Text(label,
-                style: const TextStyle(color: _dimText, fontSize: 13)),
+                style: TextStyle(color: cs.textMuted, fontSize: 13)),
           ),
           Expanded(
             child: SelectableText(value,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
+                    color: cs.textSecondary,
                     fontSize: 13,
                     fontFamily: 'monospace')),
           ),
@@ -1615,26 +1469,27 @@ class _UsageStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: _cardColor,
+          color: cs.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _border),
+          border: Border.all(color: cs.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(value,
-                style: const TextStyle(
-                    color: Colors.white,
+                style: TextStyle(
+                    color: cs.textPrimary,
                     fontSize: 24,
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             Text(label,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.4),
+                    color: cs.textMuted,
                     fontSize: 12)),
           ],
         ),
@@ -1660,6 +1515,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1668,20 +1524,20 @@ class _EmptyState extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: cs.fill,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, size: 22, color: _subtleText),
+            child: Icon(icon, size: 22, color: cs.textSubtle),
           ),
           const SizedBox(height: 16),
           Text(title,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: cs.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
           Text(subtitle,
-              style: const TextStyle(color: _dimText, fontSize: 13)),
+              style: TextStyle(color: cs.textMuted, fontSize: 13)),
           const SizedBox(height: 16),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -1720,14 +1576,15 @@ class _SettingsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1741,15 +1598,15 @@ class _SettingsSection extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(title!,
-                          style: const TextStyle(
-                              color: Colors.white,
+                          style: TextStyle(
+                              color: cs.textPrimary,
                               fontSize: 15,
                               fontWeight: FontWeight.w600)),
                       if (subtitle != null) ...[
                         const SizedBox(height: 4),
                         Text(subtitle!,
                             style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
+                                color: cs.textSubtle,
                                 fontSize: 13)),
                       ],
                     ],
@@ -1799,6 +1656,7 @@ class _SettingsToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1812,8 +1670,8 @@ class _SettingsToggle extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(label,
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                      color: cs.textPrimary,
                       fontSize: 13,
                       fontWeight: FontWeight.w500)),
             ),
@@ -1824,7 +1682,7 @@ class _SettingsToggle extends StatelessWidget {
             padding: const EdgeInsets.only(left: 52),
             child: Text(subtitle!,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.35),
+                    color: cs.textSubtle,
                     fontSize: 12)),
           ),
         ],
@@ -1936,31 +1794,32 @@ class _SettingsDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
+                color: cs.textMuted,
                 fontSize: 12,
                 fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: const Color(0x0AFFFFFF),
+            color: cs.fieldFill,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0x1AFFFFFF)),
+            border: Border.all(color: cs.fieldBorder),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: options.containsKey(value) ? value : options.keys.first,
               isExpanded: true,
-              dropdownColor: const Color(0xFF1E1F24),
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 13),
-              icon: const Icon(LucideIcons.chevronDown,
-                  size: 14, color: _dimText),
+              dropdownColor: cs.popupSurface,
+              style: TextStyle(
+                  color: cs.textPrimary, fontSize: 13),
+              icon: Icon(LucideIcons.chevronDown,
+                  size: 14, color: cs.textMuted),
               items: options.entries
                   .map((e) => DropdownMenuItem(
                       value: e.key, child: Text(e.value)))
@@ -1979,6 +1838,7 @@ class _PermissionsTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     const roles = ['Users', 'Guests', 'Any'];
     const perms = ['Create', 'Read', 'Update', 'Delete'];
 
@@ -1991,8 +1851,8 @@ class _PermissionsTable extends StatelessWidget {
             ...perms.map((p) => Expanded(
                   child: Center(
                     child: Text(p,
-                        style: const TextStyle(
-                            color: _dimText,
+                        style: TextStyle(
+                            color: cs.textMuted,
                             fontSize: 11,
                             fontWeight: FontWeight.w500)),
                   ),

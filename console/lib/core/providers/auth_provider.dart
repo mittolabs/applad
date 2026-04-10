@@ -82,6 +82,17 @@ class ConsoleAuthNotifier extends AsyncNotifier<ConsoleUser?> {
     state = AsyncData(user);
   }
 
+  /// Called after a browser-redirect OAuth flow returns a token via query param.
+  Future<void> loginWithToken(String token) async {
+    _setToken(token);
+    final api = ref.read(apiClientProvider);
+    api.setAuthToken(token);
+    final res = await api.get('/console/me');
+    final user = ConsoleUser.fromJson(res.data as Map<String, dynamic>);
+    api.setConsoleUser(id: user.id, email: user.email, name: user.name);
+    state = AsyncData(user);
+  }
+
   void logout() {
     _clearToken();
     state = const AsyncData(null);
@@ -97,6 +108,18 @@ class ConsoleAuthNotifier extends AsyncNotifier<ConsoleUser?> {
     html.window.localStorage.remove(_tokenKey);
   }
 }
+
+/// Which OAuth providers are configured for console login (e.g. ["github", "google"]).
+final consoleOAuthProvidersProvider = FutureProvider<List<String>>((ref) async {
+  final api = ref.read(apiClientProvider);
+  try {
+    final res = await api.get('/console/auth-providers');
+    final data = res.data as Map<String, dynamic>;
+    return List<String>.from(data['providers'] as List? ?? []);
+  } catch (_) {
+    return [];
+  }
+});
 
 /// Whether console signup is enabled.
 final signupEnabledProvider = FutureProvider<bool>((ref) async {

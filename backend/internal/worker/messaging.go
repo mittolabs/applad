@@ -3,65 +3,68 @@ package worker
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/smtp"
 	"strings"
 
 	"github.com/mittolabs/applad/internal/config"
+	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/redis/go-redis/v9"
 )
 
 // Messaging processes queued messaging jobs (batch emails, notifications).
-// Unlike the mails worker (transactional emails like password resets),
-// this worker handles user-initiated messaging from the /messaging API.
 type Messaging struct {
 	cfg   *config.Config
-	stop  chan struct{}
 	queue *queue.Queue
 }
 
 func NewMessaging(cfg *config.Config) *Messaging {
-	return &Messaging{cfg: cfg, stop: make(chan struct{})}
+	return &Messaging{cfg: cfg}
 }
 
-func (w *Messaging) Start() error {
+func (w *Messaging) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
+	w.queue.StartReaper(ctx, "messaging")
 
-	log.Println("messaging worker: listening for jobs")
+	slog.Info("messaging worker: listening for jobs")
 
-	ctx := context.Background()
 	for {
-		select {
-		case <-w.stop:
-			return nil
-		default:
-			job, err := w.queue.Pop(ctx, "messaging")
-			if err != nil {
-				log.Printf("messaging worker: pop error: %v", err)
-				continue
+		receipt, err := w.queue.Pop(ctx, "messaging")
+		if err != nil {
+			if ctx.Err() != nil {
+				slog.Info("messaging worker: shutting down")
+				return nil
 			}
-			if job == nil {
-				continue
-			}
-			w.process(ctx, job)
+			slog.Error("messaging worker: pop error", "error", err)
+			continue
+		}
+		if receipt == nil {
+			continue
+		}
+		Heartbeat()
+		if processErr := w.process(ctx, receipt.Job); processErr != nil {
+			metrics.QueueJobs.Inc("messaging", "failed")
+			receipt.Nack()
+		} else {
+			metrics.QueueJobs.Inc("messaging", "completed")
+			receipt.Ack()
 		}
 	}
 }
 
-func (w *Messaging) process(_ context.Context, job *queue.Job) {
-	log.Printf("messaging worker: processing job %s type=%s", job.ID, job.Type)
-
+func (w *Messaging) process(_ context.Context, job *queue.Job) error {
 	switch job.Type {
 	case "email":
-		w.sendEmail(job)
+		return w.sendEmail(job)
 	default:
-		log.Printf("messaging worker: unknown job type %q for job %s", job.Type, job.ID)
+		slog.Warn("messaging worker: unknown job type", "type", job.Type, "job_id", job.ID)
+		return nil
 	}
 }
 
-func (w *Messaging) sendEmail(job *queue.Job) {
+func (w *Messaging) sendEmail(job *queue.Job) error {
 	var recipients []string
 	switch v := job.Payload["to"].(type) {
 	case string:
@@ -73,18 +76,16 @@ func (w *Messaging) sendEmail(job *queue.Job) {
 			}
 		}
 	}
-
 	subject, _ := job.Payload["subject"].(string)
 	html, _ := job.Payload["html"].(string)
 
 	if len(recipients) == 0 || subject == "" {
-		log.Printf("messaging worker: job %s missing recipients or subject", job.ID)
-		return
+		slog.Warn("messaging worker: job missing recipients or subject", "job_id", job.ID)
+		return nil
 	}
-
 	if w.cfg.SMTPHost == "" {
-		log.Printf("messaging worker: SMTP not configured, dropping job %s", job.ID)
-		return
+		slog.Warn("messaging worker: SMTP not configured, dropping job", "job_id", job.ID)
+		return nil
 	}
 
 	addr := w.cfg.SMTPHost + ":" + w.cfg.SMTPPort
@@ -92,7 +93,6 @@ func (w *Messaging) sendEmail(job *queue.Job) {
 	if w.cfg.SMTPUser != "" {
 		auth = smtp.PlainAuth("", w.cfg.SMTPUser, w.cfg.SMTPPass, w.cfg.SMTPHost)
 	}
-
 	to := strings.Join(recipients, ", ")
 	headers := []string{
 		fmt.Sprintf("From: %s", w.cfg.SMTPFrom),
@@ -104,11 +104,9 @@ func (w *Messaging) sendEmail(job *queue.Job) {
 	msg := []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + html)
 
 	if err := smtp.SendMail(addr, auth, w.cfg.SMTPFrom, recipients, msg); err != nil {
-		log.Printf("messaging worker: failed to send job %s: %v", job.ID, err)
-		return
+		slog.Error("messaging worker: send failed", "job_id", job.ID, "error", err)
+		return err
 	}
-
-	log.Printf("messaging worker: sent job %s to %d recipients", job.ID, len(recipients))
+	slog.Info("messaging worker: sent", "job_id", job.ID, "recipients", len(recipients))
+	return nil
 }
-
-func (w *Messaging) Stop() { close(w.stop) }

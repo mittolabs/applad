@@ -13,26 +13,34 @@ class ApiClient {
 
   ApiClient({required String baseUrl})
       : _dio = Dio(BaseOptions(
-          baseUrl: baseUrl,
+          // Ensure trailing slash so Dio appends paths correctly.
+          // Without it, Uri.resolve('/path') treats the path as absolute
+          // and drops the '/v1' prefix entirely.
+          baseUrl: baseUrl.endsWith('/') ? baseUrl : '$baseUrl/',
           headers: {'Content-Type': 'application/json'},
         ));
 
   Dio get dio => _dio;
 
+  // Strip a leading '/' so paths like '/console/me' are resolved relative
+  // to the baseUrl instead of being treated as absolute host-root paths by
+  // Dart's Uri.resolve() (which would drop the '/v1' prefix entirely).
+  String _p(String path) => path.startsWith('/') ? path.substring(1) : path;
+
   Future<Response<T>> get<T>(String path,
           {Map<String, dynamic>? params}) =>
-      _dio.get(path, queryParameters: params);
+      _dio.get(_p(path), queryParameters: params);
 
   Future<Response<T>> post<T>(String path, {Object? data}) =>
-      _dio.post(path, data: data);
+      _dio.post(_p(path), data: data);
 
   Future<Response<T>> put<T>(String path, {Object? data}) =>
-      _dio.put(path, data: data);
+      _dio.put(_p(path), data: data);
 
   Future<Response<T>> patch<T>(String path, {Object? data}) =>
-      _dio.patch(path, data: data);
+      _dio.patch(_p(path), data: data);
 
-  Future<Response<T>> delete<T>(String path) => _dio.delete(path);
+  Future<Response<T>> delete<T>(String path) => _dio.delete(_p(path));
 
   void setProject(String projectId) {
     _dio.options.headers['X-Applad-Project'] = projectId;

@@ -25,6 +25,7 @@ import '../../features/account/account_page.dart';
 import '../../features/projects/projects_page.dart';
 import '../../features/environments/environments_page.dart';
 import '../../features/get_started/get_started_page.dart';
+import '../../features/vault/vault_page.dart';
 
 Page<void> _noTransition(GoRouterState state, Widget child) {
   return NoTransitionPage(key: state.pageKey, child: child);
@@ -168,6 +169,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/project/:projectId/get-started',
             pageBuilder: (_, state) =>
                 _noTransition(state, const GetStartedPage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/vault',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const VaultPage()),
           ),
         ],
       ),

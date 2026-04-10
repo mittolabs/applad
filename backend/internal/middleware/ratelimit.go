@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -60,13 +61,28 @@ func (rl *inMemoryLimiter) allow(ip string) bool {
 
 // ── Redis-backed limiter (distributed, survives restarts) ────────────────────
 
+// redisCircuitBreaker tracks consecutive Redis failures and trips open after
+// a threshold, causing the rate limiter to fail closed (block all requests)
+// until Redis recovers. It resets on any successful Redis call.
+type redisCircuitBreaker struct {
+	failures  atomic.Int64
+	threshold int64
+}
+
+func (cb *redisCircuitBreaker) recordFailure() { cb.failures.Add(1) }
+func (cb *redisCircuitBreaker) recordSuccess() { cb.failures.Store(0) }
+func (cb *redisCircuitBreaker) isOpen() bool   { return cb.failures.Load() >= cb.threshold }
+
 // RateLimitRedis returns rate-limit middleware backed by Redis INCR+EXPIRE.
 // The window is a fixed 1-minute bucket keyed by IP + unix-minute.
-// Falls back gracefully to allowing the request if Redis is unavailable.
+// After 5 consecutive Redis failures the circuit trips and all requests are
+// blocked (fail closed) until Redis recovers.
 func RateLimitRedis(requestsPerMinute int, rdb *redis.Client) func(http.Handler) http.Handler {
 	if requestsPerMinute <= 0 {
 		requestsPerMinute = 100
 	}
+	cb := &redisCircuitBreaker{threshold: 5}
+	fallback := newInMemoryLimiter(requestsPerMinute, time.Minute)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := realClientIP(r)
@@ -84,10 +100,20 @@ func RateLimitRedis(requestsPerMinute int, rdb *redis.Client) func(http.Handler)
 			ctx := r.Context()
 			count, err := rdb.Incr(ctx, key).Result()
 			if err != nil {
-				// Redis unavailable — fail open (don't block legitimate traffic)
+				cb.recordFailure()
+				// Circuit is open — fall back to in-process limiter so we still
+				// enforce rate limits even when Redis is unavailable.
+				if !fallback.allow(ip) {
+					w.Header().Set("Retry-After", "60")
+					WriteError(w, http.StatusTooManyRequests,
+						"general_rate_limit_exceeded",
+						"Rate limit exceeded. Please try again later.")
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
+			cb.recordSuccess()
 			if count == 1 {
 				rdb.Expire(ctx, key, 2*time.Minute) //nolint:errcheck
 			}
@@ -113,6 +139,72 @@ func RateLimitRedis(requestsPerMinute int, rdb *redis.Client) func(http.Handler)
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// RateLimitUser returns middleware that rate-limits authenticated users by their
+// user ID (extracted from the request context set by Authenticate middleware).
+// Falls back to IP-based limiting for unauthenticated requests.
+// This should be applied inside the RequireAuth group for per-user enforcement.
+func RateLimitUser(requestsPerMinute int, rdb *redis.Client) func(http.Handler) http.Handler {
+	if requestsPerMinute <= 0 {
+		requestsPerMinute = 300
+	}
+	cb := &redisCircuitBreaker{threshold: 5}
+	fallback := newInMemoryLimiter(requestsPerMinute, time.Minute)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userID := UserFromContext(r.Context())
+			projectID := ProjectFromContext(r.Context())
+			bucket := time.Now().Unix() / 60
+
+			var key string
+			if userID != "" && projectID != "" {
+				key = fmt.Sprintf("rl:u:%s:%s:%d", projectID, userID, bucket)
+			} else {
+				key = fmt.Sprintf("rl:%s:%d", realClientIP(r), bucket)
+			}
+
+			ctx := r.Context()
+			count, err := rdb.Incr(ctx, key).Result()
+			if err != nil {
+				cb.recordFailure()
+				if !fallback.allow(realClientIP(r)) {
+					w.Header().Set("Retry-After", "60")
+					WriteError(w, http.StatusTooManyRequests,
+						"user_rate_limit_exceeded",
+						"Per-user rate limit exceeded. Please try again later.")
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+			cb.recordSuccess()
+			if count == 1 {
+				rdb.Expire(ctx, key, 2*time.Minute) //nolint:errcheck
+			}
+
+			limit := int64(requestsPerMinute)
+			w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", max64(0, limit-count)))
+			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", (bucket+1)*60))
+
+			if count > limit {
+				w.Header().Set("Retry-After", "60")
+				WriteError(w, http.StatusTooManyRequests,
+					"user_rate_limit_exceeded",
+					"Per-user rate limit exceeded. Please try again later.")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // RateLimit returns in-process rate-limit middleware.

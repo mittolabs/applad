@@ -13,14 +13,13 @@ import (
 
 // Handler handles health check requests.
 type Handler struct {
-	db           *db.DB
-	cache        *cache.Cache
-	postgrestURL string
+	db    *db.DB
+	cache *cache.Cache
 }
 
 // NewHandler creates a new health Handler.
-func NewHandler(database *db.DB, cacheClient *cache.Cache, postgrestURL string) *Handler {
-	return &Handler{db: database, cache: cacheClient, postgrestURL: postgrestURL}
+func NewHandler(database *db.DB, cacheClient *cache.Cache) *Handler {
+	return &Handler{db: database, cache: cacheClient}
 }
 
 type healthResponse struct {
@@ -40,7 +39,6 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/", h.server)
 	r.Get("/db", h.dbCheck)
 	r.Get("/cache", h.cacheCheck)
-	r.Get("/postgrest", h.postgrestCheck)
 	return r
 }
 
@@ -60,30 +58,6 @@ func (h *Handler) dbCheck(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) cacheCheck(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	if err := h.cache.Ping(r.Context()); err != nil {
-		writeHealth(w, http.StatusInternalServerError, "fail", 0)
-		return
-	}
-	writeHealth(w, http.StatusOK, "pass", time.Since(start).Milliseconds())
-}
-
-func (h *Handler) postgrestCheck(w http.ResponseWriter, r *http.Request) {
-	if h.postgrestURL == "" {
-		writeHealth(w, http.StatusServiceUnavailable, "fail", 0)
-		return
-	}
-	start := time.Now()
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, h.postgrestURL, nil)
-	if err != nil {
-		writeHealth(w, http.StatusInternalServerError, "fail", 0)
-		return
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		writeHealth(w, http.StatusInternalServerError, "fail", 0)
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= http.StatusInternalServerError {
 		writeHealth(w, http.StatusInternalServerError, "fail", 0)
 		return
 	}

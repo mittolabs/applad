@@ -49,3 +49,33 @@ func Internal(w http.ResponseWriter, _ error) {
 func Conflict(w http.ResponseWriter, message string) {
 	Write(w, http.StatusConflict, "general_query_invalid", message)
 }
+
+// ValidationFieldError describes a single field validation failure.
+type ValidationFieldError struct {
+	Field   string `json:"field"`
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}
+
+// ValidationError writes a 422 validation error with per-field details.
+func ValidationError(w http.ResponseWriter, errs []ValidationFieldError) {
+	msg := "Validation failed"
+	if len(errs) > 0 {
+		msg = errs[0].Message
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	json.NewEncoder(w).Encode(struct {
+		Message string                 `json:"message"`
+		Code    int                    `json:"code"`
+		Type    string                 `json:"type"`
+		Version string                 `json:"version"`
+		Errors  []ValidationFieldError `json:"errors"`
+	}{
+		Message: msg,
+		Code:    http.StatusUnprocessableEntity,
+		Type:    "validation_error",
+		Version: "1.0.0",
+		Errors:  errs,
+	})
+}

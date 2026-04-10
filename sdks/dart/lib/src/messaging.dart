@@ -19,4 +19,55 @@ class Messaging {
     });
     return res.data;
   }
+
+  // --- Templates ---
+
+  /// Create a reusable message template with {{variable}} placeholders.
+  Future<Map<String, dynamic>> createTemplate({
+    required String name,
+    required String type,
+    required String subject,
+    required String body,
+    List<String>? variables,
+    String templateId = 'unique()',
+  }) async {
+    final res = await _dio.post('/v1/messaging/templates', data: {
+      'templateId': templateId,
+      'name': name,
+      'type': type,
+      'subject': subject,
+      'body': body,
+      'variables': variables ?? [],
+    });
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> listTemplates() async {
+    final res = await _dio.get('/v1/messaging/templates');
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getTemplate(String templateId) async {
+    final res = await _dio.get('/v1/messaging/templates/$templateId');
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> deleteTemplate(String templateId) async {
+    final res = await _dio.delete('/v1/messaging/templates/$templateId');
+    return res.data ?? {};
+  }
+
+  /// Render the template with [variables] and send to [to].
+  Future<Map<String, dynamic>> sendTemplate({
+    required String templateId,
+    required List<String> to,
+    Map<String, String>? variables,
+  }) async {
+    final res = await _dio.post('/v1/messaging/templates/$templateId/send',
+        data: {
+          'to': to,
+          'variables': variables ?? {},
+        });
+    return Map<String, dynamic>.from(res.data as Map);
+  }
 }

@@ -30,6 +30,13 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func Routes(h *Handler) http.Handler {
 	r := chi.NewRouter()
 
+	// Providers
+	r.Get("/providers", h.listProviders)
+	r.Post("/providers", h.createProvider)
+	r.Get("/providers/{providerId}", h.getProvider)
+	r.Put("/providers/{providerId}", h.updateProvider)
+	r.Delete("/providers/{providerId}", h.deleteProvider)
+
 	// Messages
 	r.Get("/messages", h.listMessages)
 	r.Post("/messages/email", h.createEmail)
@@ -49,6 +56,14 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/topics/{topicId}", h.getTopic)
 	r.Post("/topics/{topicId}/subscribers", h.addSubscriber)
 	r.Post("/topics/{topicId}/messages", h.sendToTopic)
+
+	// Templates
+	r.Get("/templates", h.listTemplates)
+	r.Post("/templates", h.createTemplate)
+	r.Get("/templates/{templateId}", h.getTemplate)
+	r.Put("/templates/{templateId}", h.updateTemplate)
+	r.Delete("/templates/{templateId}", h.deleteTemplate)
+	r.Post("/templates/{templateId}/send", h.sendTemplate)
 
 	return r
 }
@@ -104,7 +119,7 @@ func (h *Handler) createEmail(w http.ResponseWriter, r *http.Request) {
 
 	if !body.Draft {
 		go func() {
-			sendErr := h.svc.SendEmail(r.Context(), body.To, body.Subject, body.HTML)
+			sendErr := h.svc.SendEmailForProject(r.Context(), projectID, body.To, body.Subject, body.HTML)
 			newStatus := "sent"
 			if sendErr != nil {
 				newStatus = "failed"
@@ -150,7 +165,7 @@ func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 
 	if !body.Draft {
 		go func() {
-			sendErr := h.svc.SendSMS(r.Context(), body.To, body.Body)
+			sendErr := h.svc.SendSMSForProject(r.Context(), projectID, body.To, body.Body)
 			newStatus := "sent"
 			if sendErr != nil {
 				newStatus = "failed"
@@ -196,7 +211,7 @@ func (h *Handler) createPush(w http.ResponseWriter, r *http.Request) {
 
 	if !body.Draft {
 		go func() {
-			sendErr := h.svc.SendPush(r.Context(), body.Token, body.Title, body.Body)
+			sendErr := h.svc.SendPushForProject(r.Context(), projectID, body.Token, body.Title, body.Body)
 			newStatus := "sent"
 			if sendErr != nil {
 				newStatus = "failed"
@@ -293,6 +308,88 @@ func (h *Handler) sendPushLegacy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+}
+
+// ---------------------------------------------------------------------------
+// Providers
+// ---------------------------------------------------------------------------
+
+func (h *Handler) listProviders(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	providers, err := h.svc.ListProviders(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"providers": providers,
+		"total":     len(providers),
+	})
+}
+
+func (h *Handler) createProvider(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	var body struct {
+		Name     string          `json:"name"`
+		Type     string          `json:"type"`
+		Provider string          `json:"provider"`
+		Config   json.RawMessage `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if body.Name == "" || body.Type == "" || body.Provider == "" {
+		apperr.BadRequest(w, "name, type, and provider are required")
+		return
+	}
+	p, err := h.svc.CreateProvider(r.Context(), projectID, body.Name, body.Type, body.Provider, body.Config)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func (h *Handler) getProvider(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	providerID := chi.URLParam(r, "providerId")
+	p, err := h.svc.GetProvider(r.Context(), projectID, providerID)
+	if err != nil {
+		apperr.NotFound(w, "provider")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+func (h *Handler) updateProvider(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	providerID := chi.URLParam(r, "providerId")
+	var body struct {
+		Name    string          `json:"name"`
+		Config  json.RawMessage `json:"config"`
+		Enabled bool            `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	p, err := h.svc.UpdateProvider(r.Context(), projectID, providerID, body.Name, body.Config, body.Enabled)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+func (h *Handler) deleteProvider(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	providerID := chi.URLParam(r, "providerId")
+	if err := h.svc.DeleteProvider(r.Context(), projectID, providerID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---------------------------------------------------------------------------
@@ -402,4 +499,115 @@ func queryInt(r *http.Request, key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// Template handlers
+// ---------------------------------------------------------------------------
+
+func (h *Handler) listTemplates(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	templates, total, err := h.svc.ListTemplates(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":     total,
+		"templates": templates,
+	})
+}
+
+func (h *Handler) createTemplate(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	var body struct {
+		TemplateID string   `json:"templateId"`
+		Name       string   `json:"name"`
+		Type       string   `json:"type"`
+		Subject    string   `json:"subject"`
+		Body       string   `json:"body"`
+		Variables  []string `json:"variables"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if body.Name == "" {
+		apperr.BadRequest(w, "name is required")
+		return
+	}
+	if body.Type == "" {
+		body.Type = "email"
+	}
+	t, err := h.svc.CreateTemplate(r.Context(), projectID, body.TemplateID, body.Name, body.Type, body.Subject, body.Body, body.Variables)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+func (h *Handler) getTemplate(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	templateID := chi.URLParam(r, "templateId")
+	t, err := h.svc.GetTemplate(r.Context(), templateID, projectID)
+	if err != nil {
+		apperr.NotFound(w, "template")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (h *Handler) updateTemplate(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	templateID := chi.URLParam(r, "templateId")
+	var body struct {
+		Name      string   `json:"name"`
+		Type      string   `json:"type"`
+		Subject   string   `json:"subject"`
+		Body      string   `json:"body"`
+		Variables []string `json:"variables"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	t, err := h.svc.UpdateTemplate(r.Context(), templateID, projectID, body.Name, body.Type, body.Subject, body.Body, body.Variables)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (h *Handler) deleteTemplate(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	templateID := chi.URLParam(r, "templateId")
+	if err := h.svc.DeleteTemplate(r.Context(), templateID, projectID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) sendTemplate(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	templateID := chi.URLParam(r, "templateId")
+	var body struct {
+		To        []string          `json:"to"`
+		Variables map[string]string `json:"variables"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if len(body.To) == 0 {
+		apperr.BadRequest(w, "to is required")
+		return
+	}
+	if err := h.svc.SendTemplate(r.Context(), templateID, projectID, body.To, body.Variables); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 }

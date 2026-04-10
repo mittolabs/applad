@@ -5,14 +5,16 @@ class Functions:
     def __init__(self, client):
         self.client = client
 
-    def create(self, name: str, runtime: str):
+    def create(self, name: str, runtime: str, entrypoint: str = "index.handler",
+               timeout: int = 15, vars: dict = None, source: str = "", cron: str = ""):
         return self.client._call("POST", "/functions", {
             "name": name,
             "runtime": runtime,
-            "entrypoint": "index.handler",
-            "timeout": 15,
-            "vars": {},
-            "source": "",
+            "entrypoint": entrypoint,
+            "timeout": timeout,
+            "vars": vars or {},
+            "source": source,
+            "cron": cron,
         })
 
     def list(self):

@@ -284,6 +284,77 @@ func (s *Service) DeletePlatform(ctx context.Context, projectID, platformID stri
 	return err
 }
 
+// AuthSecurity holds project-level auth security policy settings.
+type AuthSecurity struct {
+	UsersLimit                 int  `json:"usersLimit"`                 // 0 = unlimited
+	SessionLengthSeconds       int  `json:"sessionLengthSeconds"`       // default 31536000 (365 days)
+	SessionsPerUser            int  `json:"sessionsPerUser"`            // 0 = unlimited
+	PasswordMinLength          int  `json:"passwordMinLength"`          // default 8
+	PasswordHistory            int  `json:"passwordHistory"`            // 0 = disabled
+	PasswordDictionary         bool `json:"passwordDictionary"`
+	PasswordPersonalData       bool `json:"passwordPersonalData"`
+	MFARequired                bool `json:"mfaRequired"`
+	SessionAlerts              bool `json:"sessionAlerts"`
+	InvalidateOnPasswordChange bool `json:"invalidateOnPasswordChange"`
+}
+
+// defaultAuthSecurity returns sensible defaults.
+func defaultAuthSecurity() AuthSecurity {
+	return AuthSecurity{
+		UsersLimit:                 0,
+		SessionLengthSeconds:       365 * 24 * 3600,
+		SessionsPerUser:            10,
+		PasswordMinLength:          8,
+		PasswordHistory:            0,
+		PasswordDictionary:         false,
+		PasswordPersonalData:       false,
+		MFARequired:                false,
+		SessionAlerts:              false,
+		InvalidateOnPasswordChange: true,
+	}
+}
+
+// GetAuthSecurity reads the security sub-key from a project's auth_config.
+func (s *Service) GetAuthSecurity(ctx context.Context, projectID string) (AuthSecurity, error) {
+	var raw sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		"SELECT auth_config FROM projects WHERE id = ?", projectID).Scan(&raw)
+	if err != nil {
+		return defaultAuthSecurity(), fmt.Errorf("projects: get auth security: %w", err)
+	}
+	sec := defaultAuthSecurity()
+	if !raw.Valid || raw.String == "" || raw.String == "null" {
+		return sec, nil
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw.String), &cfg); err != nil {
+		return sec, nil
+	}
+	if secRaw, ok := cfg["security"]; ok {
+		_ = json.Unmarshal(secRaw, &sec)
+	}
+	return sec, nil
+}
+
+// UpdateAuthSecurity merges the security sub-key into a project's auth_config.
+func (s *Service) UpdateAuthSecurity(ctx context.Context, projectID string, sec AuthSecurity) error {
+	var raw sql.NullString
+	_ = s.db.QueryRowContext(ctx,
+		"SELECT auth_config FROM projects WHERE id = ?", projectID).Scan(&raw)
+	cfg := map[string]interface{}{}
+	if raw.Valid && raw.String != "" && raw.String != "null" {
+		_ = json.Unmarshal([]byte(raw.String), &cfg)
+	}
+	cfg["security"] = sec
+	configJSON, _ := json.Marshal(cfg)
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE projects SET auth_config = ? WHERE id = ?", configJSON, projectID)
+	if err != nil {
+		return fmt.Errorf("projects: update auth security: %w", err)
+	}
+	return nil
+}
+
 // UpdateAuthConfig updates the auth_config JSON for a project.
 func (s *Service) UpdateAuthConfig(ctx context.Context, projectID string, config map[string]interface{}) error {
 	configJSON, _ := json.Marshal(config)

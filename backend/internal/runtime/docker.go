@@ -20,28 +20,56 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
-const dockerSocket = "/var/run/docker.sock"
-
-// Client talks to the Docker Engine API via Unix socket.
+// Client talks to the Docker Engine API.
+// By default it connects via the Unix socket at /var/run/docker.sock.
+// Set DOCKER_HOST to override: unix:///path/to/docker.sock or tcp://host:port.
 type Client struct {
 	httpClient *http.Client
+	baseURL    string // e.g. "http://docker" (unix) or "http://host:2375" (tcp)
 }
 
-// NewClient creates a Docker API client.
+// NewClient creates a Docker API client, honouring DOCKER_HOST.
 func NewClient() *Client {
+	dockerHost := os.Getenv("DOCKER_HOST")
+	if dockerHost == "" {
+		dockerHost = "unix:///var/run/docker.sock"
+	}
+
+	var (
+		transport *http.Transport
+		baseURL   string
+	)
+
+	if strings.HasPrefix(dockerHost, "unix://") {
+		socketPath := strings.TrimPrefix(dockerHost, "unix://")
+		transport = &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", socketPath)
+			},
+		}
+		baseURL = "http://docker"
+	} else {
+		// tcp:// or plain host:port
+		addr := strings.TrimPrefix(dockerHost, "tcp://")
+		transport = &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+			},
+		}
+		baseURL = "http://" + addr
+	}
+
 	return &Client{
 		httpClient: &http.Client{
-			Transport: &http.Transport{
-				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", dockerSocket)
-				},
-			},
-			Timeout: 5 * time.Minute,
+			Transport: transport,
+			Timeout:   5 * time.Minute,
 		},
+		baseURL: baseURL,
 	}
 }
 
@@ -51,7 +79,7 @@ func NewClient() *Client {
 // Returns the image ID.
 func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io.Reader) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://docker/v1.43/build?t=%s&rm=true&forcerm=true", imageName),
+		fmt.Sprintf(c.baseURL + "/v1.43/build?t=%s&rm=true&forcerm=true", imageName),
 		tarContext)
 	if err != nil {
 		return err
@@ -82,7 +110,7 @@ func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io
 // RemoveImage removes a Docker image.
 func (c *Client) RemoveImage(ctx context.Context, imageName string) error {
 	req, err := http.NewRequestWithContext(ctx, "DELETE",
-		fmt.Sprintf("http://docker/v1.43/images/%s?force=true", imageName), nil)
+		fmt.Sprintf(c.baseURL + "/v1.43/images/%s?force=true", imageName), nil)
 	if err != nil {
 		return err
 	}
@@ -134,7 +162,7 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://docker/v1.43/containers/create?name=%s", name),
+		fmt.Sprintf(c.baseURL + "/v1.43/containers/create?name=%s", name),
 		bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -162,7 +190,7 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 // StartContainer starts an existing container.
 func (c *Client) StartContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://docker/v1.43/containers/%s/start", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/start", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -180,7 +208,7 @@ func (c *Client) StartContainer(ctx context.Context, containerID string) error {
 // StopContainer stops a running container.
 func (c *Client) StopContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://docker/v1.43/containers/%s/stop?t=5", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/stop?t=5", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -195,7 +223,7 @@ func (c *Client) StopContainer(ctx context.Context, containerID string) error {
 // RemoveContainer removes a container.
 func (c *Client) RemoveContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "DELETE",
-		fmt.Sprintf("http://docker/v1.43/containers/%s?force=true&v=true", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s?force=true&v=true", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -210,7 +238,7 @@ func (c *Client) RemoveContainer(ctx context.Context, containerID string) error 
 // GetContainerPort returns the host-mapped port for a container's internal port.
 func (c *Client) GetContainerPort(ctx context.Context, containerID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("http://docker/v1.43/containers/%s/json", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/json", containerID), nil)
 	if err != nil {
 		return "", err
 	}
@@ -251,7 +279,7 @@ func (c *Client) GetContainerPort(ctx context.Context, containerID string) (stri
 // ContainerLogs returns the combined stdout/stderr logs of a container.
 func (c *Client) ContainerLogs(ctx context.Context, containerID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("http://docker/v1.43/containers/%s/logs?stdout=true&stderr=true", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/logs?stdout=true&stderr=true", containerID), nil)
 	if err != nil {
 		return "", err
 	}
@@ -269,7 +297,7 @@ func (c *Client) ContainerLogs(ctx context.Context, containerID string) (string,
 // WaitContainer waits for a container to be in a "not-running" state.
 func (c *Client) WaitContainer(ctx context.Context, containerID string) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://docker/v1.43/containers/%s/wait", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/wait", containerID), nil)
 	if err != nil {
 		return -1, err
 	}

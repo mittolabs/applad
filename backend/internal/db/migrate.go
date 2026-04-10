@@ -14,8 +14,21 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// migrateAdvisoryLock is a stable arbitrary integer used as the PostgreSQL
+// advisory lock key for serialising concurrent migration runs.
+// Value chosen to be unlikely to collide with application advisory locks.
+const migrateAdvisoryLock = 7_369_327_832
+
 // Migrate runs all pending SQL migrations from the embedded migrations directory.
+// It acquires a PostgreSQL session-level advisory lock so that only one API
+// instance runs migrations at a time (safe for multi-replica Kubernetes rollouts).
 func (db *DB) Migrate() error {
+	// Acquire advisory lock — blocks until previous migrator releases it.
+	if _, err := db.Exec("SELECT pg_advisory_lock($1)", migrateAdvisoryLock); err != nil {
+		return fmt.Errorf("migrate: acquire lock: %w", err)
+	}
+	defer db.Exec("SELECT pg_advisory_unlock($1)", migrateAdvisoryLock) //nolint:errcheck
+
 	// Bootstrap the tracking table before anything else so the version check
 	// below never hits a "table doesn't exist" error on a fresh database.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (

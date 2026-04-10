@@ -13,6 +13,7 @@ class Functions {
     int timeout = 15,
     Map<String, String>? vars,
     String? source,
+    String cron = '',
   }) async {
     final res = await _dio.post('/v1/functions', data: {
       'name': name,
@@ -21,6 +22,7 @@ class Functions {
       'timeout': timeout,
       if (vars != null) 'vars': vars,
       if (source != null) 'source': source,
+      'cron': cron,
     });
     return res.data;
   }

@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -13,36 +13,34 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Cron fires deploy target executions on a schedule.
-// It polls all targets with a non-empty cron expression once per minute.
+// Cron fires deploy target and function executions on a schedule.
 type Cron struct {
 	cfg   *config.Config
-	stop  chan struct{}
 	queue *queue.Queue
 	db    *db.DB
 }
 
 func NewCron(cfg *config.Config) *Cron {
-	return &Cron{cfg: cfg, stop: make(chan struct{})}
+	return &Cron{cfg: cfg}
 }
 
-func (w *Cron) Start() error {
+func (w *Cron) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
 
-	database, err := db.Connect(w.cfg.DatabaseDSN)
+	database, err := db.Connect(w.cfg.DatabaseDSN, w.cfg.DBMaxOpenConns, w.cfg.DBMaxIdleConns)
 	if err != nil {
 		return err
 	}
 	w.db = database
 
-	log.Println("cron worker: starting")
+	slog.Info("cron worker: starting")
 
 	// Wait until the top of the next minute, then tick every minute.
 	now := time.Now()
 	delay := time.Duration(60-now.Second())*time.Second - time.Duration(now.Nanosecond())
 	select {
-	case <-w.stop:
+	case <-ctx.Done():
 		return nil
 	case <-time.After(delay):
 	}
@@ -50,43 +48,59 @@ func (w *Cron) Start() error {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
-	// Fire once immediately on the aligned minute.
-	w.tick(context.Background())
+	w.tick(ctx)
 
 	for {
 		select {
-		case <-w.stop:
+		case <-ctx.Done():
+			slog.Info("cron worker: shutting down")
 			return nil
-		case t := <-ticker.C:
-			w.tick(context.WithValue(context.Background(), struct{}{}, t))
+		case <-ticker.C:
+			w.tick(ctx)
 		}
 	}
 }
 
 func (w *Cron) tick(ctx context.Context) {
+	now := time.Now().UTC()
+
 	rows, err := w.db.QueryContext(ctx,
 		`SELECT id, project_id, cron FROM deploy_targets WHERE cron != '' AND cron IS NOT NULL`)
 	if err != nil {
-		log.Printf("cron worker: query error: %v", err)
+		slog.Error("cron worker: deploy query error", "error", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var id, projectID, cronExpr string
+			if err := rows.Scan(&id, &projectID, &cronExpr); err != nil {
+				continue
+			}
+			if w.shouldRun(cronExpr, now) {
+				slog.Info("cron worker: firing deploy target", "id", id, "expr", cronExpr)
+				w.fireTarget(ctx, id, projectID)
+			}
+		}
+	}
+
+	fnRows, err := w.db.QueryContext(ctx,
+		`SELECT id, project_id, cron FROM functions WHERE cron IS NOT NULL AND cron != '' AND status = 'active'`)
+	if err != nil {
+		slog.Error("cron worker: functions query error", "error", err)
 		return
 	}
-	defer rows.Close()
-
-	now := time.Now().UTC()
-	for rows.Next() {
+	defer fnRows.Close()
+	for fnRows.Next() {
 		var id, projectID, cronExpr string
-		if err := rows.Scan(&id, &projectID, &cronExpr); err != nil {
+		if err := fnRows.Scan(&id, &projectID, &cronExpr); err != nil {
 			continue
 		}
 		if w.shouldRun(cronExpr, now) {
-			log.Printf("cron worker: firing target %s (expr=%q)", id, cronExpr)
-			w.fireTarget(ctx, id, projectID)
+			slog.Info("cron worker: firing function", "id", id, "expr", cronExpr)
+			w.fireFunction(ctx, id, projectID)
 		}
 	}
 }
 
-// shouldRun returns true when the cron expression matches the given time (minute granularity).
-// Supports standard 5-field cron: "minute hour day month weekday"
 func (w *Cron) shouldRun(expr string, t time.Time) bool {
 	parts := strings.Fields(expr)
 	if len(parts) != 5 {
@@ -99,8 +113,6 @@ func (w *Cron) shouldRun(expr string, t time.Time) bool {
 		matchCronField(parts[4], int(t.Weekday()))
 }
 
-// matchCronField checks whether a single cron field matches a value.
-// Supports: "*", "*/n" (step), and exact integer values.
 func matchCronField(field string, value int) bool {
 	if field == "*" {
 		return true
@@ -122,16 +134,19 @@ func matchCronField(field string, value int) bool {
 func (w *Cron) fireTarget(ctx context.Context, targetID, projectID string) {
 	jobID := targetID + "-cron-" + time.Now().UTC().Format("20060102150405")
 	if err := w.queue.Push(ctx, "builds", queue.Job{
-		ID:   jobID,
-		Type: "deploy_execution",
-		Payload: map[string]interface{}{
-			"targetId":  targetID,
-			"projectId": projectID,
-			"trigger":   "cron",
-		},
+		ID: jobID, Type: "deploy_execution",
+		Payload: map[string]interface{}{"targetId": targetID, "projectId": projectID, "trigger": "cron"},
 	}); err != nil {
-		log.Printf("cron worker: failed to push job for target %s: %v", targetID, err)
+		slog.Error("cron worker: push deploy job failed", "target_id", targetID, "error", err)
 	}
 }
 
-func (w *Cron) Stop() { close(w.stop) }
+func (w *Cron) fireFunction(ctx context.Context, functionID, projectID string) {
+	jobID := functionID + "-cron-" + time.Now().UTC().Format("20060102150405")
+	if err := w.queue.Push(ctx, "executions", queue.Job{
+		ID: jobID, Type: "function_execution",
+		Payload: map[string]interface{}{"functionId": functionID, "projectId": projectID, "trigger": "cron"},
+	}); err != nil {
+		slog.Error("cron worker: push function job failed", "function_id", functionID, "error", err)
+	}
+}

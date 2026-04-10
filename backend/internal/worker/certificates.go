@@ -8,73 +8,73 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"log"
+	"log/slog"
 	"math/big"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
+	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/redis/go-redis/v9"
 )
 
-// Certificates processes SSL/TLS certificate jobs. Generates self-signed
-// certificates for custom domains and stores them on disk for the proxy.
+// Certificates processes SSL/TLS certificate jobs.
 type Certificates struct {
 	cfg   *config.Config
-	stop  chan struct{}
 	queue *queue.Queue
 }
 
 func NewCertificates(cfg *config.Config) *Certificates {
-	return &Certificates{cfg: cfg, stop: make(chan struct{})}
+	return &Certificates{cfg: cfg}
 }
 
-func (w *Certificates) Start() error {
+func (w *Certificates) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
+	w.queue.StartReaper(ctx, "certificates")
 
-	log.Println("certificates worker: listening for jobs")
+	slog.Info("certificates worker: listening for jobs")
 
-	ctx := context.Background()
 	for {
-		select {
-		case <-w.stop:
-			return nil
-		default:
-			job, err := w.queue.Pop(ctx, "certificates")
-			if err != nil {
-				log.Printf("certificates worker: pop error: %v", err)
-				continue
+		receipt, err := w.queue.Pop(ctx, "certificates")
+		if err != nil {
+			if ctx.Err() != nil {
+				slog.Info("certificates worker: shutting down")
+				return nil
 			}
-			if job == nil {
-				continue
-			}
-			w.process(ctx, job)
+			slog.Error("certificates worker: pop error", "error", err)
+			continue
+		}
+		if receipt == nil {
+			continue
+		}
+		Heartbeat()
+		if processErr := w.process(ctx, receipt.Job); processErr != nil {
+			metrics.QueueJobs.Inc("certificates", "failed")
+			receipt.Nack()
+		} else {
+			metrics.QueueJobs.Inc("certificates", "completed")
+			receipt.Ack()
 		}
 	}
 }
 
-func (w *Certificates) process(_ context.Context, job *queue.Job) {
-	log.Printf("certificates worker: processing job %s", job.ID)
-
+func (w *Certificates) process(_ context.Context, job *queue.Job) error {
 	domain, _ := job.Payload["domain"].(string)
 	if domain == "" {
-		log.Printf("certificates worker: job %s missing domain", job.ID)
-		return
+		return nil
 	}
 
 	certDir := filepath.Join(w.cfg.StoragePath, "certs")
 	if err := os.MkdirAll(certDir, 0o755); err != nil {
-		log.Printf("certificates worker: mkdir error: %v", err)
-		return
+		return err
 	}
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		log.Printf("certificates worker: key gen error: %v", err)
-		return
+		return err
 	}
 
 	template := &x509.Certificate{
@@ -89,30 +89,26 @@ func (w *Certificates) process(_ context.Context, job *queue.Job) {
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		log.Printf("certificates worker: cert creation error: %v", err)
-		return
+		return err
 	}
 
 	certFile := filepath.Join(certDir, domain+".crt")
 	cf, err := os.Create(certFile)
 	if err != nil {
-		log.Printf("certificates worker: write cert error: %v", err)
-		return
+		return err
 	}
-	pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}) //nolint:errcheck
 	cf.Close()
 
 	keyFile := filepath.Join(certDir, domain+".key")
 	kf, err := os.Create(keyFile)
 	if err != nil {
-		log.Printf("certificates worker: write key error: %v", err)
-		return
+		return err
 	}
 	keyDER, _ := x509.MarshalECPrivateKey(key)
-	pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}) //nolint:errcheck
 	kf.Close()
 
-	log.Printf("certificates worker: generated cert for %s → %s", domain, certFile)
+	slog.Info("certificates worker: generated cert", "domain", domain, "path", certFile)
+	return nil
 }
-
-func (w *Certificates) Stop() { close(w.stop) }

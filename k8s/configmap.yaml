@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: applad-config
+  namespace: applad
+data:
+  PORT: "8080"
+  APP_ENV: "production"
+  REDIS_ADDR: "redis:6379"
+  STORAGE_PATH: "/var/applad/storage"
+  STORAGE_DRIVER: "local"       # change to "s3" and fill Secret for object storage
+  S3_REGION: "us-east-1"
+  DB_MAX_OPEN_CONNS: "25"
+  DB_MAX_IDLE_CONNS: "10"
+  CONSOLE_SIGNUP_ENABLED: "auto"
+  SMTP_PORT: "587"
+  SMTP_FROM: "noreply@example.com"

@@ -35,6 +35,8 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/{projectId}/platforms", h.listPlatforms)
 	r.Delete("/{projectId}/platforms/{platformId}", h.deletePlatform)
 	r.Patch("/{projectId}/auth", h.updateAuthConfig)
+	r.Get("/{projectId}/auth/security", h.getAuthSecurity)
+	r.Put("/{projectId}/auth/security", h.updateAuthSecurity)
 	r.Patch("/{projectId}/services", h.updateServicesConfig)
 	return r
 }
@@ -229,6 +231,31 @@ func (h *Handler) updateAuthConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok"})
+}
+
+func (h *Handler) getAuthSecurity(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	sec, err := h.svc.GetAuthSecurity(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sec)
+}
+
+func (h *Handler) updateAuthSecurity(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	// Start from current settings so partial updates preserve other fields.
+	sec, _ := h.svc.GetAuthSecurity(r.Context(), projectID)
+	if err := json.NewDecoder(r.Body).Decode(&sec); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if err := h.svc.UpdateAuthSecurity(r.Context(), projectID, sec); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sec)
 }
 
 func (h *Handler) updateServicesConfig(w http.ResponseWriter, r *http.Request) {

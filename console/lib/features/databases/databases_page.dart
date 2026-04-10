@@ -8,22 +8,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
+import '../../core/theme/console_colors.dart';
 
 // --- Constants ---------------------------------------------------------------
 
-const _bgColor = Color(0xFF0B0B0F);
-const _cardColor = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _border = Color(0x0FFFFFFF);
 const _red = Color(0xFFEF4444);
 const _green = Color(0xFF10B981);
-
-bool _isLight(BuildContext context) =>
-  Theme.of(context).brightness == Brightness.light;
 
 String _formatIndexType(String value) {
   switch (value) {
@@ -98,6 +92,23 @@ final _rowsProvider = FutureProvider.family<Map<String, dynamic>,
   return res.data as Map<String, dynamic>;
 });
 
+final _tableDetailsProvider = FutureProvider.family<Map<String, dynamic>,
+    ({String dbId, String tableId})>((ref, p) async {
+  final api = ref.read(apiClientProvider);
+  final res = await api.get('/databases/${p.dbId}/tables/${p.tableId}');
+  return res.data as Map<String, dynamic>;
+});
+
+final _tablePermissionsProvider = FutureProvider.family<
+    List<Map<String, dynamic>>,
+    ({String dbId, String tableId})>((ref, p) async {
+  final api = ref.read(apiClientProvider);
+  final res = await api
+      .get('/databases/${p.dbId}/tables/${p.tableId}/permissions');
+  final data = res.data as Map<String, dynamic>;
+  return List<Map<String, dynamic>>.from(data['permissions'] ?? []);
+});
+
 // --- Page (3-level navigation like Storage) ----------------------------------
 
 class DatabasesPage extends ConsumerStatefulWidget {
@@ -108,9 +119,12 @@ class DatabasesPage extends ConsumerStatefulWidget {
 }
 
 class _DatabasesPageState extends ConsumerState<DatabasesPage> {
+  late ConsoleColors _cs;
   final _searchCtrl = TextEditingController();
   String? _selectedDbId;
+  String? _selectedDbName;
   String? _selectedTableId;
+  String? _selectedTableName;
 
   @override
   void dispose() {
@@ -120,18 +134,25 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     if (_selectedTableId != null && _selectedDbId != null) {
       return _TableDetailView(
         dbId: _selectedDbId!,
+        dbName: _selectedDbName ?? _selectedDbId!,
         tableId: _selectedTableId!,
+        tableName: _selectedTableName ?? _selectedTableId!,
         onBack: () => setState(() => _selectedTableId = null),
       );
     }
     if (_selectedDbId != null) {
       return _DatabaseDetailView(
         dbId: _selectedDbId!,
+        dbName: _selectedDbName ?? _selectedDbId!,
         onBack: () => setState(() => _selectedDbId = null),
-        onTableSelect: (id) => setState(() => _selectedTableId = id),
+        onTableSelect: (id, name) => setState(() {
+          _selectedTableId = id;
+          _selectedTableName = name;
+        }),
       );
     }
     return _buildDatabaseList();
@@ -149,7 +170,7 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
         dbAsync.whenOrNull(data: (d) => d['total'] as int? ?? 0) ?? 0;
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: _cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -158,9 +179,9 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 32),
-            const Text('Databases',
+            Text('Databases',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: _cs.textPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 24),
@@ -219,24 +240,20 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
                         Row(children: [
                           Icon(LucideIcons.database, size: 14, color: _accent),
                           const SizedBox(width: 8),
-                          Expanded(
-                              child: Text(id,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
-                                      fontFamily: 'monospace'),
-                                  overflow: TextOverflow.ellipsis)),
+                          Expanded(child: IdText(id: id)),
                         ]),
                         Text(name,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13)),
+                            style: TextStyle(
+                                color: _cs.textPrimary, fontSize: 13)),
                         Text(created,
-                            style: const TextStyle(
-                                color: _dimText, fontSize: 12)),
+                            style: TextStyle(
+                                color: _cs.textMuted, fontSize: 12)),
                       ];
                     },
-                    onRowTap: (db) =>
-                        setState(() => _selectedDbId = db['\$id'] as String),
+                    onRowTap: (db) => setState(() {
+                      _selectedDbId = db['\$id'] as String;
+                      _selectedDbName = db['name'] as String?;
+                    }),
                     onRowDelete: (db) => _deleteDb(db['\$id'] as String),
                   );
                 },
@@ -296,7 +313,7 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
       title: 'Delete database',
       content: Text(
           'All tables and data in this database will be permanently deleted.',
-          style: TextStyle(color: Colors.white.withOpacity(0.6))),
+          style: TextStyle(color: _cs.textSecondary)),
       actions: [
         const AppDialogCancel(),
         AppDialogAction(
@@ -319,11 +336,13 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
 
 class _DatabaseDetailView extends ConsumerStatefulWidget {
   final String dbId;
+  final String dbName;
   final VoidCallback onBack;
-  final ValueChanged<String> onTableSelect;
+  final void Function(String id, String name) onTableSelect;
 
   const _DatabaseDetailView({
     required this.dbId,
+    required this.dbName,
     required this.onBack,
     required this.onTableSelect,
   });
@@ -334,6 +353,7 @@ class _DatabaseDetailView extends ConsumerStatefulWidget {
 }
 
 class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
+  late ConsoleColors _cs;
   int _tabIndex = 0;
   final _sqlCtrl = TextEditingController();
   MonacoController? _sqlEditorController;
@@ -366,14 +386,13 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     final tablesAsync = ref.watch(_tablesProvider(widget.dbId));
     final tables =
         List<Map<String, dynamic>>.from(tablesAsync.value?['tables'] ?? const []);
-    // Try to get database name from the tables response or just use ID
-    final dbName = widget.dbId;
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: _cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -383,7 +402,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
           children: [
             const SizedBox(height: 32),
             _BackHeader(
-              title: dbName,
+              title: widget.dbName,
               subtitle: widget.dbId,
               icon: LucideIcons.database,
               onBack: widget.onBack,
@@ -460,24 +479,20 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                       Icon(LucideIcons.table2,
                           size: 14, color: _accent),
                       const SizedBox(width: 8),
-                      Expanded(
-                          child: Text(id,
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontFamily: 'monospace'),
-                              overflow: TextOverflow.ellipsis)),
+                      Expanded(child: IdText(id: id)),
                     ]),
                     Text(name,
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textPrimary, fontSize: 13)),
                     Text(created,
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 12)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 12)),
                   ];
                 },
-                onRowTap: (t) =>
-                    widget.onTableSelect(t['\$id'] as String),
+                onRowTap: (t) => widget.onTableSelect(
+                  t['\$id'] as String,
+                  t['name'] as String? ?? t['\$id'] as String,
+                ),
                 onRowDelete: (t) async {
                   await ref.read(apiClientProvider).delete(
                       '/databases/${widget.dbId}/tables/${t['\$id']}');
@@ -498,7 +513,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
           _SettingsCard(
             title: 'Database settings',
             children: [
-              _InfoRow(label: 'Database ID', value: widget.dbId),
+              _InfoRow(label: 'Database ID', value: widget.dbId, isId: true),
             ],
           ),
           const SizedBox(height: 16),
@@ -566,19 +581,19 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: _cardColor,
+                  color: _cs.surface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _border),
+                  border: Border.all(color: _cs.border),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        const Text(
+                        Text(
                           'SQL editor',
                           style: TextStyle(
-                            color: Colors.white,
+                            color: _cs.textPrimary,
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                           ),
@@ -611,7 +626,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                     Text(
                       'DDL is blocked. Queries run read-only by default with project and user context applied.',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.45),
+                        color: _cs.textMuted,
                         fontSize: 12,
                       ),
                     ),
@@ -619,9 +634,9 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                     Container(
                       height: 320,
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.18),
+                        color: _cs.fill,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.white.withOpacity(0.06)),
+                        border: Border.all(color: _cs.border),
                       ),
                       child: Shortcuts(
                         shortcuts: const <ShortcutActivator, Intent>{
@@ -650,9 +665,10 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                             child: MonacoEditor(
                               key: const ValueKey('database-sql-editor'),
                               initialValue: _sqlCtrl.text,
+                              readyTimeout: const Duration(seconds: 60),
                               options: EditorOptions(
                                 language: MonacoLanguage.sql,
-                                theme: _isLight(context)
+                                theme: consoleIsLight(context)
                                     ? MonacoTheme.vs
                                     : MonacoTheme.vsDark,
                                 fontSize: 13,
@@ -664,9 +680,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                                 quickSuggestions: true,
                                 parameterHints: true,
                               ),
-                              backgroundColor: _isLight(context)
-                                  ? const Color(0xFFF8F9FA)
-                                  : const Color(0xFF101115),
+                              backgroundColor: _cs.background,
                               autofocus: true,
                               contentDebounce: const Duration(milliseconds: 75),
                               onReady: (controller) async {
@@ -722,9 +736,9 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                           activeColor: _accent,
                         ),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Allow writes',
-                          style: TextStyle(color: Colors.white, fontSize: 13),
+                          style: TextStyle(color: _cs.textPrimary, fontSize: 13),
                         ),
                         const SizedBox(width: 12),
                         Text(
@@ -732,7 +746,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                               ? 'INSERT, UPDATE and DELETE are allowed.'
                               : 'Transaction is forced read-only.',
                           style: TextStyle(
-                            color: _sqlWriteAllowed ? const Color(0xFFFFD166) : _dimText,
+                            color: _sqlWriteAllowed ? const Color(0xFFFFD166) : _cs.textMuted,
                             fontSize: 12,
                           ),
                         ),
@@ -742,7 +756,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                     Text(
                       'Monaco powers the editor now. Use the schema browser on the right to insert tables and columns, then run with Cmd+Enter or Ctrl+Enter.',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.32),
+                        color: _cs.textSubtle,
                         fontSize: 11,
                       ),
                     ),
@@ -755,19 +769,19 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: _cardColor,
+                    color: _cs.surface,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _border),
+                    border: Border.all(color: _cs.border),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Text(
+                          Text(
                             'Results',
                             style: TextStyle(
-                              color: Colors.white,
+                              color: _cs.textPrimary,
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
                             ),
@@ -844,17 +858,17 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                 child: Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: _cardColor,
+                    color: _cs.surface,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _border),
+                    border: Border.all(color: _cs.border),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Recent queries',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: _cs.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
@@ -865,7 +879,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                             ? Text(
                                 'Recent statements from this session will appear here.',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.35),
+                                  color: _cs.textSubtle,
                                   fontSize: 12,
                                   height: 1.5,
                                 ),
@@ -881,16 +895,16 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                                     child: Container(
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.03),
+                                        color: _cs.fill,
                                         borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: Colors.white.withOpacity(0.05)),
+                                        border: Border.all(color: _cs.border),
                                       ),
                                       child: Text(
                                         statement,
                                         maxLines: 4,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
+                                        style: TextStyle(
+                                          color: _cs.textPrimary,
                                           fontSize: 12,
                                           fontFamily: 'monospace',
                                           height: 1.4,
@@ -918,9 +932,9 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
       title: 'Enable write mode',
       subtitle:
           'Write mode allows INSERT, UPDATE, and DELETE statements in this database. Schema changes are still blocked.',
-      content: const Text(
+      content: Text(
         'Enable write mode only when you intend to mutate data. The SQL editor still blocks DDL statements and keeps the current project and user context applied.',
-        style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
+        style: TextStyle(color: _cs.textSecondary, fontSize: 13, height: 1.5),
       ),
       actions: [
         const AppDialogCancel(),
@@ -1208,7 +1222,7 @@ class _SQLSchemaBrowser extends StatelessWidget {
   final bool loading;
   final String? error;
   final Map<String, String> tableIdByName;
-  final ValueChanged<String> onTableSelected;
+  final void Function(String id, String name) onTableSelected;
   final ValueChanged<String> onUseSuggestion;
 
   const _SQLSchemaBrowser({
@@ -1222,20 +1236,21 @@ class _SQLSchemaBrowser extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Schema browser',
             style: TextStyle(
-              color: Colors.white,
+              color: cs.textPrimary,
               fontSize: 15,
               fontWeight: FontWeight.w600,
             ),
@@ -1244,7 +1259,7 @@ class _SQLSchemaBrowser extends StatelessWidget {
           Text(
             'Inspect tables and columns while writing queries.',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.4),
+              color: cs.textMuted,
               fontSize: 12,
               height: 1.5,
             ),
@@ -1266,11 +1281,12 @@ class _SQLSchemaBrowser extends StatelessWidget {
         style: const TextStyle(color: _red, fontSize: 12),
       );
     }
+    final cs = consoleColors(context);
     if (schema.isEmpty) {
       return Text(
         'No schema metadata available yet.',
         style: TextStyle(
-          color: Colors.white.withOpacity(0.35),
+          color: cs.textSubtle,
           fontSize: 12,
           height: 1.5,
         ),
@@ -1285,29 +1301,29 @@ class _SQLSchemaBrowser extends StatelessWidget {
         final tableId = tableIdByName[table.name] ?? '';
         return Container(
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.03),
+            color: cs.fill,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
+            border: Border.all(color: cs.border),
           ),
           child: Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
               tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
               childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              iconColor: Colors.white54,
-              collapsedIconColor: Colors.white38,
+              iconColor: cs.textSecondary,
+              collapsedIconColor: cs.textMuted,
               title: Text(
                 table.name,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: cs.textPrimary,
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              subtitle: const Text(
+              subtitle: Text(
                 'information_schema',
                 style: TextStyle(
-                  color: _dimText,
+                  color: cs.textMuted,
                   fontSize: 11,
                   fontFamily: 'monospace',
                 ),
@@ -1324,16 +1340,16 @@ class _SQLSchemaBrowser extends StatelessWidget {
                         icon: const Icon(LucideIcons.copyPlus, size: 14),
                         label: const Text('Insert table'),
                         style: TextButton.styleFrom(
-                          foregroundColor: Colors.white70,
+                          foregroundColor: cs.textSecondary,
                           padding: const EdgeInsets.symmetric(horizontal: 0),
                         ),
                       ),
                       TextButton.icon(
-                        onPressed: tableId.isEmpty ? null : () => onTableSelected(tableId),
+                        onPressed: tableId.isEmpty ? null : () => onTableSelected(tableId, table.name),
                         icon: const Icon(LucideIcons.arrowUpRight, size: 14),
                         label: const Text('Open table'),
                         style: TextButton.styleFrom(
-                          foregroundColor: Colors.white70,
+                          foregroundColor: cs.textSecondary,
                           padding: const EdgeInsets.symmetric(horizontal: 0),
                         ),
                       ),
@@ -1346,7 +1362,7 @@ class _SQLSchemaBrowser extends StatelessWidget {
                       margin: const EdgeInsets.only(top: 8),
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.14),
+                        color: cs.surfaceAlt,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -1363,8 +1379,8 @@ class _SQLSchemaBrowser extends StatelessWidget {
                                     Expanded(
                                       child: Text(
                                         column.name,
-                                        style: const TextStyle(
-                                          color: Colors.white,
+                                        style: TextStyle(
+                                          color: cs.textPrimary,
                                           fontSize: 12,
                                           fontFamily: 'monospace',
                                         ),
@@ -1372,10 +1388,10 @@ class _SQLSchemaBrowser extends StatelessWidget {
                                     ),
                                     GestureDetector(
                                       onTap: () => onUseSuggestion(column.name),
-                                      child: const Icon(
+                                      child: Icon(
                                         LucideIcons.plus,
                                         size: 14,
-                                        color: Colors.white54,
+                                        color: cs.textSecondary,
                                       ),
                                     ),
                                   ],
@@ -1446,12 +1462,16 @@ class _SQLSuggestion {
 
 class _TableDetailView extends ConsumerStatefulWidget {
   final String dbId;
+  final String dbName;
   final String tableId;
+  final String tableName;
   final VoidCallback onBack;
 
   const _TableDetailView({
     required this.dbId,
+    required this.dbName,
     required this.tableId,
+    required this.tableName,
     required this.onBack,
   });
 
@@ -1461,8 +1481,12 @@ class _TableDetailView extends ConsumerStatefulWidget {
 }
 
 class _TableDetailViewState extends ConsumerState<_TableDetailView> {
+  late ConsoleColors _cs;
   int _tabIndex = 0;
   bool _showCreateColumn = false;
+  // Optimistic state for settings toggles (null = use API value)
+  bool? _tableEnabled;
+  bool? _tableRowSecurity;
 
   ({String dbId, String tableId}) get _key =>
       (dbId: widget.dbId, tableId: widget.tableId);
@@ -1472,8 +1496,9 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: _cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -1483,7 +1508,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
           children: [
             const SizedBox(height: 32),
             _BackHeader(
-              title: widget.tableId,
+              title: widget.tableName,
               subtitle: widget.tableId,
               icon: LucideIcons.table2,
               onBack: widget.onBack,
@@ -1620,6 +1645,8 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                       .delete('$_basePath/rows/$rowId');
                   ref.invalidate(_rowsProvider(_key));
                 },
+                onEdit: (row) =>
+                    _showEditRowDialog(row, columns),
               );
             },
           ),
@@ -1665,22 +1692,25 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                   'Column name',
                   'Type',
                   'Required',
-                  'Default value'
+                  'Default value',
+                  'Permissions',
                 ],
-                flexes: const [3, 2, 1, 2],
+                flexes: const [3, 2, 1, 2, 2],
                 rows: columns,
                 rowBuilder: (col) {
                   final key = col['key'] as String? ?? '';
                   final type = col['type'] as String? ?? '';
                   final required = col['required'] == true;
                   final def = col['default']?.toString() ?? '-';
+                  final perms = List<String>.from(
+                      col['\$permissions'] as List? ?? ['read', 'write']);
                   return [
                     Row(children: [
                       _ColumnTypeIcon(type: type),
                       const SizedBox(width: 8),
                       Text(key,
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 13)),
+                          style: TextStyle(
+                              color: _cs.textPrimary, fontSize: 13)),
                       if (required) ...[
                         const SizedBox(width: 6),
                         Container(
@@ -1699,20 +1729,32 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                       ],
                     ]),
                     Text(type,
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 13)),
                     Icon(
                       required
                           ? LucideIcons.checkSquare
                           : LucideIcons.square,
                       size: 14,
-                      color: required ? _accent : _subtleText,
+                      color: required ? _accent : _cs.textSubtle,
                     ),
                     Text(def,
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 13)),
+                    Wrap(
+                      spacing: 4,
+                      children: [
+                        if (perms.contains('read'))
+                          _PermChip(label: 'read', color: _green),
+                        if (perms.contains('write'))
+                          _PermChip(label: 'write', color: _accent),
+                        if (!perms.contains('read') && !perms.contains('write'))
+                          _PermChip(label: 'none', color: _red),
+                      ],
+                    ),
                   ];
                 },
+                onRowTap: (col) => _showColumnPermDialog(col),
                 onRowDelete: (col) async {
                   await ref.read(apiClientProvider).delete(
                       '$_basePath/columns/${col['key']}');
@@ -1764,21 +1806,21 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                 rowBuilder: (idx) {
                   return [
                     Text(idx['key'] as String? ?? '',
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textPrimary, fontSize: 13)),
                   Text(_formatIndexType(idx['type'] as String? ?? ''),
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 13)),
                     Text(
                     (idx['columns'] as List?)?.join(', ') ??
                       (idx['attributes'] as List?)?.join(', ') ??
                             '',
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 12)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 12)),
                     Text(
                         (idx['orders'] as List?)?.join(', ') ?? '',
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 12)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 12)),
                   ];
                 },
                 onRowDelete: (idx) async {
@@ -1838,17 +1880,17 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                 rowBuilder: (r) {
                   return [
                     Text(r['key'] as String? ?? '',
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textPrimary, fontSize: 13)),
                     Text(r['type'] as String? ?? '',
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 13)),
                     Text(r['relatedTableId'] as String? ?? '',
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 13)),
                     Text(r['onDelete'] as String? ?? 'setNull',
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 13)),
+                        style: TextStyle(
+                            color: _cs.textMuted, fontSize: 13)),
                   ];
                 },
                 onRowDelete: (r) async {
@@ -1866,231 +1908,412 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
 
   // --- Settings Tab ---
   Widget _buildTableSettingsTab() {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          // 1. Status + enabled toggle
-          _SettingsSectionCard(
+    final tableAsync = ref.watch(_tableDetailsProvider(_key));
+    final permsAsync = ref.watch(_tablePermissionsProvider(_key));
+
+    return tableAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(
+          child: Text('Error: $e', style: const TextStyle(color: _red))),
+      data: (table) {
+        final apiEnabled = table['enabled'] as bool? ?? true;
+        final apiRowSecurity = table['rowSecurity'] as bool? ?? false;
+        final tableName = table['name'] as String? ?? widget.tableId;
+        final enabledVal = _tableEnabled ?? apiEnabled;
+        final rowSecurityVal = _tableRowSecurity ?? apiRowSecurity;
+
+        return SingleChildScrollView(
+          child: Column(
             children: [
-              Row(
+              // 1. Status + enabled toggle
+              _SettingsSectionCard(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(widget.tableId,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 4),
-                        Text('Table ID: ${widget.tableId}',
-                            style: const TextStyle(
-                                color: _subtleText, fontSize: 12)),
-                      ],
-                    ),
-                  ),
                   Row(
                     children: [
-                      Switch(
-                        value: true,
-                        onChanged: (_) {},
-                        activeColor: _accent,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(tableName,
+                                style: TextStyle(
+                                    color: _cs.textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 4),
+                            Text('Table ID: ${widget.tableId}',
+                                style: TextStyle(
+                                    color: _cs.textSubtle, fontSize: 12)),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 4),
-                      const Text('Enabled',
-                          style: TextStyle(
-                              color: Colors.white, fontSize: 13)),
+                      Row(
+                        children: [
+                          Switch(
+                            value: enabledVal,
+                            onChanged: (v) async {
+                              setState(() => _tableEnabled = v);
+                              await ref
+                                  .read(apiClientProvider)
+                                  .put(_basePath, data: {'enabled': v});
+                              ref.invalidate(_tableDetailsProvider(_key));
+                            },
+                            activeColor: _accent,
+                          ),
+                          const SizedBox(width: 4),
+                          Text('Enabled',
+                              style: TextStyle(
+                                  color: _cs.textPrimary, fontSize: 13)),
+                        ],
+                      ),
                     ],
                   ),
                 ],
               ),
-            ],
-            onUpdate: () {},
-          ),
 
-          // 2. Name
-          _SettingsSectionCard(
-            title: 'Name',
-            children: [
-              _SettingsTextField(
-                initialValue: widget.tableId,
-                onSaved: (v) async {
-                  await ref.read(apiClientProvider).put(_basePath,
-                      data: {'name': v});
-                  ref.invalidate(_tablesProvider(widget.dbId));
-                },
-              ),
-            ],
-          ),
-
-          // 3. Display name
-          _SettingsSectionCard(
-            title: 'Display name',
-            subtitle:
-                'Select up to 3 string columns to display as row names in the console. These help identify rows in places like relationships.',
-            children: [
-              _InfoRow(label: 'Row ID', value: '\$id'),
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: TextButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(LucideIcons.plus, size: 14),
-                  label: const Text('Add column',
-                      style: TextStyle(fontSize: 12)),
-                  style:
-                      TextButton.styleFrom(foregroundColor: _accent),
-                ),
-              ),
-            ],
-            onUpdate: () {},
-          ),
-
-          // 4. Permissions
-          _SettingsSectionCard(
-            title: 'Permissions',
-            subtitle:
-                'Choose who can access your tables and rows.',
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.02),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _border),
-                ),
-                child: Column(
-                  children: [
-                    Icon(LucideIcons.plus,
-                        size: 20,
-                        color: Colors.white.withOpacity(0.3)),
-                    const SizedBox(height: 8),
-                    Text('Add a role to get started',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontSize: 13)),
-                  ],
-                ),
-              ),
-            ],
-            onUpdate: () {},
-          ),
-
-          // 5. Row security
-          _SettingsSectionCard(
-            title: 'Row security',
-            children: [
-              Row(
+              // 2. Name
+              _SettingsSectionCard(
+                title: 'Name',
                 children: [
-                  Switch(
-                    value: false,
-                    onChanged: (_) {},
-                    activeColor: _accent,
+                  _SettingsTextField(
+                    initialValue: tableName,
+                    onSaved: (v) async {
+                      await ref.read(apiClientProvider).put(_basePath,
+                          data: {'name': v});
+                      ref.invalidate(_tablesProvider(widget.dbId));
+                      ref.invalidate(_tableDetailsProvider(_key));
+                    },
                   ),
-                  const SizedBox(width: 8),
-                  const Text('Row security',
-                      style: TextStyle(
-                          color: Colors.white, fontSize: 13)),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                'When row security is enabled, users will be able to access rows for which they have been granted either row or table permissions.\n\n'
-                'If row security is disabled, users can access rows only if they have table permissions. Row permissions will be ignored.',
-                style: TextStyle(
-                    color: Colors.white.withOpacity(0.35),
-                    fontSize: 12,
-                    height: 1.5),
-              ),
-            ],
-            onUpdate: () {},
-          ),
 
-          // 6. Delete table
+              // 3. Permissions
+              _SettingsSectionCard(
+                title: 'Permissions',
+                subtitle: 'Choose who can access your tables and rows.',
+                children: [
+                  permsAsync.when(
+                    loading: () => const Center(
+                        child: CircularProgressIndicator()),
+                    error: (e, _) => Text('Error: $e',
+                        style: const TextStyle(color: _red)),
+                    data: (perms) => _buildPermissionsPanel(perms),
+                  ),
+                ],
+              ),
+
+              // 4. Row security
+              _SettingsSectionCard(
+                title: 'Row security',
+                children: [
+                  Row(
+                    children: [
+                      Switch(
+                        value: rowSecurityVal,
+                        onChanged: (v) async {
+                          setState(() => _tableRowSecurity = v);
+                          await ref.read(apiClientProvider).put(
+                              _basePath, data: {'rowSecurity': v});
+                          ref.invalidate(_tableDetailsProvider(_key));
+                        },
+                        activeColor: _accent,
+                      ),
+                      const SizedBox(width: 8),
+                      Text('Row security',
+                          style: TextStyle(
+                              color: _cs.textPrimary, fontSize: 13)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'When row security is enabled, users will be able to access rows for which they have been granted either row or table permissions.\n\n'
+                    'If row security is disabled, users can access rows only if they have table permissions. Row permissions will be ignored.',
+                    style: TextStyle(
+                        color: _cs.textSubtle,
+                        fontSize: 12,
+                        height: 1.5),
+                  ),
+                ],
+              ),
+
+              // 5. Delete table
+              _DangerCard(
+                title: 'Delete table',
+                description:
+                    'The table will be permanently deleted, including all the rows within it. This action is irreversible.',
+                onDelete: () async {
+                  await ref.read(apiClientProvider).delete(_basePath);
+                  ref.invalidate(_tablesProvider(widget.dbId));
+                  widget.onBack();
+                },
+              ),
+              const SizedBox(height: 40),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPermissionsPanel(List<Map<String, dynamic>> perms) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (perms.isEmpty)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            margin: const EdgeInsets.only(bottom: 40),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: _cardColor,
+              color: _cs.fill,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: _red.withOpacity(0.3)),
+              border: Border.all(color: _cs.border),
             ),
             child: Column(
+              children: [
+                Icon(LucideIcons.shieldOff,
+                    size: 20, color: _cs.textSubtle),
+                const SizedBox(height: 8),
+                Text('No permissions set. All access is denied.',
+                    style:
+                        TextStyle(color: _cs.textMuted, fontSize: 13)),
+              ],
+            ),
+          )
+        else
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: _cs.border),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: perms.asMap().entries.map((entry) {
+                final i = entry.key;
+                final p = entry.value;
+                final role = p['role'] as String? ?? '';
+                final action = p['action'] as String? ?? '';
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: i < perms.length - 1
+                          ? BorderSide(color: _cs.border)
+                          : BorderSide.none,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(role,
+                            style: TextStyle(
+                                color: _cs.textPrimary, fontSize: 13)),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: _accent.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(action,
+                            style: TextStyle(
+                                color: _accent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500)),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () async {
+                          final updated = perms
+                              .where((x) =>
+                                  x['role'] != role ||
+                                  x['action'] != action)
+                              .toList();
+                          await ref.read(apiClientProvider).post(
+                            '$_basePath/permissions',
+                            data: {
+                              'permissions': updated
+                                  .map((x) => {
+                                        'role': x['role'],
+                                        'action': x['action']
+                                      })
+                                  .toList()
+                            },
+                          );
+                          ref.invalidate(_tablePermissionsProvider(_key));
+                        },
+                        child: Icon(LucideIcons.x,
+                            size: 14, color: _cs.textSubtle),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        const SizedBox(height: 12),
+        TextButton.icon(
+          onPressed: () => _showAddPermissionDialog(perms),
+          icon: Icon(LucideIcons.plus, size: 14, color: _accent),
+          label: Text('Add permission',
+              style: TextStyle(color: _accent, fontSize: 13)),
+          style: TextButton.styleFrom(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showColumnPermDialog(Map<String, dynamic> col) {
+    final key = col['key'] as String? ?? '';
+    final perms = List<String>.from(
+        col['\$permissions'] as List? ?? ['read', 'write']);
+    bool allowRead = perms.contains('read');
+    bool allowWrite = perms.contains('write');
+
+    showAppDialog<void>(
+      context: context,
+      title: 'Column permissions: $key',
+      content: StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final cs = consoleColors(ctx);
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Control whether this column value can be read or written via the API.',
+                style: TextStyle(color: cs.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              _PermToggleRow(
+                label: 'Allow read',
+                subtitle: 'Column values are returned when fetching rows.',
+                value: allowRead,
+                onChanged: (v) => setDialogState(() => allowRead = v),
+              ),
+              const SizedBox(height: 8),
+              _PermToggleRow(
+                label: 'Allow write',
+                subtitle: 'Column values can be set when creating or updating rows.',
+                value: allowWrite,
+                onChanged: (v) => setDialogState(() => allowWrite = v),
+              ),
+            ],
+          );
+        },
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Save',
+          onTap: () async {
+            final updated = <String>[
+              if (allowRead) 'read',
+              if (allowWrite) 'write',
+            ];
+            await ref.read(apiClientProvider).post(
+              '$_basePath/columns/$key/permissions',
+              data: {'permissions': updated},
+            );
+            ref.invalidate(_columnsProvider(_key));
+            if (context.mounted) {
+              Navigator.of(context, rootNavigator: true).pop();
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  void _showAddPermissionDialog(List<Map<String, dynamic>> existing) {
+    final roleCtrl = TextEditingController();
+    String action = 'read';
+
+    showAppDialog(
+      context: context,
+      title: 'Add permission',
+      width: 420,
+      content: StatefulBuilder(
+        builder: (ctx, setS) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppDialogField(
+              controller: roleCtrl,
+              label: 'Role',
+              hint: 'e.g. users, any, user:123',
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Delete table',
-                              style: TextStyle(
-                                  color: _red,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500)),
-                          const SizedBox(height: 4),
-                          Text(
-                            'The table will be permanently deleted, including all the rows within it. This action is irreversible.',
+                Text('Action',
+                    style: TextStyle(
+                        color: consoleColors(ctx).textMuted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: ['read', 'create', 'update', 'delete']
+                      .map((a) {
+                    final sel = action == a;
+                    return GestureDetector(
+                      onTap: () => setS(() => action = a),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: sel
+                              ? _accent.withOpacity(0.15)
+                              : consoleColors(ctx).fill,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                              color: sel
+                                  ? _accent
+                                  : consoleColors(ctx).border),
+                        ),
+                        child: Text(a,
                             style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 13),
-                          ),
-                        ],
+                                color: sel
+                                    ? _cs.textPrimary
+                                    : consoleColors(ctx).textMuted,
+                                fontSize: 12)),
                       ),
-                    ),
-                    const SizedBox(width: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.03),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: _border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(widget.tableId,
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _red,
-                      side: const BorderSide(color: _red),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 10),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8)),
-                    ),
-                    onPressed: () async {
-                      await ref
-                          .read(apiClientProvider)
-                          .delete(_basePath);
-                      ref.invalidate(_tablesProvider(widget.dbId));
-                      widget.onBack();
-                    },
-                    child: const Text('Delete',
-                        style: TextStyle(fontSize: 13)),
-                  ),
+                    );
+                  }).toList(),
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Add',
+          onTap: () async {
+            final role = roleCtrl.text.trim();
+            if (role.isEmpty) return;
+            final updated = [
+              ...existing.map(
+                  (x) => {'role': x['role'], 'action': x['action']}),
+              {'role': role, 'action': action},
+            ];
+            await ref.read(apiClientProvider).post(
+              '$_basePath/permissions',
+              data: {'permissions': updated},
+            );
+            if (mounted) {
+              Navigator.of(context, rootNavigator: true).pop();
+            }
+            ref.invalidate(_tablePermissionsProvider(_key));
+          },
+        ),
+      ],
     );
   }
 
@@ -2155,6 +2378,66 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
     );
   }
 
+  void _showEditRowDialog(
+      Map<String, dynamic> row, List<Map<String, dynamic>> columns) {
+    final data = row['data'] as Map<String, dynamic>? ?? row;
+    final rowId = row['\$id'] as String? ?? '';
+    final controllers = <String, TextEditingController>{};
+    for (final col in columns) {
+      final key = col['key'] as String? ?? '';
+      if (key.isNotEmpty) {
+        controllers[key] =
+            TextEditingController(text: data[key]?.toString() ?? '');
+      }
+    }
+
+    showAppDialog(
+      context: context,
+      title: 'Edit row',
+      width: 520,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (controllers.isEmpty)
+            AppDialogField(
+              controller: TextEditingController(
+                  text: const JsonEncoder.withIndent('  ')
+                      .convert(data)),
+              label: 'Data (JSON)',
+              hint: '{"key": "value"}',
+              maxLines: 5,
+            )
+          else
+            ...controllers.entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: AppDialogField(
+                    controller: e.value,
+                    label: e.key,
+                    hint: 'Enter ${e.key}',
+                  ),
+                )),
+        ],
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Save',
+          onTap: () async {
+            final updated = <String, dynamic>{};
+            for (final e in controllers.entries) {
+              updated[e.key] = e.value.text.trim();
+            }
+            await ref.read(apiClientProvider).patch(
+                '$_basePath/rows/$rowId',
+                data: {'data': updated});
+            if (mounted) Navigator.of(context, rootNavigator: true).pop();
+            ref.invalidate(_rowsProvider(_key));
+          },
+        ),
+      ],
+    );
+  }
+
   void _showCreateIndexDialog() {
     final keyCtrl = TextEditingController();
     final columnsCtrl = TextEditingController();
@@ -2183,7 +2466,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
               children: [
                 Text('Type',
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
+                        color: _cs.textMuted,
                         fontSize: 12,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 6),
@@ -2205,16 +2488,16 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                         decoration: BoxDecoration(
                           color: sel
                               ? _accent.withOpacity(0.15)
-                              : const Color(0x0AFFFFFF),
+                              : _cs.fill,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
                               color: sel
                                   ? _accent
-                                  : Colors.white.withOpacity(0.1)),
+                                  : _cs.border),
                         ),
                         child: Text(label,
                             style: TextStyle(
-                                color: sel ? Colors.white : _dimText,
+                                color: sel ? _cs.textPrimary : _cs.textMuted,
                                 fontSize: 12)),
                       ),
                     );
@@ -2280,7 +2563,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
               children: [
                 Text('Type',
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
+                        color: _cs.textMuted,
                         fontSize: 12,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 6),
@@ -2302,16 +2585,16 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                         decoration: BoxDecoration(
                           color: sel
                               ? _accent.withOpacity(0.15)
-                              : const Color(0x0AFFFFFF),
+                              : _cs.fill,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
                               color: sel
                                   ? _accent
-                                  : Colors.white.withOpacity(0.1)),
+                                  : _cs.border),
                         ),
                         child: Text(t,
                             style: TextStyle(
-                                color: sel ? Colors.white : _dimText,
+                                color: sel ? _cs.textPrimary : _cs.textMuted,
                                 fontSize: 12)),
                       ),
                     );
@@ -2366,10 +2649,18 @@ class _CreateColumnPanel extends ConsumerStatefulWidget {
 }
 
 class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
+  late ConsoleColors _cs;
   final _keyCtrl = TextEditingController();
   final _sizeCtrl = TextEditingController(text: '256');
   final _defaultCtrl = TextEditingController();
   final _elementsCtrl = TextEditingController();
+  // Validation fields
+  final _patternCtrl = TextEditingController();
+  final _validationMsgCtrl = TextEditingController();
+  final _minCtrl = TextEditingController();
+  final _maxCtrl = TextEditingController();
+  final _minLenCtrl = TextEditingController();
+  final _maxLenCtrl = TextEditingController();
   String _type = 'string';
   bool _required = false;
   bool _array = false;
@@ -2394,18 +2685,25 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
     _sizeCtrl.dispose();
     _defaultCtrl.dispose();
     _elementsCtrl.dispose();
+    _patternCtrl.dispose();
+    _validationMsgCtrl.dispose();
+    _minCtrl.dispose();
+    _maxCtrl.dispose();
+    _minLenCtrl.dispose();
+    _maxLenCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return Container(
       width: 320,
       margin: const EdgeInsets.only(left: 16),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: _cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: _cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2415,9 +2713,9 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: Row(
               children: [
-                const Text('Create column',
+                Text('Create column',
                     style: TextStyle(
-                        color: Colors.white,
+                        color: _cs.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w600)),
                 const Spacer(),
@@ -2427,7 +2725,7 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
                     cursor: SystemMouseCursors.click,
                     child: Icon(LucideIcons.x,
                         size: 16,
-                        color: Colors.white.withOpacity(0.3)),
+                        color: _cs.textSubtle),
                   ),
                 ),
               ],
@@ -2447,21 +2745,22 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
                   _PanelLabel('Type'),
                   const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
                     decoration: BoxDecoration(
-                      color: const Color(0x0AFFFFFF),
+                      color: _cs.fieldFill,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0x1AFFFFFF)),
+                      border: Border.all(color: _cs.fieldBorder),
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         value: _type,
                         isExpanded: true,
-                        dropdownColor: const Color(0xFF1E1F24),
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 13),
-                        icon: const Icon(LucideIcons.chevronDown,
-                            size: 14, color: _dimText),
+                        isDense: true,
+                        dropdownColor: _cs.popupSurface,
+                        style: TextStyle(
+                            color: _cs.textPrimary, fontSize: 13),
+                        icon: Icon(LucideIcons.chevronDown,
+                            size: 14, color: _cs.textMuted),
                         items: _types
                             .map((t) => DropdownMenuItem(
                                   value: t.$1,
@@ -2519,6 +2818,53 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
                     value: _array,
                     onChanged: (v) => setState(() => _array = v),
                   ),
+                  const SizedBox(height: 16),
+                  // ── Validation ──────────────────────────────────────────
+                  Text('Validation',
+                      style: TextStyle(
+                          color: _cs.textSecondary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.6)),
+                  const SizedBox(height: 10),
+                  if (_type == 'string') ...[
+                    _PanelField(
+                        controller: _minLenCtrl,
+                        label: 'Min length',
+                        hint: 'e.g. 3',
+                        keyboardType: TextInputType.number),
+                    const SizedBox(height: 8),
+                    _PanelField(
+                        controller: _maxLenCtrl,
+                        label: 'Max length',
+                        hint: 'e.g. 255',
+                        keyboardType: TextInputType.number),
+                    const SizedBox(height: 8),
+                  ],
+                  if (_type == 'integer' || _type == 'float') ...[
+                    _PanelField(
+                        controller: _minCtrl,
+                        label: 'Min value',
+                        hint: 'e.g. 0',
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true)),
+                    const SizedBox(height: 8),
+                    _PanelField(
+                        controller: _maxCtrl,
+                        label: 'Max value',
+                        hint: 'e.g. 100',
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true)),
+                    const SizedBox(height: 8),
+                  ],
+                  _PanelField(
+                      controller: _patternCtrl,
+                      label: 'Regex pattern',
+                      hint: r'e.g. ^[a-zA-Z]+$'),
+                  const SizedBox(height: 8),
+                  _PanelField(
+                      controller: _validationMsgCtrl,
+                      label: 'Custom error message',
+                      hint: 'e.g. Invalid format'),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
@@ -2528,7 +2874,7 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               border: Border(
-                  top: BorderSide(color: Colors.white.withOpacity(0.06))),
+                  top: BorderSide(color: _cs.border)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
@@ -2536,7 +2882,7 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
                 TextButton(
                   onPressed: widget.onClose,
                   style: TextButton.styleFrom(
-                      foregroundColor: Colors.white54),
+                      foregroundColor: _cs.textMuted),
                   child:
                       const Text('Cancel', style: TextStyle(fontSize: 13)),
                 ),
@@ -2590,6 +2936,26 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
             .where((s) => s.isNotEmpty)
             .toList();
       }
+      // Build validation object if any rules are set
+      final validation = <String, dynamic>{};
+      if (_type == 'string') {
+        final minLen = int.tryParse(_minLenCtrl.text.trim());
+        final maxLen = int.tryParse(_maxLenCtrl.text.trim());
+        if (minLen != null) validation['minLength'] = minLen;
+        if (maxLen != null) validation['maxLength'] = maxLen;
+      }
+      if (_type == 'integer' || _type == 'float') {
+        final minVal = double.tryParse(_minCtrl.text.trim());
+        final maxVal = double.tryParse(_maxCtrl.text.trim());
+        if (minVal != null) validation['min'] = minVal;
+        if (maxVal != null) validation['max'] = maxVal;
+      }
+      final pattern = _patternCtrl.text.trim();
+      if (pattern.isNotEmpty) validation['pattern'] = pattern;
+      final msg = _validationMsgCtrl.text.trim();
+      if (msg.isNotEmpty) validation['message'] = msg;
+      if (validation.isNotEmpty) data['validation'] = validation;
+
       await api.post('${widget.basePath}/columns/$_type', data: data);
       widget.onCreated();
     } catch (e) {
@@ -2611,16 +2977,19 @@ class _RowsGrid extends StatelessWidget {
   final List<Map<String, dynamic>> columns;
   final List<Map<String, dynamic>> rows;
   final Future<void> Function(String) onDelete;
+  final void Function(Map<String, dynamic> row) onEdit;
 
   const _RowsGrid({
     required this.displayKeys,
     required this.columns,
     required this.rows,
     required this.onDelete,
+    required this.onEdit,
   });
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Column(
       children: [
         // Header
@@ -2630,7 +2999,7 @@ class _RowsGrid extends StatelessWidget {
           decoration: BoxDecoration(
             border: Border(
                 bottom:
-                    BorderSide(color: Colors.white.withOpacity(0.06))),
+                    BorderSide(color: cs.border)),
           ),
           child: Row(
             children: [
@@ -2639,15 +3008,15 @@ class _RowsGrid extends StatelessWidget {
                       children: [
                         if (k == '\$id')
                           Icon(LucideIcons.key,
-                              size: 12, color: _subtleText)
+                              size: 12, color: cs.textSubtle)
                         else
                           _ColumnTypeIcon(
                               type: _typeForKey(k)),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(k,
-                              style: const TextStyle(
-                                  color: _dimText,
+                              style: TextStyle(
+                                  color: cs.textMuted,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500),
                               overflow: TextOverflow.ellipsis),
@@ -2683,28 +3052,39 @@ class _RowsGrid extends StatelessWidget {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 4),
-                          child: Text(val,
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontFamily: 'monospace'),
-                              overflow: TextOverflow.ellipsis),
+                          child: k == '\$id'
+                              ? IdText(id: val, fontSize: 12)
+                              : Text(val,
+                                  style: TextStyle(
+                                      color: cs.textPrimary,
+                                      fontSize: 12,
+                                      fontFamily: 'monospace'),
+                                  overflow: TextOverflow.ellipsis),
                         ),
                       );
                     }),
                     SizedBox(
                       width: 40,
                       child: PopupMenuButton<String>(
-                        color: const Color(0xFF1A1A22),
+                        color: cs.popupSurface,
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8)),
                         iconSize: 16,
                         icon: Icon(LucideIcons.moreHorizontal,
-                            size: 14, color: _subtleText),
+                            size: 14, color: cs.textSubtle),
                         onSelected: (v) {
+                          if (v == 'edit') onEdit(row);
                           if (v == 'delete') onDelete(rowId);
                         },
-                        itemBuilder: (_) => [
+                        itemBuilder: (bCtx) => [
+                          PopupMenuItem(
+                            value: 'edit',
+                            child: Text('Edit',
+                                style: TextStyle(
+                                    color:
+                                        consoleColors(bCtx).textPrimary,
+                                    fontSize: 13)),
+                          ),
                           const PopupMenuItem(
                             value: 'delete',
                             child: Text('Delete',
@@ -2740,6 +3120,7 @@ class _SQLResultsGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     final displayColumns = columns.isEmpty && rows.isNotEmpty
         ? rows.first.keys.toList()
         : columns;
@@ -2748,7 +3129,7 @@ class _SQLResultsGrid extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: Container(
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.white.withOpacity(0.06)),
+          border: Border.all(color: cs.border),
           borderRadius: BorderRadius.circular(8),
         ),
         child: SingleChildScrollView(
@@ -2758,7 +3139,7 @@ class _SQLResultsGrid extends StatelessWidget {
             child: Column(
               children: [
                 Container(
-                  color: Colors.white.withOpacity(0.03),
+                  color: cs.fill,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   child: Row(
                     children: displayColumns
@@ -2767,8 +3148,8 @@ class _SQLResultsGrid extends StatelessWidget {
                             width: 220,
                             child: Text(
                               column,
-                              style: const TextStyle(
-                                color: _dimText,
+                              style: TextStyle(
+                                color: cs.textMuted,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -2787,7 +3168,7 @@ class _SQLResultsGrid extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         decoration: BoxDecoration(
                           border: Border(
-                            top: BorderSide(color: Colors.white.withOpacity(0.04)),
+                            top: BorderSide(color: cs.border),
                           ),
                         ),
                         child: Row(
@@ -2799,8 +3180,8 @@ class _SQLResultsGrid extends StatelessWidget {
                                     _formatSQLValue(row[column]),
                                     maxLines: 4,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
+                                    style: TextStyle(
+                                      color: cs.textPrimary,
                                       fontSize: 12,
                                       fontFamily: 'monospace',
                                       height: 1.4,
@@ -2830,6 +3211,7 @@ class _SQLSummaryView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -2838,8 +3220,8 @@ class _SQLSummaryView extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             'Statement completed',
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: cs.textPrimary,
               fontSize: 15,
               fontWeight: FontWeight.w600,
             ),
@@ -2848,7 +3230,7 @@ class _SQLSummaryView extends StatelessWidget {
           Text(
             '${result['rowCount'] ?? 0} rows affected in ${result['executionMs'] ?? 0} ms.',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.45),
+              color: cs.textMuted,
               fontSize: 12,
             ),
           ),
@@ -2876,7 +3258,7 @@ class _SQLErrorView extends StatelessWidget {
       child: SelectableText(
         message,
         style: const TextStyle(
-          color: Color(0xFFFFB4B4),
+          color: _red,
           fontSize: 12,
           fontFamily: 'monospace',
           height: 1.45,
@@ -2893,16 +3275,17 @@ class _MetricPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: cs.badgeFill,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: cs.border),
       ),
       child: Text(
         label,
-        style: const TextStyle(color: Colors.white, fontSize: 12),
+        style: TextStyle(color: cs.textPrimary, fontSize: 12),
       ),
     );
   }
@@ -2963,6 +3346,7 @@ class _BackHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Row(
       children: [
         GestureDetector(
@@ -2970,26 +3354,19 @@ class _BackHeader extends StatelessWidget {
           child: MouseRegion(
             cursor: SystemMouseCursors.click,
             child: Icon(LucideIcons.arrowLeft,
-                size: 20, color: Colors.white.withOpacity(0.5)),
+                size: 20, color: cs.textMuted),
           ),
         ),
         const SizedBox(width: 12),
         Text(title,
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                color: cs.textPrimary,
                 fontSize: 22,
                 fontWeight: FontWeight.w600)),
-        const SizedBox(width: 12),
-        Icon(icon, size: 13, color: Colors.white.withOpacity(0.3)),
-        const SizedBox(width: 4),
-        Text(
-            subtitle.length > 16
-                ? '${subtitle.substring(0, 16)}...'
-                : subtitle,
-            style: TextStyle(
-                color: Colors.white.withOpacity(0.3),
-                fontSize: 13,
-                fontFamily: 'monospace')),
+        const SizedBox(width: 10),
+        Icon(icon, size: 13, color: cs.textSubtle),
+        const SizedBox(width: 6),
+        IdText(id: subtitle),
       ],
     );
   }
@@ -3008,34 +3385,35 @@ class _SearchBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return SizedBox(
       width: 280,
       child: TextField(
         controller: controller,
         onChanged: onChanged,
-        style: const TextStyle(fontSize: 13, color: Colors.white),
+        style: TextStyle(fontSize: 13, color: cs.textPrimary),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(color: _subtleText, fontSize: 13),
-          prefixIcon: const Padding(
-            padding: EdgeInsets.only(left: 10, right: 6),
-            child: Icon(Icons.search, size: 16, color: _subtleText),
+          hintStyle: TextStyle(color: cs.textSubtle, fontSize: 13),
+          prefixIcon: Padding(
+            padding: const EdgeInsets.only(left: 10, right: 6),
+            child: Icon(Icons.search, size: 16, color: cs.textSubtle),
           ),
           prefixIconConstraints:
               const BoxConstraints(minWidth: 32, minHeight: 0),
           filled: true,
-          fillColor: const Color(0x0AFFFFFF),
+          fillColor: cs.fieldFill,
           isDense: true,
           contentPadding:
               const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide:
-                  BorderSide(color: Colors.white.withOpacity(0.08))),
+                  BorderSide(color: cs.fieldBorder)),
           enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide:
-                  BorderSide(color: Colors.white.withOpacity(0.08))),
+                  BorderSide(color: cs.fieldBorder)),
           focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: _accent)),
@@ -3077,10 +3455,11 @@ class _GhostButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return OutlinedButton.icon(
       style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.white70,
-        side: BorderSide(color: Colors.white.withOpacity(0.1)),
+        foregroundColor: cs.textSecondary,
+        side: BorderSide(color: cs.border),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -3111,6 +3490,7 @@ class _DataTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Column(
       children: [
         Container(
@@ -3119,7 +3499,7 @@ class _DataTable extends StatelessWidget {
           decoration: BoxDecoration(
             border: Border(
                 bottom:
-                    BorderSide(color: Colors.white.withOpacity(0.06))),
+                    BorderSide(color: cs.border)),
           ),
           child: Row(
             children: [
@@ -3127,8 +3507,8 @@ class _DataTable extends StatelessWidget {
                 Expanded(
                   flex: flexes[i],
                   child: Text(headers[i],
-                      style: const TextStyle(
-                          color: _dimText,
+                      style: TextStyle(
+                          color: cs.textMuted,
                           fontSize: 12,
                           fontWeight: FontWeight.w500)),
                 ),
@@ -3176,10 +3556,12 @@ class _HoverRow extends StatefulWidget {
 }
 
 class _HoverRowState extends State<_HoverRow> {
+  late ConsoleColors _cs;
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -3192,10 +3574,10 @@ class _HoverRowState extends State<_HoverRow> {
           padding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: _hovered ? Colors.white.withOpacity(0.02) : null,
+            color: _hovered ? _cs.fillHover : null,
             border: Border(
                 bottom:
-                    BorderSide(color: Colors.white.withOpacity(0.04))),
+                    BorderSide(color: _cs.border)),
           ),
           child: widget.child,
         ),
@@ -3213,10 +3595,12 @@ class _DeleteIcon extends StatefulWidget {
 }
 
 class _DeleteIconState extends State<_DeleteIcon> {
+  late ConsoleColors _cs;
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -3225,7 +3609,7 @@ class _DeleteIconState extends State<_DeleteIcon> {
         child: Icon(LucideIcons.trash2,
             size: 14,
             color:
-                _hovered ? _red : Colors.white.withOpacity(0.15)),
+                _hovered ? _red : _cs.textSubtle),
       ),
     );
   }
@@ -3262,7 +3646,8 @@ class _ColumnTypeIcon extends StatelessWidget {
       default:
         icon = LucideIcons.circle;
     }
-    return Icon(icon, size: 12, color: _subtleText);
+    final cs = consoleColors(context);
+    return Icon(icon, size: 12, color: cs.textSubtle);
   }
 }
 
@@ -3274,20 +3659,21 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: cs.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 16),
@@ -3302,63 +3688,44 @@ class _SettingsSectionCard extends StatelessWidget {
   final String? title;
   final String? subtitle;
   final List<Widget> children;
-  final VoidCallback? onUpdate;
 
   const _SettingsSectionCard({
     this.title,
     this.subtitle,
     required this.children,
-    this.onUpdate,
   });
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (title != null) ...[
             Text(title!,
-                style: const TextStyle(
-                    color: Colors.white,
+                style: TextStyle(
+                    color: cs.textPrimary,
                     fontSize: 15,
                     fontWeight: FontWeight.w600)),
             if (subtitle != null) ...[
               const SizedBox(height: 4),
               Text(subtitle!,
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.4),
+                      color: cs.textMuted,
                       fontSize: 13)),
             ],
             const SizedBox(height: 16),
           ],
           ...children,
-          if (onUpdate != null) ...[
-            const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: _accent,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                onPressed: onUpdate,
-                child: const Text('Update',
-                    style: TextStyle(fontSize: 13)),
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -3379,6 +3746,7 @@ class _SettingsTextField extends StatefulWidget {
 }
 
 class _SettingsTextFieldState extends State<_SettingsTextField> {
+  late ConsoleColors _cs;
   late final TextEditingController _ctrl;
 
   @override
@@ -3395,34 +3763,35 @@ class _SettingsTextFieldState extends State<_SettingsTextField> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return Row(
       children: [
         SizedBox(
           width: 80,
           child: Text('Name',
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.5),
+                  color: _cs.textMuted,
                   fontSize: 12,
                   fontWeight: FontWeight.w500)),
         ),
         Expanded(
           child: TextField(
             controller: _ctrl,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
+            style: TextStyle(color: _cs.textPrimary, fontSize: 13),
             decoration: InputDecoration(
               filled: true,
-              fillColor: const Color(0x0AFFFFFF),
+              fillColor: _cs.fieldFill,
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12, vertical: 10),
               border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide:
-                      const BorderSide(color: Color(0x1AFFFFFF))),
+                      BorderSide(color: _cs.fieldBorder)),
               enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide:
-                      const BorderSide(color: Color(0x1AFFFFFF))),
+                      BorderSide(color: _cs.fieldBorder)),
               focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: const BorderSide(color: _accent)),
@@ -3459,11 +3828,12 @@ class _DangerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: _red.withOpacity(0.3)),
       ),
@@ -3481,7 +3851,7 @@ class _DangerCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(description,
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.4),
+                        color: cs.textMuted,
                         fontSize: 13)),
               ],
             ),
@@ -3507,10 +3877,12 @@ class _DangerCard extends StatelessWidget {
 class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
-  const _InfoRow({required this.label, required this.value});
+  final bool isId;
+  const _InfoRow({required this.label, required this.value, this.isId = false});
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -3518,14 +3890,16 @@ class _InfoRow extends StatelessWidget {
           SizedBox(
             width: 120,
             child: Text(label,
-                style: const TextStyle(color: _dimText, fontSize: 13)),
+                style: TextStyle(color: cs.textMuted, fontSize: 13)),
           ),
           Expanded(
-            child: SelectableText(value,
-                style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 13,
-                    fontFamily: 'monospace')),
+            child: isId
+                ? IdText(id: value)
+                : SelectableText(value,
+                    style: TextStyle(
+                        color: cs.textSecondary,
+                        fontSize: 13,
+                        fontFamily: 'monospace')),
           ),
         ],
       ),
@@ -3539,9 +3913,10 @@ class _PlaceholderTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Center(
       child: Text('$label — coming soon',
-          style: const TextStyle(color: _dimText, fontSize: 14)),
+          style: TextStyle(color: cs.textMuted, fontSize: 14)),
     );
   }
 }
@@ -3563,6 +3938,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -3571,20 +3947,20 @@ class _EmptyState extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: cs.fill,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, size: 22, color: _subtleText),
+            child: Icon(icon, size: 22, color: cs.textSubtle),
           ),
           const SizedBox(height: 16),
           Text(title,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: cs.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
           Text(subtitle,
-              style: const TextStyle(color: _dimText, fontSize: 13),
+              style: TextStyle(color: cs.textMuted, fontSize: 13),
               textAlign: TextAlign.center),
           const SizedBox(height: 16),
           FilledButton(
@@ -3609,12 +3985,14 @@ class _PanelField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final String hint;
+  final TextInputType? keyboardType;
 
   const _PanelField(
-      {required this.controller, required this.label, required this.hint});
+      {required this.controller, required this.label, required this.hint, this.keyboardType});
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3622,22 +4000,23 @@ class _PanelField extends StatelessWidget {
         const SizedBox(height: 6),
         TextField(
           controller: controller,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          keyboardType: keyboardType,
+          style: TextStyle(color: cs.textPrimary, fontSize: 13),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(
-                color: Colors.white.withOpacity(0.22), fontSize: 13),
+                color: cs.textSubtle, fontSize: 13),
             filled: true,
-            fillColor: const Color(0x0AFFFFFF),
+            fillColor: cs.fieldFill,
             isDense: true,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0x1AFFFFFF))),
+                borderSide: BorderSide(color: cs.fieldBorder)),
             enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0x1AFFFFFF))),
+                borderSide: BorderSide(color: cs.fieldBorder)),
             focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
                 borderSide: const BorderSide(color: _accent)),
@@ -3654,9 +4033,10 @@ class _PanelLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Text(text,
         style: TextStyle(
-            color: Colors.white.withOpacity(0.5),
+            color: cs.textMuted,
             fontSize: 12,
             fontWeight: FontWeight.w500));
   }
@@ -3677,6 +4057,7 @@ class _PanelToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return GestureDetector(
       onTap: () => onChanged(!value),
       child: MouseRegion(
@@ -3691,7 +4072,7 @@ class _PanelToggle extends StatelessWidget {
                 value: value,
                 onChanged: (v) => onChanged(v ?? false),
                 activeColor: _accent,
-                side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                side: BorderSide(color: cs.border),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(3)),
               ),
@@ -3702,13 +4083,13 @@ class _PanelToggle extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(label,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: cs.textPrimary,
                           fontSize: 13,
                           fontWeight: FontWeight.w500)),
                   Text(subtitle,
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.35),
+                          color: cs.textSubtle,
                           fontSize: 11)),
                 ],
               ),
@@ -3716,6 +4097,71 @@ class _PanelToggle extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PermChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _PermChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withAlpha(30),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w500)),
+    );
+  }
+}
+
+class _PermToggleRow extends StatelessWidget {
+  final String label;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _PermToggleRow({
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: TextStyle(
+                      color: cs.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500)),
+              Text(subtitle,
+                  style: TextStyle(
+                      color: cs.textSubtle, fontSize: 11)),
+            ],
+          ),
+        ),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeColor: const Color(0xFF6C47FF),
+        ),
+      ],
     );
   }
 }

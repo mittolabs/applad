@@ -44,22 +44,22 @@ class ConsoleColors {
 ConsoleColors consoleColors(BuildContext context) {
   if (consoleIsLight(context)) {
     return ConsoleColors(
-      background: const Color(0xFFF8F9FA),
+      background: Colors.white,
       surface: Colors.white,
-      surfaceAlt: const Color(0xFFF3F5F8),
-      border: Colors.black.withOpacity(0.08),
-      shadow: Colors.black.withOpacity(0.08),
-      textPrimary: const Color(0xFF1A1A2E),
-      textSecondary: const Color(0xFF1A1A2E).withOpacity(0.72),
-      textMuted: Colors.black.withOpacity(0.45),
-      textSubtle: Colors.black.withOpacity(0.25),
-      fill: Colors.black.withOpacity(0.03),
-      fillHover: Colors.black.withOpacity(0.04),
-      fillActive: const Color(0xFF3472A4).withOpacity(0.1),
-      fieldFill: Colors.black.withOpacity(0.03),
-      fieldBorder: Colors.black.withOpacity(0.10),
+      surfaceAlt: const Color(0xFFF7F8FA),
+      border: Colors.black.withOpacity(0.09),
+      shadow: Colors.black.withOpacity(0.06),
+      textPrimary: const Color(0xFF0F1117),
+      textSecondary: const Color(0xFF0F1117).withOpacity(0.72),
+      textMuted: Colors.black.withOpacity(0.48),
+      textSubtle: Colors.black.withOpacity(0.30),
+      fill: Colors.black.withOpacity(0.04),
+      fillHover: Colors.black.withOpacity(0.06),
+      fillActive: const Color(0xFF3472A4).withOpacity(0.10),
+      fieldFill: const Color(0xFFF7F8FA),
+      fieldBorder: Colors.black.withOpacity(0.12),
       popupSurface: Colors.white,
-      badgeFill: Colors.black.withOpacity(0.04),
+      badgeFill: Colors.black.withOpacity(0.05),
     );
   }
 

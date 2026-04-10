@@ -101,15 +101,28 @@ type Table struct {
 	Indexes     []Index  `json:"indexes"`
 }
 
+// ColumnValidation holds application-level validation rules for a column.
+// Rules are enforced when creating or updating rows via the API.
+type ColumnValidation struct {
+	Min       *float64 `json:"min,omitempty"`
+	Max       *float64 `json:"max,omitempty"`
+	MinLength *int     `json:"minLength,omitempty"`
+	MaxLength *int     `json:"maxLength,omitempty"`
+	Pattern   string   `json:"pattern,omitempty"`
+	Message   string   `json:"message,omitempty"` // custom error message shown on any violation
+}
+
 // Column represents a table column.
 type Column struct {
-	Key      string                 `json:"key"`
-	Type     string                 `json:"type"`
-	Status   string                 `json:"status"`
-	Required bool                   `json:"required"`
-	Array    bool                   `json:"array"`
-	Default  interface{}            `json:"default"`
-	Options  map[string]interface{} `json:"options,omitempty"`
+	Key         string                 `json:"key"`
+	Type        string                 `json:"type"`
+	Status      string                 `json:"status"`
+	Required    bool                   `json:"required"`
+	Array       bool                   `json:"array"`
+	Default     interface{}            `json:"default"`
+	Options     map[string]interface{} `json:"options,omitempty"`
+	Validation  *ColumnValidation      `json:"validation,omitempty"`
+	Permissions []string               `json:"$permissions"`
 }
 
 // Index represents a table index.

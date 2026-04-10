@@ -7,8 +7,8 @@ import 'core/providers/theme_provider.dart';
 const _accent = Color(0xFF3472A4);
 const _bg = Color(0xFF0B0B0F);
 const _surface = Color(0xFF16171B);
-const _lightBg = Color(0xFFF8F9FA);
-const _lightSurface = Color(0xFFFFFFFF);
+const _lightBg = Colors.white;
+const _lightSurface = Colors.white;
 const _radius = 8.0;
 final _shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(_radius));
 
@@ -215,15 +215,15 @@ class ApplAdApp extends ConsumerWidget {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Colors.black.withOpacity(0.03),
+      fillColor: Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
-        borderSide: BorderSide(color: Colors.black.withOpacity(0.12)),
+        borderSide: BorderSide(color: Colors.black.withOpacity(0.14)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
-        borderSide: BorderSide(color: Colors.black.withOpacity(0.12)),
+        borderSide: BorderSide(color: Colors.black.withOpacity(0.14)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
@@ -232,19 +232,19 @@ class ApplAdApp extends ConsumerWidget {
       hintStyle: TextStyle(color: Colors.black.withOpacity(0.35)),
     ),
     chipTheme: ChipThemeData(
-      backgroundColor: Colors.black.withOpacity(0.04),
+      backgroundColor: Colors.black.withOpacity(0.06),
       shape: _shape,
     ),
     cardTheme: CardThemeData(
       color: _lightSurface,
       shape: _shape,
-      elevation: 1,
+      elevation: 0,
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: _lightSurface,
       shape: _shape,
     ),
-    dividerColor: Colors.black.withOpacity(0.08),
+    dividerColor: Colors.black.withOpacity(0.10),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: const Color(0xFF1A1A2E),
       contentTextStyle: const TextStyle(color: Colors.white),

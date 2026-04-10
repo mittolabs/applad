@@ -23,6 +23,7 @@ const (
 	apiKeyKey
 	projectIDKey
 	apiKeyScopesKey
+	consoleAdminKey
 )
 
 // Claims is the JWT claims structure.
@@ -30,6 +31,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 	SessionID string `json:"sid"`
 	ProjectID string `json:"pid"`
+	Console   bool   `json:"console"`
 }
 
 // ProjectProvider is implemented by the projects service.
@@ -45,7 +47,7 @@ type APIKeyProvider interface {
 
 // WriteJSON writes v as JSON to w.
 func WriteJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
@@ -187,10 +189,24 @@ func Authenticate(jwtSecret string, provider interface{}) func(http.Handler) htt
 				})
 				if err == nil && token.Valid {
 					if claims, ok := token.Claims.(*Claims); ok {
-						ctx = context.WithValue(ctx, userKey, claims.Subject)
-						ctx = context.WithValue(ctx, sessionKey, claims.SessionID)
-						if claims.ProjectID != "" {
-							ctx = context.WithValue(ctx, projectIDKey, claims.ProjectID)
+						if claims.Console {
+							// Console admin JWT — grant full access to all project resources.
+							// userKey is intentionally left empty so service-layer RLS checks
+							// are bypassed (same path as internal service calls).
+							ctx = context.WithValue(ctx, consoleAdminKey, true)
+						} else {
+							// Validate that the JWT's project claim matches the request header
+							// to prevent session fixation across projects.
+							headerProjectID := r.Header.Get("X-Applad-Project")
+							if claims.ProjectID != "" && headerProjectID != "" && claims.ProjectID != headerProjectID {
+								next.ServeHTTP(w, r)
+								return
+							}
+							ctx = context.WithValue(ctx, userKey, claims.Subject)
+							ctx = context.WithValue(ctx, sessionKey, claims.SessionID)
+							if claims.ProjectID != "" {
+								ctx = context.WithValue(ctx, projectIDKey, claims.ProjectID)
+							}
 						}
 					}
 				}
@@ -203,7 +219,7 @@ func Authenticate(jwtSecret string, provider interface{}) func(http.Handler) htt
 
 func apiKeyAllowed(scopes []string, method, path string) bool {
 	if len(scopes) == 0 {
-		return true
+		return false
 	}
 	required := apiKeyResourceScope(path)
 	if required == "" {
@@ -271,9 +287,14 @@ func apiKeyResourceScope(path string) string {
 }
 
 // RequireAuth is middleware that returns 401 if no auth credentials are present.
+// Console admin JWTs (Console: true claim) are always permitted.
 func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		if IsConsoleAdmin(ctx) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		userID := UserFromContext(ctx)
 		if userID == "" {
 			apperr.Unauthorized(w)
@@ -281,4 +302,10 @@ func RequireAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// IsConsoleAdmin returns true when the request was authenticated with a console admin JWT.
+func IsConsoleAdmin(ctx context.Context) bool {
+	v, _ := ctx.Value(consoleAdminKey).(bool)
+	return v
 }

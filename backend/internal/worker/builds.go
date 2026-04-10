@@ -3,22 +3,20 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/runtime"
 	"github.com/redis/go-redis/v9"
 )
 
 // Builds processes deployment build jobs and function execution jobs.
-// For deployments: transitions through building → deploying → active.
-// For functions: builds container image, executes via HTTP, records result.
 type Builds struct {
 	cfg            *config.Config
-	stop           chan struct{}
 	queue          *queue.Queue
 	db             *db.DB
 	executor       *runtime.Executor
@@ -26,60 +24,64 @@ type Builds struct {
 }
 
 func NewBuilds(cfg *config.Config) *Builds {
-	return &Builds{cfg: cfg, stop: make(chan struct{})}
+	return &Builds{cfg: cfg}
 }
 
-func (w *Builds) Start() error {
+func (w *Builds) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
 
-	database, err := db.Connect(w.cfg.DatabaseDSN)
+	database, err := db.Connect(w.cfg.DatabaseDSN, w.cfg.DBMaxOpenConns, w.cfg.DBMaxIdleConns)
 	if err != nil {
 		return err
 	}
 	w.db = database
 
-	// Initialize the container runtime executors
 	w.executor = runtime.NewExecutor()
 	w.deployExecutor = runtime.NewDeployExecutor()
 
-	log.Println("builds worker: listening for jobs")
+	w.queue.StartReaper(ctx, "builds")
 
-	ctx := context.Background()
+	slog.Info("builds worker: listening for jobs")
+
 	for {
-		select {
-		case <-w.stop:
-			return nil
-		default:
-			job, err := w.queue.Pop(ctx, "builds")
-			if err != nil {
-				log.Printf("builds worker: pop error: %v", err)
-				continue
+		receipt, err := w.queue.Pop(ctx, "builds")
+		if err != nil {
+			if ctx.Err() != nil {
+				slog.Info("builds worker: shutting down")
+				return nil
 			}
-			if job == nil {
-				continue
-			}
-			w.process(ctx, job)
+			slog.Error("builds worker: pop error", "error", err)
+			continue
+		}
+		if receipt == nil {
+			continue
+		}
+		Heartbeat()
+		if processErr := w.process(ctx, receipt.Job); processErr != nil {
+			slog.Error("builds worker: job failed", "job_id", receipt.Job.ID, "error", processErr)
+			metrics.QueueJobs.Inc("builds", "failed")
+			receipt.Nack()
+		} else {
+			metrics.QueueJobs.Inc("builds", "completed")
+			receipt.Ack()
 		}
 	}
 }
 
-func (w *Builds) process(ctx context.Context, job *queue.Job) {
-	log.Printf("builds worker: processing job %s type=%s", job.ID, job.Type)
-
+func (w *Builds) process(ctx context.Context, job *queue.Job) error {
+	slog.Info("builds worker: processing job", "job_id", job.ID, "type", job.Type)
 	switch job.Type {
 	case "function_execution":
-		w.processFunctionExecution(ctx, job)
+		return w.processFunctionExecution(ctx, job)
 	case "function_build":
-		w.processFunctionBuild(ctx, job)
+		return w.processFunctionBuild(ctx, job)
 	default:
-		w.processDeployment(ctx, job)
+		return w.processDeployment(ctx, job)
 	}
 }
 
-// --- Function execution ---
-
-func (w *Builds) processFunctionExecution(ctx context.Context, job *queue.Job) {
+func (w *Builds) processFunctionExecution(ctx context.Context, job *queue.Job) error {
 	executionID, _ := job.Payload["executionId"].(string)
 	functionID, _ := job.Payload["functionId"].(string)
 	projectID, _ := job.Payload["projectId"].(string)
@@ -92,176 +94,113 @@ func (w *Builds) processFunctionExecution(ctx context.Context, job *queue.Job) {
 		timeout = 15
 	}
 
-	// Mark as processing
 	w.updateExecution(ctx, executionID, "processing", "", "", 0)
 
-	// Build the image if not already built
 	req := runtime.ExecRequest{
-		FunctionID: functionID,
-		ProjectID:  projectID,
-		Runtime:    runtimeName,
-		Entrypoint: entrypoint,
-		Source:     source,
-		Timeout:    timeout,
+		FunctionID: functionID, ProjectID: projectID,
+		Runtime: runtimeName, Entrypoint: entrypoint, Source: source, Timeout: timeout,
 	}
-
-	_, err := w.executor.Build(ctx, req)
-	if err != nil {
-		log.Printf("builds worker: build failed for function %s: %v", functionID, err)
+	if _, err := w.executor.Build(ctx, req); err != nil {
 		w.updateExecution(ctx, executionID, "failed", "", err.Error(), 0)
-		return
+		return err
 	}
-
-	// Execute
 	result, err := w.executor.Execute(ctx, req)
 	if err != nil {
-		log.Printf("builds worker: execution failed for function %s: %v", functionID, err)
 		w.updateExecution(ctx, executionID, "failed", "", err.Error(), 0)
-		return
+		return err
 	}
-
 	status := "completed"
 	if result.ExitCode != 0 {
 		status = "failed"
 	}
-
 	w.updateExecution(ctx, executionID, status, result.Output, result.Errors, result.Duration)
-	log.Printf("builds worker: function %s execution %s completed (%.2fs)", functionID, executionID, result.Duration)
+	slog.Info("builds worker: function execution done",
+		"function_id", functionID, "status", status, "duration_s", result.Duration)
+	return nil
 }
 
-func (w *Builds) processFunctionBuild(ctx context.Context, job *queue.Job) {
+func (w *Builds) processFunctionBuild(ctx context.Context, job *queue.Job) error {
 	functionID, _ := job.Payload["functionId"].(string)
 	runtimeName, _ := job.Payload["runtime"].(string)
 	entrypoint, _ := job.Payload["entrypoint"].(string)
 	source, _ := job.Payload["source"].(string)
 	dockerfile, _ := job.Payload["dockerfile"].(string)
 
-	log.Printf("builds worker: building function %s (runtime=%s)", functionID, runtimeName)
-
-	req := runtime.ExecRequest{
-		FunctionID: functionID,
-		Runtime:    runtimeName,
-		Entrypoint: entrypoint,
-		Source:     source,
-		Dockerfile: dockerfile,
+	req := runtime.ExecRequest{FunctionID: functionID, Runtime: runtimeName,
+		Entrypoint: entrypoint, Source: source, Dockerfile: dockerfile}
+	if _, err := w.executor.Build(ctx, req); err != nil {
+		w.db.ExecContext(ctx, "UPDATE functions SET status = 'failed' WHERE id = ?", functionID) //nolint:errcheck
+		return err
 	}
-
-	_, err := w.executor.Build(ctx, req)
-	if err != nil {
-		log.Printf("builds worker: build failed for function %s: %v", functionID, err)
-		w.db.ExecContext(ctx, "UPDATE functions SET status = 'failed' WHERE id = ?", functionID)
-		return
+	warmReq := runtime.ExecRequest{FunctionID: functionID, Runtime: runtimeName,
+		Entrypoint: entrypoint, Source: source, Timeout: 30}
+	if _, err := w.executor.Execute(ctx, warmReq); err != nil {
+		slog.Warn("builds worker: pre-warm failed (non-fatal)", "function_id", functionID, "error", err)
 	}
-
-	// Pre-warm: start a container now so the first invocation is instant
-	log.Printf("builds worker: pre-warming function %s", functionID)
-	warmReq := runtime.ExecRequest{
-		FunctionID: functionID,
-		Runtime:    runtimeName,
-		Entrypoint: entrypoint,
-		Source:     source,
-		Timeout:    30,
-	}
-	// Execute a health check to warm the container, then release it back to pool
-	_, warmErr := w.executor.Execute(ctx, warmReq)
-	if warmErr != nil {
-		log.Printf("builds worker: pre-warm failed for %s (non-fatal): %v", functionID, warmErr)
-	} else {
-		log.Printf("builds worker: function %s pre-warmed successfully", functionID)
-	}
-
-	w.db.ExecContext(ctx, "UPDATE functions SET status = 'active' WHERE id = ?", functionID)
-	log.Printf("builds worker: function %s ready", functionID)
+	w.db.ExecContext(ctx, "UPDATE functions SET status = 'active' WHERE id = ?", functionID) //nolint:errcheck
+	slog.Info("builds worker: function ready", "function_id", functionID)
+	return nil
 }
 
-func (w *Builds) updateExecution(ctx context.Context, executionID, status, output, errors string, duration float64) {
-	_, err := w.db.ExecContext(ctx,
+func (w *Builds) updateExecution(ctx context.Context, id, status, output, errors string, duration float64) {
+	if _, err := w.db.ExecContext(ctx,
 		"UPDATE function_executions SET status = ?, output = ?, errors = ?, duration = ? WHERE id = ?",
-		status, output, errors, duration, executionID)
-	if err != nil {
-		log.Printf("builds worker: failed to update execution %s: %v", executionID, err)
+		status, output, errors, duration, id); err != nil {
+		slog.Error("builds worker: update execution failed", "execution_id", id, "error", err)
+		metrics.DBErrors.Inc()
 	}
 }
 
-// --- Deployment builds ---
-
-func (w *Builds) processDeployment(ctx context.Context, job *queue.Job) {
+func (w *Builds) processDeployment(ctx context.Context, job *queue.Job) error {
 	deploymentID, _ := job.Payload["deploymentId"].(string)
 	projectID, _ := job.Payload["projectId"].(string)
-
 	if deploymentID == "" || projectID == "" {
-		log.Printf("builds worker: job %s missing deploymentId or projectId", job.ID)
-		return
+		slog.Warn("builds worker: job missing ids", "job_id", job.ID)
+		return nil
 	}
-
-	// Look up deployment type and config from the database
 	deployType, deployCfg := w.loadDeploymentConfig(ctx, deploymentID, projectID)
-
 	w.updateDeployStatus(ctx, deploymentID, projectID, "building")
-	log.Printf("builds worker: building deployment %s (type=%s)", deploymentID, deployType)
-
 	cfg := runtime.ParseDeployConfig(deployCfg)
 	var deployErr error
-
 	switch deployType {
 	case "web":
-		// Build Docker image from user config and start container
 		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
 		deployErr = w.deployExecutor.DeployWeb(ctx, deploymentID, projectID, cfg)
-
 	case "container":
-		// Pull or build image, then start container
 		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
 		deployErr = w.deployExecutor.DeployContainer(ctx, deploymentID, projectID, cfg)
-
 	case "function":
-		// Functions are handled by processFunctionBuild; if we get here
-		// via a generic deployment job, build as a function image
 		runtimeName, _ := deployCfg["runtime"].(string)
 		entrypoint, _ := deployCfg["entrypoint"].(string)
 		source, _ := deployCfg["source"].(string)
 		dockerfile, _ := deployCfg["dockerfile"].(string)
-
-		req := runtime.ExecRequest{
-			FunctionID: deploymentID,
-			ProjectID:  projectID,
-			Runtime:    runtimeName,
-			Entrypoint: entrypoint,
-			Source:     source,
-			Dockerfile: dockerfile,
-		}
+		req := runtime.ExecRequest{FunctionID: deploymentID, ProjectID: projectID,
+			Runtime: runtimeName, Entrypoint: entrypoint, Source: source, Dockerfile: dockerfile}
 		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
 		_, deployErr = w.executor.Build(ctx, req)
-
 	default:
-		// Unknown type — treat as web deployment
 		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
 		deployErr = w.deployExecutor.DeployWeb(ctx, deploymentID, projectID, cfg)
 	}
-
 	if deployErr != nil {
-		log.Printf("builds worker: deployment %s failed: %v", deploymentID, deployErr)
 		w.updateDeployStatusWithError(ctx, deploymentID, projectID, "failed", deployErr.Error())
-		return
+		return deployErr
 	}
-
 	w.updateDeployStatus(ctx, deploymentID, projectID, "active")
-	log.Printf("builds worker: completed job %s — deployment %s is active", job.ID, deploymentID)
+	slog.Info("builds worker: deployment complete", "deployment_id", deploymentID)
+	return nil
 }
 
-// loadDeploymentConfig reads the deployment type and config from the database.
 func (w *Builds) loadDeploymentConfig(ctx context.Context, deploymentID, projectID string) (string, map[string]interface{}) {
 	var deployType string
 	var cfgJSON []byte
-
-	err := w.db.QueryRowContext(ctx,
+	if err := w.db.QueryRowContext(ctx,
 		"SELECT type, config FROM deployments WHERE id = ? AND project_id = ?",
-		deploymentID, projectID).Scan(&deployType, &cfgJSON)
-	if err != nil {
-		log.Printf("builds worker: failed to load deployment %s: %v", deploymentID, err)
+		deploymentID, projectID).Scan(&deployType, &cfgJSON); err != nil {
+		slog.Error("builds worker: load config failed", "deployment_id", deploymentID, "error", err)
+		metrics.DBErrors.Inc()
 		return "web", map[string]interface{}{}
 	}
-
 	var cfg map[string]interface{}
 	if err := json.Unmarshal(cfgJSON, &cfg); err != nil {
 		cfg = map[string]interface{}{}
@@ -270,33 +209,27 @@ func (w *Builds) loadDeploymentConfig(ctx context.Context, deploymentID, project
 }
 
 func (w *Builds) updateDeployStatus(ctx context.Context, id, projectID, status string) {
-	_, err := w.db.ExecContext(ctx,
+	if _, err := w.db.ExecContext(ctx,
 		"UPDATE deployments SET status = ?, updated_at = ? WHERE id = ? AND project_id = ?",
-		status, time.Now().UTC(), id, projectID)
-	if err != nil {
-		log.Printf("builds worker: failed to update status for %s: %v", id, err)
+		status, time.Now().UTC(), id, projectID); err != nil {
+		slog.Error("builds worker: update status failed", "deployment_id", id, "error", err)
+		metrics.DBErrors.Inc()
 	}
 }
 
 func (w *Builds) updateDeployStatusWithError(ctx context.Context, id, projectID, status, errMsg string) {
-	// Store the error in the config JSON so the console can display it
 	var cfgJSON []byte
-	w.db.QueryRowContext(ctx, "SELECT config FROM deployments WHERE id = ? AND project_id = ?",
-		id, projectID).Scan(&cfgJSON)
-
+	w.db.QueryRowContext(ctx, "SELECT config FROM deployments WHERE id = ? AND project_id = ?", id, projectID).Scan(&cfgJSON) //nolint:errcheck
 	var cfg map[string]interface{}
 	if err := json.Unmarshal(cfgJSON, &cfg); err != nil {
 		cfg = map[string]interface{}{}
 	}
 	cfg["error"] = errMsg
 	updatedCfg, _ := json.Marshal(cfg)
-
-	_, err := w.db.ExecContext(ctx,
+	if _, err := w.db.ExecContext(ctx,
 		"UPDATE deployments SET status = ?, config = ?, updated_at = ? WHERE id = ? AND project_id = ?",
-		status, updatedCfg, time.Now().UTC(), id, projectID)
-	if err != nil {
-		log.Printf("builds worker: failed to update status with error for %s: %v", id, err)
+		status, updatedCfg, time.Now().UTC(), id, projectID); err != nil {
+		slog.Error("builds worker: update error status failed", "deployment_id", id, "error", err)
+		metrics.DBErrors.Inc()
 	}
 }
-
-func (w *Builds) Stop() { close(w.stop) }

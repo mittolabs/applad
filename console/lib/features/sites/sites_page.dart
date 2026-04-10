@@ -2,23 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/deploy_create_entry.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
 
 // --- Colors ------------------------------------------------------------------
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 const _green = Color(0xFF10B981);
 const _red = Color(0xFFEF4444);
 const _orange = Color(0xFFF59E0B);
-const _fieldFill = Color(0x0AFFFFFF);
-const _fieldBorder = Color(0x1AFFFFFF);
 
 // --- Framework metadata ------------------------------------------------------
 
@@ -183,6 +179,7 @@ class SitesPage extends ConsumerStatefulWidget {
 
 class _SitesPageState extends ConsumerState<SitesPage> {
   final _searchCtrl = TextEditingController();
+  late ConsoleColors _cs;
 
   @override
   void dispose() {
@@ -197,10 +194,11 @@ class _SitesPageState extends ConsumerState<SitesPage> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     final selected = ref.watch(_selectedSiteProvider);
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: _cs.background,
       body: selected != null
           ? _SiteDetailView(
               site: selected,
@@ -221,47 +219,34 @@ class _SitesPageState extends ConsumerState<SitesPage> {
     final currentPage = ref.watch(_sitePageProvider);
     final listTab = ref.watch(_listTabProvider);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Title + subtitle
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Sites',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(color: Colors.white)),
-              const SizedBox(height: 4),
-              const Text(
-                'Deploy and manage web applications with automatic builds.',
-                style: TextStyle(color: _dimText, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Tabs
-        Padding(
-          padding: const EdgeInsets.only(left: 24),
-          child: PageTabs(
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 32),
+          Text('Sites',
+              style: TextStyle(
+                  color: _cs.textPrimary,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 24),
+          PageTabs(
             tabs: const ['Sites', 'Usage'],
             selected: listTab,
             onChanged: (i) =>
                 ref.read(_listTabProvider.notifier).state = i,
           ),
-        ),
-        const SizedBox(height: 16),
-        // Tab body
-        Expanded(
-          child: listTab == 0
-              ? _buildSitesTab(sitesAsync, perPage, currentPage)
-              : _SiteListUsageTab(),
-        ),
-      ],
+          const SizedBox(height: 20),
+          Expanded(
+            child: listTab == 0
+                ? _buildSitesTab(sitesAsync, perPage, currentPage)
+                : _SiteListUsageTab(),
+          ),
+        ],
+      ),
     );
   }
 
@@ -272,42 +257,33 @@ class _SitesPageState extends ConsumerState<SitesPage> {
   ) {
     return Column(
       children: [
-        // Search header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SearchListHeader(
-            searchController: _searchCtrl,
-            total: sitesAsync.whenOrNull(
-                    data: (d) => d['total'] as int? ?? 0) ??
-                0,
-            perPage: perPage,
-            currentPage: currentPage,
-            onPerPageChanged: (v) {
-              ref.read(_sitePerPageProvider.notifier).state = v;
-              ref.read(_sitePageProvider.notifier).state = 1;
-            },
-            onPrev: () =>
-                ref.read(_sitePageProvider.notifier).update((s) => s - 1),
-            onNext: () =>
-                ref.read(_sitePageProvider.notifier).update((s) => s + 1),
-            onSearch: _doSearch,
-            trailing: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: _accent,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: () => _showCreateSiteDialog(context, ref),
-              icon: const Icon(LucideIcons.plus, size: 16),
-              label: const Text('Create site'),
+        SearchListHeader(
+          searchController: _searchCtrl,
+          total: sitesAsync.whenOrNull(
+                  data: (d) => d['total'] as int? ?? 0) ??
+              0,
+          perPage: perPage,
+          currentPage: currentPage,
+          onPerPageChanged: (v) {
+            ref.read(_sitePerPageProvider.notifier).state = v;
+            ref.read(_sitePageProvider.notifier).state = 1;
+          },
+          onPrev: () =>
+              ref.read(_sitePageProvider.notifier).update((s) => s - 1),
+          onNext: () =>
+              ref.read(_sitePageProvider.notifier).update((s) => s + 1),
+          onSearch: _doSearch,
+          trailing: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: _accent,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
             ),
+            onPressed: () => _showCreateSiteDialog(context, ref),
+            icon: const Icon(LucideIcons.plus, size: 16),
+            label: const Text('Create site'),
           ),
         ),
-        const SizedBox(height: 8),
-        Container(
-            height: 1,
-            margin: const EdgeInsets.symmetric(horizontal: 24),
-            color: Colors.white.withOpacity(0.06)),
         const SizedBox(height: 16),
         // Grid
         Expanded(
@@ -317,11 +293,11 @@ class _SitesPageState extends ConsumerState<SitesPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(LucideIcons.alertCircle,
-                      size: 48, color: _subtleText),
+                  Icon(LucideIcons.alertCircle,
+                      size: 48, color: _cs.textSubtle),
                   const SizedBox(height: 16),
                   Text('Failed to load sites: $e',
-                      style: const TextStyle(color: _dimText)),
+                      style: TextStyle(color: _cs.textMuted)),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: () => ref.invalidate(sitesProvider),
@@ -342,25 +318,21 @@ class _SitesPageState extends ConsumerState<SitesPage> {
             },
           ),
         ),
-        // Footer
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SearchListFooter(
-            total: sitesAsync.whenOrNull(
-                    data: (d) => d['total'] as int? ?? 0) ??
-                0,
-            perPage: perPage,
-            currentPage: currentPage,
-            itemLabel: 'sites',
-            onPrev: () =>
-                ref.read(_sitePageProvider.notifier).update((s) => s - 1),
-            onNext: () =>
-                ref.read(_sitePageProvider.notifier).update((s) => s + 1),
-            onPerPageChanged: (v) {
-              ref.read(_sitePerPageProvider.notifier).state = v;
-              ref.read(_sitePageProvider.notifier).state = 1;
-            },
-          ),
+        SearchListFooter(
+          total: sitesAsync.whenOrNull(
+                  data: (d) => d['total'] as int? ?? 0) ??
+              0,
+          perPage: perPage,
+          currentPage: currentPage,
+          itemLabel: 'sites',
+          onPrev: () =>
+              ref.read(_sitePageProvider.notifier).update((s) => s - 1),
+          onNext: () =>
+              ref.read(_sitePageProvider.notifier).update((s) => s + 1),
+          onPerPageChanged: (v) {
+            ref.read(_sitePerPageProvider.notifier).state = v;
+            ref.read(_sitePageProvider.notifier).state = 1;
+          },
         ),
         const SizedBox(height: 12),
       ],
@@ -383,26 +355,26 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                         width: 48,
                         height: 48,
                         decoration: BoxDecoration(
-                          color: _surface,
+                          color: _cs.surface,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                              color: Colors.white.withOpacity(0.06)),
+                              color: _cs.border),
                         ),
-                        child: Icon(fw.icon, size: 22, color: _subtleText),
+                        child: Icon(fw.icon, size: 22, color: _cs.textSubtle),
                       ),
                     ))
                 .toList(),
           ),
           const SizedBox(height: 24),
-          const Text('Create your first site',
+          Text('Create your first site',
               style: TextStyle(
-                  color: Colors.white,
+                  color: _cs.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Deploy a web application from a Git repository or upload.',
-            style: TextStyle(color: _dimText, fontSize: 13),
+            style: TextStyle(color: _cs.textMuted, fontSize: 13),
           ),
           const SizedBox(height: 20),
           FilledButton.icon(
@@ -514,7 +486,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                   const SizedBox(height: 16),
                   Text('Framework',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.5),
+                          color: _cs.textMuted,
                           fontSize: 12,
                           fontWeight: FontWeight.w500)),
                   const SizedBox(height: 8),
@@ -540,7 +512,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                 children: [
                   Text('Source',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.5),
+                          color: _cs.textMuted,
                           fontSize: 12,
                           fontWeight: FontWeight.w500)),
                   const SizedBox(height: 8),
@@ -581,22 +553,22 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                       width: double.infinity,
                       height: 120,
                       decoration: BoxDecoration(
-                        color: _fieldFill,
+                        color: _cs.fieldFill,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                            color: _fieldBorder, style: BorderStyle.solid),
+                            color: _cs.fieldBorder, style: BorderStyle.solid),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(LucideIcons.uploadCloud,
-                              size: 32, color: _subtleText),
+                              size: 32, color: _cs.textSubtle),
                           const SizedBox(height: 8),
-                          const Text(
+                          Text(
                             'Drag & drop your build output\nor click to browse',
                             textAlign: TextAlign.center,
                             style:
-                                TextStyle(color: _dimText, fontSize: 12),
+                                TextStyle(color: _cs.textMuted, fontSize: 12),
                           ),
                         ],
                       ),
@@ -675,12 +647,12 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                 width: 540,
                 constraints: const BoxConstraints(maxHeight: 640),
                 decoration: BoxDecoration(
-                  color: _surface,
+                  color: _cs.surface,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  border: Border.all(color: _cs.border),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
+                      color: _cs.shadow,
                       blurRadius: 32,
                       offset: const Offset(0, 8),
                     ),
@@ -699,9 +671,9 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Create site',
+                                Text('Create site',
                                     style: TextStyle(
-                                      color: Colors.white,
+                                      color: _cs.textPrimary,
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
                                     )),
@@ -709,7 +681,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                                 Text(
                                     'Step ${step + 1} of 3: ${stepLabels[step]}',
                                     style: TextStyle(
-                                        color: Colors.white.withOpacity(0.45),
+                                        color: _cs.textSubtle,
                                         fontSize: 13)),
                               ],
                             ),
@@ -718,7 +690,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                             onTap: () => Navigator.of(ctx).pop(),
                             child: Icon(LucideIcons.x,
                                 size: 16,
-                                color: Colors.white.withOpacity(0.3)),
+                                color: _cs.textSubtle),
                           ),
                         ],
                       ),
@@ -736,7 +708,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                               decoration: BoxDecoration(
                                 color: i <= step
                                     ? _accent
-                                    : Colors.white.withOpacity(0.08),
+                                    : _cs.border,
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
@@ -749,7 +721,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Container(
                           height: 1,
-                          color: Colors.white.withOpacity(0.06)),
+                          color: _cs.border),
                     ),
                     const SizedBox(height: 16),
                     // Content
@@ -771,7 +743,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                               onPressed: () =>
                                   setDialogState(() => step--),
                               style: TextButton.styleFrom(
-                                foregroundColor: Colors.white54,
+                                foregroundColor: _cs.textMuted,
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 10),
                               ),
@@ -846,9 +818,11 @@ class _FrameworkCard extends StatefulWidget {
 
 class _FrameworkCardState extends State<_FrameworkCard> {
   bool _hovered = false;
+  late ConsoleColors _cs;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -862,13 +836,13 @@ class _FrameworkCardState extends State<_FrameworkCard> {
             color: widget.selected
                 ? _accent.withOpacity(0.1)
                 : _hovered
-                    ? Colors.white.withOpacity(0.03)
+                    ? _cs.fillHover
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: widget.selected
                   ? _accent.withOpacity(0.4)
-                  : Colors.white.withOpacity(0.06),
+                  : _cs.border,
             ),
           ),
           child: Column(
@@ -876,13 +850,13 @@ class _FrameworkCardState extends State<_FrameworkCard> {
             children: [
               Icon(widget.framework.icon,
                   size: 24,
-                  color: widget.selected ? _accent : _dimText),
+                  color: widget.selected ? _accent : _cs.textMuted),
               const SizedBox(height: 6),
               Text(
                 widget.framework.label,
                 style: TextStyle(
                   fontSize: 11,
-                  color: widget.selected ? _accent : _dimText,
+                  color: widget.selected ? _accent : _cs.textMuted,
                   fontWeight:
                       widget.selected ? FontWeight.w500 : FontWeight.w400,
                 ),
@@ -916,9 +890,11 @@ class _SourceTypeChip extends StatefulWidget {
 
 class _SourceTypeChipState extends State<_SourceTypeChip> {
   bool _hovered = false;
+  late ConsoleColors _cs;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -931,13 +907,13 @@ class _SourceTypeChipState extends State<_SourceTypeChip> {
             color: widget.selected
                 ? _accent.withOpacity(0.1)
                 : _hovered
-                    ? Colors.white.withOpacity(0.03)
+                    ? _cs.fillHover
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: widget.selected
                   ? _accent.withOpacity(0.4)
-                  : Colors.white.withOpacity(0.06),
+                  : _cs.border,
             ),
           ),
           child: Row(
@@ -945,12 +921,12 @@ class _SourceTypeChipState extends State<_SourceTypeChip> {
             children: [
               Icon(widget.icon,
                   size: 16,
-                  color: widget.selected ? _accent : _dimText),
+                  color: widget.selected ? _accent : _cs.textMuted),
               const SizedBox(width: 8),
               Text(widget.label,
                   style: TextStyle(
                     fontSize: 13,
-                    color: widget.selected ? _accent : _dimText,
+                    color: widget.selected ? _accent : _cs.textMuted,
                   )),
             ],
           ),
@@ -1001,9 +977,11 @@ class _SiteCard extends StatefulWidget {
 
 class _SiteCardState extends State<_SiteCard> {
   bool _hovered = false;
+  late ConsoleColors _cs;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     final site = widget.site;
     final name = site['name'] ?? 'Untitled';
     final framework = site['framework'] ?? 'static';
@@ -1022,13 +1000,13 @@ class _SiteCardState extends State<_SiteCard> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: _hovered
-                ? Colors.white.withOpacity(0.03)
-                : _surface,
+                ? _cs.fillHover
+                : _cs.surface,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: _hovered
-                  ? Colors.white.withOpacity(0.1)
-                  : Colors.white.withOpacity(0.06),
+                  ? _cs.fieldBorder
+                  : _cs.border,
             ),
           ),
           child: Column(
@@ -1040,8 +1018,8 @@ class _SiteCardState extends State<_SiteCard> {
                 children: [
                   Expanded(
                     child: Text(name,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: _cs.textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1058,20 +1036,20 @@ class _SiteCardState extends State<_SiteCard> {
               Row(
                 children: [
                   if (domain.isNotEmpty) ...[
-                    Icon(LucideIcons.globe, size: 12, color: _subtleText),
+                    Icon(LucideIcons.globe, size: 12, color: _cs.textSubtle),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(domain,
-                          style: const TextStyle(
-                              color: _dimText, fontSize: 11),
+                          style: TextStyle(
+                              color: _cs.textMuted, fontSize: 11),
                           overflow: TextOverflow.ellipsis),
                     ),
                   ] else
                     const Spacer(),
                   if (updatedAt.isNotEmpty)
                     Text(_timeAgo(updatedAt),
-                        style: const TextStyle(
-                            color: _subtleText, fontSize: 11)),
+                        style: TextStyle(
+                            color: _cs.textSubtle, fontSize: 11)),
                 ],
               ),
             ],
@@ -1090,6 +1068,7 @@ class _StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     Color color;
     String label;
     switch (status) {
@@ -1103,7 +1082,7 @@ class _StatusDot extends StatelessWidget {
         color = _red;
         label = 'Failed';
       default:
-        color = _dimText;
+        color = cs.textMuted;
         label = status;
     }
     return Row(
@@ -1154,14 +1133,15 @@ class _FrameworkBadge extends StatelessWidget {
 class _SiteListUsageTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Aggregate usage across all sites in this project.',
-            style: TextStyle(color: _dimText, fontSize: 13),
+            style: TextStyle(color: cs.textMuted, fontSize: 13),
           ),
           const SizedBox(height: 20),
           Row(
@@ -1203,6 +1183,7 @@ class _SiteDetailView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final tab = ref.watch(_detailTabProvider);
     final siteId = site['\$id'] as String? ?? site['id'] as String? ?? '';
     final name = site['name'] ?? 'Untitled';
@@ -1222,40 +1203,36 @@ class _SiteDetailView extends ConsumerWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(LucideIcons.arrowLeft,
-                          size: 16, color: _dimText),
+                      Icon(LucideIcons.arrowLeft,
+                          size: 16, color: cs.textMuted),
                       const SizedBox(width: 8),
-                      const Text('Sites',
-                          style: TextStyle(color: _dimText, fontSize: 14)),
+                      Text('Sites',
+                          style: TextStyle(color: cs.textMuted, fontSize: 14)),
                     ],
                   ),
                 ),
               ),
               const SizedBox(width: 12),
-              const Icon(LucideIcons.chevronRight,
-                  size: 14, color: _subtleText),
+              Icon(LucideIcons.chevronRight,
+                  size: 14, color: cs.textSubtle),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(name,
                     style: Theme.of(context)
                         .textTheme
                         .headlineSmall
-                        ?.copyWith(color: Colors.white)),
+                        ?.copyWith(color: cs.textPrimary)),
               ),
               if (siteId.isNotEmpty)
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: _fieldFill,
+                    color: cs.fieldFill,
                     borderRadius: BorderRadius.circular(5),
-                    border: Border.all(color: Colors.white.withOpacity(0.06)),
+                    border: Border.all(color: cs.border),
                   ),
-                  child: Text(siteId,
-                      style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                          color: _dimText)),
+                  child: IdText(id: siteId, fontSize: 11),
                 ),
             ],
           ),
@@ -1317,6 +1294,7 @@ class _OverviewTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final domainsAsync = ref.watch(_siteDomainsProvider(siteId));
     final releasesAsync = ref.watch(_siteReleasesProvider(siteId));
     final framework = _frameworkById(site['framework'] ?? 'static');
@@ -1338,18 +1316,18 @@ class _OverviewTab extends ConsumerWidget {
                 width: 340,
                 height: 200,
                 decoration: BoxDecoration(
-                  color: _surface,
+                  color: cs.surface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.white.withOpacity(0.06)),
+                  border: Border.all(color: cs.border),
                 ),
-                child: const Center(
+                child: Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(LucideIcons.globe, size: 40, color: _subtleText),
-                      SizedBox(height: 8),
+                      Icon(LucideIcons.globe, size: 40, color: cs.textSubtle),
+                      const SizedBox(height: 8),
                       Text('Site preview',
-                          style: TextStyle(color: _subtleText, fontSize: 12)),
+                          style: TextStyle(color: cs.textSubtle, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -1361,15 +1339,16 @@ class _OverviewTab extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Domains
-                    _infoRow(LucideIcons.globe, 'Domain',
+                    _infoRow(context, LucideIcons.globe, 'Domain',
                         site['domain'] ?? 'No domain assigned'),
                     const SizedBox(height: 12),
                     // Deployed
-                    _infoRow(LucideIcons.clock, 'Last deployed',
+                    _infoRow(context, LucideIcons.clock, 'Last deployed',
                         updatedAt.isNotEmpty ? _timeAgo(updatedAt) : 'Never'),
                     const SizedBox(height: 12),
                     // Source
                     _infoRow(
+                      context,
                       source == 'git'
                           ? LucideIcons.gitBranch
                           : LucideIcons.upload,
@@ -1382,14 +1361,14 @@ class _OverviewTab extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
                     // Framework
-                    _infoRow(framework.icon, 'Framework', framework.label),
+                    _infoRow(context, framework.icon, 'Framework', framework.label),
                     const SizedBox(height: 12),
                     // Build duration
-                    _infoRow(LucideIcons.timer, 'Build duration',
+                    _infoRow(context, LucideIcons.timer, 'Build duration',
                         _formatDuration(site['buildDuration'])),
                     const SizedBox(height: 12),
                     // Total size
-                    _infoRow(LucideIcons.hardDrive, 'Total size',
+                    _infoRow(context, LucideIcons.hardDrive, 'Total size',
                         _formatBytes(site['totalSize'])),
                     const SizedBox(height: 20),
                     // Action buttons
@@ -1411,9 +1390,9 @@ class _OverviewTab extends ConsumerWidget {
                         const SizedBox(width: 8),
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
+                            foregroundColor: cs.textSecondary,
                             side: BorderSide(
-                                color: Colors.white.withOpacity(0.12)),
+                                color: cs.fieldBorder),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8)),
                             padding: const EdgeInsets.symmetric(
@@ -1445,14 +1424,14 @@ class _OverviewTab extends ConsumerWidget {
                                   final confirmed = await showDialog<bool>(
                                     context: context,
                                     builder: (ctx) => AlertDialog(
-                                      backgroundColor: _surface,
-                                      title: const Text('Instant rollback',
+                                      backgroundColor: Theme.of(context).colorScheme.surface,
+                                      title: Text('Instant rollback',
                                           style:
-                                              TextStyle(color: Colors.white)),
+                                              TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                                       content: Text(
                                           'Roll back to deployment ${releaseId.length > 8 ? releaseId.substring(0, 8) : releaseId}…?',
-                                          style: const TextStyle(
-                                              color: _dimText)),
+                                          style: TextStyle(
+                                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
                                       actions: [
                                         TextButton(
                                           onPressed: () =>
@@ -1547,20 +1526,21 @@ class _OverviewTab extends ConsumerWidget {
     );
   }
 
-  Widget _infoRow(IconData icon, String label, String value) {
+  Widget _infoRow(BuildContext context, IconData icon, String label, String value) {
+    final cs = consoleColors(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 14, color: _subtleText),
+        Icon(icon, size: 14, color: cs.textSubtle),
         const SizedBox(width: 8),
         SizedBox(
           width: 110,
           child: Text(label,
-              style: const TextStyle(color: _dimText, fontSize: 13)),
+              style: TextStyle(color: cs.textMuted, fontSize: 13)),
         ),
         Expanded(
           child: Text(value,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: TextStyle(color: cs.textPrimary, fontSize: 13),
               overflow: TextOverflow.ellipsis),
         ),
       ],
@@ -1591,9 +1571,11 @@ class _SummaryCard extends StatefulWidget {
 
 class _SummaryCardState extends State<_SummaryCard> {
   bool _hovered = false;
+  late ConsoleColors _cs;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -1603,9 +1585,9 @@ class _SummaryCardState extends State<_SummaryCard> {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: _hovered ? Colors.white.withOpacity(0.03) : _surface,
+            color: _hovered ? _cs.fillHover : _cs.surface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
+            border: Border.all(color: _cs.border),
           ),
           child: Row(
             children: [
@@ -1615,12 +1597,12 @@ class _SummaryCardState extends State<_SummaryCard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(widget.label,
-                      style: const TextStyle(
-                          color: _dimText, fontSize: 12)),
+                      style: TextStyle(
+                          color: _cs.textMuted, fontSize: 12)),
                   const SizedBox(height: 2),
                   Text(widget.value,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: _cs.textPrimary,
                           fontSize: 20,
                           fontWeight: FontWeight.w600)),
                 ],
@@ -1652,6 +1634,7 @@ class _DeploymentsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final releasesAsync = ref.watch(_siteReleasesProvider(siteId));
 
     return Column(
@@ -1709,7 +1692,7 @@ class _DeploymentsTab extends ConsumerWidget {
             },
           ),
         ),
-        Container(height: 1, color: Colors.white.withOpacity(0.06)),
+        Container(height: 1, color: cs.border),
         // Header
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
@@ -1745,11 +1728,11 @@ class _DeploymentsTab extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(LucideIcons.alertCircle,
-                      size: 48, color: _subtleText),
+                  Icon(LucideIcons.alertCircle,
+                      size: 48, color: cs.textSubtle),
                   const SizedBox(height: 16),
                   Text('Failed to load deployments: $e',
-                      style: const TextStyle(color: _dimText)),
+                      style: TextStyle(color: cs.textMuted)),
                 ],
               ),
             ),
@@ -1757,14 +1740,14 @@ class _DeploymentsTab extends ConsumerWidget {
               final releases = List<Map<String, dynamic>>.from(
                   data['releases'] ?? []);
               if (releases.isEmpty) {
-                return const Center(
+                return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(LucideIcons.rocket, size: 48, color: _subtleText),
-                      SizedBox(height: 16),
+                      Icon(LucideIcons.rocket, size: 48, color: cs.textSubtle),
+                      const SizedBox(height: 16),
                       Text('No deployments yet',
-                          style: TextStyle(color: _dimText)),
+                          style: TextStyle(color: cs.textMuted)),
                     ],
                   ),
                 );
@@ -1774,68 +1757,61 @@ class _DeploymentsTab extends ConsumerWidget {
                 child: SingleChildScrollView(
                   child: DataTable(
                     columnSpacing: 24,
-                    headingRowColor: WidgetStateProperty.all(_surface),
-                    dataRowColor: WidgetStateProperty.all(_bg),
-                    columns: const [
+                    headingRowColor: WidgetStateProperty.all(cs.surface),
+                    dataRowColor: WidgetStateProperty.all(cs.background),
+                    columns: [
                       DataColumn(
                           label: Text('Deployment ID',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Status',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Build duration',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Total size',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Source',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Updated',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                     ],
                     rows: releases.map((r) {
                       final id = r['\$id'] ?? r['id'] ?? '';
                       final status = r['status'] ?? 'pending';
-                      final shortId = id.length > 8
-                          ? '${id.substring(0, 8)}...'
-                          : id;
                       return DataRow(cells: [
-                        DataCell(Text(shortId,
-                            style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                                color: _accent))),
+                        DataCell(IdText(id: id, fontSize: 12)),
                         DataCell(_DeployStatusChip(status: status)),
                         DataCell(Text(
                             _formatDuration(r['buildDuration']),
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13))),
+                            style: TextStyle(
+                                color: cs.textPrimary, fontSize: 13))),
                         DataCell(Text(_formatBytes(r['totalSize']),
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13))),
+                            style: TextStyle(
+                                color: cs.textPrimary, fontSize: 13))),
                         DataCell(Text(r['source'] ?? 'git',
-                            style: const TextStyle(
-                                color: _dimText, fontSize: 13))),
+                            style: TextStyle(
+                                color: cs.textMuted, fontSize: 13))),
                         DataCell(Text(
                             _formatTimestamp(
                                 r['\$updatedAt'] ?? r['updatedAt']),
-                            style: const TextStyle(
-                                color: _dimText, fontSize: 13))),
+                            style: TextStyle(
+                                color: cs.textMuted, fontSize: 13))),
                       ]);
                     }).toList(),
                   ),
@@ -1857,6 +1833,7 @@ class _DeployStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     Color color;
     switch (status) {
       case 'active':
@@ -1868,7 +1845,7 @@ class _DeployStatusChip extends StatelessWidget {
       case 'failed':
         color = _red;
       default:
-        color = _dimText;
+        color = cs.textMuted;
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1911,22 +1888,23 @@ class _MetricBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: _surface,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
-              style: const TextStyle(color: _subtleText, fontSize: 10)),
+              style: TextStyle(color: cs.textSubtle, fontSize: 10)),
           const SizedBox(height: 2),
           Text(value,
               style: TextStyle(
-                  color: color ?? Colors.white,
+                  color: color ?? cs.textPrimary,
                   fontSize: 14,
                   fontWeight: FontWeight.w600)),
         ],
@@ -1943,6 +1921,7 @@ class _LogsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final logsAsync = ref.watch(_siteLogsProvider(siteId));
 
     return Column(
@@ -1952,18 +1931,18 @@ class _LogsTab extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
           child: Row(
             children: [
-              const Icon(LucideIcons.scrollText, size: 16, color: _dimText),
+              Icon(LucideIcons.scrollText, size: 16, color: cs.textMuted),
               const SizedBox(width: 8),
-              const Text('Access Logs',
+              Text('Access Logs',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: cs.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  side: BorderSide(color: Colors.white.withOpacity(0.12)),
+                  foregroundColor: cs.textSecondary,
+                  side: BorderSide(color: cs.fieldBorder),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                   padding: const EdgeInsets.symmetric(
@@ -1977,7 +1956,7 @@ class _LogsTab extends ConsumerWidget {
             ],
           ),
         ),
-        Container(height: 1, color: Colors.white.withOpacity(0.06)),
+        Container(height: 1, color: cs.border),
         Expanded(
           child: logsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -1985,11 +1964,11 @@ class _LogsTab extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(LucideIcons.alertCircle,
-                      size: 48, color: _subtleText),
+                  Icon(LucideIcons.alertCircle,
+                      size: 48, color: cs.textSubtle),
                   const SizedBox(height: 16),
                   Text('Failed to load logs: $e',
-                      style: const TextStyle(color: _dimText)),
+                      style: TextStyle(color: cs.textMuted)),
                 ],
               ),
             ),
@@ -1997,15 +1976,15 @@ class _LogsTab extends ConsumerWidget {
               final logs =
                   List<Map<String, dynamic>>.from(data['logs'] ?? []);
               if (logs.isEmpty) {
-                return const Center(
+                return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(LucideIcons.scrollText,
-                          size: 48, color: _subtleText),
-                      SizedBox(height: 16),
+                          size: 48, color: cs.textSubtle),
+                      const SizedBox(height: 16),
                       Text('No logs yet',
-                          style: TextStyle(color: _dimText)),
+                          style: TextStyle(color: cs.textMuted)),
                     ],
                   ),
                 );
@@ -2015,68 +1994,61 @@ class _LogsTab extends ConsumerWidget {
                 child: SingleChildScrollView(
                   child: DataTable(
                     columnSpacing: 24,
-                    headingRowColor: WidgetStateProperty.all(_surface),
-                    dataRowColor: WidgetStateProperty.all(_bg),
-                    columns: const [
+                    headingRowColor: WidgetStateProperty.all(cs.surface),
+                    dataRowColor: WidgetStateProperty.all(cs.background),
+                    columns: [
                       DataColumn(
                           label: Text('Log ID',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Path',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Method',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Status',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Duration',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Created',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                     ],
                     rows: logs.map((log) {
                       final id = log['\$id'] ?? log['id'] ?? '';
-                      final shortId = id.length > 8
-                          ? '${id.substring(0, 8)}...'
-                          : id;
                       final statusCode =
                           (log['statusCode'] as num?)?.toInt() ?? 0;
                       return DataRow(cells: [
-                        DataCell(Text(shortId,
-                            style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                                color: _dimText))),
+                        DataCell(IdText(id: id, fontSize: 12)),
                         DataCell(Text(log['path'] ?? '/',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13))),
+                            style: TextStyle(
+                                color: cs.textPrimary, fontSize: 13))),
                         DataCell(_MethodBadge(
                             method: log['method'] ?? 'GET')),
                         DataCell(_HttpStatusBadge(code: statusCode)),
                         DataCell(Text(
                             '${log['duration'] ?? 0}ms',
-                            style: const TextStyle(
-                                color: _dimText, fontSize: 13))),
+                            style: TextStyle(
+                                color: cs.textMuted, fontSize: 13))),
                         DataCell(Text(
                             _formatTimestamp(
                                 log['\$createdAt'] ?? log['createdAt']),
-                            style: const TextStyle(
-                                color: _dimText, fontSize: 13))),
+                            style: TextStyle(
+                                color: cs.textMuted, fontSize: 13))),
                       ]);
                     }).toList(),
                   ),
@@ -2098,18 +2070,19 @@ class _MethodBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: _fieldFill,
+        color: cs.fieldFill,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(method,
-          style: const TextStyle(
+          style: TextStyle(
               fontFamily: 'monospace',
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: _dimText)),
+              color: cs.textMuted)),
     );
   }
 }
@@ -2122,6 +2095,7 @@ class _HttpStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     Color color;
     if (code >= 200 && code < 300) {
       color = _green;
@@ -2130,7 +2104,7 @@ class _HttpStatusBadge extends StatelessWidget {
     } else if (code >= 500) {
       color = _red;
     } else {
-      color = _dimText;
+      color = cs.textMuted;
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -2157,6 +2131,7 @@ class _DomainsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final domainsAsync = ref.watch(_siteDomainsProvider(siteId));
 
     return Column(
@@ -2166,11 +2141,11 @@ class _DomainsTab extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
           child: Row(
             children: [
-              const Icon(LucideIcons.globe, size: 16, color: _dimText),
+              Icon(LucideIcons.globe, size: 16, color: cs.textMuted),
               const SizedBox(width: 8),
-              const Text('Domains',
+              Text('Domains',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: cs.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
@@ -2191,7 +2166,7 @@ class _DomainsTab extends ConsumerWidget {
             ],
           ),
         ),
-        Container(height: 1, color: Colors.white.withOpacity(0.06)),
+        Container(height: 1, color: cs.border),
         Expanded(
           child: domainsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -2199,11 +2174,11 @@ class _DomainsTab extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(LucideIcons.alertCircle,
-                      size: 48, color: _subtleText),
+                  Icon(LucideIcons.alertCircle,
+                      size: 48, color: cs.textSubtle),
                   const SizedBox(height: 16),
                   Text('Failed to load domains: $e',
-                      style: const TextStyle(color: _dimText)),
+                      style: TextStyle(color: cs.textMuted)),
                 ],
               ),
             ),
@@ -2215,11 +2190,11 @@ class _DomainsTab extends ConsumerWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(LucideIcons.globe,
-                          size: 48, color: _subtleText),
+                      Icon(LucideIcons.globe,
+                          size: 48, color: cs.textSubtle),
                       const SizedBox(height: 16),
-                      const Text('No custom domains',
-                          style: TextStyle(color: _dimText)),
+                      Text('No custom domains',
+                          style: TextStyle(color: cs.textMuted)),
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         style: FilledButton.styleFrom(
@@ -2241,19 +2216,19 @@ class _DomainsTab extends ConsumerWidget {
                 child: SingleChildScrollView(
                   child: DataTable(
                     columnSpacing: 24,
-                    headingRowColor: WidgetStateProperty.all(_surface),
-                    dataRowColor: WidgetStateProperty.all(_bg),
-                    columns: const [
+                    headingRowColor: WidgetStateProperty.all(cs.surface),
+                    dataRowColor: WidgetStateProperty.all(cs.background),
+                    columns: [
                       DataColumn(
                           label: Text('Domain',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                       DataColumn(
                           label: Text('Target',
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: _dimText))),
+                                  color: cs.textMuted))),
                     ],
                     rows: domains.map((d) {
                       final target = d['targetType'] ?? 'active_deployment';
@@ -2283,8 +2258,8 @@ class _DomainsTab extends ConsumerWidget {
                                 size: 14, color: _accent),
                             const SizedBox(width: 8),
                             Text(d['domain'] ?? '',
-                                style: const TextStyle(
-                                    color: Colors.white,
+                                style: TextStyle(
+                                    color: cs.textPrimary,
                                     fontSize: 13)),
                           ],
                         )),
@@ -2292,11 +2267,11 @@ class _DomainsTab extends ConsumerWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(targetIcon,
-                                size: 14, color: _subtleText),
+                                size: 14, color: cs.textSubtle),
                             const SizedBox(width: 8),
                             Text(targetLabel,
-                                style: const TextStyle(
-                                    color: _dimText, fontSize: 13)),
+                                style: TextStyle(
+                                    color: cs.textMuted, fontSize: 13)),
                           ],
                         )),
                       ]);
@@ -2322,19 +2297,21 @@ class _DomainsTab extends ConsumerWidget {
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Center(
+        builder: (ctx, setDialogState) {
+          final dlgCs = consoleColors(ctx);
+          return Center(
           child: Material(
             color: Colors.transparent,
             child: Container(
               width: 440,
               constraints: const BoxConstraints(maxHeight: 500),
               decoration: BoxDecoration(
-                color: _surface,
+                color: dlgCs.surface,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                border: Border.all(color: dlgCs.border),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
+                    color: dlgCs.shadow,
                     blurRadius: 32,
                     offset: const Offset(0, 8),
                   ),
@@ -2349,10 +2326,10 @@ class _DomainsTab extends ConsumerWidget {
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                     child: Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text('Add domain',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: dlgCs.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
                               )),
@@ -2361,7 +2338,7 @@ class _DomainsTab extends ConsumerWidget {
                           onTap: () => Navigator.of(ctx).pop(),
                           child: Icon(LucideIcons.x,
                               size: 16,
-                              color: Colors.white.withOpacity(0.3)),
+                              color: dlgCs.textSubtle),
                         ),
                       ],
                     ),
@@ -2371,7 +2348,7 @@ class _DomainsTab extends ConsumerWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Container(
                         height: 1,
-                        color: Colors.white.withOpacity(0.06)),
+                        color: dlgCs.border),
                   ),
                   const SizedBox(height: 16),
                   Flexible(
@@ -2390,7 +2367,7 @@ class _DomainsTab extends ConsumerWidget {
                           const SizedBox(height: 16),
                           Text('Target type',
                               style: TextStyle(
-                                  color: Colors.white.withOpacity(0.5),
+                                  color: dlgCs.textMuted,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500)),
                           const SizedBox(height: 8),
@@ -2474,7 +2451,8 @@ class _DomainsTab extends ConsumerWidget {
               ),
             ),
           ),
-        ),
+        );
+        },
       ),
     );
   }
@@ -2501,9 +2479,11 @@ class _TargetTypeChip extends StatefulWidget {
 
 class _TargetTypeChipState extends State<_TargetTypeChip> {
   bool _hovered = false;
+  late ConsoleColors _cs;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -2516,13 +2496,13 @@ class _TargetTypeChipState extends State<_TargetTypeChip> {
             color: widget.selected
                 ? _accent.withOpacity(0.1)
                 : _hovered
-                    ? Colors.white.withOpacity(0.03)
+                    ? _cs.fillHover
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: widget.selected
                   ? _accent.withOpacity(0.4)
-                  : Colors.white.withOpacity(0.06),
+                  : _cs.border,
             ),
           ),
           child: Row(
@@ -2530,12 +2510,12 @@ class _TargetTypeChipState extends State<_TargetTypeChip> {
             children: [
               Icon(widget.icon,
                   size: 14,
-                  color: widget.selected ? _accent : _dimText),
+                  color: widget.selected ? _accent : _cs.textMuted),
               const SizedBox(width: 6),
               Text(widget.label,
                   style: TextStyle(
                     fontSize: 12,
-                    color: widget.selected ? _accent : _dimText,
+                    color: widget.selected ? _accent : _cs.textMuted,
                   )),
             ],
           ),
@@ -2557,9 +2537,11 @@ class _UsageTab extends ConsumerStatefulWidget {
 
 class _UsageTabState extends ConsumerState<_UsageTab> {
   String _range = '30d';
+  late ConsoleColors _cs;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     final statsAsync = ref.watch(
         _siteStatsProvider((id: widget.siteId, range: _range)));
 
@@ -2571,9 +2553,9 @@ class _UsageTabState extends ConsumerState<_UsageTab> {
           // Time range selector
           Row(
             children: [
-              const Text('Usage',
+              Text('Usage',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: _cs.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
@@ -2609,7 +2591,7 @@ class _UsageTabState extends ConsumerState<_UsageTab> {
             ),
             error: (e, _) => Center(
               child: Text('Failed to load stats: $e',
-                  style: const TextStyle(color: _dimText)),
+                  style: TextStyle(color: _cs.textMuted)),
             ),
             data: (data) {
               return Row(
@@ -2651,12 +2633,13 @@ class _TimeRangeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     const ranges = ['24h', '7d', '30d'];
     return Container(
       decoration: BoxDecoration(
-        color: _surface,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: cs.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2677,7 +2660,7 @@ class _TimeRangeSelector extends StatelessWidget {
                 child: Text(r,
                     style: TextStyle(
                       fontSize: 12,
-                      color: selected ? _accent : _dimText,
+                      color: selected ? _accent : cs.textMuted,
                       fontWeight:
                           selected ? FontWeight.w500 : FontWeight.w400,
                     )),
@@ -2705,12 +2688,13 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _surface,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2718,11 +2702,11 @@ class _StatCard extends StatelessWidget {
           Icon(icon, size: 18, color: _accent),
           const SizedBox(height: 10),
           Text(label,
-              style: const TextStyle(color: _dimText, fontSize: 12)),
+              style: TextStyle(color: cs.textMuted, fontSize: 12)),
           const SizedBox(height: 4),
           Text(value,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: cs.textPrimary,
                   fontSize: 22,
                   fontWeight: FontWeight.w600)),
         ],
@@ -2744,6 +2728,7 @@ class _SettingsTab extends ConsumerStatefulWidget {
 }
 
 class _SettingsTabState extends ConsumerState<_SettingsTab> {
+  late ConsoleColors _cs;
   late final TextEditingController _nameCtrl;
   late final TextEditingController _repoCtrl;
   late final TextEditingController _buildCmdCtrl;
@@ -2822,7 +2807,7 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
       content: Text(
         'Are you sure you want to delete "${widget.site['name']}"? '
         'This will remove all deployments, domains, and data. This action cannot be undone.',
-        style: TextStyle(color: Colors.white.withOpacity(0.7)),
+        style: TextStyle(color: _cs.textSecondary),
       ),
       actions: [
         const AppDialogCancel(),
@@ -2848,6 +2833,7 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     final framework = _frameworkById(widget.site['framework'] ?? 'static');
 
     return SingleChildScrollView(
@@ -2861,9 +2847,9 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: _surface,
+              color: _cs.surface,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white.withOpacity(0.06)),
+              border: Border.all(color: _cs.border),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2893,9 +2879,9 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: _surface,
+              color: _cs.surface,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white.withOpacity(0.06)),
+              border: Border.all(color: _cs.border),
             ),
             child: Column(
               children: [
@@ -2928,9 +2914,9 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: _surface,
+              color: _cs.surface,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white.withOpacity(0.06)),
+              border: Border.all(color: _cs.border),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2945,29 +2931,29 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
                         Expanded(
                           child: TextField(
                             controller: pair.key,
-                            style: const TextStyle(
-                                color: Colors.white,
+                            style: TextStyle(
+                                color: _cs.textPrimary,
                                 fontSize: 13,
                                 fontFamily: 'monospace'),
                             decoration: InputDecoration(
                               hintText: 'KEY',
                               hintStyle: TextStyle(
-                                  color: Colors.white.withOpacity(0.22),
+                                  color: _cs.textSubtle,
                                   fontSize: 13),
                               filled: true,
-                              fillColor: _fieldFill,
+                              fillColor: _cs.fieldFill,
                               isDense: true,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 8),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(6),
                                 borderSide:
-                                    const BorderSide(color: _fieldBorder),
+                                    BorderSide(color: _cs.fieldBorder),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(6),
                                 borderSide:
-                                    const BorderSide(color: _fieldBorder),
+                                    BorderSide(color: _cs.fieldBorder),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(6),
@@ -2981,29 +2967,29 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
                         Expanded(
                           child: TextField(
                             controller: pair.value,
-                            style: const TextStyle(
-                                color: Colors.white,
+                            style: TextStyle(
+                                color: _cs.textPrimary,
                                 fontSize: 13,
                                 fontFamily: 'monospace'),
                             decoration: InputDecoration(
                               hintText: 'VALUE',
                               hintStyle: TextStyle(
-                                  color: Colors.white.withOpacity(0.22),
+                                  color: _cs.textSubtle,
                                   fontSize: 13),
                               filled: true,
-                              fillColor: _fieldFill,
+                              fillColor: _cs.fieldFill,
                               isDense: true,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 8),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(6),
                                 borderSide:
-                                    const BorderSide(color: _fieldBorder),
+                                    BorderSide(color: _cs.fieldBorder),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(6),
                                 borderSide:
-                                    const BorderSide(color: _fieldBorder),
+                                    BorderSide(color: _cs.fieldBorder),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(6),
@@ -3015,8 +3001,8 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
                         ),
                         const SizedBox(width: 8),
                         IconButton(
-                          icon: const Icon(LucideIcons.trash2,
-                              size: 14, color: _dimText),
+                          icon: Icon(LucideIcons.trash2,
+                              size: 14, color: _cs.textMuted),
                           onPressed: () => setState(() {
                             _envVars[idx].key.dispose();
                             _envVars[idx].value.dispose();
@@ -3077,7 +3063,7 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: _surface,
+              color: _cs.surface,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: _red.withOpacity(0.2)),
             ),
@@ -3087,16 +3073,16 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Delete this site',
+                      Text('Delete this site',
                           style: TextStyle(
-                              color: Colors.white,
+                              color: _cs.textPrimary,
                               fontSize: 14,
                               fontWeight: FontWeight.w500)),
                       const SizedBox(height: 4),
                       Text(
                         'Once deleted, all deployments, domains, and logs will be permanently removed.',
                         style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
+                            color: _cs.textMuted,
                             fontSize: 12),
                       ),
                     ],
@@ -3126,12 +3112,12 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
           width: 120,
           child: Text(label,
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.5),
+                  color: _cs.textMuted,
                   fontSize: 12,
                   fontWeight: FontWeight.w500)),
         ),
         Text(value,
-            style: const TextStyle(color: Colors.white, fontSize: 13)),
+            style: TextStyle(color: _cs.textPrimary, fontSize: 13)),
       ],
     );
   }
@@ -3147,9 +3133,10 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Text(title,
         style: TextStyle(
-          color: danger ? _red : Colors.white,
+          color: danger ? _red : cs.textPrimary,
           fontSize: 14,
           fontWeight: FontWeight.w600,
         ));

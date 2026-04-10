@@ -456,6 +456,391 @@ func (s *Service) SendPushAPNS(ctx context.Context, deviceToken, title, body str
 }
 
 // ---------------------------------------------------------------------------
+// Providers (per-project configured senders)
+// ---------------------------------------------------------------------------
+
+// Provider is a project-scoped messaging provider configuration.
+type Provider struct {
+	ID        string          `json:"id"`
+	ProjectID string          `json:"projectId"`
+	Name      string          `json:"name"`
+	Type      string          `json:"type"`     // email, sms, push
+	Provider  string          `json:"provider"` // smtp, mailgun, sendgrid, resend, twilio, vonage, msg91, fcm, apns
+	Config    json.RawMessage `json:"config"`
+	Enabled   bool            `json:"enabled"`
+	CreatedAt string          `json:"createdAt"`
+	UpdatedAt string          `json:"updatedAt"`
+}
+
+// CreateProvider persists a new messaging provider for a project.
+func (s *Service) CreateProvider(ctx context.Context, projectID, name, typ, provider string, config json.RawMessage) (*Provider, error) {
+	id := uid.New("prv")
+	if config == nil {
+		config = json.RawMessage("{}")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO msg_providers (id, project_id, name, type, provider, config, enabled) VALUES (?,?,?,?,?,?,true)`,
+		id, projectID, name, typ, provider, string(config))
+	if err != nil {
+		return nil, fmt.Errorf("messaging: create provider: %w", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	return &Provider{
+		ID: id, ProjectID: projectID, Name: name, Type: typ,
+		Provider: provider, Config: config, Enabled: true,
+		CreatedAt: now, UpdatedAt: now,
+	}, nil
+}
+
+// ListProviders returns all providers for a project.
+func (s *Service) ListProviders(ctx context.Context, projectID string) ([]*Provider, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, name, type, provider, config, enabled,
+		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM msg_providers WHERE project_id=? ORDER BY created_at ASC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("messaging: list providers: %w", err)
+	}
+	defer rows.Close()
+	var providers []*Provider
+	for rows.Next() {
+		p := &Provider{}
+		var cfgStr string
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Type, &p.Provider,
+			&cfgStr, &p.Enabled, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		p.Config = json.RawMessage(cfgStr)
+		providers = append(providers, p)
+	}
+	if providers == nil {
+		providers = []*Provider{}
+	}
+	return providers, rows.Err()
+}
+
+// GetProvider returns a single provider by ID.
+func (s *Service) GetProvider(ctx context.Context, projectID, id string) (*Provider, error) {
+	p := &Provider{}
+	var cfgStr string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, name, type, provider, config, enabled,
+		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM msg_providers WHERE id=? AND project_id=?`, id, projectID).
+		Scan(&p.ID, &p.ProjectID, &p.Name, &p.Type, &p.Provider,
+			&cfgStr, &p.Enabled, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("messaging: provider not found")
+	}
+	p.Config = json.RawMessage(cfgStr)
+	return p, nil
+}
+
+// UpdateProvider updates a provider's name, config, and enabled state.
+func (s *Service) UpdateProvider(ctx context.Context, projectID, id, name string, config json.RawMessage, enabled bool) (*Provider, error) {
+	if config == nil {
+		config = json.RawMessage("{}")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE msg_providers SET name=?, config=?, enabled=?, updated_at=NOW() WHERE id=? AND project_id=?`,
+		name, string(config), enabled, id, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("messaging: update provider: %w", err)
+	}
+	return s.GetProvider(ctx, projectID, id)
+}
+
+// DeleteProvider removes a provider.
+func (s *Service) DeleteProvider(ctx context.Context, projectID, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM msg_providers WHERE id=? AND project_id=?", id, projectID)
+	return err
+}
+
+// getEnabledProvider returns the first enabled provider of the given type for a project.
+func (s *Service) getEnabledProvider(ctx context.Context, projectID, typ string) (*Provider, error) {
+	p := &Provider{}
+	var cfgStr string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, name, type, provider, config, enabled,
+		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM msg_providers WHERE project_id=? AND type=? AND enabled=true
+		 ORDER BY created_at ASC LIMIT 1`, projectID, typ).
+		Scan(&p.ID, &p.ProjectID, &p.Name, &p.Type, &p.Provider,
+			&cfgStr, &p.Enabled, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, nil // no provider configured — caller falls back to global
+	}
+	p.Config = json.RawMessage(cfgStr)
+	return p, nil
+}
+
+// SendEmailForProject sends an email using the project's configured email provider.
+// Falls back to the global SMTP if no project provider is configured.
+func (s *Service) SendEmailForProject(ctx context.Context, projectID string, to []string, subject, htmlBody string) error {
+	p, _ := s.getEnabledProvider(ctx, projectID, "email")
+	if p == nil {
+		return s.SendEmail(ctx, to, subject, htmlBody)
+	}
+	switch p.Provider {
+	case "smtp":
+		return s.sendEmailViaSMTPConfig(ctx, to, subject, htmlBody, p.Config)
+	case "mailgun":
+		return s.sendEmailViaMailgunConfig(ctx, to, subject, htmlBody, p.Config)
+	case "sendgrid":
+		return s.sendEmailViaSendgridConfig(ctx, to, subject, htmlBody, p.Config)
+	case "resend":
+		return s.sendEmailViaResendConfig(ctx, to, subject, htmlBody, p.Config)
+	default:
+		return s.SendEmail(ctx, to, subject, htmlBody)
+	}
+}
+
+// sendEmailViaSMTPConfig sends via a provider-specific SMTP config.
+func (s *Service) sendEmailViaSMTPConfig(ctx context.Context, to []string, subject, htmlBody string, raw json.RawMessage) error {
+	var cfg struct {
+		Host     string `json:"host"`
+		Port     string `json:"port"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		From     string `json:"from"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.Host == "" {
+		return fmt.Errorf("messaging: invalid SMTP provider config")
+	}
+	port := cfg.Port
+	if port == "" {
+		port = "587"
+	}
+	addr := cfg.Host + ":" + port
+	var auth smtp.Auth
+	if cfg.Username != "" {
+		auth = smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+	}
+	headers := []string{
+		fmt.Sprintf("From: %s", cfg.From),
+		fmt.Sprintf("To: %s", strings.Join(to, ", ")),
+		fmt.Sprintf("Subject: %s", subject),
+		"MIME-Version: 1.0",
+		"Content-Type: text/html; charset=UTF-8",
+	}
+	msg := []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + htmlBody)
+	return smtp.SendMail(addr, auth, cfg.From, to, msg)
+}
+
+// sendEmailViaMailgunConfig sends via a provider-specific Mailgun config.
+func (s *Service) sendEmailViaMailgunConfig(ctx context.Context, to []string, subject, htmlBody string, raw json.RawMessage) error {
+	var cfg struct {
+		APIKey      string `json:"apiKey"`
+		Domain      string `json:"domain"`
+		EURegion    bool   `json:"euRegion"`
+		SenderEmail string `json:"senderEmail"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.APIKey == "" || cfg.Domain == "" {
+		return fmt.Errorf("messaging: invalid Mailgun provider config")
+	}
+	base := "https://api.mailgun.net"
+	if cfg.EURegion {
+		base = "https://api.eu.mailgun.net"
+	}
+	apiURL := fmt.Sprintf("%s/v3/%s/messages", base, cfg.Domain)
+	form := url.Values{}
+	form.Set("from", cfg.SenderEmail)
+	form.Set("to", strings.Join(to, ", "))
+	form.Set("subject", subject)
+	form.Set("html", htmlBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("messaging: create mailgun request: %w", err)
+	}
+	req.SetBasicAuth("api", cfg.APIKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return s.doRequest(req, "mailgun")
+}
+
+// sendEmailViaSendgridConfig sends via a provider-specific SendGrid config.
+func (s *Service) sendEmailViaSendgridConfig(ctx context.Context, to []string, subject, htmlBody string, raw json.RawMessage) error {
+	var cfg struct {
+		APIKey      string `json:"apiKey"`
+		SenderEmail string `json:"senderEmail"`
+		SenderName  string `json:"senderName"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.APIKey == "" {
+		return fmt.Errorf("messaging: invalid SendGrid provider config")
+	}
+	toList := make([]map[string]string, 0, len(to))
+	for _, addr := range to {
+		toList = append(toList, map[string]string{"email": addr})
+	}
+	from := map[string]string{"email": cfg.SenderEmail}
+	if cfg.SenderName != "" {
+		from["name"] = cfg.SenderName
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"personalizations": []map[string]interface{}{{"to": toList}},
+		"from":             from,
+		"subject":          subject,
+		"content":          []map[string]string{{"type": "text/html", "value": htmlBody}},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.sendgrid.com/v3/mail/send", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("messaging: create sendgrid request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	return s.doRequest(req, "sendgrid")
+}
+
+// sendEmailViaResendConfig sends via a provider-specific Resend config.
+func (s *Service) sendEmailViaResendConfig(ctx context.Context, to []string, subject, htmlBody string, raw json.RawMessage) error {
+	var cfg struct {
+		APIKey      string `json:"apiKey"`
+		SenderEmail string `json:"senderEmail"`
+		SenderName  string `json:"senderName"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.APIKey == "" {
+		return fmt.Errorf("messaging: invalid Resend provider config")
+	}
+	from := cfg.SenderEmail
+	if cfg.SenderName != "" {
+		from = cfg.SenderName + " <" + cfg.SenderEmail + ">"
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"from": from, "to": to, "subject": subject, "html": htmlBody,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.resend.com/emails", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("messaging: create resend request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	return s.doRequest(req, "resend")
+}
+
+// SendSMSForProject sends an SMS using the project's configured SMS provider.
+// Falls back to the global Twilio config if no project provider is configured.
+func (s *Service) SendSMSForProject(ctx context.Context, projectID, to, body string) error {
+	p, _ := s.getEnabledProvider(ctx, projectID, "sms")
+	if p == nil {
+		return s.SendSMS(ctx, to, body)
+	}
+	switch p.Provider {
+	case "twilio":
+		return s.sendSMSViaTwilioConfig(ctx, to, body, p.Config)
+	case "vonage":
+		return s.sendSMSViaVonageConfig(ctx, to, body, p.Config)
+	case "msg91":
+		return s.sendSMSViaMSG91Config(ctx, to, body, p.Config)
+	default:
+		return s.SendSMS(ctx, to, body)
+	}
+}
+
+func (s *Service) sendSMSViaTwilioConfig(ctx context.Context, to, body string, raw json.RawMessage) error {
+	var cfg struct {
+		SID   string `json:"sid"`
+		Token string `json:"token"`
+		From  string `json:"from"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.SID == "" {
+		return fmt.Errorf("messaging: invalid Twilio provider config")
+	}
+	apiURL := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", cfg.SID)
+	form := url.Values{}
+	form.Set("From", cfg.From)
+	form.Set("To", to)
+	form.Set("Body", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("messaging: create twilio request: %w", err)
+	}
+	req.SetBasicAuth(cfg.SID, cfg.Token)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return s.doRequest(req, "twilio")
+}
+
+func (s *Service) sendSMSViaVonageConfig(ctx context.Context, to, body string, raw json.RawMessage) error {
+	var cfg struct {
+		APIKey    string `json:"apiKey"`
+		APISecret string `json:"apiSecret"`
+		From      string `json:"from"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.APIKey == "" {
+		return fmt.Errorf("messaging: invalid Vonage provider config")
+	}
+	payload, _ := json.Marshal(map[string]string{
+		"api_key": cfg.APIKey, "api_secret": cfg.APISecret,
+		"from": cfg.From, "to": to, "text": body,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://rest.nexmo.com/sms/json", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("messaging: create vonage request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return s.doRequest(req, "vonage")
+}
+
+func (s *Service) sendSMSViaMSG91Config(ctx context.Context, to, body string, raw json.RawMessage) error {
+	var cfg struct {
+		AuthKey  string `json:"authKey"`
+		SenderID string `json:"senderId"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.AuthKey == "" {
+		return fmt.Errorf("messaging: invalid MSG91 provider config")
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"sender": cfg.SenderID, "route": "4", "country": "91",
+		"sms": []map[string]interface{}{{"message": body, "to": []string{to}}},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://control.msg91.com/api/v5/flow/", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("messaging: create msg91 request: %w", err)
+	}
+	req.Header.Set("authkey", cfg.AuthKey)
+	req.Header.Set("Content-Type", "application/json")
+	return s.doRequest(req, "msg91")
+}
+
+// SendPushForProject sends a push notification using the project's configured push provider.
+// Falls back to global FCM if no project provider is configured.
+func (s *Service) SendPushForProject(ctx context.Context, projectID, token, title, body string) error {
+	p, _ := s.getEnabledProvider(ctx, projectID, "push")
+	if p == nil {
+		return s.SendPush(ctx, token, title, body)
+	}
+	switch p.Provider {
+	case "fcm":
+		return s.sendPushViaFCMConfig(ctx, token, title, body, p.Config)
+	default:
+		return s.SendPush(ctx, token, title, body)
+	}
+}
+
+func (s *Service) sendPushViaFCMConfig(ctx context.Context, token, title, body string, raw json.RawMessage) error {
+	var cfg struct {
+		ServerKey string `json:"serverKey"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.ServerKey == "" {
+		return fmt.Errorf("messaging: invalid FCM provider config")
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"to":           token,
+		"notification": map[string]string{"title": title, "body": body},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://fcm.googleapis.com/fcm/send", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("messaging: create fcm request: %w", err)
+	}
+	req.Header.Set("Authorization", "key="+cfg.ServerKey)
+	req.Header.Set("Content-Type", "application/json")
+	return s.doRequest(req, "fcm")
+}
+
+// ---------------------------------------------------------------------------
 // Topics (DB-backed)
 // ---------------------------------------------------------------------------
 
@@ -557,11 +942,11 @@ func (s *Service) SendToTopic(ctx context.Context, projectID, topicID, subject, 
 		var sendErr error
 		switch {
 		case strings.HasPrefix(sub, "+"):
-			sendErr = s.SendSMS(ctx, sub, body)
+			sendErr = s.SendSMSForProject(ctx, projectID, sub, body)
 		case strings.Contains(sub, "@"):
-			sendErr = s.SendEmail(ctx, []string{sub}, subject, body)
+			sendErr = s.SendEmailForProject(ctx, projectID, []string{sub}, subject, body)
 		default:
-			sendErr = s.SendPush(ctx, sub, subject, body)
+			sendErr = s.SendPushForProject(ctx, projectID, sub, subject, body)
 		}
 		if sendErr != nil && firstErr == nil {
 			firstErr = sendErr
@@ -599,4 +984,155 @@ func apnsPad32(n *big.Int) []byte {
 	p := make([]byte, 32)
 	copy(p[32-len(b):], b)
 	return p
+}
+
+// ---------------------------------------------------------------------------
+// Message Templates
+// ---------------------------------------------------------------------------
+
+// Template is a reusable message template with {{variable}} placeholders.
+type Template struct {
+	ID        string    `json:"$id"`
+	ProjectID string    `json:"projectId"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"` // email, sms, push
+	Subject   string    `json:"subject"`
+	Body      string    `json:"body"`
+	Variables []string  `json:"variables"`
+	CreatedAt time.Time `json:"$createdAt"`
+	UpdatedAt time.Time `json:"$updatedAt"`
+}
+
+// CreateTemplate persists a new message template.
+func (s *Service) CreateTemplate(ctx context.Context, projectID, templateID, name, typ, subject, body string, variables []string) (*Template, error) {
+	id := uid.New(templateID)
+	now := time.Now().UTC()
+	if variables == nil {
+		variables = []string{}
+	}
+	varJSON, _ := json.Marshal(variables)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO message_templates (id, project_id, name, type, subject, body, variables, created_at, updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		id, projectID, name, typ, subject, body, string(varJSON), now, now)
+	if err != nil {
+		return nil, fmt.Errorf("messaging: create template: %w", err)
+	}
+	return &Template{
+		ID: id, ProjectID: projectID, Name: name, Type: typ,
+		Subject: subject, Body: body, Variables: variables,
+		CreatedAt: now, UpdatedAt: now,
+	}, nil
+}
+
+// GetTemplate fetches a single template by ID.
+func (s *Service) GetTemplate(ctx context.Context, templateID, projectID string) (*Template, error) {
+	var t Template
+	var varJSON string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, name, type, subject, body, variables, created_at, updated_at
+		 FROM message_templates WHERE id = ? AND project_id = ?`,
+		templateID, projectID).
+		Scan(&t.ID, &t.ProjectID, &t.Name, &t.Type, &t.Subject, &t.Body, &varJSON, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal([]byte(varJSON), &t.Variables) //nolint:errcheck
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+// ListTemplates returns all templates for a project.
+func (s *Service) ListTemplates(ctx context.Context, projectID string) ([]*Template, int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, name, type, subject, body, variables, created_at, updated_at
+		 FROM message_templates WHERE project_id = ? ORDER BY created_at DESC`,
+		projectID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var templates []*Template
+	for rows.Next() {
+		var t Template
+		var varJSON string
+		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Name, &t.Type, &t.Subject, &t.Body, &varJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		json.Unmarshal([]byte(varJSON), &t.Variables) //nolint:errcheck
+		if t.Variables == nil {
+			t.Variables = []string{}
+		}
+		templates = append(templates, &t)
+	}
+	if templates == nil {
+		templates = []*Template{}
+	}
+	return templates, len(templates), nil
+}
+
+// UpdateTemplate updates an existing template.
+func (s *Service) UpdateTemplate(ctx context.Context, templateID, projectID, name, typ, subject, body string, variables []string) (*Template, error) {
+	now := time.Now().UTC()
+	if variables == nil {
+		variables = []string{}
+	}
+	varJSON, _ := json.Marshal(variables)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE message_templates SET name=?, type=?, subject=?, body=?, variables=?, updated_at=?
+		 WHERE id=? AND project_id=?`,
+		name, typ, subject, body, string(varJSON), now, templateID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("messaging: update template: %w", err)
+	}
+	return s.GetTemplate(ctx, templateID, projectID)
+}
+
+// DeleteTemplate removes a template.
+func (s *Service) DeleteTemplate(ctx context.Context, templateID, projectID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM message_templates WHERE id=? AND project_id=?",
+		templateID, projectID)
+	return err
+}
+
+// renderTemplate replaces {{key}} placeholders with values from the provided map.
+func renderTemplate(body string, vars map[string]string) string {
+	for k, v := range vars {
+		body = strings.ReplaceAll(body, "{{"+k+"}}", v)
+	}
+	return body
+}
+
+// SendTemplate renders a template with variables and sends the message.
+func (s *Service) SendTemplate(ctx context.Context, templateID, projectID string, to []string, variables map[string]string) error {
+	t, err := s.GetTemplate(ctx, templateID, projectID)
+	if err != nil {
+		return fmt.Errorf("messaging: template not found: %w", err)
+	}
+	subject := renderTemplate(t.Subject, variables)
+	body := renderTemplate(t.Body, variables)
+	switch t.Type {
+	case "email":
+		if err := s.SendEmail(ctx, to, subject, body); err != nil {
+			return err
+		}
+	case "sms":
+		for _, num := range to {
+			if err := s.SendSMS(ctx, num, body); err != nil {
+				return err
+			}
+		}
+	case "push":
+		for _, token := range to {
+			if err := s.SendPush(ctx, token, subject, body); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("messaging: unknown template type %q", t.Type)
+	}
+	return nil
 }

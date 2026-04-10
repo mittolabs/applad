@@ -2,11 +2,12 @@ package worker
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/workflows"
 	"github.com/redis/go-redis/v9"
@@ -14,55 +15,58 @@ import (
 
 type Executions struct {
 	cfg   *config.Config
-	stop  chan struct{}
 	queue *queue.Queue
 	db    *db.DB
 }
 
 func NewExecutions(cfg *config.Config) *Executions {
-	return &Executions{cfg: cfg, stop: make(chan struct{})}
+	return &Executions{cfg: cfg}
 }
 
-func (w *Executions) Start() error {
+func (w *Executions) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
 
-	database, err := db.Connect(w.cfg.DatabaseDSN)
+	database, err := db.Connect(w.cfg.DatabaseDSN, w.cfg.DBMaxOpenConns, w.cfg.DBMaxIdleConns)
 	if err != nil {
 		return err
 	}
 	w.db = database
+	w.queue.StartReaper(ctx, "executions")
 
-	log.Println("executions worker: listening for jobs")
+	slog.Info("executions worker: listening for jobs")
 
-	ctx := context.Background()
 	for {
-		select {
-		case <-w.stop:
-			return nil
-		default:
-			job, err := w.queue.Pop(ctx, "executions")
-			if err != nil {
-				log.Printf("executions worker: pop error: %v", err)
-				continue
+		receipt, err := w.queue.Pop(ctx, "executions")
+		if err != nil {
+			if ctx.Err() != nil {
+				slog.Info("executions worker: shutting down")
+				return nil
 			}
-			if job == nil {
-				continue
-			}
-			w.process(ctx, job)
+			slog.Error("executions worker: pop error", "error", err)
+			continue
+		}
+		if receipt == nil {
+			continue
+		}
+		Heartbeat()
+		if processErr := w.process(ctx, receipt.Job); processErr != nil {
+			metrics.QueueJobs.Inc("executions", "failed")
+			receipt.Nack()
+		} else {
+			metrics.QueueJobs.Inc("executions", "completed")
+			receipt.Ack()
 		}
 	}
 }
 
-func (w *Executions) process(ctx context.Context, job *queue.Job) {
-	log.Printf("executions worker: processing job %s", job.ID)
-
+func (w *Executions) process(ctx context.Context, job *queue.Job) error {
 	executionID, _ := job.Payload["executionId"].(string)
 	workflowID, _ := job.Payload["workflowId"].(string)
 
 	if executionID == "" || workflowID == "" {
-		log.Printf("executions worker: job %s missing executionId or workflowId", job.ID)
-		return
+		slog.Warn("executions worker: job missing ids", "job_id", job.ID)
+		return nil
 	}
 
 	triggerData, _ := job.Payload["triggerData"].(map[string]interface{})
@@ -72,20 +76,17 @@ func (w *Executions) process(ctx context.Context, job *queue.Job) {
 
 	svc := workflows.NewService(w.db, nil)
 
-	// Load workflow
 	wf, err := svc.GetByID(ctx, workflowID)
 	if err != nil {
-		log.Printf("executions worker: workflow %s not found: %v", workflowID, err)
+		slog.Error("executions worker: workflow not found", "workflow_id", workflowID, "error", err)
 		now := time.Now().UTC()
-		svc.UpdateExecution(ctx, executionID, "failed", &now, &now, 0, "workflow not found", nil)
-		return
+		svc.UpdateExecution(ctx, executionID, "failed", &now, &now, 0, "workflow not found", nil) //nolint:errcheck
+		return err
 	}
 
-	// Mark as running
 	startedAt := time.Now().UTC()
-	svc.UpdateExecution(ctx, executionID, "running", &startedAt, nil, 0, "", nil)
+	svc.UpdateExecution(ctx, executionID, "running", &startedAt, nil, 0, "", nil) //nolint:errcheck
 
-	// Execute the workflow
 	logs, execErr := workflows.RunWorkflow(ctx, wf, triggerData)
 
 	completedAt := time.Now().UTC()
@@ -99,11 +100,11 @@ func (w *Executions) process(ctx context.Context, job *queue.Job) {
 	}
 
 	if err := svc.UpdateExecution(ctx, executionID, status, &startedAt, &completedAt, durationMs, errMsg, logs); err != nil {
-		log.Printf("executions worker: failed to update execution %s: %v", executionID, err)
-		return
+		slog.Error("executions worker: update execution failed", "execution_id", executionID, "error", err)
+		metrics.DBErrors.Inc()
+		return err
 	}
 
-	log.Printf("executions worker: completed job %s (status=%s, duration=%dms)", job.ID, status, durationMs)
+	slog.Info("executions worker: completed", "job_id", job.ID, "status", status, "duration_ms", durationMs)
+	return nil
 }
-
-func (w *Executions) Stop() { close(w.stop) }

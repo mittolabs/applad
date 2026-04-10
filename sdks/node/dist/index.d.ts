@@ -4,6 +4,8 @@ export { Analytics } from './analytics';
 export { Billing } from './billing';
 export { Users } from './users';
 export { Databases } from './databases';
+export { QueryBuilder } from './query_builder';
+export type { QueryResult } from './query_builder';
 export { Storage } from './storage';
 export { Functions } from './functions';
 export { Teams } from './teams';

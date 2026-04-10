@@ -6,16 +6,13 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 
 // --- Constants ---------------------------------------------------------------
 
-const _bgColor = Color(0xFF0B0B0F);
-const _cardColor = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _border = Color(0x0FFFFFFF);
 
 // --- Providers ---------------------------------------------------------------
 
@@ -78,14 +75,15 @@ class _OverviewPageState extends ConsumerState<OverviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     final projectId = ref.watch(currentProjectProvider);
 
     if (projectId == null) {
-      return const Scaffold(
-        backgroundColor: _bgColor,
+      return Scaffold(
+        backgroundColor: cs.background,
         body: Center(
           child: Text('Select a project',
-              style: TextStyle(color: _dimText, fontSize: 15)),
+              style: TextStyle(color: cs.textMuted, fontSize: 15)),
         ),
       );
     }
@@ -97,7 +95,7 @@ class _OverviewPageState extends ConsumerState<OverviewPage> {
         'Project';
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -111,8 +109,8 @@ class _OverviewPageState extends ConsumerState<OverviewPage> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(projectName,
-                    style: const TextStyle(
-                        color: Colors.white,
+                    style: TextStyle(
+                        color: cs.textPrimary,
                         fontSize: 24,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(width: 12),
@@ -122,17 +120,9 @@ class _OverviewPageState extends ConsumerState<OverviewPage> {
                     children: [
                       Icon(LucideIcons.folder,
                           size: 13,
-                          color: Colors.white.withOpacity(0.3)),
+                          color: cs.textSubtle),
                       const SizedBox(width: 4),
-                      SelectableText(
-                        projectId.length > 16
-                            ? '${projectId.substring(0, 16)}...'
-                            : projectId,
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.3),
-                            fontSize: 13,
-                            fontFamily: 'monospace'),
-                      ),
+                      IdText(id: projectId),
                     ],
                   ),
                 ),
@@ -338,13 +328,14 @@ class _UsageGraph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       width: width,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -358,8 +349,8 @@ class _UsageGraph extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(value,
-                          style: const TextStyle(
-                              color: Colors.white,
+                          style: TextStyle(
+                              color: cs.textPrimary,
                               fontSize: 28,
                               fontWeight: FontWeight.w700)),
                       if (unit.isNotEmpty) ...[
@@ -367,16 +358,16 @@ class _UsageGraph extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 4),
                           child: Text(unit,
-                              style: const TextStyle(
-                                  color: _dimText, fontSize: 14)),
+                              style: TextStyle(
+                                  color: cs.textSecondary, fontSize: 14)),
                         ),
                       ],
                     ],
                   ),
                   const SizedBox(height: 2),
                   Text(title,
-                      style: const TextStyle(
-                          color: _dimText, fontSize: 13)),
+                      style: TextStyle(
+                          color: cs.textSecondary, fontSize: 13)),
                 ],
               ),
               const Spacer(),
@@ -384,19 +375,19 @@ class _UsageGraph extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.04),
+                  color: cs.fill,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: _border),
+                  border: Border.all(color: cs.border),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(period,
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 12)),
+                        style: TextStyle(
+                            color: cs.textSecondary, fontSize: 12)),
                     const SizedBox(width: 4),
-                    const Icon(LucideIcons.chevronDown,
-                        size: 12, color: _dimText),
+                    Icon(LucideIcons.chevronDown,
+                        size: 12, color: cs.textSecondary),
                   ],
                 ),
               ),
@@ -432,7 +423,7 @@ class _GraphPainter extends CustomPainter {
 
     // Grid lines
     final gridPaint = Paint()
-      ..color = Colors.white.withOpacity(0.04)
+      ..color = const Color(0xFF1A1A1A).withOpacity(0.5)
       ..strokeWidth = 1;
     for (var i = 0; i < 5; i++) {
       final y = size.height * i / 4;
@@ -494,6 +485,7 @@ class _StatCardState extends State<_StatCard> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -505,14 +497,10 @@ class _StatCardState extends State<_StatCard> {
           width: widget.width,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: _hovered
-                ? Colors.white.withOpacity(0.04)
-                : _cardColor,
+            color: _hovered ? cs.fillHover : cs.surface,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-                color: _hovered
-                    ? Colors.white.withOpacity(0.1)
-                    : _border),
+                color: _hovered ? cs.fieldBorder : cs.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,7 +511,7 @@ class _StatCardState extends State<_StatCard> {
                   const SizedBox(width: 8),
                   Text(widget.label,
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.5),
+                          color: cs.textMuted,
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.5)),
@@ -531,14 +519,13 @@ class _StatCardState extends State<_StatCard> {
               ),
               const SizedBox(height: 16),
               Text(widget.value,
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                      color: cs.textPrimary,
                       fontSize: 28,
                       fontWeight: FontWeight.w700)),
               const SizedBox(height: 2),
               Text(widget.sublabel,
-                  style:
-                      const TextStyle(color: _dimText, fontSize: 13)),
+                  style: TextStyle(color: cs.textSecondary, fontSize: 13)),
             ],
           ),
         ),
@@ -577,6 +564,7 @@ class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     final endpoint = '${Uri.base.origin}/v1';
     final sdk = _sdks[_sdkTab];
 
@@ -618,22 +606,22 @@ class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
           width: double.infinity,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: _cardColor,
+            color: cs.surface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: _border),
+            border: Border.all(color: cs.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Quick start',
+              Text('Quick start',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: cs.textPrimary,
                       fontSize: 15,
                       fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
               Text('Install an SDK to start building with Applad',
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.4),
+                      color: cs.textSubtle,
                       fontSize: 13)),
               const SizedBox(height: 16),
               // SDK tabs
@@ -654,19 +642,16 @@ class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
                                 horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: active
-                                  ? Colors.white.withOpacity(0.08)
+                                  ? cs.border
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                  color: active
-                                      ? Colors.white.withOpacity(0.12)
-                                      : Colors.white.withOpacity(0.06)),
+                              border: Border.all(color: cs.border),
                             ),
                             child: Text(s.name,
                                 style: TextStyle(
                                     color: active
-                                        ? Colors.white
-                                        : _dimText,
+                                        ? cs.textPrimary
+                                        : cs.textSecondary,
                                     fontSize: 12,
                                     fontWeight: active
                                         ? FontWeight.w500
@@ -684,21 +669,21 @@ class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.03),
+                  color: cs.fill,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _border),
+                  border: Border.all(color: cs.border),
                 ),
                 child: Row(
                   children: [
                     Text(sdk.contextLabel,
                         style: TextStyle(
-                            color: Colors.white.withOpacity(0.3),
+                            color: cs.textSubtle,
                             fontSize: 12)),
                     const SizedBox(width: 12),
                     Expanded(
                       child: SelectableText(sdk.installCmd,
-                          style: const TextStyle(
-                              color: Colors.white,
+                          style: TextStyle(
+                              color: cs.textPrimary,
                               fontSize: 13,
                               fontFamily: 'monospace')),
                     ),
@@ -715,7 +700,7 @@ class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
                         cursor: SystemMouseCursors.click,
                         child: Icon(LucideIcons.copy,
                             size: 14,
-                            color: Colors.white.withOpacity(0.3)),
+                            color: cs.textSubtle),
                       ),
                     ),
                   ],
@@ -727,9 +712,9 @@ class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.03),
+                  color: cs.fill,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _border),
+                  border: Border.all(color: cs.border),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -740,8 +725,8 @@ class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
                           child: SelectableText(
                             _initSnippet(sdk.name, endpoint,
                                 widget.projectId),
-                            style: const TextStyle(
-                                color: Colors.white,
+                            style: TextStyle(
+                                color: cs.textPrimary,
                                 fontSize: 13,
                                 fontFamily: 'monospace',
                                 height: 1.5),
@@ -764,8 +749,7 @@ class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
                               cursor: SystemMouseCursors.click,
                               child: Icon(LucideIcons.copy,
                                   size: 14,
-                                  color:
-                                      Colors.white.withOpacity(0.3)),
+                                  color: cs.textSubtle),
                             ),
                           ),
                         ),
@@ -825,30 +809,31 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = consoleColors(context);
     return Container(
       width: width,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: cs.border),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 14, color: _dimText),
+          Icon(icon, size: 14, color: cs.textSecondary),
           const SizedBox(width: 10),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(label,
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.4),
+                      color: cs.textSubtle,
                       fontSize: 11,
                       fontWeight: FontWeight.w500)),
               const SizedBox(height: 2),
               SelectableText(value,
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                      color: cs.textPrimary,
                       fontSize: 13,
                       fontFamily: 'monospace')),
             ],
@@ -864,7 +849,7 @@ class _InfoCard extends StatelessWidget {
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
               child: Icon(LucideIcons.copy,
-                  size: 14, color: Colors.white.withOpacity(0.3)),
+                  size: 14, color: cs.textSubtle),
             ),
           ),
         ],
@@ -883,6 +868,7 @@ class _ActivityTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final cs = consoleColors(context);
     final statsAsync = ref.watch(_projectStatsProvider(projectId));
 
     return statsAsync.when(
@@ -929,23 +915,22 @@ class _ActivityTab extends ConsumerWidget {
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.04),
+                      color: cs.fill,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(LucideIcons.activity,
-                        size: 22, color: _subtleText),
+                    child: Icon(LucideIcons.activity,
+                        size: 22, color: cs.textSubtle),
                   ),
                   const SizedBox(height: 16),
-                  const Text('No activity yet',
+                  Text('No activity yet',
                       style: TextStyle(
-                          color: Colors.white,
+                          color: cs.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.w500)),
                   const SizedBox(height: 6),
-                  const Text(
+                  Text(
                       'Activity will appear here as you use your project',
-                      style:
-                          TextStyle(color: _dimText, fontSize: 13)),
+                      style: TextStyle(color: cs.textSecondary, fontSize: 13)),
                 ],
               ),
             ),
@@ -959,9 +944,9 @@ class _ActivityTab extends ConsumerWidget {
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: _cardColor,
+                    color: cs.surface,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _border),
+                    border: Border.all(color: cs.border),
                   ),
                   child: Row(
                     children: [
@@ -982,14 +967,14 @@ class _ActivityTab extends ConsumerWidget {
                               CrossAxisAlignment.start,
                           children: [
                             Text(item.title,
-                                style: const TextStyle(
-                                    color: Colors.white,
+                                style: TextStyle(
+                                    color: cs.textPrimary,
                                     fontSize: 14,
                                     fontWeight: FontWeight.w500)),
                             const SizedBox(height: 2),
                             Text(item.subtitle,
-                                style: const TextStyle(
-                                    color: _dimText,
+                                style: TextStyle(
+                                    color: cs.textSecondary,
                                     fontSize: 12)),
                           ],
                         ),

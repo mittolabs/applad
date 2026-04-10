@@ -15,13 +15,20 @@ type DB struct {
 }
 
 // Connect opens a PostgreSQL connection pool and verifies connectivity.
-func Connect(dsn string) (*DB, error) {
+// maxOpen and maxIdle configure the pool; pass 0 to use defaults (25/10).
+func Connect(dsn string, maxOpen, maxIdle int) (*DB, error) {
 	d, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
-	d.SetMaxOpenConns(25)
-	d.SetMaxIdleConns(10)
+	if maxOpen <= 0 {
+		maxOpen = 25
+	}
+	if maxIdle <= 0 {
+		maxIdle = 10
+	}
+	d.SetMaxOpenConns(maxOpen)
+	d.SetMaxIdleConns(maxIdle)
 	d.SetConnMaxLifetime(5 * time.Minute)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

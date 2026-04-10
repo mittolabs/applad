@@ -222,7 +222,7 @@ func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image,
 
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://docker/v1.43/containers/create?name=%s", name),
+		fmt.Sprintf(d.docker.baseURL + "/v1.43/containers/create?name=%s", name),
 		bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -262,7 +262,7 @@ func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image,
 // pullImage pulls a Docker image from a registry.
 func (d *DeployExecutor) pullImage(ctx context.Context, image string) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://docker/v1.43/images/create?fromImage=%s", image), nil)
+		fmt.Sprintf(d.docker.baseURL + "/v1.43/images/create?fromImage=%s", image), nil)
 	if err != nil {
 		return err
 	}
@@ -292,7 +292,7 @@ func (d *DeployExecutor) pullImage(ctx context.Context, image string) error {
 func (d *DeployExecutor) findContainerByName(ctx context.Context, name string) string {
 	filter := fmt.Sprintf(`{"name":["%s"]}`, name)
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("http://docker/v1.43/containers/json?all=true&filters=%s", filter), nil)
+		fmt.Sprintf(d.docker.baseURL + "/v1.43/containers/json?all=true&filters=%s", filter), nil)
 	if err != nil {
 		return ""
 	}

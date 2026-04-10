@@ -41,4 +41,47 @@ class Messaging {
       if (data != null) 'data': data,
     });
   }
+
+  // --- Templates ---
+
+  Future<Map<String, dynamic>> createTemplate({
+    required String name,
+    required String type,
+    required String subject,
+    required String body,
+    List<String>? variables,
+    String templateId = 'unique()',
+  }) {
+    return _client.post('/v1/messaging/templates', data: {
+      'templateId': templateId,
+      'name': name,
+      'type': type,
+      'subject': subject,
+      'body': body,
+      'variables': variables ?? [],
+    });
+  }
+
+  Future<Map<String, dynamic>> listTemplates() {
+    return _client.get('/v1/messaging/templates');
+  }
+
+  Future<Map<String, dynamic>> getTemplate(String templateId) {
+    return _client.get('/v1/messaging/templates/$templateId');
+  }
+
+  Future<Map<String, dynamic>> deleteTemplate(String templateId) {
+    return _client.delete('/v1/messaging/templates/$templateId');
+  }
+
+  Future<Map<String, dynamic>> sendTemplate({
+    required String templateId,
+    required List<String> to,
+    Map<String, String>? variables,
+  }) {
+    return _client.post('/v1/messaging/templates/$templateId/send', data: {
+      'to': to,
+      'variables': variables ?? {},
+    });
+  }
 }

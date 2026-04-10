@@ -5,8 +5,11 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -31,15 +34,28 @@ import (
 // Service handles storage business logic.
 type Service struct {
 	db          *db.DB
-	storagePath string
+	storagePath string // kept for local-driver chunk temp path
+	driver      Driver
 	clamavAddr  string
+	jwtSecret   string
 	events      realtime.EventPublisher
 }
 
-// NewService creates a new storage Service.
-func NewService(database *db.DB, storagePath string) *Service {
-	return &Service{db: database, storagePath: storagePath}
+// NewService creates a new storage Service using the local filesystem driver.
+func NewService(database *db.DB, storagePath string, jwtSecret ...string) *Service {
+	svc := &Service{
+		db:          database,
+		storagePath: storagePath,
+		driver:      NewLocalDriver(storagePath),
+	}
+	if len(jwtSecret) > 0 {
+		svc.jwtSecret = jwtSecret[0]
+	}
+	return svc
 }
+
+// SetDriver replaces the storage backend (call before first use).
+func (s *Service) SetDriver(d Driver) { s.driver = d }
 
 // SetEventPublisher sets the realtime event publisher.
 func (s *Service) SetEventPublisher(pub realtime.EventPublisher) {
@@ -154,6 +170,39 @@ func (s *Service) DeleteBucket(ctx context.Context, bucketID, projectID string) 
 // --- files ---
 
 func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, name string, content []byte, mimeType string, permissions []string) (*model.File, error) {
+	// Sanitize filename: strip directory traversal components and enforce length.
+	name = filepath.Base(name)
+	if name == "." || name == "/" {
+		name = "file"
+	}
+	if len(name) > 255 {
+		name = name[:255]
+	}
+
+	// Enforce bucket-level quota and MIME restrictions
+	bucket, err := s.GetBucket(ctx, bucketID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("storage: bucket not found")
+	}
+	if bucket.FileSizeLimit > 0 && int64(len(content)) > bucket.FileSizeLimit {
+		return nil, fmt.Errorf("storage: file size %d exceeds bucket limit of %d bytes", len(content), bucket.FileSizeLimit)
+	}
+	// AllowedFileExtensions can hold extensions ("jpg") or MIME types ("image/jpeg").
+	if len(bucket.AllowedFileExtensions) > 0 {
+		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+		allowed := false
+		for _, allowed_ := range bucket.AllowedFileExtensions {
+			a := strings.ToLower(strings.TrimPrefix(allowed_, "."))
+			if a == ext || strings.EqualFold(a, mimeType) || a == "*" {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, fmt.Errorf("storage: file type %q not allowed in this bucket", ext)
+		}
+	}
+
 	// Antivirus scan if configured
 	if s.clamavAddr != "" {
 		result, err := ScanWithClamAV(s.clamavAddr, content)
@@ -168,25 +217,21 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 	id := uid.New(fileID)
 	now := time.Now().UTC()
 
-	// Write to disk
-	dir := filepath.Join(s.storagePath, projectID, bucketID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("storage: mkdir: %w", err)
-	}
-	path := filepath.Join(dir, id)
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	// Write via pluggable driver (local disk or S3)
+	storagePath := s.driver.Path(projectID, bucketID, id)
+	if err := s.driver.Write(ctx, storagePath, content); err != nil {
 		return nil, fmt.Errorf("storage: write file: %w", err)
 	}
 
 	sig := fmt.Sprintf("%x", md5.Sum(content))
 	permsJSON, _ := json.Marshal(permissions)
 
-	_, err := s.db.ExecContext(ctx,
+	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO files (id, bucket_id, project_id, name, mime_type, size, permissions, path, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, bucketID, projectID, name, mimeType, int64(len(content)), permsJSON, path, now, now)
+		id, bucketID, projectID, name, mimeType, int64(len(content)), permsJSON, storagePath, now, now)
 	if err != nil {
-		os.Remove(path) //nolint:errcheck
+		s.driver.Delete(ctx, storagePath) //nolint:errcheck
 		return nil, fmt.Errorf("storage: create file record: %w", err)
 	}
 
@@ -230,9 +275,9 @@ func (s *Service) GetFileContent(ctx context.Context, fileID, bucketID, projectI
 	if err != nil {
 		return nil, "", err
 	}
-	content, err := os.ReadFile(path)
+	content, err := s.driver.Read(ctx, path)
 	if err != nil {
-		return nil, "", fmt.Errorf("storage: read file: %w", err)
+		return nil, "", err
 	}
 	return content, mimeType, nil
 }
@@ -272,7 +317,7 @@ func (s *Service) ListFiles(ctx context.Context, projectID, bucketID string, lim
 func (s *Service) InitChunkedUpload(ctx context.Context, projectID, bucketID, fileID, name, mimeType string, totalSize int64, permissions []string) (string, error) {
 	id := uid.New(fileID)
 
-	// Create temp chunk directory
+	// Store chunks under storagePath/_chunks/<id> for local assembly.
 	chunkDir := filepath.Join(s.storagePath, "_chunks", id)
 	if err := os.MkdirAll(chunkDir, 0755); err != nil {
 		return "", fmt.Errorf("storage: create chunk dir: %w", err)
@@ -291,14 +336,17 @@ func (s *Service) InitChunkedUpload(ctx context.Context, projectID, bucketID, fi
 	return id, nil
 }
 
-// UploadChunk writes a single chunk to disk.
+// UploadChunk writes a single chunk to the chunk staging directory.
 func (s *Service) UploadChunk(_ context.Context, projectID, bucketID, fileID string, index int, data []byte) error {
 	chunkDir := filepath.Join(s.storagePath, "_chunks", fileID)
+	if err := os.MkdirAll(chunkDir, 0755); err != nil {
+		return err
+	}
 	chunkPath := filepath.Join(chunkDir, fmt.Sprintf("%06d", index))
 	return os.WriteFile(chunkPath, data, 0644)
 }
 
-// CompleteChunkedUpload assembles chunks into the final file.
+// CompleteChunkedUpload assembles chunks and uploads via the configured driver.
 func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID, fileID string) (*model.File, error) {
 	chunkDir := filepath.Join(s.storagePath, "_chunks", fileID)
 
@@ -307,35 +355,30 @@ func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID
 		return nil, fmt.Errorf("storage: read chunks: %w", err)
 	}
 
-	// Assemble chunks in order
-	dir := filepath.Join(s.storagePath, projectID, bucketID)
-	os.MkdirAll(dir, 0755)
-	finalPath := filepath.Join(dir, fileID)
-
-	out, err := os.Create(finalPath)
-	if err != nil {
-		return nil, fmt.Errorf("storage: create final file: %w", err)
-	}
-
-	var totalSize int64
+	// Assemble all chunks in-memory
+	var buf bytes.Buffer
 	for _, entry := range entries {
 		chunk, err := os.ReadFile(filepath.Join(chunkDir, entry.Name()))
 		if err != nil {
-			out.Close()
 			return nil, fmt.Errorf("storage: read chunk %s: %w", entry.Name(), err)
 		}
-		n, _ := out.Write(chunk)
-		totalSize += int64(n)
+		buf.Write(chunk)
 	}
-	out.Close()
+	assembled := buf.Bytes()
 
-	// Clean up chunks
-	os.RemoveAll(chunkDir)
+	// Clean up temp chunks
+	os.RemoveAll(chunkDir) //nolint:errcheck
+
+	// Upload assembled file via driver
+	finalPath := s.driver.Path(projectID, bucketID, fileID)
+	if err := s.driver.Write(ctx, finalPath, assembled); err != nil {
+		return nil, fmt.Errorf("storage: write assembled file: %w", err)
+	}
 
 	// Update file record with final path and size
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE files SET path = ?, size = ? WHERE id = ? AND bucket_id = ? AND project_id = ?",
-		finalPath, totalSize, fileID, bucketID, projectID)
+		finalPath, int64(len(assembled)), fileID, bucketID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -682,6 +725,83 @@ func resizeImage(src image.Image, targetW, targetH int) image.Image {
 	return dst
 }
 
+// signedURLToken produces a compact HMAC-SHA256 token encoding bucketID+fileID+expiresAt.
+// Format (base64url-encoded JSON): {"b":bucketID,"f":fileID,"e":unixExpiry}
+func (s *Service) signedURLToken(bucketID, fileID string, expiresAt int64) string {
+	secret := s.jwtSecret
+	if secret == "" {
+		secret = "applad-storage-default"
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"b": bucketID,
+		"f": fileID,
+		"e": expiresAt,
+	})
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	sig := mac.Sum(nil)
+	combined := append(payload, '.')
+	combined = append(combined, sig...)
+	return base64.RawURLEncoding.EncodeToString(combined)
+}
+
+// CreateSignedURL returns a time-limited token for serving a private file.
+// expiresIn is the TTL in seconds (default 3600 if zero).
+func (s *Service) CreateSignedURL(ctx context.Context, fileID, bucketID, projectID string, expiresIn int64) (string, error) {
+	if _, err := s.GetFile(ctx, fileID, bucketID, projectID); err != nil {
+		return "", fmt.Errorf("file not found")
+	}
+	if expiresIn <= 0 {
+		expiresIn = 3600
+	}
+	token := s.signedURLToken(bucketID, fileID, time.Now().Unix()+expiresIn)
+	return token, nil
+}
+
+// VerifySignedToken validates a token and returns (bucketID, fileID, ok).
+func (s *Service) VerifySignedToken(token string) (bucketID, fileID string, ok bool) {
+	secret := s.jwtSecret
+	if secret == "" {
+		secret = "applad-storage-default"
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return
+	}
+	dotIdx := -1
+	for i := len(raw) - 1; i >= 0; i-- {
+		if raw[i] == '.' {
+			dotIdx = i
+			break
+		}
+	}
+	if dotIdx < 0 {
+		return
+	}
+	payload := raw[:dotIdx]
+	sig := raw[dotIdx+1:]
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	expected := mac.Sum(nil)
+	if !hmac.Equal(sig, expected) {
+		return
+	}
+
+	var claims map[string]interface{}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return
+	}
+	exp, _ := claims["e"].(float64)
+	if time.Now().Unix() > int64(exp) {
+		return // expired
+	}
+	bucketID, _ = claims["b"].(string)
+	fileID, _ = claims["f"].(string)
+	ok = bucketID != "" && fileID != ""
+	return
+}
+
 func (s *Service) DeleteFile(ctx context.Context, fileID, bucketID, projectID string) error {
 	var path string
 	err := s.db.QueryRowContext(ctx,
@@ -692,7 +812,7 @@ func (s *Service) DeleteFile(ctx context.Context, fileID, bucketID, projectID st
 	}
 	_, _ = s.db.ExecContext(ctx,
 		"DELETE FROM files WHERE id = ? AND bucket_id = ? AND project_id = ?", fileID, bucketID, projectID)
-	os.Remove(path) //nolint:errcheck
+	s.driver.Delete(ctx, path) //nolint:errcheck
 	realtime.PublishResourceEvent(s.events, "storage", "files", "delete", projectID, fileID, map[string]string{"$id": fileID})
 	return nil
 }

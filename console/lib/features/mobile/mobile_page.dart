@@ -6,6 +6,7 @@ import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/deploy_create_entry.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 
 const _accent = Color(0xFF3472A4);
@@ -36,41 +37,58 @@ class _MobilePageState extends ConsumerState<MobilePage> {
     if (_selectedId != null) return _detailView();
     final dataAsync = ref.watch(_mobileProvider);
 
-    return Container(
-      color: colors.background,
-      child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
-          child: Row(children: [
+    return Scaffold(
+      backgroundColor: colors.background,
+      body: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Mobile Apps',
+                      style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600)),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                      backgroundColor: _accent,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 12)),
+                  icon: const Icon(LucideIcons.plus, size: 16),
+                  label: const Text('Create app', style: TextStyle(fontSize: 13)),
+                  onPressed: _create,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Divider(height: 1, color: colors.border),
+            const SizedBox(height: 20),
             Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Mobile Apps', style: TextStyle(color: colors.textPrimary, fontSize: 24, fontWeight: FontWeight.w700)),
-                SizedBox(height: 4),
-                Text('Build and publish Android and iOS apps', style: TextStyle(color: colors.textSecondary, fontSize: 14)),
-              ]),
+              child: dataAsync.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator(color: _accent)),
+                error: (e, _) =>
+                    Center(child: Text('$e', style: TextStyle(color: colors.textSecondary))),
+                data: (data) {
+                  final targets = List<Map<String, dynamic>>.from(
+                      data['targets'] ?? []);
+                  if (targets.isEmpty) return _emptyState();
+                  return _list(targets);
+                },
+              ),
             ),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(backgroundColor: _accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
-              icon: const Icon(LucideIcons.plus, size: 16),
-              label: const Text('Create app', style: TextStyle(fontSize: 13)),
-              onPressed: _create,
-            ),
-          ]),
+          ],
         ),
-        const SizedBox(height: 24),
-        Expanded(
-          child: dataAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
-            error: (e, _) => Center(child: Text('$e', style: TextStyle(color: colors.textSecondary))),
-            data: (data) {
-              final targets = List<Map<String, dynamic>>.from(data['targets'] ?? []);
-              if (targets.isEmpty) return _emptyState();
-              return _list(targets);
-            },
-          ),
-        ),
-      ]),
+      ),
     );
   }
 
@@ -103,7 +121,7 @@ class _MobilePageState extends ConsumerState<MobilePage> {
   Widget _list(List<Map<String, dynamic>> targets) {
     final colors = consoleColors(context);
     return ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: EdgeInsets.zero,
       itemCount: targets.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (ctx, i) {
@@ -237,7 +255,7 @@ class _MobilePageState extends ConsumerState<MobilePage> {
                 Container(width: 8, height: 8, decoration: BoxDecoration(color: sc, shape: BoxShape.circle)),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(r['\$id'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 12, fontFamily: 'monospace')),
+                  IdText(id: r['\$id'] ?? '', fontSize: 12),
                   Text('${r['triggerType'] ?? 'manual'} • ${r['durationMs'] ?? 0}ms', style: TextStyle(color: colors.textSubtle, fontSize: 11)),
                 ])),
                 Text(status, style: TextStyle(color: sc, fontSize: 12)),

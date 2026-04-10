@@ -1,10 +1,37 @@
 import 'package:dio/dio.dart';
 
+import 'query_builder.dart';
+
+export 'query_builder.dart' show QueryBuilder, QueryResult;
+
 /// Databases service — manage databases, tables, columns, indexes, and rows.
 class Databases {
   final Dio _dio;
 
   Databases(this._dio);
+
+  // --- Query builder ---
+
+  /// Returns a [QueryBuilder] for fluent row queries on [tableId] inside [databaseId].
+  ///
+  /// ```dart
+  /// final result = await client.databases
+  ///     .from('myDb', 'posts')
+  ///     .select('id, title, author(name)')
+  ///     .equal('published', true)
+  ///     .orderDesc('created_at')
+  ///     .limit(25)
+  ///     .get();
+  /// ```
+  QueryBuilder from(String databaseId, String tableId) {
+    return QueryBuilder((params) async {
+      final res = await _dio.get(
+        '/v1/databases/$databaseId/tables/$tableId/rows',
+        queryParameters: params,
+      );
+      return Map<String, dynamic>.from(res.data as Map);
+    });
+  }
 
   // --- Databases ---
 
@@ -211,6 +238,24 @@ class Databases {
   Future<void> deleteColumn(
       String databaseId, String tableId, String key) async {
     await _dio.delete('/v1/databases/$databaseId/tables/$tableId/columns/$key');
+  }
+
+  /// Get field-level permissions for a column.
+  Future<Map<String, dynamic>> getColumnPermissions(
+      String databaseId, String tableId, String key) async {
+    final res = await _dio.get(
+        '/v1/databases/$databaseId/tables/$tableId/columns/$key/permissions');
+    return res.data;
+  }
+
+  /// Set field-level permissions for a column.
+  Future<Map<String, dynamic>> setColumnPermissions(
+      String databaseId, String tableId, String key, List<String> permissions) async {
+    final res = await _dio.post(
+      '/v1/databases/$databaseId/tables/$tableId/columns/$key/permissions',
+      data: {'permissions': permissions},
+    );
+    return res.data;
   }
 
   // --- Indexes ---

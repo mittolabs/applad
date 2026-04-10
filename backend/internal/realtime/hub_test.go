@@ -20,7 +20,7 @@ func newTestClient(hub *Hub) *Client {
 }
 
 func TestHub_PublishToSubscribers(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub("", "")
 	client := newTestClient(hub)
 
 	// Register client
@@ -58,7 +58,7 @@ func TestHub_PublishToSubscribers(t *testing.T) {
 }
 
 func TestHub_UnsubscribeStopsEvents(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub("", "")
 	client := newTestClient(hub)
 
 	hub.register <- client
@@ -83,7 +83,7 @@ func TestHub_UnsubscribeStopsEvents(t *testing.T) {
 }
 
 func TestHub_Stats(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub("", "")
 	c1 := newTestClient(hub)
 	c2 := newTestClient(hub)
 
@@ -104,7 +104,7 @@ func TestHub_Stats(t *testing.T) {
 }
 
 func TestPublishResourceEvent_FormatsCorrectly(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub("", "")
 	client := newTestClient(hub)
 
 	hub.register <- client
@@ -152,7 +152,7 @@ func TestPublishResourceEvent_NilPublisher(t *testing.T) {
 }
 
 func TestHub_MultipleChannels(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub("", "")
 	client := newTestClient(hub)
 
 	hub.register <- client

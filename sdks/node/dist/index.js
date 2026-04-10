@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Vectors = exports.Search = exports.Regions = exports.Flags = exports.Edge = exports.Deploy = exports.Messaging = exports.Workflows = exports.Teams = exports.Functions = exports.Storage = exports.Databases = exports.Users = exports.Billing = exports.Analytics = exports.ApplAdServer = void 0;
+exports.Vectors = exports.Search = exports.Regions = exports.Flags = exports.Edge = exports.Deploy = exports.Messaging = exports.Workflows = exports.Teams = exports.Functions = exports.Storage = exports.QueryBuilder = exports.Databases = exports.Users = exports.Billing = exports.Analytics = exports.ApplAdServer = void 0;
 var client_1 = require("./client");
 Object.defineProperty(exports, "ApplAdServer", { enumerable: true, get: function () { return client_1.ApplAdServer; } });
 var analytics_1 = require("./analytics");
@@ -11,6 +11,8 @@ var users_1 = require("./users");
 Object.defineProperty(exports, "Users", { enumerable: true, get: function () { return users_1.Users; } });
 var databases_1 = require("./databases");
 Object.defineProperty(exports, "Databases", { enumerable: true, get: function () { return databases_1.Databases; } });
+var query_builder_1 = require("./query_builder");
+Object.defineProperty(exports, "QueryBuilder", { enumerable: true, get: function () { return query_builder_1.QueryBuilder; } });
 var storage_1 = require("./storage");
 Object.defineProperty(exports, "Storage", { enumerable: true, get: function () { return storage_1.Storage; } });
 var functions_1 = require("./functions");

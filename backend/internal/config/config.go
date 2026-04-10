@@ -1,14 +1,29 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 type Config struct {
-	Port                 string
-	DatabaseDSN          string
-	RedisAddr            string
-	JWTSecret            string
-	StoragePath          string
-	AppEnv               string
+	Port        string
+	DatabaseDSN string
+	RedisAddr   string
+	JWTSecret   string
+	StoragePath string
+	AppEnv      string
+
+	// Storage driver: "local" (default) or "s3"
+	StorageDriver string
+	S3Endpoint    string // optional; defaults to AWS regional endpoint
+	S3Bucket      string
+	S3Region      string
+	S3AccessKey   string
+	S3SecretKey   string
+
+	// Database connection pool
+	DBMaxOpenConns int // DB_MAX_OPEN_CONNS, default 25
+	DBMaxIdleConns int // DB_MAX_IDLE_CONNS, default 10
 	SMTPHost             string
 	SMTPPort             string
 	SMTPUser             string
@@ -110,8 +125,23 @@ type Config struct {
 	APNSTeamID   string
 	APNSKeyPath  string
 	APNSBundleID string
-	// PostgREST
-	PostgRESTURL string
+
+	// Credentials vault — dedicated AES-256-GCM key separate from JWT_SECRET.
+	// Generate: openssl rand -hex 32
+	// If unset, falls back to JWT_SECRET (key_version=0, not recommended for production).
+	CredentialsEncryptionKey string
+
+	// Console OAuth — for admin console login (separate from per-project OAuth)
+	ConsoleGitHubClientID     string
+	ConsoleGitHubClientSecret string
+	ConsoleGoogleClientID     string
+	ConsoleGoogleClientSecret string
+	// Console SSO — generic OIDC for enterprise IdPs (Okta, Auth0, Azure AD, etc.)
+	ConsoleSSOClientID     string
+	ConsoleSSOClientSecret string
+	ConsoleSSOAuthURL      string
+	ConsoleSSOTokenURL     string
+	ConsoleSSOUserInfoURL  string
 }
 
 func Load() *Config {
@@ -122,13 +152,21 @@ func Load() *Config {
 		JWTSecret:   getEnv("JWT_SECRET", "change-me-in-production"),
 		StoragePath: getEnv("STORAGE_PATH", "/var/applad/storage"),
 		AppEnv:      getEnv("APP_ENV", "development"),
+
+		StorageDriver:  getEnv("STORAGE_DRIVER", "local"),
+		S3Endpoint:     getEnv("S3_ENDPOINT", ""),
+		S3Bucket:       getEnv("S3_BUCKET", ""),
+		S3Region:       getEnv("S3_REGION", "us-east-1"),
+		S3AccessKey:    getEnv("S3_ACCESS_KEY_ID", ""),
+		S3SecretKey:    getEnv("S3_SECRET_ACCESS_KEY", ""),
+		DBMaxOpenConns: getEnvInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns: getEnvInt("DB_MAX_IDLE_CONNS", 10),
 		SMTPHost:    getEnv("SMTP_HOST", ""),
 		SMTPPort:    getEnv("SMTP_PORT", "587"),
 		SMTPUser:    getEnv("SMTP_USER", ""),
 		SMTPPass:    getEnv("SMTP_PASS", ""),
 		SMTPFrom:             getEnv("SMTP_FROM", "noreply@applad.local"),
 		ConsoleSignupEnabled: getEnv("CONSOLE_SIGNUP_ENABLED", "auto"),
-		PostgRESTURL:         getEnv("POSTGREST_URL", "http://postgrest:3000"),
 		GoogleClientID:       getEnv("OAUTH_GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret:   getEnv("OAUTH_GOOGLE_CLIENT_SECRET", ""),
 		GitHubClientID:       getEnv("OAUTH_GITHUB_CLIENT_ID", ""),
@@ -215,12 +253,33 @@ func Load() *Config {
 		APNSTeamID:           getEnv("APNS_TEAM_ID", ""),
 		APNSKeyPath:          getEnv("APNS_KEY_PATH", ""),
 		APNSBundleID:         getEnv("APNS_BUNDLE_ID", ""),
+
+		CredentialsEncryptionKey: getEnv("CREDENTIALS_ENCRYPTION_KEY", ""),
+
+		ConsoleGitHubClientID:     getEnv("CONSOLE_GITHUB_CLIENT_ID", ""),
+		ConsoleGitHubClientSecret: getEnv("CONSOLE_GITHUB_CLIENT_SECRET", ""),
+		ConsoleGoogleClientID:     getEnv("CONSOLE_GOOGLE_CLIENT_ID", ""),
+		ConsoleGoogleClientSecret: getEnv("CONSOLE_GOOGLE_CLIENT_SECRET", ""),
+		ConsoleSSOClientID:        getEnv("CONSOLE_SSO_CLIENT_ID", ""),
+		ConsoleSSOClientSecret:    getEnv("CONSOLE_SSO_CLIENT_SECRET", ""),
+		ConsoleSSOAuthURL:         getEnv("CONSOLE_SSO_AUTH_URL", ""),
+		ConsoleSSOTokenURL:        getEnv("CONSOLE_SSO_TOKEN_URL", ""),
+		ConsoleSSOUserInfoURL:     getEnv("CONSOLE_SSO_USERINFO_URL", ""),
 	}
 }
 
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
 	}
 	return fallback
 }

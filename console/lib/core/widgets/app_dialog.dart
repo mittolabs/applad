@@ -150,6 +150,41 @@ class _AppDialogShell extends StatelessWidget {
   }
 }
 
+/// Public widget that can be returned directly from a [showDialog] builder.
+/// Equivalent to [showAppDialog] but usable as a widget.
+class AppDialog extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final Widget content;
+  final List<Widget> actions;
+  final double width;
+
+  const AppDialog({
+    super.key,
+    required this.title,
+    this.subtitle,
+    required this.content,
+    this.actions = const [],
+    this.width = 440,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: _AppDialogShell(
+          title: title,
+          subtitle: subtitle,
+          width: width,
+          actions: actions,
+          child: content,
+        ),
+      ),
+    );
+  }
+}
+
 // ── Shared dialog input field ────────────────────────────────────────────────
 
 class AppDialogField extends StatelessWidget {
@@ -216,6 +251,74 @@ class AppDialogField extends StatelessWidget {
               borderSide: const BorderSide(color: _accent),
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Shared dialog select (dropdown) ─────────────────────────────────────────
+
+class AppSelectField<T> extends StatelessWidget {
+  final T? value;
+  final String? label;
+  final String? hint;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?>? onChanged;
+
+  const AppSelectField({
+    super.key,
+    required this.value,
+    this.label,
+    this.hint,
+    required this.items,
+    this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = consoleColors(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (label != null) ...[
+          Text(label!,
+              style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500)),
+          const SizedBox(height: 6),
+        ],
+        DropdownButtonFormField<T>(
+          value: value,
+          dropdownColor: colors.surface,
+          style: TextStyle(color: colors.textPrimary, fontSize: 13),
+          hint: hint != null
+              ? Text(hint!, style: TextStyle(color: colors.textSubtle, fontSize: 13))
+              : null,
+          icon: Icon(Icons.keyboard_arrow_down_rounded,
+              size: 18, color: colors.textSubtle),
+          decoration: InputDecoration(
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            filled: true,
+            fillColor: colors.fieldFill,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: colors.fieldBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: colors.fieldBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: _accent),
+            ),
+          ),
+          items: items,
+          onChanged: onChanged,
         ),
       ],
     );

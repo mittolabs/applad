@@ -9,6 +9,7 @@ import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/id_text.dart';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Constants & theme
@@ -2923,10 +2924,7 @@ class _EditorState extends ConsumerState<_Editor> {
                             : LucideIcons.clock,
                     size: 18,
                     color: sc),
-                title: Text(
-                    idStr.length > 12 ? idStr.substring(0, 12) : idStr,
-                  style: TextStyle(
-                    color: colors.textPrimary, fontSize: 13)),
+                title: IdText(id: idStr),
                 subtitle: Text('$st  •  ${dur}ms',
                   style: TextStyle(color: colors.textSubtle, fontSize: 11)),
                 children: logs.map((l) {

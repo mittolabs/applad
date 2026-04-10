@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/mittolabs/applad/internal/db"
@@ -28,10 +27,8 @@ var safeSchemaSegment = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
 // Service handles database, table, column, and row operations.
 type Service struct {
-	db           *db.DB
-	events       realtime.EventPublisher
-	postgrestURL string
-	jwtSecret    string
+	db     *db.DB
+	events realtime.EventPublisher
 }
 
 type sqlContextExecutor interface {
@@ -41,17 +38,8 @@ type sqlContextExecutor interface {
 }
 
 // NewService creates a new databases service.
-// Optional args: postgrestURL, jwtSecret.
-func NewService(database *db.DB, args ...string) *Service {
-	postgrestURL := "http://postgrest:3000"
-	jwtSecret := ""
-	if len(args) > 0 && args[0] != "" {
-		postgrestURL = args[0]
-	}
-	if len(args) > 1 {
-		jwtSecret = args[1]
-	}
-	return &Service{db: database, postgrestURL: postgrestURL, jwtSecret: jwtSecret}
+func NewService(database *db.DB) *Service {
+	return &Service{db: database}
 }
 
 // SetEventPublisher wires realtime event publishing into the service.
@@ -71,12 +59,8 @@ func pgLiteral(value string) string {
 	return `'` + strings.ReplaceAll(value, `'`, `''`) + `'`
 }
 
-func (s *Service) notifyPostgREST(ctx context.Context) {
-	s.db.ExecContext(ctx, "NOTIFY pgrst, 'reload schema'") //nolint:errcheck
-}
-
-type postgrestClaims struct {
-	jwt.RegisteredClaims
+// sessionClaims are marshaled into the PostgreSQL session config for RLS evaluation.
+type sessionClaims struct {
 	Role      string   `json:"role"`
 	ProjectID string   `json:"project_id"`
 	UserID    string   `json:"user_id,omitempty"`
@@ -104,40 +88,6 @@ func uniqueSortedRoles(roles []string) []string {
 	}
 	sort.Strings(normalized)
 	return normalized
-}
-
-func (s *Service) signedPostgRESTJWT(projectID, userID string, roles []string) (string, error) {
-	if strings.TrimSpace(s.jwtSecret) == "" {
-		return "", nil
-	}
-	claims := postgrestClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   userID,
-			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(5 * time.Minute)),
-		},
-		Role:      "applad_user",
-		ProjectID: projectID,
-		UserID:    userID,
-		Roles:     normalizeRoles(userID, roles),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.jwtSecret))
-}
-
-func (s *Service) postgrestHeaders(projectID, userID string, roles []string, extra map[string]string) (map[string]string, error) {
-	headers := map[string]string{}
-	for key, value := range extra {
-		headers[key] = value
-	}
-	token, err := s.signedPostgRESTJWT(projectID, userID, roles)
-	if err != nil {
-		return nil, err
-	}
-	if token != "" {
-		headers["Authorization"] = "Bearer " + token
-	}
-	return headers, nil
 }
 
 func policyRoleExpression(roles []string) string {
@@ -191,8 +141,17 @@ func toSQLType(columnType string, options map[string]interface{}) string {
 	switch columnType {
 	case "string":
 		if options != nil {
-			if size, ok := options["size"].(float64); ok && size > 0 {
-				return fmt.Sprintf("VARCHAR(%d)", int(size))
+			var size int
+			switch v := options["size"].(type) {
+			case float64:
+				size = int(v)
+			case int:
+				size = v
+			case int64:
+				size = int(v)
+			}
+			if size > 0 {
+				return fmt.Sprintf("VARCHAR(%d)", size)
 			}
 		}
 		return "TEXT"
@@ -218,10 +177,30 @@ func toSQLType(columnType string, options map[string]interface{}) string {
 func (s *Service) CreateDatabase(ctx context.Context, projectID, databaseID, name string) (*model.Database, error) {
 	id := uid.New(databaseID)
 	now := time.Now().UTC()
+	schema := schemaName(projectID, id)
+	roleAnon := schema + "_anon"
+	roleAuth := schema + "_authenticated"
 
-	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pgIdent(schemaName(projectID, id)))); err != nil {
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pgIdent(schema))); err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
+
+	// Create per-database roles for RLS evaluation.
+	// applad_user (the connection role) can SET ROLE to these for policy enforcement.
+	for _, role := range []string{roleAnon, roleAuth} {
+		s.db.ExecContext(ctx, fmt.Sprintf( //nolint:errcheck
+			`DO $$ BEGIN
+				IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = %s) THEN
+					CREATE ROLE %s NOLOGIN;
+				END IF;
+			END $$`,
+			pgLiteral(role), pgIdent(role),
+		))
+	}
+	s.db.ExecContext(ctx, fmt.Sprintf( //nolint:errcheck
+		"GRANT USAGE ON SCHEMA %s TO %s, %s",
+		pgIdent(schema), pgIdent(roleAnon), pgIdent(roleAuth),
+	))
 
 	if _, err := s.db.ExecContext(ctx,
 		"INSERT INTO databases (id, project_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -230,7 +209,6 @@ func (s *Service) CreateDatabase(ctx context.Context, projectID, databaseID, nam
 		return nil, fmt.Errorf("create database metadata: %w", err)
 	}
 
-	s.notifyPostgREST(ctx)
 	return &model.Database{ID: id, Name: name, Enabled: true, CreatedAt: now, UpdatedAt: now}, nil
 }
 
@@ -299,7 +277,6 @@ func (s *Service) DeleteDatabase(ctx context.Context, databaseID, projectID stri
 	); err != nil {
 		return err
 	}
-	s.notifyPostgREST(ctx)
 	return nil
 }
 
@@ -319,16 +296,22 @@ func (s *Service) CreateTable(ctx context.Context, projectID, databaseID, tableI
 		return nil, fmt.Errorf("create table: %w", err)
 	}
 
-	triggerSQL := fmt.Sprintf(
+	s.db.ExecContext(ctx, fmt.Sprintf( //nolint:errcheck
 		"CREATE TRIGGER set_updated_at BEFORE UPDATE ON %s.%s FOR EACH ROW EXECUTE FUNCTION applad_set_updated_at()",
 		pgIdent(schema), pgIdent(name),
-	)
-	s.db.ExecContext(ctx, triggerSQL) //nolint:errcheck
-	notifySQL := fmt.Sprintf(
+	))
+	s.db.ExecContext(ctx, fmt.Sprintf( //nolint:errcheck
 		"CREATE TRIGGER notify_changes AFTER INSERT OR UPDATE OR DELETE ON %s.%s FOR EACH ROW EXECUTE FUNCTION applad_notify_change()",
 		pgIdent(schema), pgIdent(name),
-	)
-	s.db.ExecContext(ctx, notifySQL) //nolint:errcheck
+	))
+
+	// Grant table access to the per-database RLS roles so policies can evaluate.
+	roleAnon := schema + "_anon"
+	roleAuth := schema + "_authenticated"
+	s.db.ExecContext(ctx, fmt.Sprintf( //nolint:errcheck
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON %s.%s TO %s, %s",
+		pgIdent(schema), pgIdent(name), pgIdent(roleAnon), pgIdent(roleAuth),
+	))
 
 	if rowSecurity {
 		s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s ENABLE ROW LEVEL SECURITY", pgIdent(schema), pgIdent(name))) //nolint:errcheck
@@ -352,7 +335,6 @@ func (s *Service) CreateTable(ctx context.Context, projectID, databaseID, tableI
 		}
 	}
 
-	s.notifyPostgREST(ctx)
 	return &model.Table{
 		ID: id, DatabaseID: databaseID, Name: name, Enabled: true,
 		RowSecurity: rowSecurity, Permissions: permissions,
@@ -406,13 +388,45 @@ func (s *Service) ListTables(ctx context.Context, databaseID, projectID string) 
 	return tables, len(tables), nil
 }
 
-func (s *Service) UpdateTable(ctx context.Context, tableID, databaseID, projectID, name string, permissions []string, enabled bool) (*model.Table, error) {
+func (s *Service) UpdateTable(ctx context.Context, tableID, databaseID, projectID, name string, permissions []string, enabled *bool, rowSecurity *bool) (*model.Table, error) {
+	// Load current table to preserve unchanged fields.
+	current, err := s.GetTable(ctx, tableID, databaseID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	newEnabled := current.Enabled
+	if enabled != nil {
+		newEnabled = *enabled
+	}
+	newRowSecurity := current.RowSecurity
+	if rowSecurity != nil {
+		newRowSecurity = *rowSecurity
+	}
+	newName := current.Name
+	if name != "" {
+		newName = name
+	}
+	if len(permissions) == 0 {
+		permissions = current.Permissions
+	}
 	permissionsJSON, _ := json.Marshal(permissions)
 	if _, err := s.db.ExecContext(ctx,
-		"UPDATE tables SET name = ?, enabled = ?, permissions = ?, updated_at = ? WHERE id = ? AND database_id = ? AND project_id = ?",
-		name, enabled, permissionsJSON, time.Now().UTC(), tableID, databaseID, projectID,
+		"UPDATE tables SET name = ?, enabled = ?, row_security = ?, permissions = ?, updated_at = ? WHERE id = ? AND database_id = ? AND project_id = ?",
+		newName, newEnabled, newRowSecurity, permissionsJSON, time.Now().UTC(), tableID, databaseID, projectID,
 	); err != nil {
 		return nil, err
+	}
+	if rowSecurity != nil && *rowSecurity != current.RowSecurity {
+		tableCtx, err := s.lookupTableContext(ctx, tableID)
+		if err == nil {
+			if *rowSecurity {
+				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s ENABLE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name)))  //nolint:errcheck
+				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s FORCE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name)))   //nolint:errcheck
+				s.syncRLSPolicies(ctx, tableCtx)                                                                                                       //nolint:errcheck
+			} else {
+				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s DISABLE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name))) //nolint:errcheck
+			}
+		}
 	}
 	return s.GetTable(ctx, tableID, databaseID, projectID)
 }
@@ -430,11 +444,10 @@ func (s *Service) DeleteTable(ctx context.Context, tableID, databaseID, projectI
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM tables WHERE id = ? AND project_id = ?", tableID, projectID); err != nil {
 		return err
 	}
-	s.notifyPostgREST(ctx)
 	return nil
 }
 
-func (s *Service) CreateColumn(ctx context.Context, tableID, key, columnType string, required, array bool, defaultValue interface{}, options map[string]interface{}) (*model.Column, error) {
+func (s *Service) CreateColumn(ctx context.Context, tableID, key, columnType string, required, array bool, defaultValue interface{}, options map[string]interface{}, validation *model.ColumnValidation) (*model.Column, error) {
 	tableContext, err := s.lookupTableContext(ctx, tableID)
 	if err != nil {
 		return nil, err
@@ -457,10 +470,16 @@ func (s *Service) CreateColumn(ctx context.Context, tableID, key, columnType str
 	if defaultValue != nil {
 		defaultJSON, _ = json.Marshal(defaultValue)
 	}
+	validationJSON := []byte("{}")
+	if validation != nil {
+		if b, err := json.Marshal(validation); err == nil {
+			validationJSON = b
+		}
+	}
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO columns (id, table_id, key_name, type, required, "array", default_value, options, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'available', ?)`,
-		uid.New("unique()"), tableID, key, columnType, required, array, defaultJSON, optionsJSON, time.Now().UTC(),
+		`INSERT INTO columns (id, table_id, key_name, type, required, "array", default_value, options, validation, permissions, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '["read","write"]', 'available', ?)`,
+		uid.New("unique()"), tableID, key, columnType, required, array, defaultJSON, optionsJSON, validationJSON, time.Now().UTC(),
 	); err != nil {
 		return nil, fmt.Errorf("insert column metadata: %w", err)
 	}
@@ -468,13 +487,12 @@ func (s *Service) CreateColumn(ctx context.Context, tableID, key, columnType str
 		return nil, err
 	}
 
-	s.notifyPostgREST(ctx)
-	return &model.Column{Key: key, Type: columnType, Status: "available", Required: required, Array: array, Default: defaultValue, Options: options}, nil
+	return &model.Column{Key: key, Type: columnType, Status: "available", Required: required, Array: array, Default: defaultValue, Options: options, Validation: validation, Permissions: []string{"read", "write"}}, nil
 }
 
 func (s *Service) ListColumns(ctx context.Context, tableID string) ([]model.Column, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key_name, type, status, required, "array", default_value, COALESCE(options, '{}')
+		`SELECT key_name, type, status, required, "array", default_value, COALESCE(options, '{}'), COALESCE(validation, '{}'), COALESCE(permissions, '["read","write"]')
 		 FROM columns WHERE table_id = ? ORDER BY created_at ASC`,
 		tableID,
 	)
@@ -488,7 +506,9 @@ func (s *Service) ListColumns(ctx context.Context, tableID string) ([]model.Colu
 		var column model.Column
 		var defaultJSON []byte
 		var optionsJSON []byte
-		if err := rows.Scan(&column.Key, &column.Type, &column.Status, &column.Required, &column.Array, &defaultJSON, &optionsJSON); err != nil {
+		var validationJSON []byte
+		var permsJSON []byte
+		if err := rows.Scan(&column.Key, &column.Type, &column.Status, &column.Required, &column.Array, &defaultJSON, &optionsJSON, &validationJSON, &permsJSON); err != nil {
 			return nil, err
 		}
 		if len(defaultJSON) > 0 {
@@ -497,12 +517,160 @@ func (s *Service) ListColumns(ctx context.Context, tableID string) ([]model.Colu
 		if len(optionsJSON) > 0 {
 			json.Unmarshal(optionsJSON, &column.Options) //nolint:errcheck
 		}
+		if len(validationJSON) > 2 { // skip empty {}
+			var v model.ColumnValidation
+			if json.Unmarshal(validationJSON, &v) == nil {
+				column.Validation = &v
+			}
+		}
+		if len(permsJSON) > 0 {
+			json.Unmarshal(permsJSON, &column.Permissions) //nolint:errcheck
+		}
+		if column.Permissions == nil {
+			column.Permissions = []string{"read", "write"}
+		}
 		columns = append(columns, column)
 	}
 	if columns == nil {
 		columns = []model.Column{}
 	}
 	return columns, nil
+}
+
+// GetColumnPermissions returns the permissions for a specific column.
+func (s *Service) GetColumnPermissions(ctx context.Context, tableID, key string) ([]string, error) {
+	var permsJSON []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = ? AND key_name = ?`,
+		tableID, key,
+	).Scan(&permsJSON)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("column not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var perms []string
+	json.Unmarshal(permsJSON, &perms) //nolint:errcheck
+	if perms == nil {
+		perms = []string{"read", "write"}
+	}
+	return perms, nil
+}
+
+// SetColumnPermissions updates the permissions for a specific column.
+func (s *Service) SetColumnPermissions(ctx context.Context, tableID, key string, permissions []string) error {
+	permsJSON, _ := json.Marshal(permissions)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE columns SET permissions = ? WHERE table_id = ? AND key_name = ?`,
+		permsJSON, tableID, key,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("column not found")
+	}
+	return nil
+}
+
+// readableColumns returns a set of column keys that have "read" permission.
+// Columns with no explicit permissions default to allowing read.
+func (s *Service) readableColumns(ctx context.Context, tableID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key_name, COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = ?`,
+		tableID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool)
+	for rows.Next() {
+		var key string
+		var permsJSON []byte
+		if err := rows.Scan(&key, &permsJSON); err != nil {
+			continue
+		}
+		var perms []string
+		json.Unmarshal(permsJSON, &perms) //nolint:errcheck
+		readable := false
+		for _, p := range perms {
+			if p == "read" {
+				readable = true
+				break
+			}
+		}
+		result[key] = readable
+	}
+	return result, nil
+}
+
+// writableColumns returns a set of column keys that have "write" permission.
+func (s *Service) writableColumns(ctx context.Context, tableID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key_name, COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = ?`,
+		tableID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool)
+	for rows.Next() {
+		var key string
+		var permsJSON []byte
+		if err := rows.Scan(&key, &permsJSON); err != nil {
+			continue
+		}
+		var perms []string
+		json.Unmarshal(permsJSON, &perms) //nolint:errcheck
+		writable := false
+		for _, p := range perms {
+			if p == "write" {
+				writable = true
+				break
+			}
+		}
+		result[key] = writable
+	}
+	return result, nil
+}
+
+// applyReadFilter strips non-readable columns from row data.
+// If readCols is nil or empty, no filtering is applied.
+func applyReadFilter(rows []*model.Row, readCols map[string]bool) []*model.Row {
+	if len(readCols) == 0 {
+		return rows
+	}
+	for _, row := range rows {
+		if row.Data == nil {
+			continue
+		}
+		for k := range row.Data {
+			if allowed, exists := readCols[k]; exists && !allowed {
+				delete(row.Data, k)
+			}
+		}
+	}
+	return rows
+}
+
+// applyWriteFilter strips non-writable columns from data map.
+func applyWriteFilter(data map[string]interface{}, writeCols map[string]bool) map[string]interface{} {
+	if len(writeCols) == 0 {
+		return data
+	}
+	result := make(map[string]interface{}, len(data))
+	for k, v := range data {
+		if allowed, exists := writeCols[k]; !exists || allowed {
+			result[k] = v
+		}
+	}
+	return result
 }
 
 func (s *Service) DeleteColumn(ctx context.Context, tableID, key string) error {
@@ -519,7 +687,6 @@ func (s *Service) DeleteColumn(ctx context.Context, tableID, key string) error {
 	if err := s.syncRLSPolicies(ctx, tableContext); err != nil {
 		return err
 	}
-	s.notifyPostgREST(ctx)
 	return nil
 }
 
@@ -561,7 +728,6 @@ func (s *Service) CreateIndex(ctx context.Context, tableID, key, indexType strin
 		return nil, fmt.Errorf("insert index metadata: %w", err)
 	}
 
-	s.notifyPostgREST(ctx)
 	return &model.Index{Key: key, Type: indexType, Status: "available", Columns: columns, Orders: orders}, nil
 }
 
@@ -600,7 +766,6 @@ func (s *Service) DeleteIndex(ctx context.Context, tableID, key string) error {
 	}
 	s.db.ExecContext(ctx, fmt.Sprintf("DROP INDEX IF EXISTS %s.%s", pgIdent(tableContext.Schema), pgIdent(key))) //nolint:errcheck
 	s.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id = ? AND key_name = ?", tableID, key)               //nolint:errcheck
-	s.notifyPostgREST(ctx)
 	return nil
 }
 
@@ -654,7 +819,6 @@ func (s *Service) CreateRelationship(ctx context.Context, tableID, relatedTableI
 		return nil, fmt.Errorf("create relationship metadata: %w", err)
 	}
 
-	s.notifyPostgREST(ctx)
 	return &Relationship{ID: id, TableID: tableID, RelatedTable: relatedTableID, Type: relationType, TwoWay: twoWay, Key: key, TwoWayKey: twoWayKey, OnDelete: onDelete}, nil
 }
 
@@ -686,7 +850,16 @@ func (s *Service) ListRelationships(ctx context.Context, tableID string) ([]Rela
 }
 
 func (s *Service) DeleteRelationship(ctx context.Context, tableID, relationshipID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE id = ? AND table_id = ?", relationshipID, tableID)
+	leftTable, err := s.lookupTableContext(ctx, tableID)
+	if err != nil {
+		return err
+	}
+	fkName := "fk_" + relationshipID
+	ddl := fmt.Sprintf(`ALTER TABLE %s.%s DROP CONSTRAINT IF EXISTS %s`,
+		pgIdent(leftTable.Schema), pgIdent(leftTable.Name), pgIdent(fkName))
+	s.db.ExecContext(ctx, ddl) //nolint:errcheck
+
+	_, err = s.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE id = ? AND table_id = ?", relationshipID, tableID)
 	return err
 }
 
@@ -856,38 +1029,6 @@ type Query struct {
 	Values interface{}
 }
 
-func queryToPostgREST(query Query) (string, string) {
-	valueString := func(value interface{}) string { return fmt.Sprintf("%v", value) }
-	switch query.Method {
-	case "equal":
-		return query.Field, "eq." + valueString(query.Values)
-	case "notEqual":
-		return query.Field, "neq." + valueString(query.Values)
-	case "lessThan":
-		return query.Field, "lt." + valueString(query.Values)
-	case "lessThanEqual":
-		return query.Field, "lte." + valueString(query.Values)
-	case "greaterThan":
-		return query.Field, "gt." + valueString(query.Values)
-	case "greaterThanEqual":
-		return query.Field, "gte." + valueString(query.Values)
-	case "contains":
-		return query.Field, "like.*" + valueString(query.Values) + "*"
-	case "startsWith":
-		return query.Field, "like." + valueString(query.Values) + "*"
-	case "endsWith":
-		return query.Field, "like.*" + valueString(query.Values)
-	case "search":
-		return query.Field, "fts." + valueString(query.Values)
-	case "isNull":
-		return query.Field, "is.null"
-	case "isNotNull":
-		return query.Field, "not.is.null"
-	default:
-		return query.Field, "eq." + valueString(query.Values)
-	}
-}
-
 type tableContext struct {
 	ID         string
 	DatabaseID string
@@ -1034,9 +1175,15 @@ func (s *Service) syncRLSPolicies(ctx context.Context, table *tableContext) erro
 	return nil
 }
 
-func (s *Service) applySessionContext(ctx context.Context, exec sqlContextExecutor, projectID, userID string, roles []string) error {
-	claims, err := json.Marshal(postgrestClaims{
-		Role:      "applad_user",
+func (s *Service) applySessionContext(ctx context.Context, exec sqlContextExecutor, projectID, databaseID, userID string, roles []string) error {
+	schema := schemaName(projectID, databaseID)
+	pgRole := schema + "_authenticated"
+	if userID == "" {
+		pgRole = schema + "_anon"
+	}
+
+	claims, err := json.Marshal(sessionClaims{
+		Role:      pgRole,
 		ProjectID: projectID,
 		UserID:    userID,
 		Roles:     normalizeRoles(userID, roles),
@@ -1047,12 +1194,18 @@ func (s *Service) applySessionContext(ctx context.Context, exec sqlContextExecut
 	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.project_id', ?, true)", projectID); err != nil {
 		return err
 	}
+	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.database_id', ?, true)", databaseID); err != nil {
+		return err
+	}
 	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.user_id', ?, true)", userID); err != nil {
 		return err
 	}
 	if _, err := exec.ExecContext(ctx, "SELECT set_config('request.jwt.claims', ?, true)", string(claims)); err != nil {
 		return err
 	}
+	// SET LOCAL ROLE enforces RLS policies via the per-database role.
+	// Silently skip if the role doesn't exist yet (e.g. on old databases before migration).
+	exec.ExecContext(ctx, fmt.Sprintf("DO $$ BEGIN SET LOCAL ROLE %s; EXCEPTION WHEN undefined_object THEN NULL; END $$", pgIdent(pgRole))) //nolint:errcheck
 	return nil
 }
 
@@ -1070,7 +1223,7 @@ func (s *Service) prepareDirectAccessTx(ctx context.Context, projectID, database
 		tx.Rollback() //nolint:errcheck
 		return nil, "", err
 	}
-	if err := s.applySessionContext(ctx, tx, projectID, userID, roles); err != nil {
+	if err := s.applySessionContext(ctx, tx, projectID, databaseID, userID, roles); err != nil {
 		tx.Rollback() //nolint:errcheck
 		return nil, "", err
 	}
@@ -1241,6 +1394,73 @@ func queryToWhereSQL(queries []Query) (string, []interface{}) {
 	return "WHERE " + strings.Join(conditions, " AND "), args
 }
 
+// ValidationErr is returned when row data fails column validation rules.
+type ValidationErr struct {
+	Field   string
+	Rule    string
+	Message string
+}
+
+func (e *ValidationErr) Error() string {
+	return fmt.Sprintf("field %q: %s", e.Field, e.Message)
+}
+
+// validateRowData checks each column's validation rules against the provided data.
+// Returns the first validation error found, or nil if all rules pass.
+func (s *Service) validateRowData(ctx context.Context, tableID string, data map[string]interface{}) *ValidationErr {
+	columns, err := s.ListColumns(ctx, tableID)
+	if err != nil {
+		return nil // don't block on metadata errors
+	}
+	for _, col := range columns {
+		if col.Validation == nil {
+			continue
+		}
+		v := col.Validation
+		val, exists := data[col.Key]
+		if !exists {
+			continue
+		}
+		customMsg := v.Message
+
+		switch tv := val.(type) {
+		case string:
+			ruleMsg := func(rule, dflt string) string {
+				if customMsg != "" {
+					return customMsg
+				}
+				return dflt
+			}
+			if v.MinLength != nil && len(tv) < *v.MinLength {
+				return &ValidationErr{Field: col.Key, Rule: "minLength", Message: ruleMsg("minLength", fmt.Sprintf("%s must be at least %d characters", col.Key, *v.MinLength))}
+			}
+			if v.MaxLength != nil && len(tv) > *v.MaxLength {
+				return &ValidationErr{Field: col.Key, Rule: "maxLength", Message: ruleMsg("maxLength", fmt.Sprintf("%s must be at most %d characters", col.Key, *v.MaxLength))}
+			}
+			if v.Pattern != "" {
+				re, err := regexp.Compile(v.Pattern)
+				if err == nil && !re.MatchString(tv) {
+					return &ValidationErr{Field: col.Key, Rule: "pattern", Message: ruleMsg("pattern", fmt.Sprintf("%s does not match required pattern", col.Key))}
+				}
+			}
+		case float64:
+			ruleMsg := func(rule, dflt string) string {
+				if customMsg != "" {
+					return customMsg
+				}
+				return dflt
+			}
+			if v.Min != nil && tv < *v.Min {
+				return &ValidationErr{Field: col.Key, Rule: "min", Message: ruleMsg("min", fmt.Sprintf("%s must be at least %g", col.Key, *v.Min))}
+			}
+			if v.Max != nil && tv > *v.Max {
+				return &ValidationErr{Field: col.Key, Rule: "max", Message: ruleMsg("max", fmt.Sprintf("%s must be at most %g", col.Key, *v.Max))}
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Service) CreateRow(ctx context.Context, projectID, databaseID, tableID, rowID string, data map[string]interface{}, permissions []string) (*model.Row, error) {
 	return s.CreateRowWithAuth(ctx, projectID, databaseID, tableID, rowID, data, permissions, "", []string{"service"})
 }
@@ -1258,6 +1478,17 @@ func (s *Service) CreateRowWithAuth(ctx context.Context, projectID, databaseID, 
 	if data == nil {
 		data = map[string]interface{}{}
 	}
+
+	// Enforce column validation rules before writing.
+	if verr := s.validateRowData(ctx, tableID, data); verr != nil {
+		return nil, verr
+	}
+
+	// Apply column-level write permissions.
+	if writeCols, err := s.writableColumns(ctx, tableID); err == nil {
+		data = applyWriteFilter(data, writeCols)
+	}
+
 	if rowID == "" {
 		rowID = uid.New("")
 	}
@@ -1327,6 +1558,12 @@ func (s *Service) GetRowWithAuth(ctx context.Context, rowID, tableID, databaseID
 			return nil, err
 		}
 	}
+
+	// Apply column-level read permissions.
+	if readCols, err := s.readableColumns(ctx, tableID); err == nil {
+		applyReadFilter([]*model.Row{row}, readCols)
+	}
+
 	return row, nil
 }
 
@@ -1400,6 +1637,12 @@ func (s *Service) ListRowsWithAuth(ctx context.Context, projectID, databaseID, t
 	if err := sqlRows.Err(); err != nil {
 		return nil, 0, err
 	}
+
+	// Apply column-level read permissions.
+	if readCols, err := s.readableColumns(ctx, tableID); err == nil {
+		result = applyReadFilter(result, readCols)
+	}
+
 	return result, total, nil
 }
 
@@ -1423,6 +1666,16 @@ func (s *Service) UpdateRowWithAuth(ctx context.Context, rowID, tableID, databas
 	}
 	if data == nil {
 		data = map[string]interface{}{}
+	}
+
+	// Enforce column validation rules before writing.
+	if verr := s.validateRowData(ctx, tableID, data); verr != nil {
+		return nil, verr
+	}
+
+	// Apply column-level write permissions.
+	if writeCols, err := s.writableColumns(ctx, tableID); err == nil {
+		data = applyWriteFilter(data, writeCols)
 	}
 
 	keys := make([]string, 0, len(data))
@@ -1798,7 +2051,7 @@ func (s *Service) ImportCSV(ctx context.Context, projectID, databaseID, tableID 
 		return result, nil
 	}
 
-	claims, err := json.Marshal(postgrestClaims{
+	claims, err := json.Marshal(sessionClaims{
 		Role:      "applad_user",
 		ProjectID: projectID,
 		Roles:     normalizeRoles("", []string{"service"}),

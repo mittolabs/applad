@@ -8,65 +8,68 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
+	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/redis/go-redis/v9"
 )
 
 type Webhooks struct {
 	cfg    *config.Config
-	stop   chan struct{}
 	queue  *queue.Queue
 	client *http.Client
 }
 
 func NewWebhooks(cfg *config.Config) *Webhooks {
-	return &Webhooks{cfg: cfg, stop: make(chan struct{})}
+	return &Webhooks{cfg: cfg}
 }
 
-func (w *Webhooks) Start() error {
+func (w *Webhooks) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
 	w.client = &http.Client{Timeout: 30 * time.Second}
+	w.queue.StartReaper(ctx, "webhooks")
 
-	log.Println("webhooks worker: listening for jobs")
+	slog.Info("webhooks worker: listening for jobs")
 
-	ctx := context.Background()
 	for {
-		select {
-		case <-w.stop:
-			return nil
-		default:
-			job, err := w.queue.Pop(ctx, "webhooks")
-			if err != nil {
-				log.Printf("webhooks worker: pop error: %v", err)
-				continue
+		receipt, err := w.queue.Pop(ctx, "webhooks")
+		if err != nil {
+			if ctx.Err() != nil {
+				slog.Info("webhooks worker: shutting down")
+				return nil
 			}
-			if job == nil {
-				continue
-			}
-			w.process(ctx, job)
+			slog.Error("webhooks worker: pop error", "error", err)
+			continue
+		}
+		if receipt == nil {
+			continue
+		}
+		Heartbeat()
+		if processErr := w.process(ctx, receipt.Job); processErr != nil {
+			metrics.QueueJobs.Inc("webhooks", "failed")
+			receipt.Nack()
+		} else {
+			metrics.QueueJobs.Inc("webhooks", "completed")
+			receipt.Ack()
 		}
 	}
 }
 
-func (w *Webhooks) process(ctx context.Context, job *queue.Job) {
-	log.Printf("webhooks worker: processing job %s", job.ID)
-
+func (w *Webhooks) process(ctx context.Context, job *queue.Job) error {
 	url, _ := job.Payload["url"].(string)
 	event, _ := job.Payload["event"].(string)
 	secret, _ := job.Payload["secret"].(string)
 
 	if url == "" {
-		log.Printf("webhooks worker: job %s missing url", job.ID)
-		return
+		slog.Warn("webhooks worker: job missing url", "job_id", job.ID)
+		return nil
 	}
 
-	// Build webhook payload
 	payload := map[string]interface{}{
 		"event":     event,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
@@ -74,27 +77,22 @@ func (w *Webhooks) process(ctx context.Context, job *queue.Job) {
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("webhooks worker: marshal error: %v", err)
-		return
+		return err
 	}
 
-	// Retry up to 3 times with exponential backoff
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
-			backoff := time.Duration(1<<uint(attempt)) * time.Second
-			time.Sleep(backoff)
+			time.Sleep(time.Duration(1<<uint(attempt)) * time.Second)
 		}
-
 		lastErr = w.deliver(ctx, url, secret, body)
 		if lastErr == nil {
-			log.Printf("webhooks worker: delivered job %s to %s", job.ID, url)
-			return
+			slog.Info("webhooks worker: delivered", "job_id", job.ID, "url", url)
+			return nil
 		}
-		log.Printf("webhooks worker: attempt %d failed for %s: %v", attempt+1, url, lastErr)
+		slog.Warn("webhooks worker: attempt failed", "attempt", attempt+1, "url", url, "error", lastErr)
 	}
-
-	log.Printf("webhooks worker: giving up on job %s after 3 attempts: %v", job.ID, lastErr)
+	return fmt.Errorf("all 3 attempts failed: %w", lastErr)
 }
 
 func (w *Webhooks) deliver(ctx context.Context, url, secret string, body []byte) error {
@@ -105,12 +103,10 @@ func (w *Webhooks) deliver(ctx context.Context, url, secret string, body []byte)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Applad-Webhooks/1.0")
 
-	// Sign payload with HMAC-SHA256 if a secret is provided
 	if secret != "" {
 		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write(body)
-		sig := hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Applad-Signature", sig)
+		req.Header.Set("X-Applad-Signature", hex.EncodeToString(mac.Sum(nil)))
 	}
 
 	resp, err := w.client.Do(req)
@@ -118,11 +114,8 @@ func (w *Webhooks) deliver(ctx context.Context, url, secret string, body []byte)
 		return err
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
 	}
 	return nil
 }
-
-func (w *Webhooks) Stop() { close(w.stop) }

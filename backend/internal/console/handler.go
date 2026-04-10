@@ -4,25 +4,34 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
+	oauthpkg "github.com/mittolabs/applad/internal/oauth"
 )
 
 // Handler handles HTTP requests for console auth.
 type Handler struct {
 	svc           *Service
 	signupSetting string // "auto", "true", or "false"
+	providers     map[string]*oauthpkg.Provider
 }
 
 // NewHandler creates a new console auth Handler.
 func NewHandler(svc *Service, signupSetting string) *Handler {
-	return &Handler{svc: svc, signupSetting: signupSetting}
+	return &Handler{svc: svc, signupSetting: signupSetting, providers: map[string]*oauthpkg.Provider{}}
+}
+
+// SetProviders registers OAuth providers available for console login.
+func (h *Handler) SetProviders(p map[string]*oauthpkg.Provider) {
+	h.providers = p
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
@@ -33,6 +42,9 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/signup", h.signup)
 	r.Post("/login", h.login)
 	r.Get("/signup-status", h.signupStatus)
+	r.Get("/auth-providers", h.listAuthProviders)
+	r.Get("/auth/{provider}", h.oauthRedirect)
+	r.Get("/auth/{provider}/callback", h.oauthCallback)
 	r.Get("/me", h.getMe)
 	r.Patch("/me/name", h.updateName)
 	r.Patch("/me/email", h.updateEmail)
@@ -86,7 +98,9 @@ func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   8 * 3600, // 8 hours
 	})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -120,13 +134,121 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   8 * 3600, // 8 hours
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user":  user,
 		"token": token,
 	})
+}
+
+// listAuthProviders returns the names of OAuth providers configured for console login.
+func (h *Handler) listAuthProviders(w http.ResponseWriter, r *http.Request) {
+	names := make([]string, 0, len(h.providers))
+	for name := range h.providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"providers": names})
+}
+
+// oauthRedirect starts the OAuth2 flow for console login.
+func (h *Handler) oauthRedirect(w http.ResponseWriter, r *http.Request) {
+	providerName := chi.URLParam(r, "provider")
+	p, ok := h.providers[providerName]
+	if !ok {
+		apperr.BadRequest(w, "unsupported OAuth provider")
+		return
+	}
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	callbackURL := fmt.Sprintf("%s://%s/v1/console/auth/%s/callback", scheme, r.Host, providerName)
+	// State carries the post-login redirect target (validated on callback).
+	state := safeConsoleRedirect(r.URL.Query().Get("redirect"))
+	http.Redirect(w, r, p.GetAuthURL(callbackURL, state), http.StatusTemporaryRedirect)
+}
+
+// oauthCallback handles the OAuth2 provider callback for console login.
+func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
+	providerName := chi.URLParam(r, "provider")
+	p, ok := h.providers[providerName]
+	if !ok {
+		apperr.BadRequest(w, "unsupported OAuth provider")
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	// Re-validate the state redirect to prevent open-redirect via tampered state.
+	redirectTo := safeConsoleRedirect(r.URL.Query().Get("state"))
+
+	if code == "" {
+		http.Redirect(w, r, "/login?error=oauth_cancelled", http.StatusTemporaryRedirect)
+		return
+	}
+
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	callbackURL := fmt.Sprintf("%s://%s/v1/console/auth/%s/callback", scheme, r.Host, providerName)
+
+	ctx := r.Context()
+	accessToken, err := p.ExchangeCode(ctx, code, callbackURL)
+	if err != nil {
+		http.Redirect(w, r, "/login?error=oauth_failed", http.StatusTemporaryRedirect)
+		return
+	}
+
+	userInfo, err := p.GetUserInfo(ctx, accessToken)
+	if err != nil {
+		http.Redirect(w, r, "/login?error=oauth_failed", http.StatusTemporaryRedirect)
+		return
+	}
+
+	_, token, err := h.svc.LoginOrCreateByOAuth(ctx, userInfo.Email, userInfo.Name, providerName, h.signupSetting)
+	if err != nil {
+		if strings.Contains(err.Error(), "signup disabled") {
+			http.Redirect(w, r, "/login?error=signup_disabled", http.StatusTemporaryRedirect)
+		} else {
+			http.Redirect(w, r, "/login?error=oauth_failed", http.StatusTemporaryRedirect)
+		}
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "a_session_console",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   8 * 3600,
+	})
+
+	// Pass the token via query param so the Flutter SPA can capture it,
+	// store in localStorage, and complete the login without a round-trip.
+	dest := redirectTo
+	if dest == "/" || dest == "" {
+		dest = "/login"
+	}
+	http.Redirect(w, r, dest+"?console_token="+url.QueryEscape(token), http.StatusTemporaryRedirect)
+}
+
+// safeConsoleRedirect returns the URL only if relative (no scheme/host).
+func safeConsoleRedirect(raw string) string {
+	if raw == "" {
+		return "/login"
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "" || u.Host != "" {
+		return "/login"
+	}
+	return raw
 }
 
 func (h *Handler) signupStatus(w http.ResponseWriter, r *http.Request) {

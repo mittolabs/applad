@@ -1,4 +1,6 @@
 import type { ApplAdServer } from './client';
+import { QueryBuilder } from './query_builder';
+export type { QueryResult } from './query_builder';
 export declare class Databases {
     private client;
     constructor(client: ApplAdServer);
@@ -56,4 +58,18 @@ export declare class Databases {
         permissions?: string[];
     }): Promise<any>;
     deleteRow(databaseId: string, tableId: string, rowId: string): Promise<any>;
+    /**
+     * Returns a fluent {@link QueryBuilder} for the given table.
+     *
+     * @example
+     * ```ts
+     * const result = await server.databases
+     *   .from('myDb', 'orders')
+     *   .equal('status', 'pending')
+     *   .orderAsc('created_at')
+     *   .limit(50)
+     *   .get();
+     * ```
+     */
+    from(databaseId: string, tableId: string): QueryBuilder;
 }

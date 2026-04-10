@@ -3,13 +3,14 @@ import type { Applad } from './client';
 export class Functions {
   constructor(private client: Applad) {}
 
-  create(name: string, runtime: string, opts?: { entrypoint?: string; timeout?: number; vars?: Record<string, string>; source?: string }) {
+  create(name: string, runtime: string, opts?: { entrypoint?: string; timeout?: number; vars?: Record<string, string>; source?: string; cron?: string }) {
     return this.client.call('POST', '/functions', {
       name, runtime,
       entrypoint: opts?.entrypoint ?? 'index.handler',
       timeout: opts?.timeout ?? 15,
       vars: opts?.vars ?? {},
       source: opts?.source ?? '',
+      cron: opts?.cron ?? '',
     });
   }
 

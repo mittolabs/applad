@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Applad
 
-Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go backend, Flutter Web admin console. Runs as a single `docker compose up` with PostgreSQL, PostgREST, and Redis.
+Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go backend, Flutter Web admin console. Runs as a single `docker compose up` with PostgreSQL and Redis.
 
 ## Commands
 
@@ -17,7 +17,7 @@ make up / make down        # shortcuts
 
 To bring up only the backend (skips the slow Flutter console build):
 ```bash
-docker compose up api postgres postgrest redis proxy -d
+docker compose up api postgres redis proxy -d
 ```
 
 ### Backend (Go 1.22+)
@@ -84,7 +84,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 - `oauth` — OAuth2 provider definitions (Google, GitHub, Apple, Facebook, Discord, Twitter, Microsoft, Slack, Spotify, LinkedIn, GitLab, Bitbucket, Twitch, Notion, Stripe) + per-project config
 - `organizations` — multi-org support: CRUD, members, invites, project linking
 - `avatars` — generated images: initials PNG, QR SVG, credit card icons, country flags, favicon proxy
-- `databases` — schema orchestration in Go, row CRUD via PostgREST, RLS policy sync, tables/columns/indexes/relationships/rows
+- `databases` — schema orchestration in Go, row CRUD via direct SQL, RLS policy sync, tables/columns/indexes/relationships/rows
 - `functions` — serverless function management with pre-warming on create/update
 - `runtime` — container-based execution engine: Docker Engine API client, warm container pool (5min idle reaper), 8 runtime templates + custom Dockerfile, pre-built base images
 - `storage` — buckets, files, chunked uploads, image transformations (resize, format conversion), antivirus (ClamAV), S3/local drivers
@@ -103,7 +103,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 
 | Route | Auth | Description |
 |---|---|---|
-| `/health` | None | Health checks (server, DB, cache, PostgREST) |
+| `/health` | None | Health checks (server, DB, cache) |
 | `/console` (signup, login, me, me/name, me/email, me/password) | None / Console JWT | Admin console auth + profile management |
 | `/organizations` (CRUD + members + invites) | Console JWT | Multi-org management |
 | `/projects` (CRUD + keys + usage) | None | Project management |
@@ -194,7 +194,6 @@ Feature pages: `console/lib/features/`:
 | `api` | 8080 (internal) | Go API server |
 | `console` | 3000 (internal) | Flutter Web, served by nginx with SPA fallback |
 | `postgres` | internal | Primary store |
-| `postgrest` | 3000 (internal) | Auto-generated row CRUD over PostgreSQL schemas |
 | `redis` | internal | Cache + pub/sub + job queues |
 | `10 workers` | internal | builds (with Docker socket), certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks |
 | `clamav` | — | Off by default; enable with `--profile antivirus` |
@@ -207,7 +206,6 @@ Root-level `docker-compose.yml` — run from repo root with `docker compose up -
 |---|---|---|
 | `JWT_SECRET` | `change-me-in-production` | **Required.** HS256 signing key. Fatal error in production if unchanged. |
 | `DATABASE_DSN` | `postgres://applad:applad@postgres:5432/applad?sslmode=disable` | PostgreSQL DSN |
-| `POSTGREST_URL` | `http://postgrest:3000` | Internal PostgREST base URL |
 | `REDIS_ADDR` | `redis:6379` | Redis address |
 | `STORAGE_PATH` | `/var/applad/storage` | Local file storage path |
 | `APP_ENV` | `development` | `development` or `production` |

@@ -35,7 +35,6 @@ final _healthProvider = FutureProvider<Map<String, dynamic>>((ref) async {
     fetchCheck('/health', 'Gateway'),
     fetchCheck('/health/db', 'PostgreSQL'),
     fetchCheck('/health/cache', 'Redis'),
-    fetchCheck('/health/postgrest', 'PostgREST'),
   ]);
 
   final overall = checks.every((item) => item['status'] == 'pass')

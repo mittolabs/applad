@@ -5,12 +5,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
 	"github.com/mittolabs/applad/internal/middleware"
 )
+
+// e164Re validates E.164 phone numbers: +<country code><number>, 8–15 digits total.
+var e164Re = regexp.MustCompile(`^\+[1-9]\d{7,14}$`)
+
+// safeRedirectURL returns the URL only if it is relative (no scheme/host).
+// This prevents open-redirect attacks where attacker-controlled URLs are used.
+func safeRedirectURL(raw string) string {
+	if raw == "" {
+		return "/"
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "" || u.Host != "" {
+		return "/"
+	}
+	return raw
+}
 
 // EmailSender sends emails for auth flows.
 type EmailSender interface {
@@ -61,7 +79,7 @@ func NewHandler(svc *Service) *Handler {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
@@ -203,7 +221,7 @@ func (h *Handler) updateEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := h.svc.UpdateEmail(ctx, userID, projectID, body.Email, body.Password)
 	if err != nil {
-		apperr.BadRequest(w, err.Error())
+		apperr.BadRequest(w, "invalid email or password")
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
@@ -223,7 +241,7 @@ func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := h.svc.UpdatePassword(ctx, userID, projectID, body.Password, body.OldPassword)
 	if err != nil {
-		apperr.BadRequest(w, err.Error())
+		apperr.BadRequest(w, "invalid current password")
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
@@ -282,7 +300,9 @@ func (h *Handler) createEmailSession(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600, // 30 days
 	})
 	writeJSON(w, http.StatusCreated, sess)
 }
@@ -302,7 +322,9 @@ func (h *Handler) createAnonymousSession(w http.ResponseWriter, r *http.Request)
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600, // 30 days
 	})
 	// Set generic a_session cookie as fallback for middleware
 	http.SetCookie(w, &http.Cookie{
@@ -310,7 +332,9 @@ func (h *Handler) createAnonymousSession(w http.ResponseWriter, r *http.Request)
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600, // 30 days
 	})
 	writeJSON(w, http.StatusCreated, sess)
 }
@@ -577,7 +601,7 @@ func (h *Handler) verifyMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if err := h.svc.VerifyMFA(ctx, userID, projectID, body.Code); err != nil {
-		apperr.BadRequest(w, err.Error())
+		apperr.BadRequest(w, "invalid MFA code")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
@@ -638,12 +662,17 @@ func (h *Handler) redeemMagicLink(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, token, err := h.svc.RedeemMagicLink(r.Context(), projectID, body.Secret, r.RemoteAddr, r.UserAgent())
 	if err != nil {
-		apperr.BadRequest(w, err.Error())
+		apperr.BadRequest(w, "invalid or expired magic link")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: "a_session_" + projectID, Value: token, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Name:     "a_session_" + projectID,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600,
 	})
 	writeJSON(w, http.StatusOK, sess)
 }
@@ -693,7 +722,7 @@ func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.VerifyEmail(r.Context(), projectID, body.Secret); err != nil {
-		apperr.BadRequest(w, err.Error())
+		apperr.BadRequest(w, "invalid or expired verification token")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "verified"})
@@ -742,7 +771,7 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.ResetPassword(r.Context(), projectID, body.Secret, body.Password); err != nil {
-		apperr.BadRequest(w, err.Error())
+		apperr.BadRequest(w, "invalid or expired reset token")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
@@ -764,8 +793,9 @@ func (h *Handler) oauthRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectID := middleware.ProjectFromContext(r.Context())
-	successURL := r.URL.Query().Get("success")
-	failureURL := r.URL.Query().Get("failure")
+	// Validate redirect URLs are relative-only to prevent open-redirect attacks.
+	successURL := safeRedirectURL(r.URL.Query().Get("success"))
+	failureURL := safeRedirectURL(r.URL.Query().Get("failure"))
 
 	// Build callback URL
 	scheme := "https"
@@ -792,12 +822,12 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 	if code == "" {
-		errMsg := r.URL.Query().Get("error")
-		apperr.BadRequest(w, "OAuth error: "+errMsg)
+		apperr.BadRequest(w, "OAuth authorization failed")
 		return
 	}
 
 	// Parse state: projectID|successURL|failureURL
+	// Re-validate URLs from state to guard against tampered state parameters.
 	parts := strings.SplitN(state, "|", 3)
 	projectID := ""
 	successURL := "/"
@@ -805,11 +835,11 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	if len(parts) >= 1 {
 		projectID = parts[0]
 	}
-	if len(parts) >= 2 && parts[1] != "" {
-		successURL = parts[1]
+	if len(parts) >= 2 {
+		successURL = safeRedirectURL(parts[1])
 	}
-	if len(parts) >= 3 && parts[2] != "" {
-		failureURL = parts[2]
+	if len(parts) >= 3 {
+		failureURL = safeRedirectURL(parts[2])
 	}
 
 	// Build callback URL for token exchange
@@ -847,7 +877,9 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600, // 30 days
 	})
 
 	_ = sess // session is set via cookie
@@ -863,6 +895,10 @@ func (h *Handler) sendPhoneOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Phone == "" {
 		apperr.BadRequest(w, "phone is required")
+		return
+	}
+	if !e164Re.MatchString(body.Phone) {
+		apperr.BadRequest(w, "phone must be in E.164 format (e.g. +15551234567)")
 		return
 	}
 	code, err := h.svc.SendPhoneOTP(r.Context(), projectID, body.Phone)
@@ -893,13 +929,17 @@ func (h *Handler) verifyPhoneOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, token, err := h.svc.VerifyPhoneOTP(r.Context(), projectID, body.Phone, body.Code, r.RemoteAddr, r.UserAgent())
 	if err != nil {
-		apperr.Write(w, http.StatusUnauthorized, "auth_invalid_otp", err.Error())
+		apperr.Write(w, http.StatusUnauthorized, "auth_invalid_otp", "invalid or expired OTP code")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: "a_session", Value: token, Path: "/",
-		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
-		MaxAge: 365 * 24 * 3600,
+		Name:     "a_session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600, // 30 days
 	})
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"session": sess, "token": token})
 }

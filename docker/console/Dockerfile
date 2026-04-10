@@ -10,7 +10,7 @@ RUN cd console && flutter pub get
 
 # Build
 COPY console/ ./console/
-RUN cd console && flutter build web --release
+RUN cd console && flutter build web --release --dart2js-optimization=O2
 
 FROM nginx:alpine
 COPY --from=builder /app/console/build/web /usr/share/nginx/html

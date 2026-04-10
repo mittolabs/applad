@@ -4,7 +4,9 @@ package workflows
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -42,6 +44,7 @@ type Workflow struct {
 	Status          string                 `json:"status"`
 	TriggerType     string                 `json:"triggerType"`
 	TriggerConfig   map[string]interface{} `json:"triggerConfig"`
+	WebhookSecret   string                 `json:"webhookSecret,omitempty"` // returned only on create
 	Nodes           []Node                 `json:"nodes"`
 	Edges           []Edge                 `json:"edges"`
 	ErrorWorkflowID string                 `json:"errorWorkflowId"`
@@ -129,10 +132,19 @@ func (s *Service) Create(ctx context.Context, projectID, name, description, trig
 	nodesJSON, _ := json.Marshal(nodes)
 	edgesJSON, _ := json.Marshal(edges)
 
+	// Generate a webhook secret for webhook-triggered workflows.
+	// Returned once on create; callers use it to verify X-Applad-Signature headers.
+	var webhookSecret string
+	if triggerType == "webhook" {
+		b := make([]byte, 32)
+		rand.Read(b) //nolint:errcheck
+		webhookSecret = hex.EncodeToString(b)
+	}
+
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO workflows (id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)`,
-		id, projectID, name, description, triggerType, tcJSON, nodesJSON, edgesJSON, now, now)
+		`INSERT INTO workflows (id, project_id, name, description, status, trigger_type, trigger_config, webhook_secret, nodes, edges, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
+		id, projectID, name, description, triggerType, tcJSON, nullableString(webhookSecret), nodesJSON, edgesJSON, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("workflows: create: %w", err)
 	}
@@ -140,8 +152,16 @@ func (s *Service) Create(ctx context.Context, projectID, name, description, trig
 	return &Workflow{
 		ID: id, ProjectID: projectID, Name: name, Description: description,
 		Status: "draft", TriggerType: triggerType, TriggerConfig: triggerConfig,
+		WebhookSecret: webhookSecret, // only populated on create response
 		Nodes: nodes, Edges: edges, CreatedAt: now, UpdatedAt: now,
 	}, nil
+}
+
+func nullableString(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // Get returns a workflow by ID.
@@ -187,14 +207,14 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Workflow, err
 func (s *Service) GetByID(ctx context.Context, id string) (*Workflow, error) {
 	var w Workflow
 	var tcJSON, nodesJSON, edgesJSON []byte
-	var desc, errorWfID sql.NullString
+	var desc, errorWfID, webhookSecret sql.NullString
 	var retryAttempts, retryDelayMs sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at,
+		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, webhook_secret, nodes, edges, created_at, updated_at,
 		        COALESCE(error_workflow_id, ''), COALESCE(retry_attempts, 0), COALESCE(retry_delay_ms, 0)
 		 FROM workflows WHERE id = ?`, id,
-	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
+	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &webhookSecret, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
 		&errorWfID, &retryAttempts, &retryDelayMs)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("workflow not found")
@@ -207,6 +227,7 @@ func (s *Service) GetByID(ctx context.Context, id string) (*Workflow, error) {
 	w.ErrorWorkflowID = errorWfID.String
 	w.RetryAttempts = int(retryAttempts.Int64)
 	w.RetryDelayMs = int(retryDelayMs.Int64)
+	w.WebhookSecret = webhookSecret.String
 	json.Unmarshal(tcJSON, &w.TriggerConfig)
 	json.Unmarshal(nodesJSON, &w.Nodes)
 	json.Unmarshal(edgesJSON, &w.Edges)

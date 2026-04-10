@@ -5,16 +5,13 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/id_text.dart';
 import '../../core/widgets/deploy_create_entry.dart';
 import '../../core/widgets/search_list.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/theme/console_colors.dart';
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _border = Color(0x14FFFFFF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 const _green = Color(0xFF10B981);
 const _red = Color(0xFFEF4444);
 const _orange = Color(0xFFF59E0B);
@@ -39,52 +36,69 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
   final _searchCtrl = TextEditingController();
   int _page = 1;
   int _perPage = 6;
+  late ConsoleColors _cs;
 
   @override
   Widget build(BuildContext context) {
+    _cs = consoleColors(context);
     if (_selectedId != null) return _detailView();
 
     final dataAsync = ref.watch(_containersProvider);
 
-    return Container(
-      color: _bg,
-      child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
-          child: Row(children: [
-            const Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Containers', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700)),
-                SizedBox(height: 4),
-                Text('Deploy Docker containers to any registry or platform',
-                    style: TextStyle(color: _dimText, fontSize: 14)),
-              ]),
+    return Scaffold(
+      backgroundColor: _cs.background,
+      body: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Containers',
+                      style: TextStyle(
+                          color: _cs.textPrimary,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600)),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _accent,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                  ),
+                  icon: const Icon(LucideIcons.plus, size: 16),
+                  label: const Text('Create container',
+                      style: TextStyle(fontSize: 13)),
+                  onPressed: _create,
+                ),
+              ],
             ),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: _accent,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            const SizedBox(height: 24),
+            Divider(height: 1, color: _cs.border),
+            const SizedBox(height: 20),
+            Expanded(
+              child: dataAsync.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator(color: _accent)),
+                error: (e, _) =>
+                    Center(child: Text('$e', style: TextStyle(color: _cs.textMuted))),
+                data: (data) {
+                  final targets = List<Map<String, dynamic>>.from(
+                      data['targets'] ?? []);
+                  if (targets.isEmpty) return _emptyState();
+                  return _list(targets);
+                },
               ),
-              icon: const Icon(LucideIcons.plus, size: 16),
-              label: const Text('Create container', style: TextStyle(fontSize: 13)),
-              onPressed: _create,
             ),
-          ]),
+          ],
         ),
-        const SizedBox(height: 24),
-        Expanded(
-          child: dataAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
-            error: (e, _) => Center(child: Text('$e', style: const TextStyle(color: _dimText))),
-            data: (data) {
-              final targets = List<Map<String, dynamic>>.from(data['targets'] ?? []);
-              if (targets.isEmpty) return _emptyState();
-              return _list(targets);
-            },
-          ),
-        ),
-      ]),
+      ),
     );
   }
 
@@ -96,9 +110,9 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
         child: const Icon(LucideIcons.box, size: 32, color: _accent),
       ),
       const SizedBox(height: 20),
-      const Text('No containers yet', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+      Text('No containers yet', style: TextStyle(color: _cs.textPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
-      const Text('Deploy your first Docker container', style: TextStyle(color: _dimText, fontSize: 14)),
+      Text('Deploy your first Docker container', style: TextStyle(color: _cs.textMuted, fontSize: 14)),
       const SizedBox(height: 24),
       FilledButton.icon(
         style: FilledButton.styleFrom(backgroundColor: _accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
@@ -110,9 +124,8 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
   );
 
   Widget _list(List<Map<String, dynamic>> targets) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(children: [
+    return Column(
+      children: [
         SearchListHeader(
           searchController: _searchCtrl,
           total: targets.length,
@@ -127,6 +140,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
         const SizedBox(height: 16),
         Expanded(
           child: ListView.separated(
+            padding: EdgeInsets.zero,
             itemCount: targets.length,
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (ctx, i) {
@@ -138,8 +152,8 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: _surface, borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _border),
+                      color: _cs.surface, borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _cs.border),
                     ),
                     child: Row(children: [
                       Container(
@@ -149,8 +163,8 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
                       ),
                       const SizedBox(width: 14),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(t['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
-                        Text(t['registryUrl'] ?? 'No registry configured', style: const TextStyle(color: _subtleText, fontSize: 12)),
+                        Text(t['name'] ?? '', style: TextStyle(color: _cs.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+                        Text(t['registryUrl'] ?? 'No registry configured', style: TextStyle(color: _cs.textSubtle, fontSize: 12)),
                       ])),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -164,7 +178,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
             },
           ),
         ),
-      ]),
+      ],
     );
   }
 
@@ -176,14 +190,14 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
         final target = snap.data as Map<String, dynamic>;
 
         return Container(
-          color: _bg,
+          color: _cs.background,
           child: Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(32, 20, 32, 16),
               child: Row(children: [
-                IconButton(icon: const Icon(LucideIcons.arrowLeft, size: 18, color: _dimText), onPressed: () => setState(() => _selectedId = null)),
+                IconButton(icon: Icon(LucideIcons.arrowLeft, size: 18, color: _cs.textMuted), onPressed: () => setState(() => _selectedId = null)),
                 const SizedBox(width: 8),
-                Expanded(child: Text(target['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600))),
+                Expanded(child: Text(target['name'] ?? '', style: TextStyle(color: _cs.textPrimary, fontSize: 20, fontWeight: FontWeight.w600))),
               ]),
             ),
             Padding(
@@ -226,11 +240,11 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
   Widget _infoCard(String label, String value) => Expanded(
     child: Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+      decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _cs.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: const TextStyle(color: _subtleText, fontSize: 12)),
+        Text(label, style: TextStyle(color: _cs.textSubtle, fontSize: 12)),
         const SizedBox(height: 6),
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+        Text(value, style: TextStyle(color: _cs.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
       ]),
     ),
   );
@@ -241,7 +255,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
       builder: (ctx, snap) {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: _accent));
         final images = List<Map<String, dynamic>>.from((snap.data as Map)['images'] ?? []);
-        if (images.isEmpty) return const Center(child: Text('No images pushed yet', style: TextStyle(color: _dimText)));
+        if (images.isEmpty) return Center(child: Text('No images pushed yet', style: TextStyle(color: _cs.textMuted)));
         return ListView.separated(
           padding: const EdgeInsets.all(32),
           itemCount: images.length,
@@ -250,14 +264,14 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
             final img = images[i];
             return Container(
               padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+              decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _cs.border)),
               child: Row(children: [
                 const Icon(LucideIcons.container, size: 16, color: _accent),
                 const SizedBox(width: 12),
-                Expanded(child: Text('${img['repository'] ?? ''}:${img['tag'] ?? 'latest'}', style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'))),
-                Text(img['platform'] ?? '', style: const TextStyle(color: _subtleText, fontSize: 11)),
+                Expanded(child: Text('${img['repository'] ?? ''}:${img['tag'] ?? 'latest'}', style: TextStyle(color: _cs.textPrimary, fontSize: 13, fontFamily: 'monospace'))),
+                Text(img['platform'] ?? '', style: TextStyle(color: _cs.textSubtle, fontSize: 11)),
                 const SizedBox(width: 12),
-                Text('${((img['sizeBytes'] ?? 0) / 1048576).toStringAsFixed(1)} MB', style: const TextStyle(color: _subtleText, fontSize: 11)),
+                Text('${((img['sizeBytes'] ?? 0) / 1048576).toStringAsFixed(1)} MB', style: TextStyle(color: _cs.textSubtle, fontSize: 11)),
               ]),
             );
           },
@@ -272,7 +286,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
       builder: (ctx, snap) {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: _accent));
         final releases = List<Map<String, dynamic>>.from((snap.data as Map)['releases'] ?? []);
-        if (releases.isEmpty) return const Center(child: Text('No releases yet', style: TextStyle(color: _dimText)));
+        if (releases.isEmpty) return Center(child: Text('No releases yet', style: TextStyle(color: _cs.textMuted)));
         return ListView.separated(
           padding: const EdgeInsets.all(32),
           itemCount: releases.length,
@@ -283,14 +297,14 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
             final sc = status == 'completed' ? _green : status == 'failed' ? _red : _orange;
             return Container(
               padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+              decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _cs.border)),
               child: Row(children: [
                 Container(width: 8, height: 8, decoration: BoxDecoration(color: sc, shape: BoxShape.circle)),
                 const SizedBox(width: 12),
-                Expanded(child: Text(r['\$id'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'))),
+                Expanded(child: IdText(id: r['\$id'] ?? '', fontSize: 12)),
                 Text(status, style: TextStyle(color: sc, fontSize: 12)),
                 const SizedBox(width: 16),
-                Text('${r['durationMs'] ?? 0}ms', style: const TextStyle(color: _subtleText, fontSize: 11)),
+                Text('${r['durationMs'] ?? 0}ms', style: TextStyle(color: _cs.textSubtle, fontSize: 11)),
               ]),
             );
           },
@@ -303,7 +317,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
     return Padding(
       padding: const EdgeInsets.all(32),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Container Settings', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        Text('Container Settings', style: TextStyle(color: _cs.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 24),
         _settingRow('Name', t['name'] ?? ''),
         _settingRow('Registry URL', t['registryUrl'] ?? '—'),
@@ -312,11 +326,11 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
         const SizedBox(height: 32),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withOpacity(0.3))),
+          decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withOpacity(0.3))),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('Danger zone', style: TextStyle(color: _red, fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            Text('Delete this container target and all its images.', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+            Text('Delete this container target and all its images.', style: TextStyle(color: _cs.textSubtle, fontSize: 13)),
             const SizedBox(height: 12),
             OutlinedButton(
               style: OutlinedButton.styleFrom(foregroundColor: _red, side: const BorderSide(color: _red)),
@@ -336,8 +350,8 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
   Widget _settingRow(String label, String value) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: Row(children: [
-      SizedBox(width: 140, child: Text(label, style: const TextStyle(color: _subtleText, fontSize: 13))),
-      Expanded(child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 13))),
+      SizedBox(width: 140, child: Text(label, style: TextStyle(color: _cs.textSubtle, fontSize: 13))),
+      Expanded(child: Text(value, style: TextStyle(color: _cs.textPrimary, fontSize: 13))),
     ]),
   );
 

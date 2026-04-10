@@ -116,8 +116,8 @@ func TestWriteJSON(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-		t.Fatalf("expected application/json, got %s", ct)
+	if ct := w.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("expected application/json; charset=utf-8, got %s", ct)
 	}
 
 	var result map[string]string

@@ -19,6 +19,7 @@ export 'src/server_client.dart';
 export 'src/server/billing.dart';
 export 'src/server/users.dart';
 export 'src/server/databases.dart';
+export 'src/query_builder.dart' show QueryBuilder, QueryResult;
 export 'src/server/storage.dart';
 export 'src/server/edge.dart';
 export 'src/server/functions.dart';
