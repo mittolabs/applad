@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="Applad" width="120" />
+  <img src="assets/logo.jpg" alt="Applad" width="150" />
 </p>
-
-<h1 align="center">Applad</h1>
 
 <p align="center">
   Open-source backend-as-a-service with a built-in workflow automation engine.<br/>
