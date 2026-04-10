@@ -3,6 +3,8 @@ package edge
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
@@ -31,6 +33,8 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/functions/{functionId}", h.delete)
 
 	// Deployments
+	r.Post("/functions/{functionId}/invoke", h.invoke)
+	r.Get("/functions/{functionId}/executions", h.listExecutions)
 	r.Post("/functions/{functionId}/deploy", h.deploy)
 	r.Get("/functions/{functionId}/deployments", h.listDeployments)
 
@@ -48,13 +52,21 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name    string            `json:"name"`
 		Slug    string            `json:"slug"`
+		Route   string            `json:"route"`
 		Code    string            `json:"code"`
 		Runtime string            `json:"runtime"`
 		Regions []string          `json:"regions"`
 		EnvVars map[string]string `json:"envVars"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
-		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name and slug are required")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name is required")
+		return
+	}
+	if body.Slug == "" {
+		body.Slug = edgeSlug(body.Route, body.Name)
+	}
+	if body.Slug == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "slug could not be derived")
 		return
 	}
 	f, err := h.svc.Create(r.Context(), projectID, body.Name, body.Slug, body.Code, body.Runtime, body.Regions, body.EnvVars)
@@ -132,6 +144,40 @@ func (h *Handler) deploy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, d)
 }
 
+func (h *Handler) invoke(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	functionID := chi.URLParam(r, "functionId")
+	_, err := h.svc.Get(r.Context(), functionID, projectID)
+	if err != nil {
+		apperr.NotFound(w, "edge_function")
+		return
+	}
+	var payload map[string]interface{}
+	if r.Body != nil {
+		json.NewDecoder(r.Body).Decode(&payload) //nolint:errcheck
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"$id":        functionID,
+		"functionId": functionID,
+		"status":     "completed",
+		"output":     payload,
+	})
+}
+
+func (h *Handler) listExecutions(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	functionID := chi.URLParam(r, "functionId")
+	deployments, err := h.svc.ListDeployments(r.Context(), functionID, projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if deployments == nil {
+		deployments = []*Deployment{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(deployments), "executions": deployments})
+}
+
 func (h *Handler) listDeployments(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	functionID := chi.URLParam(r, "functionId")
@@ -144,4 +190,21 @@ func (h *Handler) listDeployments(w http.ResponseWriter, r *http.Request) {
 		deployments = []*Deployment{}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(deployments), "deployments": deployments})
+}
+
+func edgeSlug(route, name string) string {
+	base := strings.TrimSpace(route)
+	if base == "" {
+		base = name
+	}
+	base = strings.ToLower(strings.Trim(base, "/"))
+	base = strings.ReplaceAll(base, "/", "-")
+	base = strings.ReplaceAll(base, "_", "-")
+	re := regexp.MustCompile(`[^a-z0-9-]+`)
+	base = re.ReplaceAllString(base, "-")
+	base = strings.Trim(base, "-")
+	for strings.Contains(base, "--") {
+		base = strings.ReplaceAll(base, "--", "-")
+	}
+	return base
 }

@@ -74,9 +74,11 @@ func (w *Deletes) process(ctx context.Context, job *queue.Job) {
 		w.db.ExecContext(ctx, "DELETE FROM workflows WHERE project_id = ?", projectID)
 		w.db.ExecContext(ctx, "DELETE FROM sessions WHERE project_id = ?", projectID)
 		w.db.ExecContext(ctx, "DELETE FROM users WHERE project_id = ?", projectID)
-		w.db.ExecContext(ctx, "DELETE FROM documents WHERE project_id = ?", projectID)
-		w.db.ExecContext(ctx, "DELETE FROM collections WHERE project_id = ?", projectID)
-		w.db.ExecContext(ctx, "DELETE FROM _databases WHERE project_id = ?", projectID)
+		w.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE table_id IN (SELECT id FROM tables WHERE project_id = ?) OR related_table IN (SELECT id FROM tables WHERE project_id = ?)", projectID, projectID)
+		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id IN (SELECT id FROM tables WHERE project_id = ?)", projectID)
+		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id IN (SELECT id FROM tables WHERE project_id = ?)", projectID)
+		w.db.ExecContext(ctx, "DELETE FROM tables WHERE project_id = ?", projectID)
+		w.db.ExecContext(ctx, "DELETE FROM databases WHERE project_id = ?", projectID)
 		w.db.ExecContext(ctx, "DELETE FROM files WHERE project_id = ?", projectID)
 		w.db.ExecContext(ctx, "DELETE FROM buckets WHERE project_id = ?", projectID)
 		w.db.ExecContext(ctx, "DELETE FROM teams WHERE project_id = ?", projectID)
@@ -84,15 +86,17 @@ func (w *Deletes) process(ctx context.Context, job *queue.Job) {
 		_, err = w.db.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", projectID)
 	case "database":
 		dbID := resourceID
-		w.db.ExecContext(ctx, "DELETE FROM documents WHERE database_id = ? AND project_id = ?", dbID, projectID)
-		w.db.ExecContext(ctx, "DELETE FROM collections WHERE database_id = ? AND project_id = ?", dbID, projectID)
-		_, err = w.db.ExecContext(ctx, "DELETE FROM _databases WHERE id = ? AND project_id = ?", dbID, projectID)
-	case "collection":
-		collID := resourceID
-		w.db.ExecContext(ctx, "DELETE FROM documents WHERE collection_id = ?", collID)
-		w.db.ExecContext(ctx, "DELETE FROM attributes WHERE collection_id = ?", collID)
-		w.db.ExecContext(ctx, "DELETE FROM _indexes WHERE collection_id = ?", collID)
-		_, err = w.db.ExecContext(ctx, "DELETE FROM collections WHERE id = ?", collID)
+		w.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE table_id IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?) OR related_table IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?)", dbID, projectID, dbID, projectID)
+		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?)", dbID, projectID)
+		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?)", dbID, projectID)
+		w.db.ExecContext(ctx, "DELETE FROM tables WHERE database_id = ? AND project_id = ?", dbID, projectID)
+		_, err = w.db.ExecContext(ctx, "DELETE FROM databases WHERE id = ? AND project_id = ?", dbID, projectID)
+	case "table":
+		tableID := resourceID
+		w.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE table_id = ? OR related_table = ?", tableID, tableID)
+		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id = ?", tableID)
+		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id = ?", tableID)
+		_, err = w.db.ExecContext(ctx, "DELETE FROM tables WHERE id = ?", tableID)
 	case "bucket":
 		bucketID := resourceID
 		w.db.ExecContext(ctx, "DELETE FROM files WHERE bucket_id = ? AND project_id = ?", bucketID, projectID)

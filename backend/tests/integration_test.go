@@ -184,7 +184,7 @@ func TestDatabaseFlow(t *testing.T) {
 	}
 	dbID := body["$id"].(string)
 
-	// Create collection
+	// Create table
 	status, body = request(t, "POST", fmt.Sprintf("/databases/%s/tables", dbID),
 		map[string]interface{}{
 			"tableId": "unique()",
@@ -192,39 +192,39 @@ func TestDatabaseFlow(t *testing.T) {
 			"permissions":  []string{},
 		}, headers)
 	if status != 201 {
-		t.Fatalf("create collection: expected 201, got %d: %v", status, body)
+		t.Fatalf("create table: expected 201, got %d: %v", status, body)
 	}
-	collID := body["$id"].(string)
+	tableID := body["$id"].(string)
 
-	// Create document
+	// Create row
 	status, body = request(t, "POST",
-		fmt.Sprintf("/databases/%s/tables/%s/rows", dbID, collID),
+		fmt.Sprintf("/databases/%s/tables/%s/rows", dbID, tableID),
 		map[string]interface{}{
 			"rowId":  "unique()",
 			"data":        map[string]interface{}{"title": "Hello", "body": "World"},
 			"permissions": []string{},
 		}, headers)
 	if status != 201 {
-		t.Fatalf("create doc: expected 201, got %d: %v", status, body)
+		t.Fatalf("create row: expected 201, got %d: %v", status, body)
 	}
-	docID := body["$id"].(string)
+	rowID := body["$id"].(string)
 
-	// Get document
+	// Get row
 	status, body = request(t, "GET",
-		fmt.Sprintf("/databases/%s/tables/%s/rows/%s", dbID, collID, docID),
+		fmt.Sprintf("/databases/%s/tables/%s/rows/%s", dbID, tableID, rowID),
 		nil, headers)
 	if status != 200 {
-		t.Fatalf("get doc: expected 200, got %d", status)
+		t.Fatalf("get row: expected 200, got %d", status)
 	}
 	if body["title"] != "Hello" {
 		t.Fatalf("expected title='Hello', got %v", body["title"])
 	}
 
-	// List documents
+	// List rows
 	status, body = request(t, "GET",
-		fmt.Sprintf("/databases/%s/tables/%s/rows", dbID, collID),
+		fmt.Sprintf("/databases/%s/tables/%s/rows", dbID, tableID),
 		nil, headers)
 	if status != 200 {
-		t.Fatalf("list docs: expected 200, got %d", status)
+		t.Fatalf("list rows: expected 200, got %d", status)
 	}
 }

@@ -4,17 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/auth_provider.dart';
-import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_navbar.dart';
 import '../../core/widgets/page_tabs.dart';
 
-const _bg = Color(0xFF0B0B0F);
-const _cardColor = Color(0xFF16171B);
-const _border = Color(0x0FFFFFFF);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 const _red = Color(0xFFEF4444);
 
 class AccountPage extends ConsumerStatefulWidget {
@@ -99,12 +94,13 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   }
 
   Future<void> _deleteAccount() async {
+    final colors = consoleColors(context);
     final confirmed = await showAppDialog<bool>(
       context: context,
       title: 'Delete account',
       content: Text(
         'Your account will be permanently deleted and access will be lost to all your teams and data. This action is irreversible.',
-        style: TextStyle(color: Colors.white.withOpacity(0.6)),
+        style: TextStyle(color: colors.textSecondary),
       ),
       actions: [
         const AppDialogCancel(),
@@ -136,23 +132,24 @@ class _AccountPageState extends ConsumerState<AccountPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final authAsync = ref.watch(consoleAuthProvider);
     final user = authAsync.valueOrNull;
     if (user != null) _initFields(user);
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: colors.background,
       body: authAsync.when(
-        loading: () => const Center(
-            child: CircularProgressIndicator(color: Colors.white24)),
+        loading: () => Center(
+            child: CircularProgressIndicator(color: colors.textSubtle)),
         error: (e, _) => Center(
             child: Text('Error: $e',
-                style: const TextStyle(color: Colors.white70))),
+                style: TextStyle(color: colors.textSecondary))),
         data: (user) {
           if (user == null) {
-            return const Center(
+            return Center(
                 child: Text('Not logged in',
-                    style: TextStyle(color: Colors.white70)));
+                    style: TextStyle(color: colors.textSecondary)));
           }
           return Column(
             children: [
@@ -172,8 +169,8 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                   children: [
                     Text(
                       user.name.isNotEmpty ? user.name : 'Account',
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: colors.textPrimary,
                           fontSize: 22,
                           fontWeight: FontWeight.w600),
                     ),
@@ -184,7 +181,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                         context.go('/login');
                       },
                       style: TextButton.styleFrom(
-                          foregroundColor: Colors.white54),
+                          foregroundColor: colors.textSecondary),
                       child: const Text('Logout',
                           style: TextStyle(fontSize: 13)),
                     ),
@@ -227,6 +224,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   // ===========================================================================
 
   Widget _buildOverviewTab(ConsoleUser user) {
+    final colors = consoleColors(context);
     final initials = _initials(user.name, user.email);
 
     return SingleChildScrollView(
@@ -296,9 +294,9 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                         activeColor: _accent,
                       ),
                       const SizedBox(width: 8),
-                      const Text('Multi-factor authentication',
+                      Text('Multi-factor authentication',
                           style: TextStyle(
-                              color: Colors.white, fontSize: 13)),
+                              color: colors.textPrimary, fontSize: 13)),
                     ],
                   ),
                 ],
@@ -310,7 +308,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                 margin: const EdgeInsets.only(bottom: 40),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: _cardColor,
+                  color: colors.surface,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: _red.withOpacity(0.3)),
                 ),
@@ -334,8 +332,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                               Text(
                                 'Your account will be permanently deleted and access will be lost to all your teams and data. This action is irreversible.',
                                 style: TextStyle(
-                                    color:
-                                        Colors.white.withOpacity(0.4),
+                                  color: colors.textSecondary,
                                     fontSize: 13),
                               ),
                             ],
@@ -347,9 +344,9 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.03),
+                            color: colors.fill,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: _border),
+                            border: Border.all(color: colors.border),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -371,9 +368,9 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              Text(user.name,
-                                  style: const TextStyle(
-                                      color: Colors.white,
+                                Text(user.name,
+                                  style: TextStyle(
+                                    color: colors.textPrimary,
                                       fontSize: 13)),
                             ],
                           ),
@@ -412,6 +409,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   // ===========================================================================
 
   Widget _buildSessionsTab() {
+    final colors = consoleColors(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -420,27 +418,28 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: colors.fill,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(LucideIcons.monitor,
-                size: 22, color: _subtleText),
+            child: Icon(LucideIcons.monitor,
+                size: 22, color: colors.textSubtle),
           ),
           const SizedBox(height: 16),
-          const Text('Active sessions',
+          Text('Active sessions',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
-          const Text('Your active sign-in sessions will appear here.',
-              style: TextStyle(color: _dimText, fontSize: 13)),
+          Text('Your active sign-in sessions will appear here.',
+              style: TextStyle(color: colors.textSecondary, fontSize: 13)),
         ],
       ),
     );
   }
 
   Widget _buildActivityTab() {
+    final colors = consoleColors(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -449,27 +448,28 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: colors.fill,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(LucideIcons.activity,
-                size: 22, color: _subtleText),
+            child: Icon(LucideIcons.activity,
+                size: 22, color: colors.textSubtle),
           ),
           const SizedBox(height: 16),
-          const Text('Account activity',
+          Text('Account activity',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
-          const Text('Recent account activity will appear here.',
-              style: TextStyle(color: _dimText, fontSize: 13)),
+          Text('Recent account activity will appear here.',
+              style: TextStyle(color: colors.textSecondary, fontSize: 13)),
         ],
       ),
     );
   }
 
   Widget _buildOrgsTab() {
+    final colors = consoleColors(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -478,22 +478,22 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: colors.fill,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(LucideIcons.building,
-                size: 22, color: _subtleText),
+            child: Icon(LucideIcons.building,
+                size: 22, color: colors.textSubtle),
           ),
           const SizedBox(height: 16),
-          const Text('Organizations',
+          Text('Organizations',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
-          const Text(
+          Text(
               'Organizations you belong to will appear here.',
-              style: TextStyle(color: _dimText, fontSize: 13)),
+              style: TextStyle(color: colors.textSecondary, fontSize: 13)),
           const SizedBox(height: 16),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -545,14 +545,15 @@ class _AccountSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -567,15 +568,15 @@ class _AccountSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(title,
-                        style: const TextStyle(
-                            color: Colors.white,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                             fontSize: 15,
                             fontWeight: FontWeight.w600)),
                     if (subtitle != null) ...[
                       const SizedBox(height: 4),
                       Text(subtitle!,
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.4),
+                            color: colors.textSecondary,
                               fontSize: 12)),
                     ],
                   ],
@@ -597,8 +598,8 @@ class _AccountSection extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: FilledButton(
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white.withOpacity(0.08),
-                  foregroundColor: Colors.white,
+                  backgroundColor: colors.fillActive,
+                  foregroundColor: colors.textPrimary,
                   padding: const EdgeInsets.symmetric(
                       horizontal: 20, vertical: 10),
                   shape: RoundedRectangleBorder(
@@ -606,11 +607,11 @@ class _AccountSection extends StatelessWidget {
                 ),
                 onPressed: loading ? null : onUpdate,
                 child: loading
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
+                    ? SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2, color: colors.textPrimary))
                     : const Text('Update',
                         style: TextStyle(fontSize: 13)),
               ),
@@ -637,40 +638,41 @@ class _LabeledField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
+                color: colors.textSecondary,
                 fontSize: 12,
                 fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         TextField(
           controller: controller,
           obscureText: obscure,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          style: TextStyle(color: colors.textPrimary, fontSize: 13),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(
-                color: Colors.white.withOpacity(0.22), fontSize: 13),
+            color: colors.textSubtle, fontSize: 13),
             filled: true,
-            fillColor: const Color(0x0AFFFFFF),
+          fillColor: colors.fieldFill,
             isDense: true,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0x1AFFFFFF))),
+            borderSide: BorderSide(color: colors.fieldBorder)),
             enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0x1AFFFFFF))),
+            borderSide: BorderSide(color: colors.fieldBorder)),
             focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
                 borderSide: const BorderSide(color: _accent)),
             suffixIcon: obscure
-                ? const Icon(LucideIcons.eye,
-                    size: 16, color: _subtleText)
+            ? Icon(LucideIcons.eye,
+              size: 16, color: colors.textSubtle)
                 : null,
           ),
         ),

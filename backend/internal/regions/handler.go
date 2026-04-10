@@ -22,7 +22,10 @@ func NewHandler(svc *Service) *Handler {
 // PublicRoutes returns the unauthenticated region catalog (list + get).
 func PublicRoutes(h *Handler) http.Handler {
 	r := chi.NewRouter()
+	r.Get("/active", h.getActiveRegion)
 	r.Get("/", h.listRegions)
+	r.Put("/active", h.setActiveRegion)
+	r.Get("/{regionId}/health", h.getHealth)
 	r.Get("/{regionId}", h.getRegion)
 	return r
 }
@@ -31,7 +34,10 @@ func PublicRoutes(h *Handler) http.Handler {
 func ProjectRoutes(h *Handler) http.Handler {
 	r := chi.NewRouter()
 	// Catalog (duplicated here so project-scoped callers can also list)
+	r.Get("/active", h.getActiveRegion)
 	r.Get("/", h.listRegions)
+	r.Put("/active", h.setActiveRegion)
+	r.Get("/{regionId}/health", h.getHealth)
 	r.Get("/{regionId}", h.getRegion)
 	// Project assignments
 	r.Get("/project", h.listProjectRegions)
@@ -109,4 +115,55 @@ func (h *Handler) removeRegion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) getActiveRegion(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	if projectID == "" {
+		projectID = r.Header.Get("X-Applad-Project")
+	}
+	if projectID == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Missing X-Applad-Project header")
+		return
+	}
+	pr, err := h.svc.GetPrimaryRegion(r.Context(), projectID)
+	if err != nil {
+		apperr.NotFound(w, "region")
+		return
+	}
+	writeJSON(w, http.StatusOK, pr)
+}
+
+func (h *Handler) setActiveRegion(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	if projectID == "" {
+		projectID = r.Header.Get("X-Applad-Project")
+	}
+	if projectID == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Missing X-Applad-Project header")
+		return
+	}
+	var body struct {
+		RegionID string `json:"regionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RegionID == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "regionId is required")
+		return
+	}
+	pr, err := h.svc.AssignRegion(r.Context(), projectID, body.RegionID, true, false, false)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, pr)
+}
+
+func (h *Handler) getHealth(w http.ResponseWriter, r *http.Request) {
+	regionID := chi.URLParam(r, "regionId")
+	health, err := h.svc.RegionHealth(r.Context(), regionID)
+	if err != nil {
+		apperr.NotFound(w, "region")
+		return
+	}
+	writeJSON(w, http.StatusOK, health)
 }

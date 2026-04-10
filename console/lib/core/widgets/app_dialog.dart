@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import '../theme/console_colors.dart';
 
 /// Standard dialog container matching the feedback modal style.
 ///
@@ -42,13 +43,7 @@ Future<T?> showAppDialog<T>({
   );
 }
 
-const _dialogBg = Color(0xFF16171B);
-const _dialogBorder = Color(0x14FFFFFF);
 const _accent = Color(0xFF3472A4);
-const _labelColor = Color(0x80FFFFFF);
-const _hintColor = Color(0x38FFFFFF);
-const _fieldFill = Color(0x0AFFFFFF);
-const _fieldBorder = Color(0x1AFFFFFF);
 
 class _AppDialogShell extends StatelessWidget {
   final String title;
@@ -67,16 +62,17 @@ class _AppDialogShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       width: width,
       constraints: const BoxConstraints(maxHeight: 600),
       decoration: BoxDecoration(
-        color: _dialogBg,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: colors.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.5),
+            color: colors.shadow,
             blurRadius: 32,
             offset: const Offset(0, 8),
           ),
@@ -97,8 +93,8 @@ class _AppDialogShell extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(title,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: colors.textPrimary,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           )),
@@ -106,7 +102,7 @@ class _AppDialogShell extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(subtitle!,
                             style: TextStyle(
-                                color: Colors.white.withOpacity(0.45),
+                            color: colors.textMuted,
                                 fontSize: 13)),
                       ],
                     ],
@@ -116,7 +112,7 @@ class _AppDialogShell extends StatelessWidget {
                 GestureDetector(
                   onTap: () => Navigator.of(context).pop(),
                   child: Icon(LucideIcons.x,
-                      size: 16, color: Colors.white.withOpacity(0.3)),
+                      size: 16, color: colors.textMuted),
                 ),
               ],
             ),
@@ -125,7 +121,7 @@ class _AppDialogShell extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Container(
-                height: 1, color: Colors.white.withOpacity(0.06)),
+              height: 1, color: colors.border),
           ),
           const SizedBox(height: 16),
 
@@ -178,13 +174,14 @@ class AppDialogField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (label != null) ...[
           Text(label!,
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.5),
+                color: colors.textSecondary,
                   fontSize: 12,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
@@ -195,24 +192,24 @@ class AppDialogField extends StatelessWidget {
           minLines: _isMultiLine ? maxLines : 1,
           keyboardType: keyboardType,
           autofocus: autofocus,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          style: TextStyle(color: colors.textPrimary, fontSize: 13),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(
-                color: Colors.white.withOpacity(0.22), fontSize: 13),
+                color: colors.textSubtle, fontSize: 13),
             filled: true,
-            fillColor: _fieldFill,
+            fillColor: colors.fieldFill,
             isDense: true,
             contentPadding: _isMultiLine
                 ? const EdgeInsets.all(12)
                 : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _fieldBorder),
+              borderSide: BorderSide(color: colors.fieldBorder),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _fieldBorder),
+              borderSide: BorderSide(color: colors.fieldBorder),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
@@ -236,7 +233,7 @@ class AppDialogCancel extends StatelessWidget {
     return TextButton(
       onPressed: () => Navigator.of(context).pop(),
       style: TextButton.styleFrom(
-        foregroundColor: Colors.white54,
+        foregroundColor: consoleColors(context).textMuted,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       ),
       child: Text(label, style: const TextStyle(fontSize: 13)),

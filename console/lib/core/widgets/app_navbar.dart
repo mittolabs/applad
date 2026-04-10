@@ -4,9 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../providers/org_provider.dart';
 import '../providers/project_provider.dart';
+import '../theme/console_colors.dart';
 import 'navbar_popovers.dart';
-
-const _bg = Color(0xFF0B0B0F);
 
 /// Shared top navigation bar used across all pages (project shell, account, projects).
 class AppNavBar extends ConsumerWidget {
@@ -17,6 +16,7 @@ class AppNavBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final orgs = ref.watch(orgsProvider).valueOrNull ?? [];
     final currentOrgId = ref.watch(currentOrgProvider);
     final projects = ref.watch(projectsProvider).valueOrNull ?? [];
@@ -39,9 +39,8 @@ class AppNavBar extends ConsumerWidget {
     return Container(
       height: 52,
       decoration: BoxDecoration(
-        color: _bg,
-        border: Border(
-            bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
+        color: colors.background,
+        border: Border(bottom: BorderSide(color: colors.border)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
@@ -64,7 +63,7 @@ class AppNavBar extends ConsumerWidget {
           ),
 
           const SizedBox(width: 10),
-          _sep(),
+          _sep(context),
           const SizedBox(width: 10),
 
           // Org name
@@ -78,14 +77,14 @@ class AppNavBar extends ConsumerWidget {
                   Text(
                     orgName.isNotEmpty ? orgName : 'Organization',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.7),
+                      color: colors.textSecondary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(width: 4),
                   Icon(LucideIcons.chevronDown,
-                      size: 14, color: Colors.white.withOpacity(0.3)),
+                      size: 14, color: colors.textMuted),
                 ],
               ),
             ),
@@ -94,7 +93,7 @@ class AppNavBar extends ConsumerWidget {
           // Project segment
           if (projectId != null) ...[
             const SizedBox(width: 10),
-            _sep(),
+            _sep(context),
             const SizedBox(width: 10),
             GestureDetector(
               onTap: () => context.go('/project/$projectId/overview'),
@@ -106,14 +105,14 @@ class AppNavBar extends ConsumerWidget {
                     Text(
                       projectName ?? _short(projectId!),
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
+                        color: colors.textSecondary,
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(width: 4),
                     Icon(LucideIcons.chevronDown,
-                        size: 14, color: Colors.white.withOpacity(0.3)),
+                        size: 14, color: colors.textMuted),
                   ],
                 ),
               ),
@@ -140,7 +139,7 @@ class AppNavBar extends ConsumerWidget {
                 width: 34,
                 height: 34,
                 child: Icon(LucideIcons.search,
-                    size: 17, color: Colors.white.withOpacity(0.45)),
+                    size: 17, color: colors.textMuted),
               ),
             ),
           ),
@@ -153,10 +152,10 @@ class AppNavBar extends ConsumerWidget {
     );
   }
 
-  Widget _sep() => Text(
+  Widget _sep(BuildContext context) => Text(
         '/',
         style: TextStyle(
-          color: Colors.white.withOpacity(0.18),
+          color: consoleColors(context).textSubtle,
           fontSize: 18,
           fontWeight: FontWeight.w300,
         ),

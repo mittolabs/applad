@@ -17,12 +17,60 @@ import '../providers/environment_provider.dart';
 // Constants
 // ═════════════════════════════════════════════════════════════════════════════
 
-const _bg = Color(0xFF0B0B0F);
 const _railBg = Color(0xFF101014);
 const _panelBg = Color(0xFF131317);
 const _accent = Color(0xFF3472A4);
 const _railWidth = 68.0;
 const _panelWidth = 220.0;
+
+bool _isLight(BuildContext context) =>
+  Theme.of(context).brightness == Brightness.light;
+
+Color _shellBg(BuildContext context) => Theme.of(context).scaffoldBackgroundColor;
+
+Color _railSurface(BuildContext context) =>
+  _isLight(context) ? const Color(0xFFF3F5F8) : _railBg;
+
+Color _panelSurface(BuildContext context) =>
+  _isLight(context) ? Colors.white : _panelBg;
+
+Color _dividerColor(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.08)
+  : Colors.white.withOpacity(0.06);
+
+Color _primaryTextColor(BuildContext context) =>
+  _isLight(context) ? const Color(0xFF1A1A2E) : Colors.white;
+
+Color _secondaryTextColor(BuildContext context) => _isLight(context)
+  ? const Color(0xFF1A1A2E).withOpacity(0.62)
+  : Colors.white.withOpacity(0.55);
+
+Color _mutedTextColor(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.35)
+  : Colors.white.withOpacity(0.35);
+
+Color _iconColor(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.55)
+  : Colors.white.withOpacity(0.45);
+
+Color _hoverFillColor(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.04)
+  : Colors.white.withOpacity(0.04);
+
+Color _activeFillColor(BuildContext context) => _isLight(context)
+  ? _accent.withOpacity(0.1)
+  : Colors.white.withOpacity(0.08);
+
+Color _placeholderTextColor(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.22)
+  : Colors.white.withOpacity(0.22);
+
+Color _inputFillColor(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.03)
+  : Colors.white.withOpacity(0.04);
+
+Color _popupSurface(BuildContext context) => Theme.of(context).popupMenuTheme.color ??
+  (_isLight(context) ? Colors.white : const Color(0xFF1A1A22));
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Navigation group model
@@ -143,10 +191,12 @@ class _AppShellState extends ConsumerState<AppShell> {
   void _syncProject(String projectId) {
     if (_syncedProjectId == projectId) return;
     _syncedProjectId = projectId;
+    // Set the project header immediately so providers that fire during this
+    // build frame already have the correct header on their requests.
+    ref.read(apiClientProvider).setProject(projectId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(currentProjectProvider.notifier).state = projectId;
-      ref.read(apiClientProvider).setProject(projectId);
     });
   }
 
@@ -273,7 +323,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         child: Focus(
           autofocus: true,
           child: Scaffold(
-            backgroundColor: _bg,
+            backgroundColor: _shellBg(context),
             body: Column(
               children: [
                 _TopNavBar(
@@ -407,9 +457,8 @@ class _IconRail extends StatelessWidget {
     return Container(
       width: _railWidth,
       decoration: BoxDecoration(
-        color: _railBg,
-        border: Border(
-            right: BorderSide(color: Colors.white.withOpacity(0.06))),
+        color: _railSurface(context),
+        border: Border(right: BorderSide(color: _dividerColor(context))),
       ),
       child: Column(
         children: [
@@ -492,6 +541,15 @@ class _RailIconState extends State<_RailIcon> {
   Widget build(BuildContext context) {
     final accentColor = widget.accentColor ?? _accent;
     final active = widget.isActive || widget.isExpanded;
+    final activeFill = _activeFillColor(context);
+    final hoverFill = _hoverFillColor(context);
+    final activeIconColor = _isLight(context) ? accentColor : Colors.white;
+    final hoverIconColor = _isLight(context)
+      ? _primaryTextColor(context).withOpacity(0.72)
+      : Colors.white.withOpacity(0.65);
+    final idleIconColor = _isLight(context)
+      ? _primaryTextColor(context).withOpacity(0.4)
+      : Colors.white.withOpacity(0.28);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -534,9 +592,9 @@ class _RailIconState extends State<_RailIcon> {
                     height: 38,
                     decoration: BoxDecoration(
                       color: active
-                          ? Colors.white.withOpacity(0.08)
+                          ? activeFill
                           : _hovered
-                              ? Colors.white.withOpacity(0.04)
+                              ? hoverFill
                               : Colors.transparent,
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -544,10 +602,10 @@ class _RailIconState extends State<_RailIcon> {
                       widget.icon,
                       size: 18,
                       color: active
-                          ? Colors.white
+                          ? activeIconColor
                           : _hovered
-                              ? Colors.white.withOpacity(0.65)
-                              : Colors.white.withOpacity(0.28),
+                              ? hoverIconColor
+                              : idleIconColor,
                     ),
                   ),
                 ],
@@ -648,8 +706,8 @@ class _GetStartedRailItem extends ConsumerWidget {
                           '${(progress * 100).round()}',
                           style: TextStyle(
                             color: isActive
-                                ? Colors.white
-                                : Colors.white.withOpacity(0.5),
+                                ? _primaryTextColor(context)
+                                : _secondaryTextColor(context),
                             fontSize: 9,
                             fontWeight: FontWeight.w600,
                           ),
@@ -723,9 +781,8 @@ class _DetailPanel extends StatelessWidget {
     return Container(
       width: _panelWidth,
       decoration: BoxDecoration(
-        color: _panelBg,
-        border: Border(
-            right: BorderSide(color: Colors.white.withOpacity(0.06))),
+        color: _panelSurface(context),
+        border: Border(right: BorderSide(color: _dividerColor(context))),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -737,8 +794,8 @@ class _DetailPanel extends StatelessWidget {
               children: [
                 Text(
                   group.label,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: _primaryTextColor(context),
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -748,7 +805,7 @@ class _DetailPanel extends StatelessWidget {
                   onTap: onClose,
                   child: Icon(LucideIcons.panelLeftClose,
                       size: 16,
-                      color: Colors.white.withOpacity(0.3)),
+                      color: _mutedTextColor(context)),
                 ),
               ],
             ),
@@ -756,7 +813,7 @@ class _DetailPanel extends StatelessWidget {
           Container(
             height: 1,
             margin: const EdgeInsets.symmetric(horizontal: 12),
-            color: Colors.white.withOpacity(0.06),
+            color: _dividerColor(context),
           ),
           const SizedBox(height: 6),
           // Children
@@ -806,6 +863,25 @@ class _PanelItemState extends State<_PanelItem> {
 
   @override
   Widget build(BuildContext context) {
+    final activeFill = _activeFillColor(context);
+    final hoverFill = _hoverFillColor(context);
+    final placeholderIconColor = _isLight(context)
+      ? _primaryTextColor(context).withOpacity(0.25)
+      : Colors.white.withOpacity(0.15);
+    final activeIconColor = _isLight(context)
+      ? _accent
+      : Colors.white.withOpacity(0.9);
+    final idleIconColor = _isLight(context)
+      ? _primaryTextColor(context).withOpacity(0.45)
+      : Colors.white.withOpacity(0.4);
+    final placeholderTextColor = _isLight(context)
+      ? _primaryTextColor(context).withOpacity(0.32)
+      : Colors.white.withOpacity(0.2);
+    final activeTextColor = _isLight(context)
+      ? _primaryTextColor(context)
+      : Colors.white.withOpacity(0.9);
+    final idleTextColor = _secondaryTextColor(context);
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -821,9 +897,9 @@ class _PanelItemState extends State<_PanelItem> {
               const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
             color: widget.active
-                ? Colors.white.withOpacity(0.08)
+                ? activeFill
                 : _hovered && !widget.placeholder
-                    ? Colors.white.withOpacity(0.04)
+                    ? hoverFill
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(7),
           ),
@@ -833,10 +909,10 @@ class _PanelItemState extends State<_PanelItem> {
                 widget.icon,
                 size: 15,
                 color: widget.placeholder
-                    ? Colors.white.withOpacity(0.15)
+                    ? placeholderIconColor
                     : widget.active
-                        ? Colors.white.withOpacity(0.9)
-                        : Colors.white.withOpacity(0.4),
+                        ? activeIconColor
+                        : idleIconColor,
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -844,10 +920,10 @@ class _PanelItemState extends State<_PanelItem> {
                   widget.label,
                   style: TextStyle(
                     color: widget.placeholder
-                        ? Colors.white.withOpacity(0.2)
+                        ? placeholderTextColor
                         : widget.active
-                            ? Colors.white.withOpacity(0.9)
-                            : Colors.white.withOpacity(0.55),
+                            ? activeTextColor
+                            : idleTextColor,
                     fontSize: 13,
                     fontWeight:
                         widget.active ? FontWeight.w500 : FontWeight.w400,
@@ -859,12 +935,12 @@ class _PanelItemState extends State<_PanelItem> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
+                    color: _hoverFillColor(context),
                     borderRadius: BorderRadius.circular(3),
                   ),
                   child: Text('Soon',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.2),
+                          color: placeholderTextColor,
                           fontSize: 9)),
                 ),
             ],
@@ -926,9 +1002,8 @@ class _AIChatPanelState extends State<_AIChatPanel> {
     return Container(
       width: 360,
       decoration: BoxDecoration(
-        color: _panelBg,
-        border: Border(
-            left: BorderSide(color: Colors.white.withOpacity(0.06))),
+        color: _panelSurface(context),
+        border: Border(left: BorderSide(color: _dividerColor(context))),
       ),
       child: Column(
         children: [
@@ -940,9 +1015,9 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                 Icon(LucideIcons.sparkles,
                     size: 18, color: const Color(0xFF8B5CF6)),
                 const SizedBox(width: 8),
-                const Text('AI Assistant',
-                    style: TextStyle(
-                        color: Colors.white,
+                Text('AI Assistant',
+                  style: TextStyle(
+                    color: _primaryTextColor(context),
                         fontSize: 14,
                         fontWeight: FontWeight.w600)),
                 const Spacer(),
@@ -950,12 +1025,12 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                   onTap: widget.onClose,
                   child: Icon(LucideIcons.x,
                       size: 16,
-                      color: Colors.white.withOpacity(0.3)),
+                      color: _mutedTextColor(context)),
                 ),
               ],
             ),
           ),
-          Container(height: 1, color: Colors.white.withOpacity(0.06)),
+          Container(height: 1, color: _dividerColor(context)),
 
           // Messages
           Expanded(
@@ -974,12 +1049,12 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                               height: 16,
                               child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: Colors.white.withOpacity(0.3)),
+                                  color: _mutedTextColor(context)),
                             ),
                             const SizedBox(width: 8),
                             Text('Thinking...',
                                 style: TextStyle(
-                                    color: Colors.white.withOpacity(0.3),
+                                  color: _mutedTextColor(context),
                                     fontSize: 12)),
                           ]),
                         );
@@ -1016,8 +1091,10 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                               child: Text(
                                 msg['text'] ?? '',
                                 style: TextStyle(
-                                  color: Colors.white
-                                      .withOpacity(isUser ? 0.9 : 0.7),
+                                  color: (isUser
+                                          ? _primaryTextColor(context)
+                                          : _secondaryTextColor(context))
+                                      .withOpacity(isUser ? 0.92 : 0.88),
                                   fontSize: 13,
                                   height: 1.5,
                                 ),
@@ -1035,30 +1112,29 @@ class _AIChatPanelState extends State<_AIChatPanel> {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               border: Border(
-                  top: BorderSide(
-                      color: Colors.white.withOpacity(0.06))),
+                  top: BorderSide(color: _dividerColor(context))),
             ),
             child: Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _msgCtrl,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 13),
+                    style: TextStyle(
+                        color: _primaryTextColor(context), fontSize: 13),
                     decoration: InputDecoration(
                       hintText: 'Ask anything...',
                       hintStyle: TextStyle(
-                          color: Colors.white.withOpacity(0.22),
+                          color: _placeholderTextColor(context),
                           fontSize: 13),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide(
-                            color: Colors.white.withOpacity(0.1)),
+                            color: _dividerColor(context)),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide(
-                            color: Colors.white.withOpacity(0.1)),
+                            color: _dividerColor(context)),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -1066,7 +1142,7 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                             const BorderSide(color: Color(0xFF8B5CF6)),
                       ),
                       filled: true,
-                      fillColor: Colors.white.withOpacity(0.04),
+                      fillColor: _inputFillColor(context),
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 10),
                     ),
@@ -1113,9 +1189,9 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                   size: 24, color: Color(0xFF8B5CF6)),
             ),
             const SizedBox(height: 20),
-            const Text('AI Assistant',
-                style: TextStyle(
-                    color: Colors.white,
+            Text('AI Assistant',
+              style: TextStyle(
+                color: _primaryTextColor(context),
                     fontSize: 16,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -1123,7 +1199,7 @@ class _AIChatPanelState extends State<_AIChatPanel> {
               'Create apps, manage databases, deploy services, and automate workflows — all through conversation.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.4),
+                color: _secondaryTextColor(context),
                   fontSize: 13,
                   height: 1.5),
             ),
@@ -1155,14 +1231,13 @@ class _AIChatPanelState extends State<_AIChatPanel> {
         padding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.04),
+          color: _hoverFillColor(context),
           borderRadius: BorderRadius.circular(20),
-          border:
-              Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: _dividerColor(context)),
         ),
         child: Text(text,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
+            color: _secondaryTextColor(context),
                 fontSize: 12)),
       ),
     );
@@ -1208,9 +1283,8 @@ class _TopNavBar extends ConsumerWidget {
     return Container(
       height: 52,
       decoration: BoxDecoration(
-        color: _bg,
-        border: Border(
-            bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
+        color: _shellBg(context),
+        border: Border(bottom: BorderSide(color: _dividerColor(context))),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
@@ -1232,14 +1306,14 @@ class _TopNavBar extends ConsumerWidget {
           ),
 
           const SizedBox(width: 10),
-          _sep(),
+          _sep(context),
           const SizedBox(width: 10),
 
           _OrgNavButton(orgName: orgName, orgs: orgs, ref: ref),
 
           if (projectId != null) ...[
             const SizedBox(width: 10),
-            _sep(),
+            _sep(context),
             const SizedBox(width: 10),
             _ProjectNavButton(
               projectId: projectId!,
@@ -1271,7 +1345,7 @@ class _TopNavBar extends ConsumerWidget {
                 height: 34,
                 child: Icon(LucideIcons.search,
                     size: 17,
-                    color: Colors.white.withOpacity(0.45)),
+                    color: _iconColor(context)),
               ),
             ),
           ),
@@ -1286,10 +1360,12 @@ class _TopNavBar extends ConsumerWidget {
     );
   }
 
-  Widget _sep() => Text(
+  Widget _sep(BuildContext context) => Text(
         '/',
         style: TextStyle(
-          color: Colors.white.withOpacity(0.18),
+          color: _isLight(context)
+              ? Colors.black.withOpacity(0.18)
+              : Colors.white.withOpacity(0.18),
           fontSize: 18,
           fontWeight: FontWeight.w300,
         ),
@@ -1326,12 +1402,16 @@ class _ProjectNavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final popupSurface = _popupSurface(context);
+    final activeText = _primaryTextColor(context);
+    final inactiveText = _secondaryTextColor(context);
+
     return PopupMenuButton<String>(
       offset: const Offset(0, 36),
-      color: const Color(0xFF1A1A22),
+      color: popupSurface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: Colors.white.withOpacity(0.08)),
+        side: BorderSide(color: _dividerColor(context)),
       ),
       onSelected: (id) => context.go('/project/$id/${_section()}'),
       itemBuilder: (_) => projects
@@ -1341,8 +1421,8 @@ class _ProjectNavButton extends StatelessWidget {
                   p['name'] ?? 'Unnamed',
                   style: TextStyle(
                     color: p['\$id'] == projectId
-                        ? Colors.white
-                        : Colors.white70,
+                        ? activeText
+                        : inactiveText,
                     fontSize: 13,
                     fontWeight: p['\$id'] == projectId
                         ? FontWeight.w600
@@ -1355,13 +1435,13 @@ class _ProjectNavButton extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(projectName,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: _primaryTextColor(context),
                   fontSize: 13,
                   fontWeight: FontWeight.w500)),
           const SizedBox(width: 4),
           Icon(LucideIcons.chevronDown,
-              size: 14, color: Colors.white.withOpacity(0.35)),
+              size: 14, color: _mutedTextColor(context)),
         ],
       ),
     );
@@ -1381,12 +1461,14 @@ class _OrgNavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final popupSurface = _popupSurface(context);
+
     return PopupMenuButton<String>(
       offset: const Offset(0, 36),
-      color: const Color(0xFF1A1A22),
+      color: popupSurface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: Colors.white.withOpacity(0.08)),
+        side: BorderSide(color: _dividerColor(context)),
       ),
       onSelected: (value) {
         if (value != '__create__') {
@@ -1399,20 +1481,20 @@ class _OrgNavButton extends StatelessWidget {
           PopupMenuItem<String>(
             value: org['\$id'] as String,
             child: Text(org['name'] ?? 'Unnamed',
-                style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13)),
           ),
       ],
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(orgName,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: _primaryTextColor(context),
                   fontSize: 13,
                   fontWeight: FontWeight.w500)),
           const SizedBox(width: 4),
           Icon(LucideIcons.chevronDown,
-              size: 14, color: Colors.white.withOpacity(0.35)),
+              size: 14, color: _mutedTextColor(context)),
         ],
       ),
     );
@@ -1445,10 +1527,10 @@ class _EnvironmentBadge extends ConsumerWidget {
 
     return PopupMenuButton<String>(
       offset: const Offset(0, 36),
-      color: const Color(0xFF1A1A22),
+      color: _popupSurface(context),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: Colors.white.withOpacity(0.08)),
+        side: BorderSide(color: _dividerColor(context)),
       ),
       onSelected: (id) => ref.read(currentEnvironmentProvider.notifier).state = id,
       itemBuilder: (_) => envs.map((e) {
@@ -1463,7 +1545,7 @@ class _EnvironmentBadge extends ConsumerWidget {
             Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
             const SizedBox(width: 8),
             Text(name, style: TextStyle(
-              color: currentEnvId == id ? Colors.white : Colors.white70, fontSize: 13,
+              color: currentEnvId == id ? _primaryTextColor(context) : _secondaryTextColor(context), fontSize: 13,
               fontWeight: currentEnvId == id ? FontWeight.w600 : FontWeight.w400)),
           ]),
         );

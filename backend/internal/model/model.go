@@ -87,7 +87,7 @@ type Database struct {
 	Enabled   bool      `json:"enabled"`
 }
 
-// Table represents a database table (stored in the `collections` MySQL table).
+// Table represents a database table.
 type Table struct {
 	ID          string   `json:"$id"`
 	CreatedAt   time.Time `json:"$createdAt"`
@@ -101,7 +101,7 @@ type Table struct {
 	Indexes     []Index  `json:"indexes"`
 }
 
-// Column represents a table column (stored in the `attributes` MySQL table).
+// Column represents a table column.
 type Column struct {
 	Key      string                 `json:"key"`
 	Type     string                 `json:"type"`
@@ -121,7 +121,7 @@ type Index struct {
 	Orders  []string `json:"orders"`
 }
 
-// Row represents a database row (stored in the `documents` MySQL table).
+// Row represents a database row.
 type Row struct {
 	ID          string                 `json:"$id"`
 	TableID     string                 `json:"$tableId"`
@@ -131,15 +131,6 @@ type Row struct {
 	Permissions []string               `json:"$permissions"`
 	Data        map[string]interface{} `json:"-"`
 }
-
-// Collection is an alias for Table (backward compatibility).
-type Collection = Table
-
-// Attribute is an alias for Column (backward compatibility).
-type Attribute = Column
-
-// Document is an alias for Row (backward compatibility).
-type Document = Row
 
 // MarshalJSON merges row Data fields into the top-level JSON object.
 func (d Row) MarshalJSON() ([]byte, error) {

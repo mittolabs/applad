@@ -294,7 +294,7 @@ func matchesEvent(subscribed []string, event string) bool {
 		if s == "*" || s == event {
 			return true
 		}
-		// prefix match: "databases.*" matches "databases.documents.create"
+		// prefix match: "databases.*" matches "databases.rows.create"
 		if len(s) > 2 && s[len(s)-2:] == ".*" {
 			prefix := s[:len(s)-1] // "databases."
 			if len(event) >= len(prefix) && event[:len(prefix)] == prefix {

@@ -1,6 +1,9 @@
 import 'dart:convert';
+// ignore: deprecated_member_use, avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_monaco/flutter_monaco.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
@@ -18,6 +21,22 @@ const _subtleText = Color(0x40FFFFFF);
 const _border = Color(0x0FFFFFFF);
 const _red = Color(0xFFEF4444);
 const _green = Color(0xFF10B981);
+
+bool _isLight(BuildContext context) =>
+  Theme.of(context).brightness == Brightness.light;
+
+String _formatIndexType(String value) {
+  switch (value) {
+    case 'unique':
+      return 'Unique';
+    case 'fulltext':
+      return 'GIN full-text';
+    case 'btree':
+    case 'key':
+    default:
+      return 'B-tree';
+  }
+}
 
 // --- Providers ---------------------------------------------------------------
 
@@ -316,10 +335,40 @@ class _DatabaseDetailView extends ConsumerStatefulWidget {
 
 class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
   int _tabIndex = 0;
+  final _sqlCtrl = TextEditingController();
+  MonacoController? _sqlEditorController;
+  final _sqlFocusNode = FocusNode();
+  final List<String> _sqlHistory = [];
+  Map<String, dynamic>? _sqlResult;
+  String? _sqlError;
+  bool _sqlRunning = false;
+  bool _sqlWriteAllowed = false;
+  bool _sqlSchemaLoading = false;
+  String? _sqlSchemaError;
+  List<_SQLSchemaTable> _sqlSchema = const [];
+  List<_SQLSuggestion> _sqlSuggestions = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _sqlCtrl.addListener(_updateSQLSuggestions);
+    _loadSQLSchema();
+  }
+
+  @override
+  void dispose() {
+    _sqlEditorController?.dispose();
+    _sqlCtrl.removeListener(_updateSQLSuggestions);
+    _sqlCtrl.dispose();
+    _sqlFocusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final tablesAsync = ref.watch(_tablesProvider(widget.dbId));
+    final tables =
+        List<Map<String, dynamic>>.from(tablesAsync.value?['tables'] ?? const []);
     // Try to get database name from the tables response or just use ID
     final dbName = widget.dbId;
 
@@ -341,7 +390,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
             ),
             const SizedBox(height: 24),
             PageTabs(
-              tabs: const ['Tables', 'Usage', 'Settings'],
+              tabs: const ['Tables', 'SQL', 'Usage', 'Settings'],
               selected: _tabIndex,
               onChanged: (i) => setState(() => _tabIndex = i),
             ),
@@ -350,6 +399,8 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
               child: _tabIndex == 0
                   ? _buildTablesTab(tablesAsync)
                   : _tabIndex == 1
+                      ? _buildSQLTab(tables)
+                      : _tabIndex == 2
                       ? const _PlaceholderTab(label: 'Usage')
                       : _buildSettingsTab(),
             ),
@@ -495,6 +546,898 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
       ],
     );
   }
+
+  Widget _buildSQLTab(List<Map<String, dynamic>> tables) {
+    final result = _sqlResult;
+    final rows = List<Map<String, dynamic>>.from(result?['rows'] ?? const []);
+    final columns = List<String>.from(result?['columns'] ?? const []);
+    final tableIdByName = <String, String>{
+      for (final table in tables)
+        (table['name']?.toString() ?? ''): (table['\$id']?.toString() ?? ''),
+    };
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 5,
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: _cardColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'SQL editor',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const Spacer(),
+                        _GhostButton(
+                          label: 'Copy',
+                          icon: LucideIcons.copy,
+                          onTap: () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: _sqlCtrl.text),
+                            );
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('SQL copied')),
+                              );
+                            }
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _AccentButton(
+                          label: _sqlRunning ? 'Running...' : 'Run query',
+                          onTap: _sqlRunning ? null : () {
+                            _runSQL();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'DDL is blocked. Queries run read-only by default with project and user context applied.',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.45),
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      height: 320,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      ),
+                      child: Shortcuts(
+                        shortcuts: const <ShortcutActivator, Intent>{
+                          SingleActivator(
+                            LogicalKeyboardKey.enter,
+                            meta: true,
+                          ): ActivateIntent(),
+                          SingleActivator(
+                            LogicalKeyboardKey.enter,
+                            control: true,
+                          ): ActivateIntent(),
+                        },
+                        child: Actions(
+                          actions: <Type, Action<Intent>>{
+                            ActivateIntent: CallbackAction<ActivateIntent>(
+                              onInvoke: (_) {
+                                if (!_sqlRunning) {
+                                  _runSQL();
+                                }
+                                return null;
+                              },
+                            ),
+                          },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: MonacoEditor(
+                              key: const ValueKey('database-sql-editor'),
+                              initialValue: _sqlCtrl.text,
+                              options: EditorOptions(
+                                language: MonacoLanguage.sql,
+                                theme: _isLight(context)
+                                    ? MonacoTheme.vs
+                                    : MonacoTheme.vsDark,
+                                fontSize: 13,
+                                fontFamily: 'Menlo, Monaco, Consolas, monospace',
+                                lineHeight: 1.45,
+                                wordWrap: true,
+                                minimap: false,
+                                automaticLayout: true,
+                                quickSuggestions: true,
+                                parameterHints: true,
+                              ),
+                              backgroundColor: _isLight(context)
+                                  ? const Color(0xFFF8F9FA)
+                                  : const Color(0xFF101115),
+                              autofocus: true,
+                              contentDebounce: const Duration(milliseconds: 75),
+                              onReady: (controller) async {
+                                _sqlEditorController = controller;
+                                if (_sqlCtrl.text.isNotEmpty) {
+                                  await controller.setValue(_sqlCtrl.text);
+                                }
+                              },
+                              onFocus: () {
+                                if (_sqlSuggestions.isNotEmpty && mounted) {
+                                  setState(() => _sqlSuggestions = const []);
+                                }
+                              },
+                              onContentChanged: (value) {
+                                if (_sqlCtrl.text != value) {
+                                  _sqlCtrl.text = value;
+                                }
+                              },
+                              loadingBuilder: (_) => const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                              errorBuilder: (_, error, __) => Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Text(
+                                    'Editor failed to load: $error',
+                                    style: const TextStyle(
+                                      color: _red,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Switch(
+                          value: _sqlWriteAllowed,
+                          onChanged: _sqlRunning
+                              ? null
+                              : (v) {
+                                  if (!v) {
+                                    setState(() => _sqlWriteAllowed = false);
+                                    return;
+                                  }
+                                  _confirmWriteMode();
+                                },
+                          activeColor: _accent,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Allow writes',
+                          style: TextStyle(color: Colors.white, fontSize: 13),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          _sqlWriteAllowed
+                              ? 'INSERT, UPDATE and DELETE are allowed.'
+                              : 'Transaction is forced read-only.',
+                          style: TextStyle(
+                            color: _sqlWriteAllowed ? const Color(0xFFFFD166) : _dimText,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Monaco powers the editor now. Use the schema browser on the right to insert tables and columns, then run with Cmd+Enter or Ctrl+Enter.',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.32),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: _cardColor,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Results',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (result != null) ...[
+                            if (columns.isNotEmpty) ...[
+                              _GhostButton(
+                                label: 'JSON',
+                                icon: LucideIcons.fileJson,
+                                onTap: () => _downloadSQLResults('json'),
+                              ),
+                              const SizedBox(width: 8),
+                              _GhostButton(
+                                label: 'CSV',
+                                icon: LucideIcons.fileSpreadsheet,
+                                onTap: () => _downloadSQLResults('csv'),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            _MetricPill(
+                              label: '${result['rowCount'] ?? 0} rows',
+                            ),
+                            const SizedBox(width: 8),
+                            _MetricPill(
+                              label: '${result['executionMs'] ?? 0} ms',
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Expanded(
+                        child: _sqlError != null
+                            ? _SQLErrorView(message: _sqlError!)
+                            : result == null
+                                ? _EmptyState(
+                                    icon: LucideIcons.database,
+                                    title: 'No results yet',
+                                    subtitle: 'Run a statement to inspect rows or affected counts.',
+                                    actionLabel: 'Run query',
+                                    onAction: () {
+                                      _runSQL();
+                                    },
+                                  )
+                                : rows.isEmpty
+                                    ? _SQLSummaryView(result: result)
+                                    : _SQLResultsGrid(columns: columns, rows: rows),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        SizedBox(
+          width: 300,
+          child: Column(
+            children: [
+              Expanded(
+                child: _SQLSchemaBrowser(
+                  schema: _sqlSchema,
+                  loading: _sqlSchemaLoading,
+                  error: _sqlSchemaError,
+                  tableIdByName: tableIdByName,
+                  onTableSelected: widget.onTableSelect,
+                  onUseSuggestion: _insertSQLIdentifier,
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 240,
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: _cardColor,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Recent queries',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: _sqlHistory.isEmpty
+                            ? Text(
+                                'Recent statements from this session will appear here.',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.35),
+                                  fontSize: 12,
+                                  height: 1.5,
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: _sqlHistory.length,
+                                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                itemBuilder: (_, index) {
+                                  final statement = _sqlHistory[index];
+                                  return InkWell(
+                                    onTap: () => _setSQLText(statement),
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.03),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: Colors.white.withOpacity(0.05)),
+                                      ),
+                                      child: Text(
+                                        statement,
+                                        maxLines: 4,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontFamily: 'monospace',
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _confirmWriteMode() async {
+    await showAppDialog(
+      context: context,
+      title: 'Enable write mode',
+      subtitle:
+          'Write mode allows INSERT, UPDATE, and DELETE statements in this database. Schema changes are still blocked.',
+      content: const Text(
+        'Enable write mode only when you intend to mutate data. The SQL editor still blocks DDL statements and keeps the current project and user context applied.',
+        style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Enable writes',
+          destructive: true,
+          onTap: () {
+            setState(() => _sqlWriteAllowed = true);
+            Navigator.of(context, rootNavigator: true).pop();
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _loadSQLSchema() async {
+    setState(() {
+      _sqlSchemaLoading = true;
+      _sqlSchemaError = null;
+    });
+
+    try {
+      final response = await ref.read(apiClientProvider).post(
+        '/databases/${widget.dbId}/sql',
+        data: {
+          'statement': '''
+select
+  table_name,
+  column_name,
+  data_type,
+  is_nullable,
+  udt_name
+from information_schema.columns
+where table_schema = current_schema()
+order by table_name, ordinal_position
+''',
+          'writeAllowed': false,
+        },
+      );
+      final payload = Map<String, dynamic>.from(response.data as Map);
+      final rows = List<Map<String, dynamic>>.from(payload['rows'] ?? const []);
+      final grouped = <String, List<_SQLSchemaColumn>>{};
+      for (final row in rows) {
+        final tableName = row['table_name']?.toString() ?? '';
+        final columnName = row['column_name']?.toString() ?? '';
+        if (tableName.isEmpty || columnName.isEmpty) {
+          continue;
+        }
+        grouped.putIfAbsent(tableName, () => []);
+        grouped[tableName]!.add(
+          _SQLSchemaColumn(
+            name: columnName,
+            type: row['data_type']?.toString() ?? row['udt_name']?.toString() ?? 'text',
+            required: (row['is_nullable']?.toString() ?? '').toUpperCase() == 'NO',
+          ),
+        );
+      }
+      final schema = grouped.entries
+          .map((entry) => _SQLSchemaTable(name: entry.key, columns: entry.value))
+          .toList()
+        ..sort((left, right) => left.name.compareTo(right.name));
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _sqlSchema = schema;
+      });
+      _updateSQLSuggestions();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _sqlSchemaError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _sqlSchemaLoading = false);
+      }
+    }
+  }
+
+  void _updateSQLSuggestions() {
+    final value = _sqlCtrl.value;
+    final cursor = value.selection.baseOffset;
+    if (cursor < 0 || !_sqlFocusNode.hasFocus) {
+      if (_sqlSuggestions.isNotEmpty) {
+        setState(() => _sqlSuggestions = const []);
+      }
+      return;
+    }
+
+    final prefix = value.text.substring(0, cursor);
+    final dotted = RegExp(r'([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)?$').firstMatch(prefix);
+    final nextSuggestions = <_SQLSuggestion>[];
+
+    if (dotted != null) {
+      final tableName = dotted.group(1)?.toLowerCase() ?? '';
+      final filter = dotted.group(2)?.toLowerCase() ?? '';
+      final table = _sqlSchema.where((item) => item.name.toLowerCase() == tableName).firstOrNull;
+      if (table != null) {
+        for (final column in table.columns) {
+          if (filter.isNotEmpty && !column.name.toLowerCase().startsWith(filter)) {
+            continue;
+          }
+          nextSuggestions.add(
+            _SQLSuggestion(
+              label: '${table.name}.${column.name}',
+              detail: column.type,
+              insertText: column.name,
+              replacementPrefix: filter,
+            ),
+          );
+        }
+      }
+    } else {
+      final token = RegExp(r'([A-Za-z_][A-Za-z0-9_]*)$').firstMatch(prefix)?.group(1) ?? '';
+      if (token.isNotEmpty) {
+        final lowerToken = token.toLowerCase();
+        for (final table in _sqlSchema) {
+          if (table.name.toLowerCase().startsWith(lowerToken)) {
+            nextSuggestions.add(
+              _SQLSuggestion(
+                label: table.name,
+                detail: 'table',
+                insertText: table.name,
+                replacementPrefix: token,
+              ),
+            );
+          }
+          for (final column in table.columns) {
+            if (!column.name.toLowerCase().startsWith(lowerToken)) {
+              continue;
+            }
+            nextSuggestions.add(
+              _SQLSuggestion(
+                label: column.name,
+                detail: '${column.type} • ${table.name}',
+                insertText: column.name,
+                replacementPrefix: token,
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    nextSuggestions.sort((left, right) => left.label.compareTo(right.label));
+    final limited = nextSuggestions.take(8).toList(growable: false);
+    if (!_sameSuggestions(limited, _sqlSuggestions)) {
+      setState(() => _sqlSuggestions = limited);
+    }
+  }
+
+  bool _sameSuggestions(List<_SQLSuggestion> left, List<_SQLSuggestion> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index++) {
+      if (left[index].label != right[index].label ||
+          left[index].detail != right[index].detail ||
+          left[index].insertText != right[index].insertText) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _insertSQLIdentifier(String identifier) {
+    final value = _sqlCtrl.value;
+    final insertionPoint = value.text.length;
+    final prefix = insertionPoint > 0 && !value.text[insertionPoint - 1].contains(RegExp(r'\s'))
+        ? ' '
+        : '';
+    const suffix = '';
+    final insertText = '$prefix$identifier$suffix';
+    final nextText = value.text.replaceRange(insertionPoint, insertionPoint, insertText);
+    _setSQLText(nextText);
+  }
+
+  void _setSQLText(String value) {
+    _sqlCtrl.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+      composing: TextRange.empty,
+    );
+    _sqlEditorController?.setValue(value);
+  }
+
+  Future<void> _downloadSQLResults(String format) async {
+    final result = _sqlResult;
+    if (result == null) {
+      return;
+    }
+
+    final rows = List<Map<String, dynamic>>.from(result['rows'] ?? const []);
+    final columns = List<String>.from(result['columns'] ?? const []);
+    if (rows.isEmpty || columns.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('There are no tabular results to export.')),
+      );
+      return;
+    }
+
+    final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+    final safeDbId = widget.dbId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    late final String content;
+    late final String filename;
+    late final String mimeType;
+
+    if (format == 'csv') {
+      content = _buildCSVExport(columns, rows);
+      filename = '${safeDbId}_query_$timestamp.csv';
+      mimeType = 'text/csv;charset=utf-8';
+    } else {
+      content = const JsonEncoder.withIndent('  ').convert(rows);
+      filename = '${safeDbId}_query_$timestamp.json';
+      mimeType = 'application/json;charset=utf-8';
+    }
+
+    final blob = html.Blob([content], mimeType);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..download = filename
+      ..style.display = 'none';
+
+    html.document.body?.append(anchor);
+    anchor.click();
+    anchor.remove();
+    html.Url.revokeObjectUrl(url);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Downloaded $filename')),
+      );
+    }
+  }
+
+  Future<void> _runSQL() async {
+    final statement = _sqlCtrl.text.trim();
+    if (statement.isEmpty) {
+      setState(() => _sqlError = 'SQL statement is required.');
+      return;
+    }
+
+    setState(() {
+      _sqlRunning = true;
+      _sqlError = null;
+    });
+
+    try {
+      final response = await ref.read(apiClientProvider).post(
+        '/databases/${widget.dbId}/sql',
+        data: {
+          'statement': statement,
+          'writeAllowed': _sqlWriteAllowed,
+        },
+      );
+      final payload = Map<String, dynamic>.from(response.data as Map);
+      setState(() {
+        _sqlResult = payload;
+        _sqlHistory.remove(statement);
+        _sqlHistory.insert(0, statement);
+        if (_sqlHistory.length > 12) {
+          _sqlHistory.removeRange(12, _sqlHistory.length);
+        }
+        _sqlSuggestions = const [];
+      });
+    } catch (e) {
+      setState(() {
+        _sqlResult = null;
+        _sqlError = e.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _sqlRunning = false);
+      }
+    }
+  }
+}
+
+class _SQLSchemaBrowser extends StatelessWidget {
+  final List<_SQLSchemaTable> schema;
+  final bool loading;
+  final String? error;
+  final Map<String, String> tableIdByName;
+  final ValueChanged<String> onTableSelected;
+  final ValueChanged<String> onUseSuggestion;
+
+  const _SQLSchemaBrowser({
+    required this.schema,
+    required this.loading,
+    required this.error,
+    required this.tableIdByName,
+    required this.onTableSelected,
+    required this.onUseSuggestion,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Schema browser',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Inspect tables and columns while writing queries.',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.4),
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(child: _buildSchemaBody(context)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSchemaBody(BuildContext context) {
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (error != null) {
+      return Text(
+        'Error: $error',
+        style: const TextStyle(color: _red, fontSize: 12),
+      );
+    }
+    if (schema.isEmpty) {
+      return Text(
+        'No schema metadata available yet.',
+        style: TextStyle(
+          color: Colors.white.withOpacity(0.35),
+          fontSize: 12,
+          height: 1.5,
+        ),
+      );
+    }
+
+    return ListView.separated(
+      itemCount: schema.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final table = schema[index];
+        final tableId = tableIdByName[table.name] ?? '';
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withOpacity(0.05)),
+          ),
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              iconColor: Colors.white54,
+              collapsedIconColor: Colors.white38,
+              title: Text(
+                table.name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: const Text(
+                'information_schema',
+                style: TextStyle(
+                  color: _dimText,
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => onUseSuggestion(table.name),
+                        icon: const Icon(LucideIcons.copyPlus, size: 14),
+                        label: const Text('Insert table'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          padding: const EdgeInsets.symmetric(horizontal: 0),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: tableId.isEmpty ? null : () => onTableSelected(tableId),
+                        icon: const Icon(LucideIcons.arrowUpRight, size: 14),
+                        label: const Text('Open table'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          padding: const EdgeInsets.symmetric(horizontal: 0),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  children: table.columns.map((column) {
+                    return Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(LucideIcons.table2, size: 14, color: _accent),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        column.name,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontFamily: 'monospace',
+                                        ),
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () => onUseSuggestion(column.name),
+                                      child: const Icon(
+                                        LucideIcons.plus,
+                                        size: 14,
+                                        color: Colors.white54,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: [
+                                    _MetricPill(label: column.type),
+                                    if (column.required)
+                                      const _MetricPill(label: 'required'),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SQLSchemaTable {
+  final String name;
+  final List<_SQLSchemaColumn> columns;
+
+  const _SQLSchemaTable({required this.name, required this.columns});
+}
+
+class _SQLSchemaColumn {
+  final String name;
+  final String type;
+  final bool required;
+
+  const _SQLSchemaColumn({
+    required this.name,
+    required this.type,
+    required this.required,
+  });
+}
+
+class _SQLSuggestion {
+  final String label;
+  final String detail;
+  final String insertText;
+  final String replacementPrefix;
+
+  const _SQLSuggestion({
+    required this.label,
+    required this.detail,
+    required this.insertText,
+    required this.replacementPrefix,
+  });
 }
 
 // =============================================================================
@@ -823,11 +1766,12 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                     Text(idx['key'] as String? ?? '',
                         style: const TextStyle(
                             color: Colors.white, fontSize: 13)),
-                    Text(idx['type'] as String? ?? '',
+                  Text(_formatIndexType(idx['type'] as String? ?? ''),
                         style: const TextStyle(
                             color: _dimText, fontSize: 13)),
                     Text(
-                        (idx['attributes'] as List?)?.join(', ') ??
+                    (idx['columns'] as List?)?.join(', ') ??
+                      (idx['attributes'] as List?)?.join(', ') ??
                             '',
                         style: const TextStyle(
                             color: _dimText, fontSize: 12)),
@@ -1214,7 +2158,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
   void _showCreateIndexDialog() {
     final keyCtrl = TextEditingController();
     final columnsCtrl = TextEditingController();
-    String indexType = 'key';
+    String indexType = 'btree';
 
     showAppDialog(
       context: context,
@@ -1245,10 +2189,16 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 8,
-                  children: ['key', 'unique', 'fulltext'].map((t) {
-                    final sel = indexType == t;
+                  children: const [
+                    ('btree', 'B-tree'),
+                    ('unique', 'Unique'),
+                    ('fulltext', 'GIN full-text'),
+                  ].map((option) {
+                    final value = option.$1;
+                    final label = option.$2;
+                    final sel = indexType == value;
                     return GestureDetector(
-                      onTap: () => setDialogState(() => indexType = t),
+                      onTap: () => setDialogState(() => indexType = value),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 6),
@@ -1262,7 +2212,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                                   ? _accent
                                   : Colors.white.withOpacity(0.1)),
                         ),
-                        child: Text(t,
+                        child: Text(label,
                             style: TextStyle(
                                 color: sel ? Colors.white : _dimText,
                                 fontSize: 12)),
@@ -1291,7 +2241,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                 data: {
                   'key': keyCtrl.text.trim(),
                   'type': indexType,
-                  'attributes': cols,
+                  'columns': cols,
                   'orders': cols.map((_) => 'ASC').toList(),
                 });
             if (mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -1782,6 +2732,218 @@ class _RowsGrid extends StatelessWidget {
   }
 }
 
+class _SQLResultsGrid extends StatelessWidget {
+  final List<String> columns;
+  final List<Map<String, dynamic>> rows;
+
+  const _SQLResultsGrid({required this.columns, required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    final displayColumns = columns.isEmpty && rows.isNotEmpty
+        ? rows.first.keys.toList()
+        : columns;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.white.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: displayColumns.length * 220,
+            child: Column(
+              children: [
+                Container(
+                  color: Colors.white.withOpacity(0.03),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(
+                    children: displayColumns
+                        .map(
+                          (column) => SizedBox(
+                            width: 220,
+                            child: Text(
+                              column,
+                              style: const TextStyle(
+                                color: _dimText,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: rows.length,
+                    itemBuilder: (_, index) {
+                      final row = rows[index];
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: BorderSide(color: Colors.white.withOpacity(0.04)),
+                          ),
+                        ),
+                        child: Row(
+                          children: displayColumns
+                              .map(
+                                (column) => SizedBox(
+                                  width: 220,
+                                  child: Text(
+                                    _formatSQLValue(row[column]),
+                                    maxLines: 4,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontFamily: 'monospace',
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SQLSummaryView extends StatelessWidget {
+  final Map<String, dynamic> result;
+
+  const _SQLSummaryView({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(LucideIcons.badgeCheck, size: 28, color: _green),
+          const SizedBox(height: 12),
+          Text(
+            'Statement completed',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${result['rowCount'] ?? 0} rows affected in ${result['executionMs'] ?? 0} ms.',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.45),
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SQLErrorView extends StatelessWidget {
+  final String message;
+
+  const _SQLErrorView({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _red.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _red.withOpacity(0.25)),
+      ),
+      child: SelectableText(
+        message,
+        style: const TextStyle(
+          color: Color(0xFFFFB4B4),
+          fontSize: 12,
+          fontFamily: 'monospace',
+          height: 1.45,
+        ),
+      ),
+    );
+  }
+}
+
+class _MetricPill extends StatelessWidget {
+  final String label;
+
+  const _MetricPill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(color: Colors.white, fontSize: 12),
+      ),
+    );
+  }
+}
+
+String _formatSQLValue(Object? value) {
+  if (value == null) {
+    return 'NULL';
+  }
+  if (value is Map || value is List) {
+    return const JsonEncoder.withIndent('  ').convert(value);
+  }
+  return value.toString();
+}
+
+String _buildCSVExport(
+  List<String> columns,
+  List<Map<String, dynamic>> rows,
+) {
+  String escapeCell(Object? value) {
+    final normalized = value == null
+        ? ''
+        : value is Map || value is List
+            ? json.encode(value)
+            : value.toString();
+    final escaped = normalized.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  final buffer = StringBuffer()
+    ..writeln(columns.map(escapeCell).join(','));
+
+  for (final row in rows) {
+    buffer.writeln(
+      columns.map((column) => escapeCell(row[column])).join(','),
+    );
+  }
+
+  return buffer.toString();
+}
+
 // =============================================================================
 // Shared Widgets
 // =============================================================================
@@ -1885,7 +3047,7 @@ class _SearchBox extends StatelessWidget {
 
 class _AccentButton extends StatelessWidget {
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _AccentButton({required this.label, required this.onTap});
 

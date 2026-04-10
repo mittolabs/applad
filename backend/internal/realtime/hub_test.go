@@ -33,10 +33,10 @@ func TestHub_PublishToSubscribers(t *testing.T) {
 
 	// Publish an event
 	hub.Publish(Event{
-		Type:      "databases.documents.create",
+		Type:      "databases.rows.create",
 		Channel:   "databases.docs",
 		Timestamp: "2026-04-06T00:00:00Z",
-		Payload:   map[string]string{"id": "doc1"},
+		Payload:   map[string]string{"id": "row1"},
 	})
 
 	// Wait for the event to arrive
@@ -46,8 +46,8 @@ func TestHub_PublishToSubscribers(t *testing.T) {
 		if err := json.Unmarshal(msg, &ev); err != nil {
 			t.Fatalf("failed to unmarshal event: %v", err)
 		}
-		if ev.Type != "databases.documents.create" {
-			t.Errorf("expected type 'databases.documents.create', got '%s'", ev.Type)
+		if ev.Type != "databases.rows.create" {
+			t.Errorf("expected type 'databases.rows.create', got '%s'", ev.Type)
 		}
 		if ev.Channel != "databases.docs" {
 			t.Errorf("expected channel 'databases.docs', got '%s'", ev.Channel)
@@ -111,10 +111,10 @@ func TestPublishResourceEvent_FormatsCorrectly(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Subscribe to the channel that PublishResourceEvent will target
-	channel := "projects.proj1.databases.documents"
+	channel := "projects.proj1.databases.rows"
 	hub.Subscribe(client, channel)
 
-	PublishResourceEvent(hub, "databases", "documents", "create", "proj1", "doc123", map[string]string{"key": "val"})
+	PublishResourceEvent(hub, "databases", "rows", "create", "proj1", "row123", map[string]string{"key": "val"})
 
 	select {
 	case msg := <-client.send:
@@ -122,11 +122,11 @@ func TestPublishResourceEvent_FormatsCorrectly(t *testing.T) {
 		if err := json.Unmarshal(msg, &ev); err != nil {
 			t.Fatalf("failed to unmarshal: %v", err)
 		}
-		if ev.Type != "databases.documents.create" {
-			t.Errorf("expected type 'databases.documents.create', got '%s'", ev.Type)
+		if ev.Type != "databases.rows.create" {
+			t.Errorf("expected type 'databases.rows.create', got '%s'", ev.Type)
 		}
-		if ev.Channel != "projects.proj1.databases.documents" {
-			t.Errorf("expected channel 'projects.proj1.databases.documents', got '%s'", ev.Channel)
+		if ev.Channel != "projects.proj1.databases.rows" {
+			t.Errorf("expected channel 'projects.proj1.databases.rows', got '%s'", ev.Channel)
 		}
 		if ev.Timestamp == "" {
 			t.Error("expected non-empty timestamp")
@@ -148,7 +148,7 @@ func TestPublishResourceEvent_NilPublisher(t *testing.T) {
 		}
 	}()
 
-	PublishResourceEvent(nil, "databases", "documents", "create", "proj1", "doc1", nil)
+	PublishResourceEvent(nil, "databases", "rows", "create", "proj1", "row1", nil)
 }
 
 func TestHub_MultipleChannels(t *testing.T) {

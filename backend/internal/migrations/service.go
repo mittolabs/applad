@@ -278,7 +278,7 @@ func (s *Service) ValidateReport(ctx context.Context, projectID, source string, 
 		if report.Valid {
 			report.Resources = append(report.Resources,
 				map[string]interface{}{"type": "users", "description": "User accounts and sessions"},
-				map[string]interface{}{"type": "databases", "description": "Databases, collections, and documents"},
+				map[string]interface{}{"type": "databases", "description": "Databases, tables, and rows"},
 				map[string]interface{}{"type": "storage", "description": "Buckets and files"},
 				map[string]interface{}{"type": "functions", "description": "Serverless functions"},
 			)

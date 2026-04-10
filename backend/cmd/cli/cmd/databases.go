@@ -46,9 +46,9 @@ var dbTablesCmd = &cobra.Command{
 	Short: "List tables in a database",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		res, err := GetWithProject(Cfg.URL + "/v1/databases/" + args[0] + "/collections")
+		res, err := GetWithProject(Cfg.URL + "/v1/databases/" + args[0] + "/tables")
 		Must(err)
-		PrintList(res, "collections")
+		PrintList(res, "tables")
 	},
 }
 
@@ -61,7 +61,7 @@ var dbCreateTableCmd = &cobra.Command{
 		if name == "" {
 			name = Prompt("Table name: ")
 		}
-		res, err := PostWithProject(Cfg.URL+"/v1/databases/"+args[0]+"/collections", map[string]string{"name": name})
+		res, err := PostWithProject(Cfg.URL+"/v1/databases/"+args[0]+"/tables", map[string]string{"name": name})
 		Must(err)
 		PrettyPrint(res)
 	},
@@ -73,10 +73,10 @@ var dbQueryCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		limit, _ := cmd.Flags().GetString("limit")
-		url := fmt.Sprintf("%s/v1/databases/%s/collections/%s/documents?limit=%s", Cfg.URL, args[0], args[1], limit)
+		url := fmt.Sprintf("%s/v1/databases/%s/tables/%s/rows?limit=%s", Cfg.URL, args[0], args[1], limit)
 		res, err := GetWithProject(url)
 		Must(err)
-		PrintList(res, "documents")
+		PrintList(res, "rows")
 	},
 }
 

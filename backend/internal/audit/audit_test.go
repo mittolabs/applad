@@ -145,7 +145,7 @@ func TestParseRoute(t *testing.T) {
 		wantType       string
 		wantAction     string
 	}{
-		{"POST", "/v1/databases/db1/collections/col1/documents", "documents", "create.documents"},
+		{"POST", "/v1/databases/db1/tables/tbl1/rows", "rows", "create.rows"},
 		{"GET", "/v1/users", "users", "list.users"},
 		{"GET", "/v1/users/abc", "users", "read.users"},
 		{"DELETE", "/v1/storage/buckets/b1/files/f1", "files", "delete.files"},

@@ -31,8 +31,10 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/indexes/{indexId}", h.deleteIndex)
 
 	// Embedding CRUD
+	r.Post("/indexes/{indexId}/vectors", h.upsertBatch)
 	r.Put("/indexes/{indexId}/embeddings/{docId}", h.upsert)
 	r.Delete("/indexes/{indexId}/embeddings/{docId}", h.delete)
+	r.Post("/indexes/{indexId}/delete", h.deleteBatch)
 
 	// Similarity search
 	r.Post("/indexes/{indexId}/query", h.query)
@@ -49,6 +51,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	var body struct {
+		IndexID        string `json:"indexId"`
 		Name           string `json:"name"`
 		Dimensions     int    `json:"dimensions"`
 		Metric         string `json:"metric"`
@@ -60,7 +63,7 @@ func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name is required")
 		return
 	}
-	idx, err := h.svc.CreateIndex(r.Context(), projectID, body.Name, body.Dimensions, body.Metric,
+	idx, err := h.svc.CreateIndex(r.Context(), projectID, body.IndexID, body.Name, body.Dimensions, body.Metric,
 		body.CollectionID, body.EmbeddingField, body.Model)
 	if err != nil {
 		apperr.Write(w, http.StatusConflict, "vector_index_exists", err.Error())
@@ -131,6 +134,53 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) upsertBatch(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	indexID := chi.URLParam(r, "indexId")
+	var body struct {
+		Vectors []struct {
+			ID       string                 `json:"id"`
+			Values   []float64              `json:"values"`
+			Metadata map[string]interface{} `json:"metadata"`
+		} `json:"vectors"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Vectors) == 0 {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "vectors are required")
+		return
+	}
+	results := make([]*Embedding, 0, len(body.Vectors))
+	for _, item := range body.Vectors {
+		if item.ID == "" || len(item.Values) == 0 {
+			continue
+		}
+		emb, err := h.svc.Upsert(r.Context(), indexID, projectID, item.ID, item.Values, item.Metadata)
+		if err != nil {
+			apperr.Internal(w, err)
+			return
+		}
+		results = append(results, emb)
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(results), "vectors": results})
+}
+
+func (h *Handler) deleteBatch(w http.ResponseWriter, r *http.Request) {
+	indexID := chi.URLParam(r, "indexId")
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.IDs) == 0 {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "ids are required")
+		return
+	}
+	for _, id := range body.IDs {
+		if err := h.svc.Delete(r.Context(), indexID, id); err != nil {
+			apperr.Internal(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": len(body.IDs)})
 }
 
 func (h *Handler) query(w http.ResponseWriter, r *http.Request) {

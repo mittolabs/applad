@@ -1,2 +1,0 @@
--- Applad database initialization
--- All schema changes beyond this are handled by the migrations system.

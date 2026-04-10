@@ -1,17 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/org_provider.dart';
+import '../../core/theme/console_colors.dart';
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _border = Color(0x14FFFFFF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 
 class OnboardingPage extends ConsumerStatefulWidget {
   const OnboardingPage({super.key});
@@ -33,6 +28,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final auth = ref.watch(consoleAuthProvider);
     final user = auth.valueOrNull;
 
@@ -70,7 +66,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     final userName = user?.name ?? '';
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: colors.background,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
@@ -78,12 +74,12 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
             width: isWide ? 480 : double.infinity,
             padding: const EdgeInsets.all(40),
             decoration: BoxDecoration(
-              color: _surface,
+              color: colors.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _border),
+              border: Border.all(color: colors.border),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
+                  color: colors.shadow,
                   blurRadius: 40,
                   offset: const Offset(0, 16),
                 ),
@@ -109,8 +105,8 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   userName.isNotEmpty
                       ? 'Welcome, $userName'
                       : 'Welcome to Applad',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: colors.textPrimary,
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
                   ),
@@ -120,7 +116,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   'Create your organization to get started.\nOrganizations help you manage projects and team members.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.45),
+                    color: colors.textMuted,
                     fontSize: 14,
                     height: 1.5,
                   ),
@@ -133,7 +129,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   child: Text(
                     'Organization name',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.5),
+                      color: colors.textSecondary,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -143,24 +139,22 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                 TextField(
                   controller: _orgNameCtrl,
                   autofocus: true,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  style: TextStyle(color: colors.textPrimary, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'e.g. Acme Inc',
                     hintStyle: TextStyle(
-                        color: Colors.white.withOpacity(0.22), fontSize: 14),
+                        color: colors.textSubtle, fontSize: 14),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.04),
+                    fillColor: colors.fieldFill,
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide:
-                          BorderSide(color: Colors.white.withOpacity(0.1)),
+                      borderSide: BorderSide(color: colors.fieldBorder),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide:
-                          BorderSide(color: Colors.white.withOpacity(0.1)),
+                      borderSide: BorderSide(color: colors.fieldBorder),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),

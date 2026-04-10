@@ -69,20 +69,20 @@ func (s *Service) GetUsage(ctx context.Context, projectID, metric, rangeStr stri
 	switch rangeStr {
 	case "24h":
 		since = now.Add(-24 * time.Hour)
-		groupFormat = "%Y-%m-%d %H:00:00"
+		groupFormat = `YYYY-MM-DD HH24":00:00"`
 	case "7d":
 		since = now.Add(-7 * 24 * time.Hour)
-		groupFormat = "%Y-%m-%d"
+		groupFormat = "YYYY-MM-DD"
 	case "30d":
 		since = now.Add(-30 * 24 * time.Hour)
-		groupFormat = "%Y-%m-%d"
+		groupFormat = "YYYY-MM-DD"
 	default:
 		since = now.Add(-24 * time.Hour)
-		groupFormat = "%Y-%m-%d %H:00:00"
+		groupFormat = `YYYY-MM-DD HH24":00:00"`
 	}
 
 	query := fmt.Sprintf(
-		"SELECT DATE_FORMAT(timestamp, '%s') AS period, SUM(value) AS total FROM usage_metrics WHERE project_id = ? AND metric = ? AND timestamp >= ? GROUP BY period ORDER BY period ASC",
+		"SELECT to_char(timestamp AT TIME ZONE 'UTC', '%s') AS period, SUM(value) AS total FROM usage_metrics WHERE project_id = ? AND metric = ? AND timestamp >= ? GROUP BY period ORDER BY period ASC",
 		groupFormat)
 
 	rows, err := s.db.QueryContext(ctx, query, projectID, metric, since)

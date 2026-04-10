@@ -197,38 +197,38 @@ func (s *Server) executeTool(name string, args map[string]interface{}) (interfac
 
 	case "databases_list_tables":
 		dbID := strArg(args, "databaseId")
-		return s.apiGet("/databases/" + dbID + "/collections")
+		return s.apiGet("/databases/" + dbID + "/tables")
 
 	case "databases_query":
 		dbID := strArg(args, "databaseId")
 		tableID := strArg(args, "tableId")
 		limit := intArgOrDefault(args, "limit", 25)
-		return s.apiGet(fmt.Sprintf("/databases/%s/collections/%s/documents?limit=%d", dbID, tableID, limit))
+		return s.apiGet(fmt.Sprintf("/databases/%s/tables/%s/rows?limit=%d", dbID, tableID, limit))
 
 	case "databases_create_row":
 		dbID := strArg(args, "databaseId")
 		tableID := strArg(args, "tableId")
 		data := mapArg(args, "data")
-		return s.apiPost(fmt.Sprintf("/databases/%s/collections/%s/documents", dbID, tableID), data)
+		return s.apiPost(fmt.Sprintf("/databases/%s/tables/%s/rows", dbID, tableID), data)
 
 	case "databases_get_row":
 		dbID := strArg(args, "databaseId")
 		tableID := strArg(args, "tableId")
 		rowID := strArg(args, "rowId")
-		return s.apiGet(fmt.Sprintf("/databases/%s/collections/%s/documents/%s", dbID, tableID, rowID))
+		return s.apiGet(fmt.Sprintf("/databases/%s/tables/%s/rows/%s", dbID, tableID, rowID))
 
 	case "databases_update_row":
 		dbID := strArg(args, "databaseId")
 		tableID := strArg(args, "tableId")
 		rowID := strArg(args, "rowId")
 		data := mapArg(args, "data")
-		return s.apiPatch(fmt.Sprintf("/databases/%s/collections/%s/documents/%s", dbID, tableID, rowID), data)
+		return s.apiPatch(fmt.Sprintf("/databases/%s/tables/%s/rows/%s", dbID, tableID, rowID), data)
 
 	case "databases_delete_row":
 		dbID := strArg(args, "databaseId")
 		tableID := strArg(args, "tableId")
 		rowID := strArg(args, "rowId")
-		return s.apiDelete(fmt.Sprintf("/databases/%s/collections/%s/documents/%s", dbID, tableID, rowID))
+		return s.apiDelete(fmt.Sprintf("/databases/%s/tables/%s/rows/%s", dbID, tableID, rowID))
 
 	// ── Auth / Users ──────────────────────────────────────────────────────────
 	case "auth_list_users":

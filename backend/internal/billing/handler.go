@@ -39,6 +39,7 @@ func Routes(h *Handler) http.Handler {
 
 	// Invoices
 	r.Get("/invoices", h.listInvoices)
+	r.Get("/invoices/{invoiceId}", h.getInvoice)
 
 	return r
 }
@@ -157,6 +158,17 @@ func (h *Handler) listInvoices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"total": total, "limit": limit, "offset": offset, "invoices": invoices,
 	})
+}
+
+func (h *Handler) getInvoice(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	invoiceID := chi.URLParam(r, "invoiceId")
+	invoice, err := h.svc.GetInvoice(r.Context(), projectID, invoiceID)
+	if err != nil {
+		apperr.NotFound(w, "invoice")
+		return
+	}
+	writeJSON(w, http.StatusOK, invoice)
 }
 
 // ── Admin plan creation (no project auth needed) ──────────────────────────────

@@ -3,14 +3,175 @@ package databases
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/mittolabs/applad/internal/db"
 )
+
+func TestSignedPostgRESTJWT_IncludesClaims(t *testing.T) {
+	svc := &Service{jwtSecret: "test-secret"}
+	tokenString, err := svc.signedPostgRESTJWT("proj1", "user1", []string{"admin"})
+	if err != nil {
+		t.Fatalf("signedPostgRESTJWT returned error: %v", err)
+	}
+	if tokenString == "" {
+		t.Fatal("expected signed token")
+	}
+
+	token, err := jwt.ParseWithClaims(tokenString, &postgrestClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte("test-secret"), nil
+	})
+	if err != nil {
+		t.Fatalf("failed to parse token: %v", err)
+	}
+	claims, ok := token.Claims.(*postgrestClaims)
+	if !ok || !token.Valid {
+		t.Fatal("expected valid postgrest claims")
+	}
+	if claims.ProjectID != "proj1" {
+		t.Fatalf("expected project_id proj1, got %q", claims.ProjectID)
+	}
+	if claims.UserID != "user1" {
+		t.Fatalf("expected user_id user1, got %q", claims.UserID)
+	}
+	if claims.Role != "applad_user" {
+		t.Fatalf("expected db role applad_user, got %q", claims.Role)
+	}
+	joinedRoles := strings.Join(claims.Roles, ",")
+	for _, expected := range []string{"admin", "any", "user:user1", "users"} {
+		if !strings.Contains(joinedRoles, expected) {
+			t.Fatalf("expected roles to include %q, got %v", expected, claims.Roles)
+		}
+	}
+}
+
+func TestPolicyRoleExpression_HandlesBuiltInRoles(t *testing.T) {
+	expr := policyRoleExpression([]string{"users", "admin", "user:user1"})
+	checks := []string{
+		"current_setting('applad.user_id', true)",
+		"? 'admin'",
+		"= 'user1'",
+	}
+	for _, check := range checks {
+		if !strings.Contains(expr, check) {
+			t.Fatalf("expected expression %q to contain %q", expr, check)
+		}
+	}
+}
+
+func TestLookupTableContext_ComputesSchema(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	mock.ExpectQuery(`SELECT id, database_id, project_id, name FROM tables WHERE id =`).
+		WithArgs("table1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name"}).
+			AddRow("table1", "db-1", "proj-1", "users"))
+
+	table, err := svc.lookupTableContext(context.Background(), "table1")
+	if err != nil {
+		t.Fatalf("lookupTableContext returned error: %v", err)
+	}
+	if table.Schema != "p_proj_1_db_1" {
+		t.Fatalf("expected schema p_proj_1_db_1, got %q", table.Schema)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreateIndex_DefaultTypeUsesStandardIndex(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectLookupTable(mock, "table1", "db1", "proj1", "users")
+	mock.ExpectExec(regexp.QuoteMeta(`CREATE INDEX IF NOT EXISTS "users_email_idx" ON "p_proj1_db1"."users" ("email")`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`INSERT INTO indexes`).
+		WithArgs(sqlmock.AnyArg(), "table1", "users_email_idx", "btree", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("NOTIFY pgrst, 'reload schema'")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	index, err := svc.CreateIndex(context.Background(), "table1", "users_email_idx", "btree", []string{"email"}, []string{"ASC"})
+	if err != nil {
+		t.Fatalf("CreateIndex returned error: %v", err)
+	}
+	if index.Type != "btree" {
+		t.Fatalf("expected type btree, got %q", index.Type)
+	}
+	if len(index.Columns) != 1 || index.Columns[0] != "email" {
+		t.Fatalf("expected email column, got %v", index.Columns)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreateIndex_UniqueTypeUsesUniqueDDL(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectLookupTable(mock, "table1", "db1", "proj1", "users")
+	mock.ExpectExec(regexp.QuoteMeta(`CREATE UNIQUE INDEX IF NOT EXISTS "users_email_unique" ON "p_proj1_db1"."users" ("email")`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`INSERT INTO indexes`).
+		WithArgs(sqlmock.AnyArg(), "table1", "users_email_unique", "unique", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("NOTIFY pgrst, 'reload schema'")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	index, err := svc.CreateIndex(context.Background(), "table1", "users_email_unique", "unique", []string{"email"}, []string{"ASC"})
+	if err != nil {
+		t.Fatalf("CreateIndex returned error: %v", err)
+	}
+	if index.Type != "unique" {
+		t.Fatalf("expected type unique, got %q", index.Type)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreateIndex_FullTextSingleColumnUsesGIN(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectLookupTable(mock, "table1", "db1", "proj1", "articles")
+	mock.ExpectExec(regexp.QuoteMeta(`CREATE INDEX IF NOT EXISTS "articles_body_search" ON "p_proj1_db1"."articles" USING GIN (to_tsvector('english', "body"))`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`INSERT INTO indexes`).
+		WithArgs(sqlmock.AnyArg(), "table1", "articles_body_search", "fulltext", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("NOTIFY pgrst, 'reload schema'")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	index, err := svc.CreateIndex(context.Background(), "table1", "articles_body_search", "fulltext", []string{"body"}, []string{"ASC"})
+	if err != nil {
+		t.Fatalf("CreateIndex returned error: %v", err)
+	}
+	if index.Type != "fulltext" {
+		t.Fatalf("expected type fulltext, got %q", index.Type)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestExecuteSQL_RejectsDDL(t *testing.T) {
+	svc := &Service{}
+	_, err := svc.ExecuteSQL(context.Background(), "proj1", "db1", "user1", []string{"admin"}, "CREATE TABLE users (id text)", false)
+	if err == nil {
+		t.Fatal("expected DDL rejection")
+	}
+	if !strings.Contains(err.Error(), "DDL statements are not allowed") {
+		t.Fatalf("expected DDL error, got %v", err)
+	}
+}
 
 func newMockService(t *testing.T) (*Service, sqlmock.Sqlmock, *sql.DB) {
 	t.Helper()
@@ -19,530 +180,12 @@ func newMockService(t *testing.T) (*Service, sqlmock.Sqlmock, *sql.DB) {
 		t.Fatalf("failed to create sqlmock: %v", err)
 	}
 	database := &db.DB{DB: mockDB}
-	svc := NewService(database)
-	return svc, mock, mockDB
+	return NewService(database), mock, mockDB
 }
 
-// --- database CRUD ---
-
-func TestCreateDatabase_Success(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	mock.ExpectExec("INSERT INTO _databases").
-		WithArgs(sqlmock.AnyArg(), "proj1", "My DB", sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	d, err := svc.CreateDatabase(context.Background(), "proj1", "unique()", "My DB")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if d.Name != "My DB" {
-		t.Errorf("expected name 'My DB', got %q", d.Name)
-	}
-	if !d.Enabled {
-		t.Error("expected Enabled=true")
-	}
-	if d.ID == "" {
-		t.Error("expected non-empty ID")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestGetDatabase_NotFound(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	mock.ExpectQuery("SELECT id, name, created_at, updated_at FROM _databases").
-		WithArgs("missing-id", "proj1").
-		WillReturnError(sql.ErrNoRows)
-
-	_, err := svc.GetDatabase(context.Background(), "missing-id", "proj1")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected 'not found' error, got: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestListDatabases_ReturnsAll(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	now := time.Now().UTC()
-	rows := sqlmock.NewRows([]string{"id", "name", "created_at", "updated_at"}).
-		AddRow("db1", "First", now, now).
-		AddRow("db2", "Second", now, now).
-		AddRow("db3", "Third", now, now)
-
-	mock.ExpectQuery("SELECT id, name, created_at, updated_at FROM _databases").
-		WithArgs("proj1").
-		WillReturnRows(rows)
-
-	dbs, count, err := svc.ListDatabases(context.Background(), "proj1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("expected count=3, got %d", count)
-	}
-	if len(dbs) != 3 {
-		t.Errorf("expected 3 databases, got %d", len(dbs))
-	}
-	for _, d := range dbs {
-		if !d.Enabled {
-			t.Errorf("expected Enabled=true for db %s", d.ID)
-		}
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-// --- collection CRUD ---
-
-func TestCreateCollection_Success(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	mock.ExpectExec("INSERT INTO collections").
-		WithArgs(sqlmock.AnyArg(), "db1", "proj1", "users", sqlmock.AnyArg(), false, sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	c, err := svc.CreateCollection(context.Background(), "proj1", "db1", "unique()", "users", []string{"read", "write"}, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if c.Name != "users" {
-		t.Errorf("expected name 'users', got %q", c.Name)
-	}
-	if !c.Enabled {
-		t.Error("expected Enabled=true")
-	}
-	if len(c.Permissions) != 2 {
-		t.Errorf("expected 2 permissions, got %d", len(c.Permissions))
-	}
-	if len(c.Columns) != 0 {
-		t.Errorf("expected 0 columns, got %d", len(c.Columns))
-	}
-	if len(c.Indexes) != 0 {
-		t.Errorf("expected 0 indexes, got %d", len(c.Indexes))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestGetCollection_LoadsColumnsAndIndexes(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	now := time.Now().UTC()
-	permsJSON, _ := json.Marshal([]string{"read"})
-
-	// Collection query
-	mock.ExpectQuery("SELECT id, database_id, name, document_security, permissions, enabled, created_at, updated_at FROM collections").
-		WithArgs("coll1", "db1", "proj1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "name", "document_security", "permissions", "enabled", "created_at", "updated_at"}).
-			AddRow("coll1", "db1", "users", false, permsJSON, true, now, now))
-
-	// Attributes query
-	mock.ExpectQuery("SELECT .+ FROM attributes WHERE collection_id").
-		WithArgs("coll1").
-		WillReturnRows(sqlmock.NewRows([]string{"key", "type", "status", "required", "array", "default_value", "options"}).
-			AddRow("name", "string", "available", true, false, nil, nil).
-			AddRow("age", "integer", "available", false, false, nil, nil))
-
-	// Indexes query
-	idxAttrsJSON, _ := json.Marshal([]string{"name"})
-	mock.ExpectQuery("SELECT .+ FROM _indexes WHERE collection_id").
-		WithArgs("coll1").
-		WillReturnRows(sqlmock.NewRows([]string{"key", "type", "status", "attributes"}).
-			AddRow("name_idx", "key", "available", idxAttrsJSON))
-
-	c, err := svc.GetCollection(context.Background(), "coll1", "db1", "proj1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if c.Name != "users" {
-		t.Errorf("expected name 'users', got %q", c.Name)
-	}
-	if len(c.Columns) != 2 {
-		t.Errorf("expected 2 columns, got %d", len(c.Columns))
-	}
-	if len(c.Indexes) != 1 {
-		t.Errorf("expected 1 index, got %d", len(c.Indexes))
-	}
-	if c.Indexes[0].Key != "name_idx" {
-		t.Errorf("expected index key 'name_idx', got %q", c.Indexes[0].Key)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-// --- document CRUD ---
-
-func TestCreateRow_Success(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	mock.ExpectExec("INSERT INTO documents").
-		WithArgs(sqlmock.AnyArg(), "coll1", "db1", "proj1", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	data := map[string]interface{}{"name": "John", "age": float64(30)}
-	doc, err := svc.CreateDocument(context.Background(), "proj1", "db1", "coll1", "unique()", data, []string{"read"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if doc.Data["name"] != "John" {
-		t.Errorf("expected data name='John', got %v", doc.Data["name"])
-	}
-	if doc.TableID != "coll1" {
-		t.Errorf("expected TableID='coll1', got %q", doc.TableID)
-	}
-	if doc.ID == "" {
-		t.Error("expected non-empty ID")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestGetRow_NotFound(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	mock.ExpectQuery("SELECT id, collection_id, database_id, data, permissions, created_at, updated_at FROM documents").
-		WithArgs("missing", "coll1", "db1", "proj1").
-		WillReturnError(sql.ErrNoRows)
-
-	_, err := svc.GetDocument(context.Background(), "missing", "coll1", "db1", "proj1")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected 'not found' error, got: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-// --- query operator tests ---
-
-// newQueryMockService creates a service with regexp query matching for flexible SQL assertions.
-func newQueryMockService(t *testing.T) (*Service, sqlmock.Sqlmock, *sql.DB) {
-	t.Helper()
-	mockDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	if err != nil {
-		t.Fatalf("failed to create sqlmock: %v", err)
-	}
-	database := &db.DB{DB: mockDB}
-	svc := NewService(database)
-	return svc, mock, mockDB
-}
-
-func docRows() *sqlmock.Rows {
-	now := time.Now().UTC()
-	dataJSON := []byte(`{"name":"John","age":30}`)
-	permsJSON := []byte(`["read"]`)
-	return sqlmock.NewRows([]string{"id", "collection_id", "database_id", "data", "permissions", "created_at", "updated_at"}).
-		AddRow("doc1", "coll1", "db1", dataJSON, permsJSON, now, now)
-}
-
-func TestListDocumentsWithQuery_EqualOperator(t *testing.T) {
-	svc, mock, mockDB := newQueryMockService(t)
-	defer mockDB.Close()
-
-	// Expect SELECT with JSON_EXTRACT for equal operator
-	mock.ExpectQuery(`JSON_EXTRACT.*\$\.name`).
-		WillReturnRows(docRows())
-	// COUNT query
-	mock.ExpectQuery(`SELECT COUNT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	params := ListParams{
-		Limit: 10,
-		Queries: []Query{
-			{Attribute: "name", Method: "equal", Values: "John"},
-		},
-	}
-	docs, total, err := svc.ListDocumentsWithQuery(context.Background(), "proj1", "db1", "coll1", params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if total != 1 {
-		t.Errorf("expected total=1, got %d", total)
-	}
-	if len(docs) != 1 {
-		t.Errorf("expected 1 doc, got %d", len(docs))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestListDocumentsWithQuery_GreaterThan(t *testing.T) {
-	svc, mock, mockDB := newQueryMockService(t)
-	defer mockDB.Close()
-
-	// Expect CAST and > for greaterThan operator
-	mock.ExpectQuery(`CAST.*AS DOUBLE.*>`).
-		WillReturnRows(docRows())
-	mock.ExpectQuery(`SELECT COUNT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	params := ListParams{
-		Limit: 10,
-		Queries: []Query{
-			{Attribute: "age", Method: "greaterThan", Values: 18},
-		},
-	}
-	docs, _, err := svc.ListDocumentsWithQuery(context.Background(), "proj1", "db1", "coll1", params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(docs) != 1 {
-		t.Errorf("expected 1 doc, got %d", len(docs))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestListDocumentsWithQuery_Contains(t *testing.T) {
-	svc, mock, mockDB := newQueryMockService(t)
-	defer mockDB.Close()
-
-	// Expect LIKE for contains operator
-	mock.ExpectQuery(`LIKE`).
-		WillReturnRows(docRows())
-	mock.ExpectQuery(`SELECT COUNT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	params := ListParams{
-		Limit: 10,
-		Queries: []Query{
-			{Attribute: "name", Method: "contains", Values: "oh"},
-		},
-	}
-	docs, _, err := svc.ListDocumentsWithQuery(context.Background(), "proj1", "db1", "coll1", params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(docs) != 1 {
-		t.Errorf("expected 1 doc, got %d", len(docs))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestListDocumentsWithQuery_IsNull(t *testing.T) {
-	svc, mock, mockDB := newQueryMockService(t)
-	defer mockDB.Close()
-
-	// Expect IS NULL check
-	mock.ExpectQuery(`IS NULL`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "collection_id", "database_id", "data", "permissions", "created_at", "updated_at"}))
-	mock.ExpectQuery(`SELECT COUNT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-	params := ListParams{
-		Limit: 10,
-		Queries: []Query{
-			{Attribute: "phone", Method: "isNull"},
-		},
-	}
-	docs, total, err := svc.ListDocumentsWithQuery(context.Background(), "proj1", "db1", "coll1", params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if total != 0 {
-		t.Errorf("expected total=0, got %d", total)
-	}
-	if len(docs) != 0 {
-		t.Errorf("expected 0 docs, got %d", len(docs))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestListDocumentsWithQuery_OrderBy(t *testing.T) {
-	svc, mock, mockDB := newQueryMockService(t)
-	defer mockDB.Close()
-
-	// Expect ORDER BY with JSON_EXTRACT for custom field
-	mock.ExpectQuery(`ORDER BY JSON_UNQUOTE.*\$\.name.*ASC`).
-		WillReturnRows(docRows())
-	mock.ExpectQuery(`SELECT COUNT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	params := ListParams{
-		Limit:     10,
-		OrderAttr: "name",
-		OrderType: "ASC",
-	}
-	docs, _, err := svc.ListDocumentsWithQuery(context.Background(), "proj1", "db1", "coll1", params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(docs) != 1 {
-		t.Errorf("expected 1 doc, got %d", len(docs))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestListDocumentsWithQuery_CursorAfter(t *testing.T) {
-	svc, mock, mockDB := newQueryMockService(t)
-	defer mockDB.Close()
-
-	// Expect subquery for cursor-based pagination
-	mock.ExpectQuery(`created_at < \(SELECT created_at FROM documents WHERE id`).
-		WillReturnRows(docRows())
-	mock.ExpectQuery(`SELECT COUNT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	params := ListParams{
-		Limit:       10,
-		CursorAfter: "prev-doc-id",
-	}
-	docs, _, err := svc.ListDocumentsWithQuery(context.Background(), "proj1", "db1", "coll1", params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(docs) != 1 {
-		t.Errorf("expected 1 doc, got %d", len(docs))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-// --- relationships ---
-
-func TestCreateRelationship_Success(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	mock.ExpectExec("INSERT INTO collection_relationships").
-		WithArgs(sqlmock.AnyArg(), "coll1", "coll2", "oneToMany", true, "posts", "author", "cascade").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	rel, err := svc.CreateRelationship(context.Background(), "coll1", "coll2", "oneToMany", "posts", "author", "cascade", true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rel.TableID != "coll1" {
-		t.Errorf("expected TableID='coll1', got %q", rel.TableID)
-	}
-	if rel.RelatedTable != "coll2" {
-		t.Errorf("expected RelatedTable='coll2', got %q", rel.RelatedTable)
-	}
-	if rel.Type != "oneToMany" {
-		t.Errorf("expected Type='oneToMany', got %q", rel.Type)
-	}
-	if !rel.TwoWay {
-		t.Error("expected TwoWay=true")
-	}
-	if rel.Key != "posts" {
-		t.Errorf("expected Key='posts', got %q", rel.Key)
-	}
-	if rel.TwoWayKey != "author" {
-		t.Errorf("expected TwoWayKey='author', got %q", rel.TwoWayKey)
-	}
-	if rel.OnDelete != "cascade" {
-		t.Errorf("expected OnDelete='cascade', got %q", rel.OnDelete)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestListRelationships_Empty(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	mock.ExpectQuery("SELECT id, collection_id, related_collection").
-		WithArgs("coll1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "collection_id", "related_collection", "relationship_type", "two_way", "key", "two_way_key", "on_delete"}))
-
-	rels, err := svc.ListRelationships(context.Background(), "coll1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rels == nil {
-		t.Fatal("expected non-nil empty slice, got nil")
-	}
-	if len(rels) != 0 {
-		t.Errorf("expected 0 relationships, got %d", len(rels))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-// --- update / delete document ---
-
-func TestUpdateRow_Success(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	now := time.Now().UTC()
-	updatedData := map[string]interface{}{"name": "Jane", "age": float64(25)}
-	dataJSON, _ := json.Marshal(updatedData)
-	permsJSON, _ := json.Marshal([]string{"read", "write"})
-
-	// UPDATE
-	mock.ExpectExec("UPDATE documents SET data").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "doc1", "coll1", "db1", "proj1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	// GetDocument after update
-	mock.ExpectQuery("SELECT id, collection_id, database_id, data, permissions, created_at, updated_at FROM documents").
-		WithArgs("doc1", "coll1", "db1", "proj1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "collection_id", "database_id", "data", "permissions", "created_at", "updated_at"}).
-			AddRow("doc1", "coll1", "db1", dataJSON, permsJSON, now, now))
-
-	doc, err := svc.UpdateDocument(context.Background(), "doc1", "coll1", "db1", "proj1", updatedData, []string{"read", "write"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if doc.Data["name"] != "Jane" {
-		t.Errorf("expected data name='Jane', got %v", doc.Data["name"])
-	}
-	if doc.ID != "doc1" {
-		t.Errorf("expected ID='doc1', got %q", doc.ID)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestDeleteRow_Success(t *testing.T) {
-	svc, mock, mockDB := newMockService(t)
-	defer mockDB.Close()
-
-	mock.ExpectExec("DELETE FROM documents WHERE").
-		WithArgs("doc1", "coll1", "db1", "proj1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	err := svc.DeleteDocument(context.Background(), "doc1", "coll1", "db1", "proj1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
+func expectLookupTable(mock sqlmock.Sqlmock, tableID, databaseID, projectID, name string) {
+	mock.ExpectQuery(`SELECT id, database_id, project_id, name FROM tables WHERE id =`).
+		WithArgs(tableID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name"}).
+			AddRow(tableID, databaseID, projectID, name))
 }

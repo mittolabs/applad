@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-
-const _inactiveText = Color(0x40FFFFFF);
-const _fieldFill = Color(0x0AFFFFFF);
+import '../theme/console_colors.dart';
 
 /// Header row: search field + total count + optional trailing widget.
 class SearchListHeader extends StatelessWidget {
@@ -34,6 +32,7 @@ class SearchListHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Row(
       children: [
         // Search field
@@ -42,31 +41,28 @@ class SearchListHeader extends StatelessWidget {
           child: TextField(
             controller: searchController,
             onSubmitted: (_) => onSearch(),
-            style: const TextStyle(fontSize: 13, color: Colors.white),
+            style: TextStyle(fontSize: 13, color: colors.textPrimary),
             decoration: InputDecoration(
               hintText: searchHint,
-              hintStyle:
-                  const TextStyle(color: _inactiveText, fontSize: 13),
-              prefixIcon: const Padding(
+              hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
+              prefixIcon: Padding(
                 padding: EdgeInsets.only(left: 10, right: 6),
-                child: Icon(Icons.search, size: 16, color: _inactiveText),
+                child: Icon(Icons.search, size: 16, color: colors.textSubtle),
               ),
               prefixIconConstraints:
                   const BoxConstraints(minWidth: 32, minHeight: 0),
               filled: true,
-              fillColor: _fieldFill,
+              fillColor: colors.fieldFill,
               isDense: true,
               contentPadding:
                   const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                    color: Colors.white.withOpacity(0.08)),
+                borderSide: BorderSide(color: colors.border),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                    color: Colors.white.withOpacity(0.08)),
+                borderSide: BorderSide(color: colors.border),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
@@ -109,6 +105,7 @@ class SearchListFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final canPrev = currentPage > 1;
     final canNext = currentPage < _totalPages;
+    final colors = consoleColors(context);
 
     return Padding(
       padding: const EdgeInsets.only(top: 12),
@@ -119,7 +116,7 @@ class SearchListFooter extends StatelessWidget {
           const SizedBox(width: 12),
           Text(
             '$itemLabel per page.  Total: $total',
-            style: const TextStyle(fontSize: 12, color: _inactiveText),
+            style: TextStyle(fontSize: 12, color: colors.textSubtle),
           ),
 
           const Spacer(),
@@ -138,16 +135,15 @@ class SearchListFooter extends StatelessWidget {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.08),
+              color: colors.fillActive,
               borderRadius: BorderRadius.circular(6),
-              border:
-                  Border.all(color: Colors.white.withOpacity(0.12)),
+              border: Border.all(color: colors.border),
             ),
             child: Center(
               child: Text(
                 '$currentPage',
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: colors.textPrimary,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
@@ -177,21 +173,22 @@ class _PerPageDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: _fieldFill,
+        color: colors.fieldFill,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: colors.border),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<int>(
           value: value,
-          dropdownColor: const Color(0xFF1E1F24),
-          style: const TextStyle(fontSize: 12, color: Colors.white),
-          icon: const Icon(Icons.keyboard_arrow_down,
-              size: 16, color: _inactiveText),
+          dropdownColor: colors.popupSurface,
+          style: TextStyle(fontSize: 12, color: colors.textPrimary),
+          icon: Icon(Icons.keyboard_arrow_down,
+              size: 16, color: colors.textSubtle),
           items: const [
             DropdownMenuItem(value: 6, child: Text('6')),
             DropdownMenuItem(value: 12, child: Text('12')),
@@ -230,11 +227,12 @@ class _PaginationTextButtonState
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final color = widget.enabled
         ? (_hovered
-            ? Colors.white.withOpacity(0.8)
-            : Colors.white.withOpacity(0.5))
-        : Colors.white.withOpacity(0.2);
+        ? colors.textSecondary
+        : colors.textMuted)
+      : colors.textSubtle;
 
     return MouseRegion(
       cursor: widget.enabled

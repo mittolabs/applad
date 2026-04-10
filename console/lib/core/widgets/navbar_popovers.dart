@@ -8,6 +8,43 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
 
+bool _isLight(BuildContext context) =>
+  Theme.of(context).brightness == Brightness.light;
+
+Color _popoverSurface(BuildContext context) =>
+  _isLight(context) ? Colors.white : const Color(0xFF1C1C24);
+
+Color _popoverBorder(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.08)
+  : Colors.white.withOpacity(0.08);
+
+Color _popoverShadow(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.08)
+  : Colors.black.withOpacity(0.4);
+
+Color _primaryText(BuildContext context) =>
+  _isLight(context) ? const Color(0xFF1A1A2E) : Colors.white;
+
+Color _secondaryText(BuildContext context) => _isLight(context)
+  ? const Color(0xFF1A1A2E).withOpacity(0.8)
+  : Colors.white.withOpacity(0.8);
+
+Color _mutedText(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.35)
+  : Colors.white.withOpacity(0.35);
+
+Color _subtleFill(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.04)
+  : Colors.white.withOpacity(0.06);
+
+Color _hoverFill(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.04)
+  : Colors.white.withOpacity(0.04);
+
+Color _dividerColor(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.08)
+  : Colors.white.withOpacity(0.06);
+
 // ── Shared overlay helper ────────────────────────────────────────────────────
 
 OverlayEntry _buildOverlay({
@@ -68,14 +105,17 @@ class _NavGhostButtonState extends State<NavGhostButton> {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: highlight
-                ? Colors.white.withOpacity(0.06)
+                ? _subtleFill(context)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(7),
           ),
           child: Text(
             widget.label,
             style: TextStyle(
-              color: Colors.white.withOpacity(highlight ? 0.8 : 0.45),
+              color: (_isLight(context)
+                      ? const Color(0xFF1A1A2E)
+                      : Colors.white)
+                  .withOpacity(highlight ? 0.8 : 0.45),
               fontSize: 13,
             ),
           ),
@@ -781,12 +821,12 @@ class _UserMenuPanel extends ConsumerWidget {
     return Container(
       width: 280,
       decoration: BoxDecoration(
-        color: const Color(0xFF1C1C24),
+        color: _popoverSurface(context),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: _popoverBorder(context)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.4),
+            color: _popoverShadow(context),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -801,8 +841,8 @@ class _UserMenuPanel extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
             child: Text(
               user?.email ?? '',
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: _primaryText(context),
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
@@ -810,7 +850,7 @@ class _UserMenuPanel extends ConsumerWidget {
             ),
           ),
 
-          _divider(),
+          _divider(context),
 
           // Account
           _MenuItemTrailing(
@@ -822,7 +862,7 @@ class _UserMenuPanel extends ConsumerWidget {
             },
           ),
 
-          _divider(),
+          _divider(context),
 
           // Sign out
           _MenuItemTrailing(
@@ -835,7 +875,7 @@ class _UserMenuPanel extends ConsumerWidget {
             },
           ),
 
-          _divider(),
+          _divider(context),
 
           // Theme row
           Padding(
@@ -844,7 +884,7 @@ class _UserMenuPanel extends ConsumerWidget {
               children: [
                 Text(
                   'Theme',
-                  style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                  style: TextStyle(color: _secondaryText(context), fontSize: 14),
                 ),
                 const Spacer(),
                 _ThemeToggle(isLight: isLight),
@@ -858,52 +898,10 @@ class _UserMenuPanel extends ConsumerWidget {
     );
   }
 
-  Widget _divider() => Container(
+    Widget _divider(BuildContext context) => Container(
         height: 1,
-        color: Colors.white.withOpacity(0.06),
+      color: _dividerColor(context),
       );
-}
-
-class _MenuItem extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool danger;
-  const _MenuItem({required this.icon, required this.label, required this.onTap, this.danger = false});
-
-  @override
-  State<_MenuItem> createState() => _MenuItemState();
-}
-
-class _MenuItemState extends State<_MenuItem> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = widget.danger ? Colors.red : Colors.white.withOpacity(0.8);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          width: double.infinity,
-          color: _hovered
-              ? Colors.white.withOpacity(0.04)
-              : Colors.transparent,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          child: Row(
-            children: [
-              Icon(widget.icon, size: 15, color: color.withOpacity(0.7)),
-              const SizedBox(width: 10),
-              Text(widget.label, style: TextStyle(color: color, fontSize: 13)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _MenuItemTrailing extends StatefulWidget {
@@ -930,17 +928,16 @@ class _MenuItemTrailingState extends State<_MenuItemTrailing> {
         child: Container(
           width: double.infinity,
           color: _hovered
-              ? Colors.white.withOpacity(0.04)
+              ? _hoverFill(context)
               : Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           child: Row(
             children: [
               Text(widget.label,
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.8), fontSize: 14)),
+                      color: _secondaryText(context), fontSize: 14)),
               const Spacer(),
-              Icon(widget.icon,
-                  size: 16, color: Colors.white.withOpacity(0.35)),
+              Icon(widget.icon, size: 16, color: _mutedText(context)),
             ],
           ),
         ),
@@ -957,7 +954,7 @@ class _ThemeToggle extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+        color: _subtleFill(context),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -1016,9 +1013,11 @@ class _ThemeOptionState extends State<_ThemeOption> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
               color: widget.active
-                  ? Colors.white.withOpacity(0.12)
+                  ? (_isLight(context)
+                      ? const Color(0xFF3472A4).withOpacity(0.12)
+                      : Colors.white.withOpacity(0.12))
                   : _hovered
-                      ? Colors.white.withOpacity(0.06)
+                      ? _subtleFill(context)
                       : Colors.transparent,
               borderRadius: BorderRadius.circular(5),
             ),
@@ -1026,8 +1025,12 @@ class _ThemeOptionState extends State<_ThemeOption> {
               widget.icon,
               size: 13,
               color: widget.active
-                  ? Colors.white
-                  : Colors.white.withOpacity(0.4),
+                  ? (_isLight(context)
+                      ? const Color(0xFF3472A4)
+                      : Colors.white)
+                  : (_isLight(context)
+                      ? const Color(0xFF1A1A2E).withOpacity(0.45)
+                      : Colors.white.withOpacity(0.4)),
             ),
           ),
         ),

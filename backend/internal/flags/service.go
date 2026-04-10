@@ -256,7 +256,7 @@ func (s *Service) SetOverride(ctx context.Context, flagID, targetType, targetID 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO flag_overrides (id, flag_id, target_type, target_id, value, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)
-		 ON DUPLICATE KEY UPDATE value=VALUES(value)`,
+		 ON CONFLICT (flag_id, target_type, target_id) DO UPDATE SET value=EXCLUDED.value`,
 		id, flagID, targetType, targetID, valueJSON, time.Now().UTC())
 	return err
 }

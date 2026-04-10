@@ -144,7 +144,7 @@ components:
         $updatedAt:
           type: string
           format: date-time
-    Collection:
+    Table:
       type: object
       properties:
         $id:
@@ -155,16 +155,16 @@ components:
           type: string
         enabled:
           type: boolean
-        documentSecurity:
+        rowSecurity:
           type: boolean
         $permissions:
           type: array
           items:
             type: string
-        attributes:
+        columns:
           type: array
           items:
-            $ref: '#/components/schemas/Attribute'
+            $ref: '#/components/schemas/Column'
         indexes:
           type: array
           items:
@@ -175,7 +175,7 @@ components:
         $updatedAt:
           type: string
           format: date-time
-    Attribute:
+    Column:
       type: object
       properties:
         key:
@@ -206,12 +206,12 @@ components:
           type: array
           items:
             type: string
-    Document:
+    Row:
       type: object
       properties:
         $id:
           type: string
-        $collectionId:
+        $tableId:
           type: string
         $databaseId:
           type: string
@@ -547,7 +547,7 @@ paths:
         '201':
           description: Database created
 
-  /databases/{databaseId}/collections:
+  /databases/{databaseId}/tables:
     parameters:
       - name: databaseId
         in: path
@@ -555,13 +555,13 @@ paths:
         schema:
           type: string
     get:
-      summary: List collections
+      summary: List tables
       tags: [Databases]
       responses:
         '200':
-          description: Collection list
+          description: Table list
     post:
-      summary: Create collection
+      summary: Create table
       tags: [Databases]
       requestBody:
         required: true
@@ -571,7 +571,7 @@ paths:
               type: object
               required: [name]
               properties:
-                collectionId:
+                tableId:
                   type: string
                 name:
                   type: string
@@ -579,26 +579,26 @@ paths:
                   type: array
                   items:
                     type: string
-                documentSecurity:
+                rowSecurity:
                   type: boolean
       responses:
         '201':
-          description: Collection created
+          description: Table created
 
-  /databases/{databaseId}/collections/{collectionId}/documents:
+  /databases/{databaseId}/tables/{tableId}/rows:
     parameters:
       - name: databaseId
         in: path
         required: true
         schema:
           type: string
-      - name: collectionId
+      - name: tableId
         in: path
         required: true
         schema:
           type: string
     get:
-      summary: List documents
+      summary: List rows
       tags: [Databases]
       parameters:
         - name: limit
@@ -611,9 +611,9 @@ paths:
             type: integer
       responses:
         '200':
-          description: Document list
+          description: Row list
     post:
-      summary: Create document
+      summary: Create row
       tags: [Databases]
       requestBody:
         required: true
@@ -622,7 +622,7 @@ paths:
             schema:
               type: object
               properties:
-                documentId:
+                rowId:
                   type: string
                 data:
                   type: object
@@ -632,7 +632,36 @@ paths:
                     type: string
       responses:
         '201':
-          description: Document created
+          description: Row created
+
+  /databases/{databaseId}/sql:
+    parameters:
+      - name: databaseId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Execute SQL in a database schema
+      tags: [Databases]
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [statement]
+              properties:
+                statement:
+                  type: string
+                writeAllowed:
+                  type: boolean
+      responses:
+        '200':
+          description: SQL execution result
 
   /storage/buckets:
     get:

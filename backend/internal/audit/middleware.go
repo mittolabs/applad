@@ -57,7 +57,7 @@ var serviceNamespaces = map[string]bool{
 }
 
 // parseRoute extracts resource type, resource ID and a human-readable action
-// from an HTTP method + path like "POST /v1/databases/abc/collections/xyz/documents".
+// from an HTTP method + path like "POST /v1/databases/abc/tables/xyz/rows".
 func parseRoute(method, path string) (resourceType, resourceID, action string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/v1/"), "/")
 	if len(parts) == 0 {
@@ -77,7 +77,7 @@ func parseRoute(method, path string) (resourceType, resourceID, action string) {
 	resourceType = parts[start]
 
 	// Walk path segments from start+1: odd offsets are IDs, even are sub-resources.
-	// e.g. ["databases","dbId","collections","colId","documents","docId"]
+	// e.g. ["databases","dbId","tables","tableId","rows","rowId"]
 	for i := start + 1; i < len(parts); i += 2 {
 		if i+1 < len(parts) {
 			resourceType = parts[i+1]

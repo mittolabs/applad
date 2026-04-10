@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/console_colors.dart';
 
 /// Horizontal row of text tabs with an underline on the active tab.
 class PageTabs extends StatelessWidget {
@@ -15,6 +16,7 @@ class PageTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -38,8 +40,8 @@ class PageTabs extends StatelessWidget {
                             fontWeight:
                                 isActive ? FontWeight.w500 : FontWeight.w400,
                             color: isActive
-                                ? Colors.white
-                                : Colors.white.withValues(alpha: 0.4),
+                              ? colors.textPrimary
+                              : colors.textMuted,
                           ),
                         ),
                       ),
@@ -53,7 +55,7 @@ class PageTabs extends StatelessWidget {
                         )),
                         decoration: BoxDecoration(
                           color: isActive
-                              ? Colors.white
+                              ? colors.textPrimary
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(1),
                         ),
@@ -67,7 +69,7 @@ class PageTabs extends StatelessWidget {
         ),
         Container(
           height: 1,
-          color: Colors.white.withValues(alpha: 0.06),
+          color: colors.border,
         ),
       ],
     );

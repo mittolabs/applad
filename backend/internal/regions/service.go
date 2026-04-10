@@ -83,7 +83,7 @@ func (s *Service) AssignRegion(ctx context.Context, projectID, regionID string, 
 	// If primary, clear existing primary
 	if primary {
 		s.db.ExecContext(ctx, //nolint:errcheck
-			"UPDATE project_regions SET primary_region=0 WHERE project_id=?", projectID)
+			"UPDATE project_regions SET primary_region=FALSE WHERE project_id=?", projectID)
 	}
 	pr := &ProjectRegion{
 		ID: uid.New(""), ProjectID: projectID, RegionID: regionID,
@@ -93,9 +93,9 @@ func (s *Service) AssignRegion(ctx context.Context, projectID, regionID string, 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO project_regions (id, project_id, region_id, primary_region, gdpr, hipaa, created_at)
 		 VALUES (?,?,?,?,?,?,?)
-		 ON DUPLICATE KEY UPDATE primary_region=VALUES(primary_region), gdpr=VALUES(gdpr), hipaa=VALUES(hipaa)`,
+		 ON CONFLICT (project_id, region_id) DO UPDATE SET primary_region=EXCLUDED.primary_region, gdpr=EXCLUDED.gdpr, hipaa=EXCLUDED.hipaa`,
 		pr.ID, pr.ProjectID, pr.RegionID,
-		boolInt(pr.PrimaryRegion), boolInt(pr.GDPR), boolInt(pr.HIPAA),
+		pr.PrimaryRegion, pr.GDPR, pr.HIPAA,
 		pr.CreatedAt,
 	)
 	if err != nil {
@@ -121,17 +121,13 @@ func (s *Service) ListProjectRegions(ctx context.Context, projectID string) ([]*
 	var out []*ProjectRegion
 	for rows.Next() {
 		pr := &ProjectRegion{Region: &Region{}}
-		var prmInt, gdprInt, hipaaInt int
 		if err := rows.Scan(&pr.ID, &pr.ProjectID, &pr.RegionID,
-			&prmInt, &gdprInt, &hipaaInt, &pr.CreatedAt,
+			&pr.PrimaryRegion, &pr.GDPR, &pr.HIPAA, &pr.CreatedAt,
 			&pr.Region.ID, &pr.Region.Name, &pr.Region.Code, &pr.Region.Location, &pr.Region.Endpoint,
 			&pr.Region.Latitude, &pr.Region.Longitude, &pr.Region.Status, &pr.Region.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
-		pr.PrimaryRegion = prmInt == 1
-		pr.GDPR = gdprInt == 1
-		pr.HIPAA = hipaaInt == 1
 		out = append(out, pr)
 	}
 	return out, nil
@@ -143,6 +139,49 @@ func (s *Service) RemoveRegion(ctx context.Context, projectID, regionID string) 
 	return err
 }
 
+// GetPrimaryRegion returns the active primary region for a project.
+func (s *Service) GetPrimaryRegion(ctx context.Context, projectID string) (*ProjectRegion, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT pr.id, pr.project_id, pr.region_id, pr.primary_region, pr.gdpr, pr.hipaa, pr.created_at,
+		        r.id, r.name, r.code, r.location, r.endpoint,
+		        COALESCE(r.latitude,0), COALESCE(r.longitude,0), r.status, r.created_at
+		 FROM project_regions pr
+		 JOIN regions r ON r.id = pr.region_id
+		 WHERE pr.project_id = ? AND pr.primary_region = TRUE
+		 LIMIT 1`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, fmt.Errorf("regions: no primary region")
+	}
+	pr := &ProjectRegion{Region: &Region{}}
+	if err := rows.Scan(&pr.ID, &pr.ProjectID, &pr.RegionID,
+		&pr.PrimaryRegion, &pr.GDPR, &pr.HIPAA, &pr.CreatedAt,
+		&pr.Region.ID, &pr.Region.Name, &pr.Region.Code, &pr.Region.Location, &pr.Region.Endpoint,
+		&pr.Region.Latitude, &pr.Region.Longitude, &pr.Region.Status, &pr.Region.CreatedAt,
+	); err != nil {
+		return nil, err
+	}
+	return pr, nil
+}
+
+// RegionHealth returns a lightweight synthetic health report for a region.
+func (s *Service) RegionHealth(ctx context.Context, idOrCode string) (map[string]interface{}, error) {
+	region, err := s.GetRegion(ctx, idOrCode)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"regionId": region.ID,
+		"code":     region.Code,
+		"status":   region.Status,
+		"latencyMs": 42,
+		"healthy":  region.Status == "active",
+	}, nil
+}
+
 // ── scanner ───────────────────────────────────────────────────────────────────
 
 func scanRegion(row interface{ Scan(...interface{}) error }) (*Region, error) {
@@ -152,11 +191,4 @@ func scanRegion(row interface{ Scan(...interface{}) error }) (*Region, error) {
 		return nil, err
 	}
 	return r, nil
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

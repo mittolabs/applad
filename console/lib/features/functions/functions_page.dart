@@ -3,21 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 const _green = Color(0xFF10B981);
 const _red = Color(0xFFEF4444);
 const _orange = Color(0xFFF59E0B);
-const _fieldBorder = Color(0x1AFFFFFF);
 
 // ── Runtime metadata ──────────────────────────────────────────────────────────
 
@@ -103,10 +99,11 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final selected = ref.watch(_selectedFuncProvider);
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: colors.background,
       body: selected != null
           ? _FuncDetailView(
               fn: selected,
@@ -122,6 +119,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
   // ── List ────────────────────────────────────────────────────────────────────
 
   Widget _buildList() {
+    final colors = consoleColors(context);
     final functionsAsync = ref.watch(functionsProvider);
     final perPage      = ref.watch(_funcPerPageProvider);
     final currentPage  = ref.watch(_funcPageProvider);
@@ -139,11 +137,11 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
                   style: Theme.of(context)
                       .textTheme
                       .headlineSmall
-                      ?.copyWith(color: Colors.white)),
+                      ?.copyWith(color: colors.textPrimary)),
               const SizedBox(height: 4),
-              const Text(
+              Text(
                 'Deploy serverless functions that run on demand.',
-                style: TextStyle(color: _dimText, fontSize: 13),
+                style: TextStyle(color: colors.textSecondary, fontSize: 13),
               ),
             ],
           ),
@@ -173,6 +171,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
     int perPage,
     int currentPage,
   ) {
+    final colors = consoleColors(context);
     return Column(
       children: [
         Padding(
@@ -209,7 +208,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
         Container(
             height: 1,
             margin: const EdgeInsets.symmetric(horizontal: 24),
-            color: Colors.white.withValues(alpha: 0.06)),
+          color: colors.border),
         const SizedBox(height: 12),
         Expanded(
           child: functionsAsync.when(
@@ -219,11 +218,11 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(LucideIcons.alertCircle,
-                      size: 48, color: _subtleText),
+                  Icon(LucideIcons.alertCircle,
+                      size: 48, color: colors.textSubtle),
                   const SizedBox(height: 16),
                   Text('Failed to load functions: $e',
-                      style: const TextStyle(color: _dimText)),
+                      style: TextStyle(color: colors.textSecondary)),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: () => ref.invalidate(functionsProvider),
@@ -279,6 +278,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
   }
 
   Widget _buildEmptyState() {
+    final colors = consoleColors(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -293,26 +293,25 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: _surface,
+                          color: colors.surface,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.06)),
+                          border: Border.all(color: colors.border),
                         ),
-                        child: Icon(r.icon, size: 20, color: _subtleText),
+                        child: Icon(r.icon, size: 20, color: colors.textSubtle),
                       ),
                     ))
                 .toList(),
           ),
           const SizedBox(height: 24),
-          const Text('Create your first function',
+          Text('Create your first function',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Write backend logic that runs on demand in any language.',
-            style: TextStyle(color: _dimText, fontSize: 13),
+            style: TextStyle(color: colors.textSecondary, fontSize: 13),
           ),
           const SizedBox(height: 20),
           FilledButton.icon(
@@ -402,12 +401,13 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
   }
 
   Future<void> _delete(WidgetRef ref, String id) async {
+    final colors = consoleColors(context);
     final confirmed = await showAppDialog<bool>(
       context: context,
       title: 'Delete function',
-      content: const Text(
+      content: Text(
         'This will permanently delete the function and all its executions.',
-        style: TextStyle(color: _dimText),
+        style: TextStyle(color: colors.textSecondary),
       ),
       actions: [
         const AppDialogCancel(),
@@ -445,6 +445,7 @@ class _FuncCardState extends State<_FuncCard> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final fn      = widget.fn;
     final name    = fn['name'] as String? ?? 'Unnamed';
     final runtime = fn['runtime'] as String? ?? 'custom';
@@ -462,12 +463,10 @@ class _FuncCardState extends State<_FuncCard> {
           duration: const Duration(milliseconds: 120),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: _hovered ? const Color(0xFF1A1B1F) : _surface,
+            color: _hovered ? colors.fillHover : colors.surface,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: _hovered
-                  ? Colors.white.withValues(alpha: 0.10)
-                  : Colors.white.withValues(alpha: 0.06),
+              color: _hovered ? colors.fieldBorder : colors.border,
             ),
           ),
           child: Row(
@@ -490,22 +489,21 @@ class _FuncCardState extends State<_FuncCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(name,
-                        style: const TextStyle(
-                            color: Colors.white,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                             fontSize: 14,
                             fontWeight: FontWeight.w500)),
                     const SizedBox(height: 2),
                     Text(rt.label,
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 12)),
+                      style: TextStyle(
+                        color: colors.textSecondary, fontSize: 12)),
                   ],
                 ),
               ),
 
               // Created
               Text(_relativeTime(createdAt),
-                  style:
-                      const TextStyle(color: _subtleText, fontSize: 12)),
+                    style: TextStyle(color: colors.textSubtle, fontSize: 12)),
               const SizedBox(width: 16),
 
               // Status
@@ -515,15 +513,15 @@ class _FuncCardState extends State<_FuncCard> {
               // Delete
               if (_hovered)
                 IconButton(
-                  icon: const Icon(LucideIcons.trash2,
-                      size: 14, color: _subtleText),
+                  icon: Icon(LucideIcons.trash2,
+                      size: 14, color: colors.textSubtle),
                   onPressed: widget.onDelete,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                 )
               else
-                const Icon(LucideIcons.chevronRight,
-                    size: 14, color: _subtleText),
+                Icon(LucideIcons.chevronRight,
+                    size: 14, color: colors.textSubtle),
             ],
           ),
         ),
@@ -544,7 +542,7 @@ class _StatusBadge extends StatelessWidget {
       'active'   => ('Active',   const Color(0xFF064E3B), _green),
       'building' => ('Building', const Color(0xFF451A03), _orange),
       'failed'   => ('Failed',   const Color(0xFF450A0A), _red),
-      _          => ('Inactive', const Color(0xFF1F2937), _dimText),
+      _          => ('Inactive', const Color(0xFF1F2937), consoleColors(context).textSecondary),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -587,6 +585,7 @@ class _FuncDetailViewState extends ConsumerState<_FuncDetailView> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final tab = ref.watch(_funcDetailTabProvider);
     final id  = _fn['\$id'] as String;
 
@@ -605,23 +604,22 @@ class _FuncDetailViewState extends ConsumerState<_FuncDetailView> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(LucideIcons.chevronLeft,
-                          size: 16, color: _dimText),
+                      Icon(LucideIcons.chevronLeft,
+                        size: 16, color: colors.textSecondary),
                       const SizedBox(width: 4),
                       Text('Functions',
-                          style: const TextStyle(
-                              color: _dimText, fontSize: 13)),
+                        style: TextStyle(
+                          color: colors.textSecondary, fontSize: 13)),
                     ],
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              const Text('/',
-                  style: TextStyle(color: _subtleText, fontSize: 13)),
+                  Text('/', style: TextStyle(color: colors.textSubtle, fontSize: 13)),
               const SizedBox(width: 8),
               Text(_fn['name'] as String? ?? 'Function',
-                  style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: colors.textPrimary,
                       fontSize: 13,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
@@ -693,13 +691,14 @@ class _ExecutionsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final execsAsync = ref.watch(_funcExecutionsProvider(fnId));
 
     return execsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(
         child: Text('Failed to load executions: $e',
-            style: const TextStyle(color: _dimText)),
+        style: TextStyle(color: colors.textSecondary)),
       ),
       data: (data) {
         final execs = List<Map<String, dynamic>>.from(
@@ -710,17 +709,17 @@ class _ExecutionsTab extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(LucideIcons.activity,
-                    size: 36, color: _subtleText),
+                Icon(LucideIcons.activity,
+                    size: 36, color: colors.textSubtle),
                 const SizedBox(height: 12),
-                const Text('No executions yet',
+                Text('No executions yet',
                     style: TextStyle(
-                        color: Colors.white,
+                        color: colors.textPrimary,
                         fontSize: 15,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 4),
-                const Text('Trigger your first execution above.',
-                    style: TextStyle(color: _dimText, fontSize: 13)),
+                Text('Trigger your first execution above.',
+                    style: TextStyle(color: colors.textSecondary, fontSize: 13)),
               ],
             ),
           );
@@ -730,46 +729,46 @@ class _ExecutionsTab extends ConsumerWidget {
           children: [
             // Table header
             Container(
-              color: const Color(0xFF111215),
+              color: colors.surfaceAlt,
               padding: const EdgeInsets.symmetric(
                   horizontal: 24, vertical: 10),
-              child: const Row(children: [
+              child: Row(children: [
                 Expanded(
                     flex: 3,
                     child: Text('Execution ID',
                         style: TextStyle(
-                            color: _dimText,
+                    color: colors.textSecondary,
                             fontSize: 11,
                             fontWeight: FontWeight.w600))),
                 Expanded(
                     flex: 2,
                     child: Text('Status',
                         style: TextStyle(
-                            color: _dimText,
+                    color: colors.textSecondary,
                             fontSize: 11,
                             fontWeight: FontWeight.w600))),
                 Expanded(
                     flex: 2,
                     child: Text('Duration',
                         style: TextStyle(
-                            color: _dimText,
+                    color: colors.textSecondary,
                             fontSize: 11,
                             fontWeight: FontWeight.w600))),
                 Expanded(
                     flex: 3,
                     child: Text('Triggered',
                         style: TextStyle(
-                            color: _dimText,
+                    color: colors.textSecondary,
                             fontSize: 11,
                             fontWeight: FontWeight.w600))),
               ]),
             ),
-            const Divider(height: 1, color: Color(0xFF2A2B30)),
+            Divider(height: 1, color: colors.border),
             Expanded(
               child: ListView.separated(
                 itemCount: execs.length,
                 separatorBuilder: (_, __) =>
-                    const Divider(height: 1, color: Color(0xFF1E1F24)),
+                Divider(height: 1, color: colors.border),
                 itemBuilder: (context, i) =>
                     _ExecutionRow(exec: execs[i]),
               ),
@@ -794,6 +793,7 @@ class _ExecutionRowState extends State<_ExecutionRow> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final e      = widget.exec;
     final id     = e['\$id'] as String? ?? '';
     final status = e['status'] as String? ?? 'pending';
@@ -814,8 +814,8 @@ class _ExecutionRowState extends State<_ExecutionRow> {
                 flex: 3,
                 child: Text(
                   id.length > 16 ? id.substring(0, 16) : id,
-                  style: const TextStyle(
-                      color: _dimText,
+                  style: TextStyle(
+                      color: colors.textSecondary,
                       fontSize: 12,
                       fontFamily: 'monospace'),
                 ),
@@ -824,21 +824,21 @@ class _ExecutionRowState extends State<_ExecutionRow> {
               Expanded(
                 flex: 2,
                 child: Text('${dur.toStringAsFixed(0)} ms',
-                    style: const TextStyle(
-                        color: _dimText, fontSize: 12)),
+                    style: TextStyle(
+                        color: colors.textSecondary, fontSize: 12)),
               ),
               Expanded(
                 flex: 3,
                 child: Text(_relativeTime(ts),
-                    style: const TextStyle(
-                        color: _subtleText, fontSize: 12)),
+                    style: TextStyle(
+                        color: colors.textSubtle, fontSize: 12)),
               ),
               Icon(
                 _expanded
                     ? LucideIcons.chevronUp
                     : LucideIcons.chevronDown,
                 size: 14,
-                color: _subtleText,
+                color: colors.textSubtle,
               ),
             ]),
           ),
@@ -849,18 +849,17 @@ class _ExecutionRowState extends State<_ExecutionRow> {
             margin: const EdgeInsets.fromLTRB(24, 0, 24, 8),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF0D0E11),
+              color: colors.surfaceAlt,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: colors.border),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (output.isNotEmpty)
                   SelectableText(output,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: colors.textPrimary,
                           fontSize: 12,
                           fontFamily: 'monospace')),
                 if (error.isNotEmpty)
@@ -901,6 +900,7 @@ class _VariablesTabState extends ConsumerState<_VariablesTab> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Column(
       children: [
         Padding(
@@ -908,14 +908,12 @@ class _VariablesTabState extends ConsumerState<_VariablesTab> {
           child: Row(
             children: [
               Text('${_vars.length} variable${_vars.length == 1 ? '' : 's'}',
-                  style:
-                      const TextStyle(color: _dimText, fontSize: 13)),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 13)),
               const Spacer(),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.12)),
+                  foregroundColor: colors.textSecondary,
+                  side: BorderSide(color: colors.border),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                   padding: const EdgeInsets.symmetric(
@@ -935,18 +933,18 @@ class _VariablesTabState extends ConsumerState<_VariablesTab> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(LucideIcons.variable,
-                      size: 32, color: _subtleText),
+                  Icon(LucideIcons.variable,
+                    size: 32, color: colors.textSubtle),
                   const SizedBox(height: 12),
-                  const Text('No variables yet',
-                      style: TextStyle(
-                          color: Colors.white,
+                  Text('No variables yet',
+                    style: TextStyle(
+                      color: colors.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.w500)),
                   const SizedBox(height: 4),
-                  const Text(
+                  Text(
                     'Add environment variables for your function to use at runtime.',
-                    style: TextStyle(color: _dimText, fontSize: 13),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 13),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -1037,20 +1035,21 @@ class _VarRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: _surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: colors.border),
       ),
       child: Row(children: [
         Expanded(
           flex: 2,
           child: Text(varKey,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: colors.textPrimary,
                   fontSize: 13,
                   fontFamily: 'monospace',
                   fontWeight: FontWeight.w500)),
@@ -1061,13 +1060,13 @@ class _VarRow extends StatelessWidget {
             varValue.length > 32
                 ? '${varValue.substring(0, 32)}…'
                 : varValue,
-            style: const TextStyle(
-                color: _dimText, fontSize: 13, fontFamily: 'monospace'),
+            style: TextStyle(
+              color: colors.textSecondary, fontSize: 13, fontFamily: 'monospace'),
           ),
         ),
         IconButton(
-          icon: const Icon(LucideIcons.trash2,
-              size: 14, color: _subtleText),
+            icon: Icon(LucideIcons.trash2,
+              size: 14, color: colors.textSubtle),
           onPressed: onDelete,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(),
@@ -1119,6 +1118,7 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
       child: Column(
@@ -1154,24 +1154,23 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
               controller: _sourceCtrl,
               maxLines: null,
               minLines: 8,
-              style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: colors.textPrimary,
                   fontSize: 13,
                   fontFamily: 'monospace'),
               decoration: InputDecoration(
                 hintText: '// your function code',
-                hintStyle:
-                    TextStyle(color: Colors.white.withValues(alpha: 0.2)),
+                hintStyle: TextStyle(color: colors.textSubtle),
                 filled: true,
-                fillColor: const Color(0xFF0D0E11),
+                fillColor: colors.surfaceAlt,
                 isDense: true,
                 contentPadding: const EdgeInsets.all(12),
                 border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: _fieldBorder)),
+                  borderSide: BorderSide(color: colors.fieldBorder)),
                 enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: _fieldBorder)),
+                  borderSide: BorderSide(color: colors.fieldBorder)),
                 focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: const BorderSide(color: _accent)),
@@ -1190,11 +1189,11 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
               ),
               onPressed: _saving ? null : _save,
               child: _saving
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
+                      strokeWidth: 2, color: colors.textPrimary))
                   : const Text('Save changes',
                       style: TextStyle(fontSize: 13)),
             ),
@@ -1221,9 +1220,9 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
                             fontSize: 14,
                             fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
-                    const Text(
+                    Text(
                       'Permanently removes the function and all execution history.',
-                      style: TextStyle(color: _subtleText, fontSize: 12),
+                      style: TextStyle(color: consoleColors(context).textSubtle, fontSize: 12),
                     ),
                   ],
                 ),
@@ -1252,25 +1251,25 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
       {required String title,
       required String description,
       required Widget child}) {
+    final colors = consoleColors(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(10),
-        border:
-            Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                color: colors.textPrimary,
                   fontSize: 14,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
           Text(description,
-              style: const TextStyle(color: _subtleText, fontSize: 12)),
+              style: TextStyle(color: colors.textSubtle, fontSize: 12)),
           const SizedBox(height: 16),
           child,
         ],
@@ -1280,7 +1279,7 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
 
   Widget _label(String text) => Text(text,
       style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.5),
+            color: consoleColors(context).textSecondary,
           fontSize: 12,
           fontWeight: FontWeight.w500));
 
@@ -1294,24 +1293,23 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
         TextField(
           controller: ctrl,
           keyboardType: keyboard,
-          style:
-              const TextStyle(color: Colors.white, fontSize: 13),
+          style: TextStyle(color: consoleColors(context).textPrimary, fontSize: 13),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(
-                color: Colors.white.withValues(alpha: 0.22),
+            color: consoleColors(context).textSubtle,
                 fontSize: 13),
             filled: true,
-            fillColor: const Color(0x0AFFFFFF),
+          fillColor: consoleColors(context).fieldFill,
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12, vertical: 10),
             border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: _fieldBorder)),
+            borderSide: BorderSide(color: consoleColors(context).fieldBorder)),
             enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: _fieldBorder)),
+            borderSide: BorderSide(color: consoleColors(context).fieldBorder)),
             focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
                 borderSide: const BorderSide(color: _accent)),
@@ -1353,12 +1351,13 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
   }
 
   Future<void> _deleteFunction(BuildContext context) async {
+    final colors = consoleColors(context);
     final confirmed = await showAppDialog<bool>(
       context: context,
       title: 'Delete function',
-      content: const Text(
+      content: Text(
         'This will permanently delete the function and all its executions.',
-        style: TextStyle(color: _dimText),
+        style: TextStyle(color: colors.textSecondary),
       ),
       actions: [
         const AppDialogCancel(),
@@ -1387,39 +1386,39 @@ class _FuncUsageTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Usage',
+            Text('Usage',
               style: TextStyle(
-                  color: Colors.white,
+                color: colors.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          const Text('Function execution metrics for the past 30 days.',
-              style: TextStyle(color: _dimText, fontSize: 13)),
+            Text('Function execution metrics for the past 30 days.',
+              style: TextStyle(color: colors.textSecondary, fontSize: 13)),
           const SizedBox(height: 24),
           Row(children: [
-            _statCard('Total executions', '—', LucideIcons.activity),
+            _statCard(context, 'Total executions', '—', LucideIcons.activity),
             const SizedBox(width: 12),
-            _statCard('Avg duration', '—', LucideIcons.timer),
+            _statCard(context, 'Avg duration', '—', LucideIcons.timer),
             const SizedBox(width: 12),
-            _statCard('Failure rate', '—', LucideIcons.alertTriangle),
+            _statCard(context, 'Failure rate', '—', LucideIcons.alertTriangle),
           ]),
           const SizedBox(height: 24),
           Container(
             height: 180,
             decoration: BoxDecoration(
-              color: _surface,
+              color: colors.surface,
               borderRadius: BorderRadius.circular(8),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: colors.border),
             ),
-            child: const Center(
+            child: Center(
               child: Text('Usage charts coming soon',
-                  style: TextStyle(color: _subtleText, fontSize: 13)),
+                  style: TextStyle(color: colors.textSubtle, fontSize: 13)),
             ),
           ),
         ],
@@ -1427,27 +1426,27 @@ class _FuncUsageTab extends StatelessWidget {
     );
   }
 
-  Widget _statCard(String label, String value, IconData icon) {
+  Widget _statCard(BuildContext context, String label, String value, IconData icon) {
+    final colors = consoleColors(context);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: _surface,
+          color: colors.surface,
           borderRadius: BorderRadius.circular(8),
-          border:
-              Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          border: Border.all(color: colors.border),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 16, color: _dimText),
+          Icon(icon, size: 16, color: colors.textSecondary),
           const SizedBox(height: 12),
           Text(value,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: colors.textPrimary,
                   fontSize: 24,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
           Text(label,
-              style: const TextStyle(color: _dimText, fontSize: 12)),
+              style: TextStyle(color: colors.textSecondary, fontSize: 12)),
         ]),
       ),
     );
@@ -1464,22 +1463,23 @@ class _RuntimePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return DropdownButtonFormField<String>(
       value: value,
-      dropdownColor: const Color(0xFF16171B),
-      style: const TextStyle(color: Colors.white, fontSize: 13),
+      dropdownColor: colors.popupSurface,
+      style: TextStyle(color: colors.textPrimary, fontSize: 13),
       decoration: InputDecoration(
         filled: true,
-        fillColor: const Color(0x0AFFFFFF),
+        fillColor: colors.fieldFill,
         isDense: true,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _fieldBorder)),
+            borderSide: BorderSide(color: colors.fieldBorder)),
         enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _fieldBorder)),
+            borderSide: BorderSide(color: colors.fieldBorder)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
             borderSide: const BorderSide(color: _accent)),

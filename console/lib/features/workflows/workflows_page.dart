@@ -7,20 +7,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Constants & theme
 // ═════════════════════════════════════════════════════════════════════════════
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
-const _surfaceHover = Color(0xFF1C1D22);
 const _accent = Color(0xFF3472A4);
-const _border = Color(0x14FFFFFF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _gridDot = Color(0x0AFFFFFF);
 const _nodeW = 220.0;
 const _nodeH = 72.0;
 const _handleR = 6.0;
@@ -222,9 +216,6 @@ final _allNodeDefs = <_NodeDef>[
       LucideIcons.gitCompare, Color(0xFF06B6D4), category: 'Data transformation'),
 ];
 
-// Flat list for quick lookup
-List<_NodeDef> get _nodeDefs => _allNodeDefs;
-
 _NodeDef _def(String t) {
   if (t == 'trigger') return _triggerDef;
   return _allNodeDefs.firstWhere((d) => d.type == t,
@@ -295,6 +286,7 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
   }
 
   void _create() {
+    final colors = consoleColors(context);
     final nameCtrl = TextEditingController();
     String trigger = 'manual';
     final cronCtrl = TextEditingController();
@@ -309,12 +301,12 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
             child: Container(
               width: 440,
               decoration: BoxDecoration(
-                color: const Color(0xFF16171B),
+                color: colors.surface,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                border: Border.all(color: colors.border),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
+                    color: colors.shadow,
                     blurRadius: 32,
                     offset: const Offset(0, 8),
                   ),
@@ -328,10 +320,10 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                     child: Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text('New Workflow',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: colors.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
                               )),
@@ -339,7 +331,7 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
                         GestureDetector(
                           onTap: () => Navigator.of(ctx).pop(),
                           child: Icon(LucideIcons.x,
-                              size: 16, color: Colors.white.withOpacity(0.3)),
+                              size: 16, color: colors.textSubtle),
                         ),
                       ],
                     ),
@@ -347,8 +339,7 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
                   const SizedBox(height: 16),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                        height: 1, color: Colors.white.withOpacity(0.06)),
+                    child: Container(height: 1, color: colors.border),
                   ),
                   const SizedBox(height: 16),
                   Padding(
@@ -430,6 +421,7 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
 
   Widget _trigChip(String val, String label, IconData icon, String cur,
       ValueChanged<String> onTap) {
+    final colors = consoleColors(context);
     final on = val == cur;
     return Expanded(
       child: GestureDetector(
@@ -437,16 +429,16 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: on ? _accent.withOpacity(0.15) : _surface,
+            color: on ? _accent.withOpacity(0.15) : colors.surface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: on ? _accent : _border),
+            border: Border.all(color: on ? _accent : colors.border),
           ),
           child: Column(children: [
-            Icon(icon, size: 18, color: on ? _accent : _dimText),
+            Icon(icon, size: 18, color: on ? _accent : colors.textSecondary),
             const SizedBox(height: 6),
             Text(label,
                 style: TextStyle(
-                    color: on ? Colors.white : _dimText,
+                    color: on ? colors.textPrimary : colors.textSecondary,
                     fontSize: 12,
                     fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
           ]),
@@ -457,18 +449,18 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
 
   Widget _dField(TextEditingController c, String hint) => TextField(
         controller: c,
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(color: consoleColors(context).textPrimary),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(color: _subtleText),
+          hintStyle: TextStyle(color: consoleColors(context).textSubtle),
           filled: true,
-          fillColor: _bg,
+          fillColor: consoleColors(context).fieldFill,
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _border)),
+              borderSide: BorderSide(color: consoleColors(context).fieldBorder)),
           enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _border)),
+              borderSide: BorderSide(color: consoleColors(context).fieldBorder)),
           focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: _accent)),
@@ -487,25 +479,26 @@ class _ListPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final wAsync = ref.watch(workflowsProvider);
     return Container(
-      color: _bg,
+      color: colors.background,
       child: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
           child: Row(children: [
-            const Expanded(
+            Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Workflows',
                         style: TextStyle(
-                            color: Colors.white,
+                            color: colors.textPrimary,
                             fontSize: 24,
                             fontWeight: FontWeight.w700)),
                     SizedBox(height: 4),
                     Text('Automate tasks with visual pipelines',
-                        style: TextStyle(color: _dimText, fontSize: 14)),
+                        style: TextStyle(color: colors.textSecondary, fontSize: 14)),
                   ]),
             ),
             FilledButton.icon(
@@ -528,11 +521,11 @@ class _ListPage extends ConsumerWidget {
             loading: () =>
                 const Center(child: CircularProgressIndicator(color: _accent)),
             error: (e, _) => Center(
-                child: Text('$e', style: const TextStyle(color: _dimText))),
+              child: Text('$e', style: TextStyle(color: colors.textSecondary))),
             data: (data) {
               final list = List<Map<String, dynamic>>.from(
                   data['workflows'] ?? []);
-              if (list.isEmpty) return _empty();
+              if (list.isEmpty) return _empty(context);
               return _grid(list);
             },
           ),
@@ -541,7 +534,9 @@ class _ListPage extends ConsumerWidget {
     );
   }
 
-  Widget _empty() => Center(
+  Widget _empty(BuildContext context) {
+    final colors = consoleColors(context);
+    return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(
             width: 72,
@@ -551,14 +546,14 @@ class _ListPage extends ConsumerWidget {
             child: const Icon(LucideIcons.gitBranch, size: 32, color: _accent),
           ),
           const SizedBox(height: 20),
-          const Text('No workflows yet',
+            Text('No workflows yet',
               style: TextStyle(
-                  color: Colors.white,
+                color: colors.textPrimary,
                   fontSize: 18,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          const Text('Create your first workflow to get started',
-              style: TextStyle(color: _dimText, fontSize: 14)),
+            Text('Create your first workflow to get started',
+              style: TextStyle(color: colors.textSecondary, fontSize: 14)),
           const SizedBox(height: 24),
           FilledButton.icon(
             style: FilledButton.styleFrom(
@@ -573,6 +568,7 @@ class _ListPage extends ConsumerWidget {
           ),
         ]),
       );
+  }
 
   Widget _grid(List<Map<String, dynamic>> wfs) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -603,6 +599,7 @@ class _CardState extends State<_Card> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final name = widget.wf['name'] ?? 'Unnamed';
     final status = widget.wf['status'] ?? 'draft';
     final trigger = widget.wf['triggerType'] ?? 'manual';
@@ -618,10 +615,9 @@ class _CardState extends State<_Card> {
           width: widget.w,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: _h ? _surfaceHover : _surface,
+            color: _h ? colors.fillHover : colors.surface,
             borderRadius: BorderRadius.circular(12),
-            border:
-                Border.all(color: _h ? _accent.withOpacity(0.3) : _border),
+            border: Border.all(color: _h ? _accent.withOpacity(0.3) : colors.border),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
@@ -637,8 +633,8 @@ class _CardState extends State<_Card> {
               const SizedBox(width: 12),
               Expanded(
                   child: Text(name,
-                      style: const TextStyle(
-                          color: Colors.white,
+                    style: TextStyle(
+                      color: colors.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.w600),
                       maxLines: 1,
@@ -683,12 +679,12 @@ class _CardState extends State<_Card> {
   Widget _chip(IconData ic, String l) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
+            color: consoleColors(context).fill,
             borderRadius: BorderRadius.circular(6)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(ic, size: 12, color: _subtleText),
+          Icon(ic, size: 12, color: consoleColors(context).textSubtle),
           const SizedBox(width: 5),
-          Text(l, style: const TextStyle(color: _subtleText, fontSize: 11)),
+          Text(l, style: TextStyle(color: consoleColors(context).textSubtle, fontSize: 11)),
         ]),
       );
 }
@@ -749,7 +745,6 @@ class _EditorState extends ConsumerState<_Editor> {
   bool _showLogs = false;
   bool _showMinimap = true;
   List<Map<String, dynamic>> _stickyNotes = [];
-  int _topTab = 0; // 0=Editor, 1=Executions
   int _configTab = 0; // 0=Settings, 1=Input, 2=Output
   Map<String, dynamic>? _lastExecData; // nodeId → {input, output}
   Map<String, dynamic>? _pinnedData; // nodeId → pinned output
@@ -1007,6 +1002,7 @@ class _EditorState extends ConsumerState<_Editor> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Shortcuts(
       shortcuts: {
         LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.keyZ):
@@ -1101,7 +1097,7 @@ class _EditorState extends ConsumerState<_Editor> {
         child: Focus(
           autofocus: true,
           child: Scaffold(
-            backgroundColor: _bg,
+            backgroundColor: colors.background,
             body: Column(children: [
               _toolbar(),
               // Editor / Executions tabs
@@ -1130,24 +1126,24 @@ class _EditorState extends ConsumerState<_Editor> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _toolbar() {
+    final colors = consoleColors(context);
     return Container(
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-          color: _bg,
-          border: Border(
-              bottom: BorderSide(color: Colors.white.withOpacity(0.06)))),
+          color: colors.background,
+          border: Border(bottom: BorderSide(color: colors.border))),
       child: Row(children: [
         IconButton(
             onPressed: widget.onBack,
-            icon: const Icon(LucideIcons.arrowLeft, size: 18, color: _dimText),
+            icon: Icon(LucideIcons.arrowLeft, size: 18, color: colors.textSecondary),
             tooltip: 'Back'),
         const SizedBox(width: 8),
         IntrinsicWidth(
           child: TextField(
             controller: TextEditingController(text: _name),
-            style: const TextStyle(
-                color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: colors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
             decoration: const InputDecoration(
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
@@ -1176,8 +1172,8 @@ class _EditorState extends ConsumerState<_Editor> {
           icon: Icon(LucideIcons.undo2,
               size: 15,
               color: _undo.canUndo
-                  ? _dimText
-                  : Colors.white.withOpacity(0.15)),
+                ? colors.textSecondary
+                : colors.textSubtle),
           tooltip: 'Undo (⌘Z)',
         ),
         IconButton(
@@ -1190,13 +1186,13 @@ class _EditorState extends ConsumerState<_Editor> {
           icon: Icon(LucideIcons.redo2,
               size: 15,
               color: _undo.canRedo
-                  ? _dimText
-                  : Colors.white.withOpacity(0.15)),
+                ? colors.textSecondary
+                : colors.textSubtle),
           tooltip: 'Redo (⌘⇧Z)',
         ),
 
         const SizedBox(width: 4),
-        Container(width: 1, height: 24, color: _border),
+        Container(width: 1, height: 24, color: colors.border),
         const SizedBox(width: 4),
 
         // History
@@ -1204,7 +1200,7 @@ class _EditorState extends ConsumerState<_Editor> {
           onPressed: _showExecs,
           icon: const Icon(LucideIcons.history, size: 15),
           label: const Text('History', style: TextStyle(fontSize: 13)),
-          style: TextButton.styleFrom(foregroundColor: _dimText),
+          style: TextButton.styleFrom(foregroundColor: colors.textSecondary),
         ),
         const SizedBox(width: 4),
 
@@ -1237,8 +1233,8 @@ class _EditorState extends ConsumerState<_Editor> {
           label: Text(_dirty ? 'Save*' : 'Saved',
               style: const TextStyle(fontSize: 13)),
           style: FilledButton.styleFrom(
-            backgroundColor: _dirty ? _accent : Colors.white.withOpacity(0.06),
-            foregroundColor: _dirty ? Colors.white : _dimText,
+              backgroundColor: _dirty ? _accent : colors.fillActive,
+              foregroundColor: _dirty ? Colors.white : colors.textSecondary,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8)),
             padding:
@@ -1250,6 +1246,7 @@ class _EditorState extends ConsumerState<_Editor> {
   }
 
   Widget _statusChip() {
+    final colors = consoleColors(context);
     final c = _status == 'active'
         ? _green
         : _status == 'paused'
@@ -1257,10 +1254,10 @@ class _EditorState extends ConsumerState<_Editor> {
             : const Color(0xFF64748B);
     return PopupMenuButton<String>(
       offset: const Offset(0, 32),
-      color: const Color(0xFF1A1A22),
+      color: colors.popupSurface,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: Colors.white.withOpacity(0.08))),
+          side: BorderSide(color: colors.border)),
       onSelected: (v) => setState(() {
         _status = v;
         _dirty = true;
@@ -1268,8 +1265,8 @@ class _EditorState extends ConsumerState<_Editor> {
       itemBuilder: (_) => ['draft', 'active', 'paused']
           .map((s) => PopupMenuItem(
               value: s,
-              child:
-                  Text(s, style: const TextStyle(color: Colors.white70))))
+            child: Text(s,
+              style: TextStyle(color: colors.textSecondary))))
           .toList(),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -1299,6 +1296,7 @@ class _EditorState extends ConsumerState<_Editor> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _canvas() {
+    final colors = consoleColors(context);
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: _onPointerDown,
@@ -1310,6 +1308,8 @@ class _EditorState extends ConsumerState<_Editor> {
           painter: _CanvasPainter(
             pan: _pan,
             zoom: _zoom,
+            colors: colors,
+            isLight: consoleIsLight(context),
             nodes: _nodes,
             edges: _edges,
             selected: _selected,
@@ -1523,14 +1523,15 @@ class _EditorState extends ConsumerState<_Editor> {
   // ── Context menu ──
   void _showContextMenu(Offset screenPos, Offset canvasPos) {
     final nodeIdx = _hitNode(canvasPos);
+    final colors = consoleColors(context);
     showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(
           screenPos.dx, screenPos.dy, screenPos.dx, screenPos.dy),
-      color: const Color(0xFF1A1A22),
+      color: colors.popupSurface,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: Colors.white.withOpacity(0.08))),
+          side: BorderSide(color: colors.border)),
       items: nodeIdx != null
           ? [
               _ctxItem('open', 'Open settings', LucideIcons.settings),
@@ -1594,13 +1595,14 @@ class _EditorState extends ConsumerState<_Editor> {
   }
 
   PopupMenuItem<String> _ctxItem(String val, String label, IconData icon,
-      {Color color = _dimText}) {
+      {Color? color}) {
+    final fg = color ?? consoleColors(context).textSecondary;
     return PopupMenuItem(
       value: val,
       child: Row(children: [
-        Icon(icon, size: 15, color: color),
+        Icon(icon, size: 15, color: fg),
         const SizedBox(width: 10),
-        Text(label, style: TextStyle(color: color, fontSize: 13)),
+        Text(label, style: TextStyle(color: fg, fontSize: 13)),
       ]),
     );
   }
@@ -1637,15 +1639,16 @@ class _EditorState extends ConsumerState<_Editor> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _zoomControls() {
+    final colors = consoleColors(context);
     return Positioned(
       left: 16,
       bottom: (_showLogs ? 180 : 0) + 16,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         decoration: BoxDecoration(
-          color: _surface,
+          color: colors.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _border),
+          border: Border.all(color: colors.border),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           _zBtn(LucideIcons.maximize2, _fitToView),
@@ -1658,26 +1661,26 @@ class _EditorState extends ConsumerState<_Editor> {
               width: 48,
               child: Center(
                 child: Text('${(_zoom * 100).round()}%',
-                    style: const TextStyle(color: _dimText, fontSize: 11)),
+                    style: TextStyle(color: colors.textSecondary, fontSize: 11)),
               ),
             ),
           ),
           _zBtn(LucideIcons.plus, () {
             setState(() => _zoom = (_zoom * 1.25).clamp(0.15, 3.0));
           }),
-          Container(width: 1, height: 18, color: _border),
+          Container(width: 1, height: 18, color: colors.border),
           _zBtn(
               _showMinimap ? LucideIcons.map : LucideIcons.mapPin,
               () => setState(() => _showMinimap = !_showMinimap)),
           _zBtn(LucideIcons.stickyNote, _addStickyNote),
-          Container(width: 1, height: 18, color: _border),
+          Container(width: 1, height: 18, color: colors.border),
           GestureDetector(
             onTap: () => setState(() => _showLogs = !_showLogs),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               child: Text('Logs',
                   style: TextStyle(
-                      color: _showLogs ? _accent : _dimText, fontSize: 11)),
+                      color: _showLogs ? _accent : colors.textSecondary, fontSize: 11)),
             ),
           ),
         ]),
@@ -1706,7 +1709,7 @@ class _EditorState extends ConsumerState<_Editor> {
         borderRadius: BorderRadius.circular(4),
         child: Padding(
           padding: const EdgeInsets.all(6),
-          child: Icon(ic, size: 14, color: _dimText),
+          child: Icon(ic, size: 14, color: consoleColors(context).textSecondary),
         ),
       );
 
@@ -1718,6 +1721,7 @@ class _EditorState extends ConsumerState<_Editor> {
   final _palSearchCtrl = TextEditingController();
 
   Widget _palette() {
+    final colors = consoleColors(context);
     final query = _palSearchCtrl.text.trim().toLowerCase();
     final isSearch = query.isNotEmpty;
 
@@ -1728,9 +1732,8 @@ class _EditorState extends ConsumerState<_Editor> {
       child: Container(
         width: 300,
         decoration: BoxDecoration(
-            color: _surface,
-            border: Border(
-                left: BorderSide(color: Colors.white.withOpacity(0.06)))),
+          color: colors.surface,
+          border: Border(left: BorderSide(color: colors.border))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Header with back / title / close
           Padding(
@@ -1739,10 +1742,10 @@ class _EditorState extends ConsumerState<_Editor> {
               if (_palCategory != null && !isSearch)
                 GestureDetector(
                   onTap: () => setState(() => _palCategory = null),
-                  child: const Padding(
+                  child: Padding(
                     padding: EdgeInsets.only(right: 8),
                     child: Icon(LucideIcons.arrowLeft,
-                        size: 16, color: _dimText),
+                    size: 16, color: colors.textSecondary),
                   ),
                 ),
               if (_palCategory != null && !isSearch) ...[
@@ -1750,7 +1753,7 @@ class _EditorState extends ConsumerState<_Editor> {
                         .firstWhere((c) => c.name == _palCategory,
                             orElse: () => _categories[0])
                         .icon,
-                    size: 15, color: _dimText),
+                    size: 15, color: colors.textSecondary),
                 const SizedBox(width: 8),
               ],
               Expanded(
@@ -1758,8 +1761,8 @@ class _EditorState extends ConsumerState<_Editor> {
                   isSearch
                       ? 'Search results'
                       : _palCategory ?? 'What happens next?',
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                      color: colors.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w600),
                 ),
@@ -1770,7 +1773,7 @@ class _EditorState extends ConsumerState<_Editor> {
                         _palCategory = null;
                         _palSearchCtrl.clear();
                       }),
-                  icon: const Icon(LucideIcons.x, size: 16, color: _dimText)),
+                  icon: Icon(LucideIcons.x, size: 16, color: colors.textSecondary)),
             ]),
           ),
 
@@ -1780,29 +1783,29 @@ class _EditorState extends ConsumerState<_Editor> {
             child: TextField(
               controller: _palSearchCtrl,
               autofocus: true,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: TextStyle(color: colors.textPrimary, fontSize: 13),
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 hintText: 'Search nodes...',
-                hintStyle: const TextStyle(color: _subtleText, fontSize: 13),
-                prefixIcon: const Icon(LucideIcons.search,
-                    size: 15, color: _subtleText),
+                hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
+                prefixIcon: Icon(LucideIcons.search,
+                    size: 15, color: colors.textSubtle),
                 filled: true,
-                fillColor: _bg,
+                fillColor: colors.fieldFill,
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: _border)),
+                    borderSide: BorderSide(color: colors.fieldBorder)),
                 enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: _border)),
+                    borderSide: BorderSide(color: colors.fieldBorder)),
                 focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: const BorderSide(color: _accent)),
               ),
             ),
           ),
-          Container(height: 1, color: _border),
+          Container(height: 1, color: colors.border),
 
           // Content
           Expanded(child: isSearch ? _palSearch(query) : _palContent()),
@@ -1813,6 +1816,7 @@ class _EditorState extends ConsumerState<_Editor> {
 
   /// Top-level categories or drilled-in node list
   Widget _palContent() {
+    final colors = consoleColors(context);
     if (_palCategory == null) {
       // Top-level category list
       return ListView(padding: const EdgeInsets.all(8), children: [
@@ -1825,25 +1829,23 @@ class _EditorState extends ConsumerState<_Editor> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.03),
+                  color: colors.fill,
                   borderRadius: BorderRadius.circular(8)),
               child: Row(children: [
-                const Icon(LucideIcons.zap, size: 15, color: _dimText),
+                Icon(LucideIcons.zap, size: 15, color: colors.textSecondary),
                 const SizedBox(width: 10),
-                const Expanded(
+                Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Add another trigger',
-                            style:
-                                TextStyle(color: Colors.white, fontSize: 13)),
+                            style: TextStyle(color: colors.textPrimary, fontSize: 13)),
                         Text('Workflows can have multiple triggers',
-                            style:
-                                TextStyle(color: _subtleText, fontSize: 11)),
+                            style: TextStyle(color: colors.textSubtle, fontSize: 11)),
                       ]),
                 ),
-                const Icon(LucideIcons.chevronRight,
-                    size: 14, color: _subtleText),
+                Icon(LucideIcons.chevronRight,
+                    size: 14, color: colors.textSubtle),
               ]),
             ),
           ),
@@ -1924,8 +1926,7 @@ class _EditorState extends ConsumerState<_Editor> {
         .toList();
     if (matches.isEmpty) {
       return const Center(
-          child:
-              Text('No nodes found', style: TextStyle(color: _subtleText)));
+          child: Text('No nodes found'));
     }
     return ListView(
       padding: const EdgeInsets.all(8),
@@ -1946,7 +1947,7 @@ class _EditorState extends ConsumerState<_Editor> {
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
         child: Text(title,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.35),
+          color: consoleColors(context).textSubtle,
                 fontSize: 11,
                 fontWeight: FontWeight.w600)),
       );
@@ -1962,22 +1963,22 @@ class _EditorState extends ConsumerState<_Editor> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(children: [
-                Icon(c.icon, size: 16, color: _dimText),
+                Icon(c.icon, size: 16, color: consoleColors(context).textSecondary),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(c.name,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13)),
+                      style: TextStyle(
+                        color: consoleColors(context).textPrimary, fontSize: 13)),
                         Text(c.description,
-                            style: const TextStyle(
-                                color: _subtleText, fontSize: 11)),
+                      style: TextStyle(
+                        color: consoleColors(context).textSubtle, fontSize: 11)),
                       ]),
                 ),
-                const Icon(LucideIcons.chevronRight,
-                    size: 14, color: _subtleText),
+                Icon(LucideIcons.chevronRight,
+                  size: 14, color: consoleColors(context).textSubtle),
               ]),
             ),
           ),
@@ -2017,14 +2018,14 @@ class _EditorState extends ConsumerState<_Editor> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(d.label,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13)),
+                          style: TextStyle(
+                            color: consoleColors(context).textPrimary, fontSize: 13)),
                         Text(d.description,
-                            style: const TextStyle(
-                                color: _subtleText, fontSize: 11)),
+                          style: TextStyle(
+                            color: consoleColors(context).textSubtle, fontSize: 11)),
                       ]),
                 ),
-                const Icon(LucideIcons.plus, size: 14, color: _subtleText),
+                    Icon(LucideIcons.plus, size: 14, color: consoleColors(context).textSubtle),
               ]),
             ),
           ),
@@ -2036,6 +2037,7 @@ class _EditorState extends ConsumerState<_Editor> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _configPanel() {
+    final colors = consoleColors(context);
     final node = _byId(_configNodeId!);
     if (node == null) return const SizedBox.shrink();
     final d = _def(node['type'] ?? 'http_request');
@@ -2050,9 +2052,8 @@ class _EditorState extends ConsumerState<_Editor> {
       child: Container(
         width: 340,
         decoration: BoxDecoration(
-            color: _surface,
-            border: Border(
-                left: BorderSide(color: Colors.white.withOpacity(0.06)))),
+          color: colors.surface,
+          border: Border(left: BorderSide(color: colors.border))),
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
@@ -2068,8 +2069,8 @@ class _EditorState extends ConsumerState<_Editor> {
               const SizedBox(width: 10),
               Expanded(
                   child: Text(d.label,
-                      style: const TextStyle(
-                          color: Colors.white,
+                    style: TextStyle(
+                      color: colors.textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w600))),
               if (!isTrigger) ...[
@@ -2101,7 +2102,7 @@ class _EditorState extends ConsumerState<_Editor> {
               ],
               IconButton(
                   onPressed: () => setState(() => _configNodeId = null),
-                  icon: const Icon(LucideIcons.x, size: 16, color: _dimText)),
+                  icon: Icon(LucideIcons.x, size: 16, color: colors.textSecondary)),
             ]),
           ),
           // Settings / Input / Output tabs
@@ -2109,7 +2110,7 @@ class _EditorState extends ConsumerState<_Editor> {
             decoration: BoxDecoration(
                 border: Border(
                     bottom:
-                        BorderSide(color: Colors.white.withOpacity(0.06)))),
+                  BorderSide(color: colors.border))),
             child: Row(children: [
               _cfgTabBtn('Settings', 0),
               _cfgTabBtn('Input', 1),
@@ -2146,6 +2147,7 @@ class _EditorState extends ConsumerState<_Editor> {
   }
 
   Widget _cfgTabBtn(String label, int idx) {
+    final colors = consoleColors(context);
     final active = _configTab == idx;
     return Expanded(
       child: GestureDetector(
@@ -2163,7 +2165,7 @@ class _EditorState extends ConsumerState<_Editor> {
           child: Center(
             child: Text(label,
                 style: TextStyle(
-                    color: active ? Colors.white : _subtleText,
+                color: active ? colors.textPrimary : colors.textSubtle,
                     fontSize: 12,
                     fontWeight: active ? FontWeight.w500 : FontWeight.w400)),
           ),
@@ -2173,6 +2175,7 @@ class _EditorState extends ConsumerState<_Editor> {
   }
 
   Widget _dataPreview(String nodeId, bool isInput) {
+    final colors = consoleColors(context);
     final Map<String, dynamic>? data = _lastExecData != null
         ? (_lastExecData![nodeId] as Map<String, dynamic>?)
         : null;
@@ -2187,13 +2190,13 @@ class _EditorState extends ConsumerState<_Editor> {
           padding: const EdgeInsets.all(32),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(isInput ? LucideIcons.arrowDownToLine : LucideIcons.arrowUpFromLine,
-                size: 24, color: Colors.white.withOpacity(0.1)),
+              size: 24, color: colors.textSubtle),
             const SizedBox(height: 12),
             Text(
               'Execute the workflow to see ${isInput ? "input" : "output"} data',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.3), fontSize: 12),
+                  color: colors.textSubtle, fontSize: 12),
             ),
           ]),
         ),
@@ -2233,7 +2236,7 @@ class _EditorState extends ConsumerState<_Editor> {
               child: Icon(
                   pinned != null ? LucideIcons.pinOff : LucideIcons.pin,
                   size: 14,
-                  color: pinned != null ? _orange : _subtleText),
+                  color: pinned != null ? _orange : colors.textSubtle),
             ),
           ]),
         ),
@@ -2243,7 +2246,7 @@ class _EditorState extends ConsumerState<_Editor> {
           child: SelectableText(
             jsonStr,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
+              color: colors.textSecondary,
               fontSize: 11,
               fontFamily: 'monospace',
             ),
@@ -2600,7 +2603,7 @@ class _EditorState extends ConsumerState<_Editor> {
 
   Widget _cfgLabel(String t) => Text(t,
       style: TextStyle(
-          color: Colors.white.withOpacity(0.5),
+        color: consoleColors(context).textSecondary,
           fontSize: 12,
           fontWeight: FontWeight.w500));
 
@@ -2612,20 +2615,20 @@ class _EditorState extends ConsumerState<_Editor> {
     return TextField(
       controller: TextEditingController(text: value),
       maxLines: maxLines,
-      style: const TextStyle(color: Colors.white, fontSize: 13),
+      style: TextStyle(color: consoleColors(context).textPrimary, fontSize: 13),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: _subtleText, fontSize: 13),
+      hintStyle: TextStyle(color: consoleColors(context).textSubtle, fontSize: 13),
         filled: true,
-        fillColor: _bg,
+      fillColor: consoleColors(context).fieldFill,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(6),
-            borderSide: const BorderSide(color: _border)),
+        borderSide: BorderSide(color: consoleColors(context).fieldBorder)),
         enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(6),
-            borderSide: const BorderSide(color: _border)),
+        borderSide: BorderSide(color: consoleColors(context).fieldBorder)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(6),
             borderSide: const BorderSide(color: _accent)),
@@ -2639,8 +2642,8 @@ class _EditorState extends ConsumerState<_Editor> {
     final outs = _edges.where((e) => e['source'] == id).toList();
     if (ins.isEmpty && outs.isEmpty) {
       return [
-        const Text('No connections',
-            style: TextStyle(color: _subtleText, fontSize: 12))
+        Text('No connections',
+            style: TextStyle(color: consoleColors(context).textSubtle, fontSize: 12))
       ];
     }
     return [
@@ -2670,18 +2673,18 @@ class _EditorState extends ConsumerState<_Editor> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-              color: _bg,
+              color: consoleColors(context).fieldFill,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: _border)),
+              border: Border.all(color: consoleColors(context).fieldBorder)),
           child: Row(children: [
-            Icon(icon, size: 13, color: _subtleText),
+            Icon(icon, size: 13, color: consoleColors(context).textSubtle),
             const SizedBox(width: 8),
             Expanded(
                 child: Text(label,
-                    style: const TextStyle(color: _dimText, fontSize: 12))),
+                    style: TextStyle(color: consoleColors(context).textSecondary, fontSize: 12))),
             GestureDetector(
                 onTap: onDel,
-                child: const Icon(LucideIcons.x, size: 12, color: _subtleText)),
+                child: Icon(LucideIcons.x, size: 12, color: consoleColors(context).textSubtle)),
           ]),
         ),
       );
@@ -2691,12 +2694,12 @@ class _EditorState extends ConsumerState<_Editor> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _topTabs() {
+    final colors = consoleColors(context);
     return Container(
       height: 40,
       decoration: BoxDecoration(
-          color: _bg,
-          border: Border(
-              bottom: BorderSide(color: Colors.white.withOpacity(0.06)))),
+          color: colors.background,
+          border: Border(bottom: BorderSide(color: colors.border))),
       child: Row(children: [
         // Tags (left side)
         const SizedBox(width: 16),
@@ -2724,8 +2727,8 @@ class _EditorState extends ConsumerState<_Editor> {
               )),
         GestureDetector(
           onTap: _addTag,
-          child: const Text('+ Add tag',
-              style: TextStyle(color: _subtleText, fontSize: 11)),
+          child: Text('+ Add tag',
+              style: TextStyle(color: colors.textSubtle, fontSize: 11)),
         ),
         const Spacer(),
         const SizedBox(width: 16),
@@ -2765,35 +2768,35 @@ class _EditorState extends ConsumerState<_Editor> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _logsPanel() {
+    final colors = consoleColors(context);
     return Container(
       height: 180,
       decoration: BoxDecoration(
-          color: _surface,
-          border: Border(
-              top: BorderSide(color: Colors.white.withOpacity(0.06)))),
+          color: colors.surface,
+          border: Border(top: BorderSide(color: colors.border))),
       child: Column(children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(children: [
-            const Icon(LucideIcons.terminal, size: 14, color: _dimText),
+            Icon(LucideIcons.terminal, size: 14, color: colors.textSecondary),
             const SizedBox(width: 8),
-            const Text('Logs',
+            Text('Logs',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: colors.textPrimary,
                     fontSize: 13,
                     fontWeight: FontWeight.w600)),
             const Spacer(),
             IconButton(
                 onPressed: () => setState(() => _showLogs = false),
-                icon: const Icon(LucideIcons.x, size: 14, color: _dimText)),
+                icon: Icon(LucideIcons.x, size: 14, color: colors.textSecondary)),
           ]),
         ),
-        Container(height: 1, color: _border),
+        Container(height: 1, color: colors.border),
         Expanded(
           child: _execStatus == null
-              ? const Center(
+              ? Center(
                   child: Text('Execute workflow to see logs',
-                      style: TextStyle(color: _subtleText, fontSize: 12)))
+                      style: TextStyle(color: colors.textSubtle, fontSize: 12)))
               : ListView(
                   padding: const EdgeInsets.all(12),
                   children: _execStatus!.entries.map((e) {
@@ -2815,8 +2818,8 @@ class _EditorState extends ConsumerState<_Editor> {
                                     : _accent),
                         const SizedBox(width: 8),
                         Text('${node?['label'] ?? e.key}: ${e.value}',
-                            style: const TextStyle(
-                                color: _dimText,
+                          style: TextStyle(
+                            color: colors.textSecondary,
                                 fontSize: 12,
                                 fontFamily: 'monospace')),
                       ]),
@@ -2833,6 +2836,7 @@ class _EditorState extends ConsumerState<_Editor> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _minimap() {
+    final colors = consoleColors(context);
     return Positioned(
       right: (_showPalette ? 300 : 0) + (_configNodeId != null ? 340 : 0) + 16,
       bottom: (_showLogs ? 180 : 0) + 16,
@@ -2840,9 +2844,9 @@ class _EditorState extends ConsumerState<_Editor> {
         width: 160,
         height: 100,
         decoration: BoxDecoration(
-          color: _surface.withOpacity(0.9),
+          color: colors.surface.withOpacity(0.9),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _border),
+          border: Border.all(color: colors.border),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
@@ -2851,6 +2855,8 @@ class _EditorState extends ConsumerState<_Editor> {
               nodes: _nodes,
               pan: _pan,
               zoom: _zoom,
+              colors: colors,
+              isLight: consoleIsLight(context),
               viewSize: MediaQuery.of(context).size,
             ),
           ),
@@ -2870,6 +2876,7 @@ class _EditorState extends ConsumerState<_Editor> {
           .get('/workflows/$_wfId/executions')
           .then((r) => r.data),
       builder: (ctx, snap) {
+        final colors = consoleColors(ctx);
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(
               child: CircularProgressIndicator(color: _accent));
@@ -2877,14 +2884,14 @@ class _EditorState extends ConsumerState<_Editor> {
         if (snap.hasError) {
           return Center(
               child: Text('${snap.error}',
-                  style: const TextStyle(color: _dimText)));
+                  style: TextStyle(color: colors.textSecondary)));
         }
         final execs = List<Map<String, dynamic>>.from(
             (snap.data as Map)['executions'] ?? []);
         if (execs.isEmpty) {
-          return const Center(
+          return Center(
               child: Text('No executions yet',
-                  style: TextStyle(color: _dimText, fontSize: 14)));
+                  style: TextStyle(color: colors.textSecondary, fontSize: 14)));
         }
         return ListView.separated(
           padding: const EdgeInsets.all(24),
@@ -2904,9 +2911,9 @@ class _EditorState extends ConsumerState<_Editor> {
                     : _accent;
             return Container(
               decoration: BoxDecoration(
-                  color: _surface,
+                  color: colors.surface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _border)),
+                  border: Border.all(color: colors.border)),
               child: ExpansionTile(
                 leading: Icon(
                     st == 'completed'
@@ -2918,11 +2925,10 @@ class _EditorState extends ConsumerState<_Editor> {
                     color: sc),
                 title: Text(
                     idStr.length > 12 ? idStr.substring(0, 12) : idStr,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 13)),
+                  style: TextStyle(
+                    color: colors.textPrimary, fontSize: 13)),
                 subtitle: Text('$st  •  ${dur}ms',
-                    style:
-                        const TextStyle(color: _subtleText, fontSize: 11)),
+                  style: TextStyle(color: colors.textSubtle, fontSize: 11)),
                 children: logs.map((l) {
                   return ListTile(
                     dense: true,
@@ -2936,15 +2942,15 @@ class _EditorState extends ConsumerState<_Editor> {
                         color: l['status'] == 'completed'
                             ? _green
                             : l['status'] == 'skipped'
-                                ? _dimText
+                            ? colors.textSecondary
                                 : _red),
                     title: Text(
                         '${l['label']} (${l['nodeType']})',
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 12)),
+                      style: TextStyle(
+                        color: colors.textPrimary, fontSize: 12)),
                     subtitle: Text('${l['durationMs']}ms',
-                        style: const TextStyle(
-                            color: _subtleText, fontSize: 11)),
+                      style: TextStyle(
+                        color: colors.textSubtle, fontSize: 11)),
                   );
                 }).toList(),
               ),
@@ -2962,8 +2968,8 @@ class _EditorState extends ConsumerState<_Editor> {
   void _showExecs() {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        backgroundColor: _surface,
+      builder: (ctx) => Dialog(
+        backgroundColor: consoleColors(ctx).surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         child: SizedBox(
           width: 560,
@@ -2974,18 +2980,18 @@ class _EditorState extends ConsumerState<_Editor> {
               decoration: BoxDecoration(
                   border: Border(
                       bottom: BorderSide(
-                          color: Colors.white.withOpacity(0.06)))),
+                          color: consoleColors(ctx).border))),
               child: Row(children: [
-                const Text('Execution History',
+                Text('Execution History',
                     style: TextStyle(
-                        color: Colors.white,
+                        color: consoleColors(ctx).textPrimary,
                         fontSize: 15,
                         fontWeight: FontWeight.w600)),
                 const Spacer(),
                 IconButton(
                     onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                    icon: const Icon(LucideIcons.x,
-                        size: 16, color: _dimText)),
+                    icon: Icon(LucideIcons.x,
+                        size: 16, color: consoleColors(ctx).textSecondary)),
               ]),
             ),
             Expanded(child: _executionsTab()),
@@ -3003,6 +3009,8 @@ class _EditorState extends ConsumerState<_Editor> {
 class _CanvasPainter extends CustomPainter {
   final Offset pan;
   final double zoom;
+  final ConsoleColors colors;
+  final bool isLight;
   final List<Map<String, dynamic>> nodes, edges;
   final Set<String> selected;
   final Map<String, dynamic>? connFrom;
@@ -3015,6 +3023,8 @@ class _CanvasPainter extends CustomPainter {
   _CanvasPainter({
     required this.pan,
     required this.zoom,
+    required this.colors,
+    required this.isLight,
     required this.nodes,
     required this.edges,
     required this.selected,
@@ -3026,6 +3036,26 @@ class _CanvasPainter extends CustomPainter {
     this.execCounts,
     this.stickyNotes = const [],
   });
+
+    Color get _gridDotColor =>
+      isLight ? Colors.black.withOpacity(0.06) : Colors.white.withOpacity(0.06);
+
+    Color get _edgeColor =>
+      isLight ? Colors.black.withOpacity(0.16) : Colors.white.withOpacity(0.28);
+
+    Color get _nodeDisabledSurface =>
+      isLight ? colors.surfaceAlt : const Color(0xFF111114);
+
+    Color get _nodeDisabledBorder =>
+      isLight ? Colors.black.withOpacity(0.08) : Colors.white.withOpacity(0.04);
+
+    Color get _handleStrokeColor => colors.textSecondary;
+
+    Color get _outputHandleStrokeColor =>
+      isLight ? Colors.white.withOpacity(0.75) : Colors.white.withOpacity(0.3);
+
+    Color get _statusSkippedColor =>
+      isLight ? const Color(0xFF475569) : const Color(0xFF64748B);
 
   Offset _t(Offset o) => o * zoom + pan; // canvas → screen
   double _s(double v) => v * zoom;
@@ -3081,7 +3111,10 @@ class _CanvasPainter extends CustomPainter {
         text: TextSpan(
             text: note['text'] ?? '',
             style: TextStyle(
-                color: const Color(0xAAF59E0B), fontSize: _s(12))),
+                color: isLight
+                    ? const Color(0xFF8A4B00)
+                    : const Color(0xAAF59E0B),
+                fontSize: _s(12))),
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: _s(w - 16));
       tp.paint(canvas, Offset(sp.dx + _s(8), sp.dy + _s(8)));
@@ -3124,7 +3157,7 @@ class _CanvasPainter extends CustomPainter {
   }
 
   void _drawGrid(Canvas canvas, Size size) {
-    final p = Paint()..color = _gridDot;
+    final p = Paint()..color = _gridDotColor;
     final spacing = _s(24);
     if (spacing < 6) return; // Too zoomed out
     final offX = pan.dx % spacing;
@@ -3138,7 +3171,7 @@ class _CanvasPainter extends CustomPainter {
 
   void _drawEdges(Canvas canvas) {
     final paint = Paint()
-      ..color = const Color(0x50FFFFFF)
+      ..color = _edgeColor
       ..strokeWidth = _s(2)
       ..style = PaintingStyle.stroke;
 
@@ -3176,7 +3209,7 @@ class _CanvasPainter extends CustomPainter {
     final tp = TextPainter(
       text: TextSpan(
           text: text,
-          style: TextStyle(color: Colors.white, fontSize: _s(9))),
+          style: TextStyle(color: colors.textPrimary, fontSize: _s(9))),
       textDirection: TextDirection.ltr,
     )..layout();
     final r = RRect.fromRectAndRadius(
@@ -3209,14 +3242,14 @@ class _CanvasPainter extends CustomPainter {
         Paint()
           ..color = sel
               ? d.color.withOpacity(0.08)
-              : Colors.black.withOpacity(0.25)
+          : colors.shadow.withOpacity(isLight ? 0.65 : 0.5)
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s(8)));
 
     // Body
     canvas.drawRRect(
         rect,
         Paint()
-          ..color = disabled ? const Color(0xFF111114) : _surface);
+          ..color = disabled ? _nodeDisabledSurface : colors.surface);
 
     // Border
     canvas.drawRRect(
@@ -3225,8 +3258,8 @@ class _CanvasPainter extends CustomPainter {
           ..color = sel
               ? d.color
               : disabled
-                  ? Colors.white.withOpacity(0.04)
-                  : _border
+                  ? _nodeDisabledBorder
+                  : colors.border
           ..style = PaintingStyle.stroke
           ..strokeWidth = sel ? _s(1.5) : _s(1));
 
@@ -3252,7 +3285,7 @@ class _CanvasPainter extends CustomPainter {
       text: TextSpan(
         text: n['label'] ?? d.label,
         style: TextStyle(
-          color: disabled ? _subtleText : Colors.white,
+          color: disabled ? colors.textSubtle : colors.textPrimary,
           fontSize: _s(13),
           fontWeight: FontWeight.w500,
         ),
@@ -3268,7 +3301,7 @@ class _CanvasPainter extends CustomPainter {
     final typeTp = TextPainter(
       text: TextSpan(
           text: n['type'] ?? '',
-          style: TextStyle(color: _subtleText, fontSize: _s(10))),
+          style: TextStyle(color: colors.textSubtle, fontSize: _s(10))),
       textDirection: TextDirection.ltr,
     )..layout();
     typeTp.paint(
@@ -3277,12 +3310,12 @@ class _CanvasPainter extends CustomPainter {
     // Input handles (left)
     for (var ii = 0; ii < d.inputs; ii++) {
       final inP = _t(_inH(n, ii));
-      canvas.drawCircle(inP, _s(_handleR), Paint()..color = _surface);
+      canvas.drawCircle(inP, _s(_handleR), Paint()..color = colors.surface);
       canvas.drawCircle(
           inP,
           _s(_handleR),
           Paint()
-            ..color = _dimText
+            ..color = _handleStrokeColor
             ..style = PaintingStyle.stroke
             ..strokeWidth = _s(1.5));
     }
@@ -3295,7 +3328,7 @@ class _CanvasPainter extends CustomPainter {
           outP,
           _s(_handleR),
           Paint()
-            ..color = Colors.white.withOpacity(0.3)
+            ..color = _outputHandleStrokeColor
             ..style = PaintingStyle.stroke
             ..strokeWidth = _s(1.5));
       // Label for multi-output
@@ -3304,7 +3337,7 @@ class _CanvasPainter extends CustomPainter {
           text: TextSpan(
               text: d.outputLabels![oi],
               style: TextStyle(
-                  color: _subtleText, fontSize: _s(8))),
+                  color: colors.textSubtle, fontSize: _s(8))),
           textDirection: TextDirection.ltr,
         )..layout();
         labelTp2.paint(canvas,
@@ -3324,11 +3357,11 @@ class _CanvasPainter extends CustomPainter {
           case 'failed':
             bc = _red;
           case 'skipped':
-            bc = const Color(0xFF64748B);
+            bc = _statusSkippedColor;
           default:
             bc = _accent;
         }
-        canvas.drawCircle(badgePos, _s(8), Paint()..color = _surface);
+        canvas.drawCircle(badgePos, _s(8), Paint()..color = colors.surface);
         canvas.drawCircle(badgePos, _s(6), Paint()..color = bc);
       }
     }
@@ -3349,142 +3382,6 @@ class _CanvasPainter extends CustomPainter {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Executions dialog
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _ExecDialog extends StatelessWidget {
-  final String wfId;
-  final WidgetRef ref;
-  const _ExecDialog({required this.wfId, required this.ref});
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: _surface,
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: _border)),
-      child: SizedBox(
-        width: 640,
-        height: 480,
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
-            child: Row(children: [
-              const Icon(LucideIcons.history, size: 18, color: _dimText),
-              const SizedBox(width: 10),
-              const Text('Execution History',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600)),
-              const Spacer(),
-              IconButton(
-                  onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                  icon: const Icon(LucideIcons.x, size: 16, color: _dimText)),
-            ]),
-          ),
-          Container(height: 1, color: _border),
-          Expanded(
-            child: FutureBuilder<dynamic>(
-              future: ref
-                  .read(apiClientProvider)
-                  .get('/workflows/$wfId/executions')
-                  .then((r) => r.data),
-              builder: (ctx, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                      child: CircularProgressIndicator(color: _accent));
-                }
-                if (snap.hasError) {
-                  return Center(
-                      child: Text('${snap.error}',
-                          style: const TextStyle(color: _dimText)));
-                }
-                final execs = List<Map<String, dynamic>>.from(
-                    (snap.data as Map)['executions'] ?? []);
-                if (execs.isEmpty) {
-                  return const Center(
-                      child: Text('No executions yet',
-                          style: TextStyle(color: _dimText)));
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: execs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (ctx, i) {
-                    final e = execs[i];
-                    final st = e['status'] ?? 'pending';
-                    final dur = e['durationMs'] ?? 0;
-                    final logs =
-                        List<Map<String, dynamic>>.from(e['logs'] ?? []);
-                    final idStr = (e['\$id'] ?? '').toString();
-
-                    return Container(
-                      decoration: BoxDecoration(
-                          color: _bg,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: _border)),
-                      child: ExpansionTile(
-                        leading: _icon(st),
-                        title: Text(
-                            idStr.length > 8 ? idStr.substring(0, 8) : idStr,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13)),
-                        subtitle: Text('$st  •  ${dur}ms',
-                            style: const TextStyle(
-                                color: _subtleText, fontSize: 11)),
-                        children: [
-                          if (e['error'] != null &&
-                              (e['error'] as String).isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 8),
-                              child: Text('Error: ${e['error']}',
-                                  style: const TextStyle(
-                                      color: Colors.redAccent, fontSize: 12)),
-                            ),
-                          ...logs.map((l) => ListTile(
-                                dense: true,
-                                leading: _icon(l['status'] ?? ''),
-                                title: Text(
-                                    '${l['label']} (${l['nodeType']})',
-                                    style: const TextStyle(
-                                        color: Colors.white, fontSize: 12)),
-                                subtitle: Text('${l['durationMs']}ms',
-                                    style: const TextStyle(
-                                        color: _subtleText, fontSize: 11)),
-                              )),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  Widget _icon(String s) {
-    switch (s) {
-      case 'completed':
-        return const Icon(LucideIcons.checkCircle2, size: 18, color: _green);
-      case 'running':
-        return const Icon(LucideIcons.loader2, size: 18, color: _accent);
-      case 'failed':
-        return const Icon(LucideIcons.xCircle, size: 18, color: _red);
-      case 'skipped':
-        return const Icon(LucideIcons.skipForward, size: 18, color: _dimText);
-      default:
-        return const Icon(LucideIcons.clock, size: 18, color: _dimText);
-    }
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
 // Minimap painter
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -3492,12 +3389,16 @@ class _MinimapPainter extends CustomPainter {
   final List<Map<String, dynamic>> nodes;
   final Offset pan;
   final double zoom;
+  final ConsoleColors colors;
+  final bool isLight;
   final Size viewSize;
 
   _MinimapPainter(
       {required this.nodes,
       required this.pan,
       required this.zoom,
+      required this.colors,
+      required this.isLight,
       required this.viewSize});
 
   @override
@@ -3542,7 +3443,9 @@ class _MinimapPainter extends CustomPainter {
     canvas.drawRect(
       Rect.fromLTWH(vpLeft, vpTop, vpW, vpH),
       Paint()
-        ..color = Colors.white.withOpacity(0.15)
+        ..color = isLight
+            ? Colors.black.withOpacity(0.18)
+            : Colors.white.withOpacity(0.15)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );

@@ -2,13 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/providers/experiments_provider.dart';
+import '../../core/theme/console_colors.dart';
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
-const _accent = Color(0xFF3472A4);
-const _border = Color(0x14FFFFFF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 const _green = Color(0xFF10B981);
 const _orange = Color(0xFFF59E0B);
 
@@ -62,12 +57,13 @@ class ExperimentsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final experiments = ref.watch(experimentsProvider);
     final map = experiments.toMap();
     final enabledCount = map.values.where((v) => v).length;
 
     return Container(
-      color: _bg,
+      color: colors.background,
       child: Column(
         children: [
           // Header
@@ -79,14 +75,14 @@ class ExperimentsPage extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(
+                      Row(
                         children: [
                           Icon(LucideIcons.flaskConical,
                               size: 20, color: _orange),
-                          SizedBox(width: 8),
+                          const SizedBox(width: 8),
                           Text('Experiments',
                               style: TextStyle(
-                                  color: Colors.white,
+                                  color: colors.textPrimary,
                                   fontSize: 24,
                                   fontWeight: FontWeight.w700)),
                         ],
@@ -95,17 +91,16 @@ class ExperimentsPage extends ConsumerWidget {
                       Text(
                         'Enable upcoming features that are still in development. '
                         '$enabledCount of ${_experiments.length} enabled.',
-                        style: const TextStyle(
-                            color: _dimText, fontSize: 14),
+                        style: TextStyle(
+                          color: colors.textSecondary, fontSize: 14),
                       ),
                     ],
                   ),
                 ),
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: BorderSide(
-                        color: Colors.white.withOpacity(0.12)),
+                    foregroundColor: colors.textSecondary,
+                    side: BorderSide(color: colors.border),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8)),
                     padding: const EdgeInsets.symmetric(
@@ -166,9 +161,9 @@ class ExperimentsPage extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 32),
               children: [
-                ..._buildCategory('Console Sections', map, ref),
+                ..._buildCategory(context, 'Console Sections', map, ref),
                 const SizedBox(height: 16),
-                ..._buildCategory('Backend Services', map, ref),
+                ..._buildCategory(context, 'Backend Services', map, ref),
                 const SizedBox(height: 32),
               ],
             ),
@@ -179,7 +174,8 @@ class ExperimentsPage extends ConsumerWidget {
   }
 
   List<Widget> _buildCategory(
-      String category, Map<String, bool> map, WidgetRef ref) {
+      BuildContext context, String category, Map<String, bool> map, WidgetRef ref) {
+    final colors = consoleColors(context);
     final items =
         _experiments.where((e) => e.category == category).toList();
     return [
@@ -188,7 +184,7 @@ class ExperimentsPage extends ConsumerWidget {
         child: Text(
           category.toUpperCase(),
           style: TextStyle(
-            color: Colors.white.withOpacity(0.25),
+            color: colors.textSubtle,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.0,
@@ -201,12 +197,12 @@ class ExperimentsPage extends ConsumerWidget {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: _surface,
+            color: colors.surface,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: enabled
                   ? _green.withOpacity(0.2)
-                  : _border,
+                  : colors.border,
             ),
           ),
           child: Row(
@@ -217,14 +213,14 @@ class ExperimentsPage extends ConsumerWidget {
                 decoration: BoxDecoration(
                   color: enabled
                       ? _green.withOpacity(0.1)
-                      : Colors.white.withOpacity(0.04),
+                      : colors.fillHover,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(exp.icon,
                     size: 20,
                     color: enabled
                         ? _green
-                        : _subtleText),
+                        : colors.textSubtle),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -234,8 +230,8 @@ class ExperimentsPage extends ConsumerWidget {
                     Row(
                       children: [
                         Text(exp.name,
-                            style: const TextStyle(
-                                color: Colors.white,
+                          style: TextStyle(
+                            color: colors.textPrimary,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500)),
                         if (enabled) ...[
@@ -258,8 +254,8 @@ class ExperimentsPage extends ConsumerWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(exp.description,
-                        style: const TextStyle(
-                            color: _subtleText, fontSize: 12)),
+                        style: TextStyle(
+                            color: colors.textSubtle, fontSize: 12)),
                   ],
                 ),
               ),

@@ -93,7 +93,7 @@ func NewService(database *db.DB) *Service {
 func (s *Service) ListPlans(ctx context.Context) ([]*Plan, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, slug, price_monthly, price_yearly, limits, COALESCE(features,'[]'), active, created_at, updated_at
-		 FROM billing_plans WHERE active = 1 ORDER BY price_monthly ASC`)
+		 FROM billing_plans WHERE active = TRUE ORDER BY price_monthly ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (s *Service) CreatePlan(ctx context.Context, name, slug string, priceMonthl
 	featuresJSON, _ := json.Marshal(features)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO billing_plans (id, name, slug, price_monthly, price_yearly, limits, features, active, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,1,?,?)`,
+		 VALUES (?,?,?,?,?,?,?,TRUE,?,?)`,
 		p.ID, p.Name, p.Slug, p.PriceMonthly, p.PriceYearly,
 		nullBytes(limitsJSON), featuresJSON, p.CreatedAt, p.UpdatedAt,
 	)
@@ -159,8 +159,8 @@ func (s *Service) Subscribe(ctx context.Context, projectID, planID string) (*Sub
 	sub.CurrentPeriodEnd = &periodEnd
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO billing_subscriptions (id, project_id, plan_id, status, current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,0,?,?)
-		 ON DUPLICATE KEY UPDATE plan_id=VALUES(plan_id), status='active', current_period_start=VALUES(current_period_start), current_period_end=VALUES(current_period_end), updated_at=VALUES(updated_at)`,
+		 VALUES (?,?,?,?,?,?,FALSE,?,?)
+		 ON CONFLICT (project_id) DO UPDATE SET plan_id=EXCLUDED.plan_id, status='active', current_period_start=EXCLUDED.current_period_start, current_period_end=EXCLUDED.current_period_end, updated_at=EXCLUDED.updated_at`,
 		sub.ID, sub.ProjectID, sub.PlanID, sub.Status,
 		sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
 		sub.CreatedAt, sub.UpdatedAt,
@@ -174,7 +174,7 @@ func (s *Service) Subscribe(ctx context.Context, projectID, planID string) (*Sub
 // CancelSubscription schedules a subscription to cancel at period end.
 func (s *Service) CancelSubscription(ctx context.Context, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE billing_subscriptions SET cancel_at_period_end=1, updated_at=? WHERE project_id=?",
+		"UPDATE billing_subscriptions SET cancel_at_period_end=TRUE, updated_at=? WHERE project_id=?",
 		time.Now().UTC(), projectID)
 	return err
 }
@@ -258,32 +258,38 @@ func (s *Service) ListInvoices(ctx context.Context, projectID string, limit, off
 	return out, total, nil
 }
 
+// GetInvoice returns a single invoice by ID for a project.
+func (s *Service) GetInvoice(ctx context.Context, projectID, invoiceID string) (*Invoice, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, COALESCE(subscription_id,''), amount_cents, currency, status,
+		        COALESCE(stripe_invoice_id,''), period_start, period_end, paid_at, created_at
+		 FROM invoices WHERE project_id=? AND id=?`,
+		projectID, invoiceID)
+	return scanInvoice(row)
+}
+
 // ── scanners ──────────────────────────────────────────────────────────────────
 
 func scanPlan(row interface{ Scan(...interface{}) error }) (*Plan, error) {
 	p := &Plan{}
 	var limitsRaw, featuresRaw []byte
-	var activeInt int
 	if err := row.Scan(&p.ID, &p.Name, &p.Slug, &p.PriceMonthly, &p.PriceYearly,
-		&limitsRaw, &featuresRaw, &activeInt, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		&limitsRaw, &featuresRaw, &p.Active, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
 	json.Unmarshal(limitsRaw, &p.Limits)     //nolint:errcheck
 	json.Unmarshal(featuresRaw, &p.Features) //nolint:errcheck
-	p.Active = activeInt == 1
 	return p, nil
 }
 
 func scanSubscription(row interface{ Scan(...interface{}) error }) (*Subscription, error) {
 	s := &Subscription{}
-	var cancelInt int
 	if err := row.Scan(&s.ID, &s.ProjectID, &s.PlanID, &s.Status,
 		&s.StripeCustomerID, &s.StripeSubscriptionID,
-		&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &cancelInt,
+		&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelAtPeriodEnd,
 		&s.CreatedAt, &s.UpdatedAt); err != nil {
 		return nil, err
 	}
-	s.CancelAtPeriodEnd = cancelInt == 1
 	return s, nil
 }
 

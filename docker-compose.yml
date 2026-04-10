@@ -1,12 +1,11 @@
-version: "3.9"
-
 x-worker-build: &worker-build
   context: ./backend
   dockerfile: ../docker/worker/Dockerfile
 
 x-worker-env: &worker-env
-  DATABASE_DSN: "applad:applad@tcp(mariadb:3306)/applad?parseTime=true"
+  DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad?sslmode=disable"
   REDIS_ADDR: "redis:6379"
+  POSTGREST_URL: "http://postgrest:3000"
   STORAGE_PATH: "/var/applad/storage"
   APP_ENV: "${APP_ENV:-development}"
   SMTP_HOST: "${SMTP_HOST:-}"
@@ -16,8 +15,10 @@ x-worker-env: &worker-env
   SMTP_FROM: "${SMTP_FROM:-noreply@applad.local}"
 
 x-worker-deps: &worker-deps
-  mariadb:
+  postgres:
     condition: service_healthy
+  postgrest:
+    condition: service_started
   redis:
     condition: service_healthy
 
@@ -33,9 +34,10 @@ services:
       - "8080:8080"
     environment:
       PORT: "8080"
-      DATABASE_DSN: "applad:applad@tcp(mariadb:3306)/applad?parseTime=true"
+      DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad?sslmode=disable"
       REDIS_ADDR: "redis:6379"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      POSTGREST_URL: "http://postgrest:3000"
       STORAGE_PATH: "/var/applad/storage"
       APP_ENV: "${APP_ENV:-development}"
     volumes:
@@ -175,21 +177,33 @@ services:
     depends_on: *worker-deps
     restart: unless-stopped
 
-  mariadb:
-    image: mariadb:11.2
+  postgres:
+    image: postgres:16-alpine
     environment:
-      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-root}"
-      MARIADB_DATABASE: "applad"
-      MARIADB_USER: "applad"
-      MARIADB_PASSWORD: "${DB_PASSWORD:-applad}"
+      POSTGRES_DB: "applad"
+      POSTGRES_USER: "applad"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-applad}"
     volumes:
-      - db_data:/var/lib/mysql
-      - ./docker/mariadb/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD-SHELL", "pg_isready -U applad -d applad"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    environment:
+      PGRST_DB_URI: "postgres://applad:${DB_PASSWORD:-applad}@postgres:5432/applad"
+      PGRST_DB_SCHEMAS: "public,applad"
+      PGRST_DB_ANON_ROLE: "applad_anon"
+      PGRST_JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      PGRST_DB_PRE_REQUEST: "applad.check_jwt"
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   redis:
@@ -205,12 +219,14 @@ services:
 
   clamav:
     image: clamav/clamav:stable
+    profiles:
+      - antivirus
     volumes:
       - clamav_data:/var/lib/clamav
     restart: unless-stopped
 
 volumes:
-  db_data:
+  postgres_data:
   redis_data:
   storage_data:
   ssl_certs:

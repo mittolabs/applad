@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -21,7 +20,6 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
-	_ "github.com/go-sql-driver/mysql"
 )
 
 // SubWorkflowRunner is set by the service to allow sub-workflow execution.
@@ -1211,59 +1209,10 @@ func execPostgresQuery(ctx context.Context, config map[string]interface{}, execC
 }
 
 func execMySQLQuery(ctx context.Context, config map[string]interface{}, execCtx map[string]interface{}) (interface{}, error) {
-	connURL, _ := config["connectionUrl"].(string)
-	query, _ := config["query"].(string)
-
-	if query == "" {
-		return nil, fmt.Errorf("mysql_query: query is required")
-	}
-	query = resolveTemplate(query, execCtx)
-
-	if connURL == "" {
-		return nil, fmt.Errorf("mysql_query: connectionUrl is required")
-	}
-	connURL = resolveTemplate(connURL, execCtx)
-
-	// Use database/sql with the MySQL driver (already imported in the project)
-	db, err := sql.Open("mysql", connURL)
-	if err != nil {
-		return nil, fmt.Errorf("mysql_query: connect: %w", err)
-	}
-	defer db.Close()
-
-	rows, err := db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("mysql_query: execute: %w", err)
-	}
-	defer rows.Close()
-
-	cols, _ := rows.Columns()
-	var results []map[string]interface{}
-	for rows.Next() {
-		vals := make([]interface{}, len(cols))
-		ptrs := make([]interface{}, len(cols))
-		for i := range vals {
-			ptrs[i] = &vals[i]
-		}
-		if err := rows.Scan(ptrs...); err != nil {
-			continue
-		}
-		row := map[string]interface{}{}
-		for i, col := range cols {
-			v := vals[i]
-			if b, ok := v.([]byte); ok {
-				v = string(b)
-			}
-			row[col] = v
-		}
-		results = append(results, row)
-	}
-
-	return map[string]interface{}{
-		"rows":    results,
-		"count":   len(results),
-		"columns": cols,
-	}, nil
+	_ = ctx
+	_ = config
+	_ = execCtx
+	return nil, fmt.Errorf("mysql_query: unsupported after PostgreSQL migration; use postgres_query instead")
 }
 
 func execRedisCommand(ctx context.Context, config map[string]interface{}, execCtx map[string]interface{}) (interface{}, error) {

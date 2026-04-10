@@ -11,7 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Usage aggregates per-project usage statistics: document counts,
+// Usage aggregates per-project usage statistics: row counts,
 // file counts, storage size, user counts, and workflow executions.
 type Usage struct {
 	cfg   *config.Config
@@ -124,9 +124,10 @@ func (w *Usage) collectStats(ctx context.Context, projectID string) projectStats
 	s := projectStats{ProjectID: projectID}
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&s.Users)
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = ?", projectID).Scan(&s.Sessions)
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM `_databases` WHERE project_id = ?", projectID).Scan(&s.Databases)
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM collections WHERE project_id = ?", projectID).Scan(&s.Tables)
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM documents WHERE project_id = ?", projectID).Scan(&s.Rows)
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM databases WHERE project_id = ?", projectID).Scan(&s.Databases)
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tables WHERE project_id = ?", projectID).Scan(&s.Tables)
+	// Row counts live in per-schema tables; set 0 until Phase 4 schema-per-database is implemented
+	s.Rows = 0
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = ?", projectID).Scan(&s.Buckets)
 	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = ?", projectID).Scan(&s.Files)
 	w.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = ?", projectID).Scan(&s.StorageBytes)

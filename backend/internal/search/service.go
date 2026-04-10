@@ -72,21 +72,24 @@ func NewService(database *db.DB) *Service {
 }
 
 // CreateIndex creates a new search index.
-func (s *Service) CreateIndex(ctx context.Context, projectID, collectionID, name string, fields []string, typoTolerance bool) (*Index, error) {
+func (s *Service) CreateIndex(ctx context.Context, projectID, indexID, collectionID, name string, fields []string, typoTolerance bool) (*Index, error) {
 	idx := &Index{
 		ID: uid.New(""), ProjectID: projectID, CollectionID: collectionID,
 		Name: name, Fields: fields, TypoTolerance: typoTolerance,
 		Status: "ready", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	if indexID != "" {
+		idx.ID = indexID
 	}
 	fieldsJSON, _ := json.Marshal(fields)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO search_indexes (id, project_id, collection_id, name, fields, typo_tolerance, status, created_at, updated_at)
 		 VALUES (?,?,?,?,?,?,?,?,?)`,
 		idx.ID, idx.ProjectID, nullStr(idx.CollectionID), idx.Name, fieldsJSON,
-		boolInt(idx.TypoTolerance), idx.Status, idx.CreatedAt, idx.UpdatedAt,
+		idx.TypoTolerance, idx.Status, idx.CreatedAt, idx.UpdatedAt,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "Duplicate entry") {
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
 			return nil, fmt.Errorf("search: index with name %q already exists", name)
 		}
 		return nil, fmt.Errorf("search: create index: %w", err)
@@ -138,7 +141,7 @@ func (s *Service) Upsert(ctx context.Context, indexID, projectID, docID, content
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO search_documents (id, index_id, project_id, doc_id, content, metadata, indexed_at)
 		 VALUES (?,?,?,?,?,?,?)
-		 ON DUPLICATE KEY UPDATE content=VALUES(content), metadata=VALUES(metadata), indexed_at=VALUES(indexed_at)`,
+		 ON CONFLICT (index_id, doc_id) DO UPDATE SET content=EXCLUDED.content, metadata=EXCLUDED.metadata, indexed_at=EXCLUDED.indexed_at`,
 		doc.ID, indexID, projectID, docID, content, nullBytes(metaJSON), doc.IndexedAt,
 	)
 	if err != nil {
@@ -163,13 +166,13 @@ func (s *Service) Query(ctx context.Context, indexID, projectID, q string, limit
 	// Expand query with synonyms
 	q = s.expandSynonyms(ctx, indexID, q)
 
-	// Build MATCH query; fall back to LIKE when no FULLTEXT index exists
+	// PostgreSQL full-text search using tsvector
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT doc_id, content, metadata,
-		        MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE) AS score
+		        ts_rank(to_tsvector('english', content), plainto_tsquery('english', ?)) AS score
 		 FROM search_documents
 		 WHERE index_id = ?
-		   AND MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE)
+		   AND to_tsvector('english', content) @@ plainto_tsquery('english', ?)
 		 ORDER BY score DESC
 		 LIMIT ? OFFSET ?`,
 		q, indexID, q, limit, offset,
@@ -306,15 +309,13 @@ func scanIndex(row interface {
 }) (*Index, error) {
 	idx := &Index{}
 	var fieldsRaw, synRaw, rankRaw []byte
-	var typoInt int
 	if err := row.Scan(&idx.ID, &idx.ProjectID, &idx.CollectionID, &idx.Name,
-		&fieldsRaw, &synRaw, &rankRaw, &typoInt, &idx.Status, &idx.CreatedAt, &idx.UpdatedAt); err != nil {
+		&fieldsRaw, &synRaw, &rankRaw, &idx.TypoTolerance, &idx.Status, &idx.CreatedAt, &idx.UpdatedAt); err != nil {
 		return nil, err
 	}
-	json.Unmarshal(fieldsRaw, &idx.Fields)         //nolint:errcheck
-	json.Unmarshal(synRaw, &idx.Synonyms)           //nolint:errcheck
-	json.Unmarshal(rankRaw, &idx.RankingRules)      //nolint:errcheck
-	idx.TypoTolerance = typoInt == 1
+	json.Unmarshal(fieldsRaw, &idx.Fields)        //nolint:errcheck
+	json.Unmarshal(synRaw, &idx.Synonyms)          //nolint:errcheck
+	json.Unmarshal(rankRaw, &idx.RankingRules)     //nolint:errcheck
 	return idx, nil
 }
 
@@ -330,11 +331,4 @@ func nullBytes(b []byte) interface{} {
 		return nil
 	}
 	return b
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

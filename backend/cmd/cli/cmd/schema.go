@@ -16,10 +16,11 @@ type schemaDatabase struct {
 	Tables []schemaTable `json:"tables"`
 }
 type schemaTable struct {
-	Name       string            `json:"name"`
-	Attributes []schemaAttribute `json:"attributes"`
+	Name    string         `json:"name"`
+	Columns []schemaColumn `json:"columns"`
 }
-type schemaAttribute struct {
+
+type schemaColumn struct {
 	Key      string `json:"key"`
 	Type     string `json:"type"`
 	Required bool   `json:"required"`
@@ -63,26 +64,25 @@ var schemaPushCmd = &cobra.Command{
 			fmt.Printf("  database %q (%s)\n", sdb.Name, dbID)
 
 			for _, st := range sdb.Tables {
-				tableBase := base + "/" + dbID + "/collections"
+				tableBase := base + "/" + dbID + "/tables"
 				tRes, terr := PostWithProject(tableBase, map[string]string{"name": st.Name})
 				if terr != nil {
 					listRes2, _ := GetWithProject(tableBase)
-					tRes = FindByName(listRes2, "collections", st.Name)
+					tRes = FindByName(listRes2, "tables", st.Name)
 				}
 				tableID, _ := tRes["$id"].(string)
 				fmt.Printf("    table %q (%s)\n", st.Name, tableID)
 
-				attrBase := tableBase + "/" + tableID + "/attributes"
-				for _, a := range st.Attributes {
-					_, aerr := PostWithProject(attrBase, map[string]interface{}{
-						"key":      a.Key,
-						"type":     a.Type,
-						"required": a.Required,
+				columnBase := tableBase + "/" + tableID + "/columns"
+				for _, column := range st.Columns {
+					_, columnErr := PostWithProject(columnBase+"/"+column.Type, map[string]interface{}{
+						"key":      column.Key,
+						"required": column.Required,
 					})
-					if aerr != nil {
-						fmt.Printf("      attribute %q: %v (may already exist)\n", a.Key, aerr)
+					if columnErr != nil {
+						fmt.Printf("      column %q: %v (may already exist)\n", column.Key, columnErr)
 					} else {
-						fmt.Printf("      attribute %q (%s)\n", a.Key, a.Type)
+						fmt.Printf("      column %q (%s)\n", column.Key, column.Type)
 					}
 				}
 			}

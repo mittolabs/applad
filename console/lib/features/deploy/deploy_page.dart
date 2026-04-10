@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/client.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 
 final deploymentsProvider =
@@ -15,9 +16,11 @@ class DeployPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final deploymentsAsync = ref.watch(deploymentsProvider);
 
     return Scaffold(
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('Deploy'),
         actions: [
@@ -35,9 +38,10 @@ class DeployPage extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 48),
+              Icon(Icons.error_outline, size: 48, color: colors.textSubtle),
               const SizedBox(height: 16),
-              Text('Failed to load deployments: $e'),
+              Text('Failed to load deployments: $e',
+                  style: TextStyle(color: colors.textSecondary)),
               const SizedBox(height: 8),
               FilledButton(
                 onPressed: () => ref.invalidate(deploymentsProvider),
@@ -54,10 +58,11 @@ class DeployPage extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.rocket_launch_outlined,
-                      size: 64, color: Colors.grey),
+                  Icon(Icons.rocket_launch_outlined,
+                    size: 64, color: colors.textSubtle),
                   const SizedBox(height: 16),
-                  const Text('No deployments yet'),
+                  Text('No deployments yet',
+                    style: TextStyle(color: colors.textPrimary)),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: () => _showCreateDialog(context, ref),
@@ -73,11 +78,19 @@ class DeployPage extends ConsumerWidget {
             itemBuilder: (context, i) {
               final d = deployments[i];
               return Card(
+                color: colors.surface,
+                surfaceTintColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: colors.border),
+                ),
                 child: ListTile(
                   leading: _iconForType(d['type'] ?? 'web'),
-                  title: Text(d['name'] ?? 'Unnamed'),
+                  title: Text(d['name'] ?? 'Unnamed',
+                      style: TextStyle(color: colors.textPrimary)),
                   subtitle: Text(
-                      '${d['type'] ?? 'web'} • ${d['\$id'] ?? ''}'),
+                      '${d['type'] ?? 'web'} • ${d['\$id'] ?? ''}',
+                      style: TextStyle(color: colors.textSecondary)),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -136,6 +149,7 @@ class DeployPage extends ConsumerWidget {
   }
 
   void _showCreateDialog(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final nameCtrl = TextEditingController();
     String selectedType = 'web';
 
@@ -150,12 +164,12 @@ class DeployPage extends ConsumerWidget {
               width: 440,
               constraints: const BoxConstraints(maxHeight: 600),
               decoration: BoxDecoration(
-                color: const Color(0xFF16171B),
+                color: colors.surface,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                border: Border.all(color: colors.border),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
+                    color: colors.shadow,
                     blurRadius: 32,
                     offset: const Offset(0, 8),
                   ),
@@ -169,10 +183,10 @@ class DeployPage extends ConsumerWidget {
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                     child: Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text('Create Deployment',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: colors.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
                               )),
@@ -180,7 +194,7 @@ class DeployPage extends ConsumerWidget {
                         GestureDetector(
                           onTap: () => Navigator.of(ctx).pop(),
                           child: Icon(Icons.close,
-                              size: 16, color: Colors.white.withOpacity(0.3)),
+                              size: 16, color: colors.textSubtle),
                         ),
                       ],
                     ),
@@ -188,8 +202,7 @@ class DeployPage extends ConsumerWidget {
                   const SizedBox(height: 16),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                        height: 1, color: Colors.white.withOpacity(0.06)),
+                    child: Container(height: 1, color: colors.border),
                   ),
                   const SizedBox(height: 16),
                   Padding(
@@ -206,25 +219,23 @@ class DeployPage extends ConsumerWidget {
                         const SizedBox(height: 16),
                         DropdownButtonFormField<String>(
                           value: selectedType,
-                          dropdownColor: const Color(0xFF16171B),
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 13),
+                          dropdownColor: colors.popupSurface,
+                          style: TextStyle(
+                              color: colors.textPrimary, fontSize: 13),
                           decoration: InputDecoration(
                             labelText: 'Type',
                             labelStyle: TextStyle(
-                                color: Colors.white.withOpacity(0.5),
+                                color: colors.textSecondary,
                                 fontSize: 12),
                             filled: true,
-                            fillColor: Colors.white.withOpacity(0.04),
+                            fillColor: colors.fieldFill,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                  color: Colors.white.withOpacity(0.1)),
+                              borderSide: BorderSide(color: colors.fieldBorder),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                  color: Colors.white.withOpacity(0.1)),
+                              borderSide: BorderSide(color: colors.fieldBorder),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
@@ -300,6 +311,7 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     Color color;
     IconData icon;
     switch (status) {
@@ -325,8 +337,9 @@ class _StatusChip extends StatelessWidget {
     }
     return Chip(
       avatar: Icon(icon, size: 16, color: color),
-      label: Text(status),
+      label: Text(status, style: TextStyle(color: colors.textPrimary)),
       backgroundColor: color.withOpacity(0.1),
+      side: BorderSide(color: colors.border),
     );
   }
 }

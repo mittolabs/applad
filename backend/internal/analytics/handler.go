@@ -31,6 +31,8 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/events", h.listEvents)
 
 	// Aggregations
+	r.Get("/stats", h.stats)
+	r.Get("/realtime", h.realtime)
 	r.Get("/events/counts", h.eventCounts)
 	r.Get("/dau", h.dau)
 
@@ -124,6 +126,10 @@ func (h *Handler) eventCounts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"counts": counts})
 }
 
+func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
+	h.eventCounts(w, r)
+}
+
 func (h *Handler) dau(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	from, to := parseTimeRange(r.URL.Query().Get("from"), r.URL.Query().Get("to"))
@@ -136,6 +142,16 @@ func (h *Handler) dau(w http.ResponseWriter, r *http.Request) {
 		data = []map[string]interface{}{}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"data": data})
+}
+
+func (h *Handler) realtime(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	summary, err := h.svc.RealtimeSummary(r.Context(), projectID, time.Now().UTC().Add(-5*time.Minute))
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (h *Handler) createFunnel(w http.ResponseWriter, r *http.Request) {

@@ -61,14 +61,15 @@ Open `http://localhost` in your browser. You'll see the signup screen — create
 | **proxy** | 80 | Nginx reverse proxy — routes to API and console |
 | **api** | 8080 (internal) | Go API server with all services |
 | **console** | 3000 (internal) | Flutter Web admin UI |
-| **mariadb** | 3306 (internal) | Primary database |
+| **postgres** | 5432 (internal) | Primary database |
+| **postgrest** | 3000 (internal) | Row CRUD gateway over PostgreSQL schemas |
 | **redis** | 6379 (internal) | Cache, pub/sub, job queues |
 | **10 workers** | — | Background processors (builds, deletes, executions, webhooks, etc.) |
 
 ### Backend only (skip Flutter build)
 
 ```bash
-docker compose up api mariadb redis proxy -d
+docker compose up api postgres postgrest redis proxy -d
 ```
 
 ---
@@ -270,7 +271,8 @@ cp .env.example .env
 | Variable | Default | Description |
 |---|---|---|
 | `JWT_SECRET` | — | **Required.** HS256 signing key. Must change from default. |
-| `DATABASE_DSN` | `applad:applad@tcp(mariadb:3306)/applad?parseTime=true` | MariaDB connection |
+| `DATABASE_DSN` | `postgres://applad:applad@postgres:5432/applad?sslmode=disable` | PostgreSQL connection |
+| `POSTGREST_URL` | `http://postgrest:3000` | Internal PostgREST base URL |
 | `REDIS_ADDR` | `redis:6379` | Redis connection |
 | `STORAGE_PATH` | `/var/applad/storage` | File storage directory |
 | `APP_ENV` | `development` | `development` or `production` |
@@ -320,7 +322,7 @@ All endpoints under `/v1`. Full OpenAPI spec at `backend/api/openapi.yaml`.
 
 | Route | Auth | Description |
 |---|---|---|
-| `/health` | None | Health checks (server, DB, cache) |
+| `/health` | None | Health checks (server, DB, cache, PostgREST) |
 | `/console` | None / Console JWT | Admin signup, login, session |
 | `/projects` | None | Project CRUD, API keys, usage stats |
 | `/avatars` | None | Generated images (initials, QR, flags) |
@@ -328,7 +330,7 @@ All endpoints under `/v1`. Full OpenAPI spec at `backend/api/openapi.yaml`.
 | `/account` | Project header | Client-side auth (signup, login, OAuth2, MFA, magic link, verification, recovery) |
 | `/users` | Project + Auth | Server-side user management |
 | `/teams` | Project + Auth | Teams and memberships |
-| `/databases` | Project + Auth | Databases, tables, columns, indexes, relationships, rows with query operators |
+| `/databases` | Project + Auth | Databases, tables, columns, indexes, relationships, rows, and schema-scoped SQL execution |
 | `/storage` | Project + Auth | Buckets, files, chunked upload, image preview |
 | `/functions` | Project + Auth | Functions CRUD, execution, runtimes list |
 | `/messaging` | Project + Auth | Email, SMS, push, topics |
@@ -354,14 +356,15 @@ All endpoints under `/v1`. Full OpenAPI spec at `backend/api/openapi.yaml`.
               │
     ┌─────────┼──────────┐
     │         │          │
-┌───▼───┐ ┌──▼──┐ ┌─────▼─────┐
-│MariaDB│ │Redis│ │ 10 Workers│
-└───────┘ └─────┘ └───────────┘
+┌───▼─────┐ ┌──────▼──────┐ ┌──▼──┐ ┌─────▼─────┐
+│Postgres │ │ PostgREST   │ │Redis│ │ 10 Workers│
+└─────────┘ └─────────────┘ └─────┘ └───────────┘
 ```
 
 - **Go backend** — single binary, chi router, 26 internal packages
-- **MariaDB** — primary store, 9 migrations, JSON document storage
-- **Redis** — cache, pub/sub (realtime), job queues (workers)
+- **PostgreSQL** — primary store, schema-per-database storage, RLS enforcement
+- **PostgREST** — row CRUD gateway over project/database schemas
+- **Redis** — cache, job queues, non-database pub/sub
 - **10 workers** — builds, certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks
 - **Flutter console** — Riverpod + GoRouter, 9 feature pages + overview + onboarding
 - **6 SDKs** — Dart, JavaScript, Node.js, Dart (server), Go, Python

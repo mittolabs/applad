@@ -33,8 +33,8 @@ func (s *ProjectOAuthService) SetProvider(ctx context.Context, projectID, provid
 	id := uid.New("unique()")
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO project_oauth_providers (id, project_id, provider, enabled, client_id, client_secret)
-		 VALUES (?, ?, ?, 1, ?, ?)
-		 ON DUPLICATE KEY UPDATE client_id = VALUES(client_id), client_secret = VALUES(client_secret), enabled = 1`,
+		 VALUES (?, ?, ?, TRUE, ?, ?)
+		 ON CONFLICT (project_id, provider) DO UPDATE SET client_id = EXCLUDED.client_id, client_secret = EXCLUDED.client_secret, enabled = TRUE`,
 		id, projectID, provider, clientID, clientSecret)
 	return err
 }
@@ -42,7 +42,7 @@ func (s *ProjectOAuthService) SetProvider(ctx context.Context, projectID, provid
 // DisableProvider disables an OAuth provider for a project.
 func (s *ProjectOAuthService) DisableProvider(ctx context.Context, projectID, provider string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE project_oauth_providers SET enabled = 0 WHERE project_id = ? AND provider = ?",
+		"UPDATE project_oauth_providers SET enabled = FALSE WHERE project_id = ? AND provider = ?",
 		projectID, provider)
 	return err
 }
@@ -59,7 +59,7 @@ func (s *ProjectOAuthService) DeleteProvider(ctx context.Context, projectID, pro
 func (s *ProjectOAuthService) GetProvider(ctx context.Context, projectID, provider string) (*ProjectOAuthConfig, error) {
 	var cfg ProjectOAuthConfig
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, project_id, provider, enabled, client_id, client_secret FROM project_oauth_providers WHERE project_id = ? AND provider = ? AND enabled = 1",
+		"SELECT id, project_id, provider, enabled, client_id, client_secret FROM project_oauth_providers WHERE project_id = ? AND provider = ? AND enabled = TRUE",
 		projectID, provider).Scan(&cfg.ID, &cfg.ProjectID, &cfg.ProviderName, &cfg.Enabled, &cfg.ClientID, &cfg.ClientSecret)
 	if err == sql.ErrNoRows {
 		return nil, nil // not configured

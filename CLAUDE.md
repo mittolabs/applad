@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Applad
 
-Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go backend, Flutter Web admin console. Runs as a single `docker compose up`.
+Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go backend, Flutter Web admin console. Runs as a single `docker compose up` with PostgreSQL, PostgREST, and Redis.
 
 ## Commands
 
@@ -17,7 +17,7 @@ make up / make down        # shortcuts
 
 To bring up only the backend (skips the slow Flutter console build):
 ```bash
-docker compose up api mariadb redis proxy -d
+docker compose up api postgres postgrest redis proxy -d
 ```
 
 ### Backend (Go 1.22+)
@@ -66,16 +66,16 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 
 ### Backend structure
 
-`cmd/api/` — entry point: connects MariaDB + Redis, runs migrations, starts HTTP server. Validates JWT_SECRET is not default in production.
+`cmd/api/` — entry point: connects PostgreSQL + Redis, runs migrations, starts HTTP server. Validates JWT_SECRET is not default in production.
 
 `cmd/workers/{type}/` — 10 independent worker binaries. All have full Redis queue consumers.
 
 `internal/` packages (26 total):
 - `config` — env-var config loader (SMTP, OAuth, Twilio, FCM settings)
-- `db` — MariaDB connection + embedded migration runner (`db/migrations/*.sql`)
+- `db` — PostgreSQL connection + embedded migration runner (`db/migrations/*.sql`)
 - `cache` — Redis client
 - `queue` — Redis-backed job queue (BRPOP-based, used by workers)
-- `model` — shared struct types: `Table` (alias `Collection`), `Row` (alias `Document`), `Column` (alias `Attribute`), `Index`, `User`, `Session`, `Project`, etc.
+- `model` — shared struct types: `Table`, `Row`, `Column`, `Index`, `User`, `Session`, `Project`, etc.
 - `middleware` — CORS, `ProjectContext`, `Authenticate`, `RequireAuth`, `RateLimit`, `SecurityHeaders`, `MaxBodySize`, `ParsePagination` (with cursor support), validators
 - `apperr` — standard error response helpers
 - `uid` — ID generation (UUID without hyphens)
@@ -84,7 +84,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 - `oauth` — OAuth2 provider definitions (Google, GitHub, Apple, Facebook, Discord, Twitter, Microsoft, Slack, Spotify, LinkedIn, GitLab, Bitbucket, Twitch, Notion, Stripe) + per-project config
 - `organizations` — multi-org support: CRUD, members, invites, project linking
 - `avatars` — generated images: initials PNG, QR SVG, credit card icons, country flags, favicon proxy
-- `databases` — databases, tables, columns, indexes, relationships, rows with 12 query operators (equal, notEqual, lessThan, greaterThan, contains, search, isNull, between, etc.)
+- `databases` — schema orchestration in Go, row CRUD via PostgREST, RLS policy sync, tables/columns/indexes/relationships/rows
 - `functions` — serverless function management with pre-warming on create/update
 - `runtime` — container-based execution engine: Docker Engine API client, warm container pool (5min idle reaper), 8 runtime templates + custom Dockerfile, pre-built base images
 - `storage` — buckets, files, chunked uploads, image transformations (resize, format conversion), antivirus (ClamAV), S3/local drivers
@@ -92,7 +92,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 - `projects` — project and API key management, usage stats aggregation
 - `deploy` — deployment management with Docker-based executor
 - `messaging` — email (SMTP), SMS (Twilio), push (FCM), topics/subscribers
-- `realtime` — WebSocket pub/sub hub with auto-publishing from databases + storage services
+- `realtime` — WebSocket pub/sub hub backed by PostgreSQL LISTEN/NOTIFY for table changes plus in-process publishing for non-database events
 - `locale` — 196 countries, 50+ currencies, 50+ languages, phone codes
 - `console` — system-level admin auth: signup/login/me, name/email/password update, account deletion, signup-enabled config
 - `health` — health check endpoints
@@ -103,7 +103,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 
 | Route | Auth | Description |
 |---|---|---|
-| `/health` | None | Health checks (server, DB, cache) |
+| `/health` | None | Health checks (server, DB, cache, PostgREST) |
 | `/console` (signup, login, me, me/name, me/email, me/password) | None / Console JWT | Admin console auth + profile management |
 | `/organizations` (CRUD + members + invites) | Console JWT | Multi-org management |
 | `/projects` (CRUD + keys + usage) | None | Project management |
@@ -112,7 +112,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 | `/account` (CRUD + sessions + OAuth + MFA + magic link + verification + recovery) | Project header | Client-side auth |
 | `/users` | Project + Auth | Server-side user management |
 | `/teams` | Project + Auth | Teams and memberships |
-| `/databases` | Project + Auth | databases → tables → columns/indexes/relationships → rows with query operators |
+| `/databases` | Project + Auth | databases → tables → columns/indexes/relationships → rows, plus `/sql` for schema-scoped SQL execution |
 | `/storage` | Project + Auth | Buckets, files, chunked upload, image preview |
 | `/functions` (CRUD + executions + runtimes) | Project + Auth | Serverless functions with pre-warming |
 | `/messaging` (email + SMS + push + topics) | Project + Auth | Multi-provider messaging |
@@ -123,19 +123,10 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 
 ### Database / migrations
 
-10 migrations in `backend/internal/db/migrations/`:
-- `001_init.sql` — core tables (projects, api_keys, users, sessions, teams, memberships, _databases, collections, attributes, _indexes, documents, buckets, files)
-- `002_deployments.sql` — deployments
-- `003_workflows.sql` — workflows, workflow_executions
-- `004_console_users.sql` — console admin users
-- `005_oauth.sql` — OAuth provider/ID columns on users
-- `006_auth_extras.sql` — MFA (TOTP), auth tokens (magic link, verification, reset)
-- `007_functions.sql` — functions, function_executions
-- `008_project_oauth.sql` — per-project OAuth provider config
-- `009_relationships.sql` — collection relationships
-- `010_organizations.sql` — organizations, organization_members, project org_id
+Single consolidated migration in `backend/internal/db/migrations/`:
+- `001_init.sql` — PostgreSQL schema, triggers, RLS helpers, metadata tables, and all product services
 
-API uses tables/rows/columns terminology; MySQL tables are named `collections`/`documents`/`attributes` internally. Type aliases maintain backward compatibility.
+API and internal code use tables/rows/columns terminology only. User data lives in real PostgreSQL schemas named `p_{projectId}_{databaseId}`.
 
 ### Flutter console
 
@@ -202,7 +193,8 @@ Feature pages: `console/lib/features/`:
 | `proxy` (openresty) | 80 | Routes `/v1/` → api, `/` → console |
 | `api` | 8080 (internal) | Go API server |
 | `console` | 3000 (internal) | Flutter Web, served by nginx with SPA fallback |
-| `mariadb` | internal | Primary store |
+| `postgres` | internal | Primary store |
+| `postgrest` | 3000 (internal) | Auto-generated row CRUD over PostgreSQL schemas |
 | `redis` | internal | Cache + pub/sub + job queues |
 | `10 workers` | internal | builds (with Docker socket), certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks |
 | `clamav` | — | Off by default; enable with `--profile antivirus` |
@@ -214,7 +206,8 @@ Root-level `docker-compose.yml` — run from repo root with `docker compose up -
 | Variable | Default | Description |
 |---|---|---|
 | `JWT_SECRET` | `change-me-in-production` | **Required.** HS256 signing key. Fatal error in production if unchanged. |
-| `DATABASE_DSN` | `applad:applad@tcp(mariadb:3306)/applad?parseTime=true` | MariaDB DSN |
+| `DATABASE_DSN` | `postgres://applad:applad@postgres:5432/applad?sslmode=disable` | PostgreSQL DSN |
+| `POSTGREST_URL` | `http://postgrest:3000` | Internal PostgREST base URL |
 | `REDIS_ADDR` | `redis:6379` | Redis address |
 | `STORAGE_PATH` | `/var/applad/storage` | Local file storage path |
 | `APP_ENV` | `development` | `development` or `production` |

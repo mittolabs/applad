@@ -139,3 +139,23 @@ func TestNullHelpers(t *testing.T) {
 		t.Error("non-empty bytes should not be nil")
 	}
 }
+
+func TestRealtimeSummary(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT user_id\) FROM analytics_events`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT session_id\) FROM analytics_events`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM analytics_events`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
+
+	summary, err := svc.RealtimeSummary(context.Background(), "proj1", time.Now().Add(-5*time.Minute))
+	if err != nil {
+		t.Fatalf("RealtimeSummary: %v", err)
+	}
+	if summary["activeUsers"] != 3 || summary["activeSessions"] != 5 || summary["eventsLast5m"] != 12 {
+		t.Errorf("unexpected summary: %+v", summary)
+	}
+}

@@ -110,12 +110,14 @@ type Config struct {
 	APNSTeamID   string
 	APNSKeyPath  string
 	APNSBundleID string
+	// PostgREST
+	PostgRESTURL string
 }
 
 func Load() *Config {
 	return &Config{
 		Port:        getEnv("PORT", "8080"),
-		DatabaseDSN: getEnv("DATABASE_DSN", "applad:applad@tcp(mariadb:3306)/applad?parseTime=true"),
+		DatabaseDSN: getEnv("DATABASE_DSN", "postgres://applad:applad@postgres:5432/applad?sslmode=disable"),
 		RedisAddr:   getEnv("REDIS_ADDR", "redis:6379"),
 		JWTSecret:   getEnv("JWT_SECRET", "change-me-in-production"),
 		StoragePath: getEnv("STORAGE_PATH", "/var/applad/storage"),
@@ -126,6 +128,7 @@ func Load() *Config {
 		SMTPPass:    getEnv("SMTP_PASS", ""),
 		SMTPFrom:             getEnv("SMTP_FROM", "noreply@applad.local"),
 		ConsoleSignupEnabled: getEnv("CONSOLE_SIGNUP_ENABLED", "auto"),
+		PostgRESTURL:         getEnv("POSTGREST_URL", "http://postgrest:3000"),
 		GoogleClientID:       getEnv("OAUTH_GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret:   getEnv("OAUTH_GOOGLE_CLIENT_SECRET", ""),
 		GitHubClientID:       getEnv("OAUTH_GITHUB_CLIENT_ID", ""),

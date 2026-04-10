@@ -83,7 +83,7 @@ func TestCreateIndex_Defaults(t *testing.T) {
 	mock.ExpectExec("INSERT INTO vector_indexes").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	idx, err := svc.CreateIndex(context.Background(), "proj1", "embeddings", 0, "", "", "", "")
+	idx, err := svc.CreateIndex(context.Background(), "proj1", "", "embeddings", 0, "", "", "", "")
 	if err != nil {
 		t.Fatalf("CreateIndex: %v", err)
 	}
@@ -95,6 +95,22 @@ func TestCreateIndex_Defaults(t *testing.T) {
 	}
 	if idx.Model != "text-embedding-3-small" {
 		t.Errorf("model default = %s", idx.Model)
+	}
+}
+
+func TestCreateIndex_UsesProvidedID(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	mock.ExpectExec("INSERT INTO vector_indexes").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	idx, err := svc.CreateIndex(context.Background(), "proj1", "vec_custom", "embeddings", 3, "cosine", "", "", "")
+	if err != nil {
+		t.Fatalf("CreateIndex: %v", err)
+	}
+	if idx.ID != "vec_custom" {
+		t.Errorf("id = %s, want vec_custom", idx.ID)
 	}
 }
 

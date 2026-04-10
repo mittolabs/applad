@@ -6,6 +6,19 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 const _version = '1.0.0';
 
+bool _isLight(BuildContext context) =>
+  Theme.of(context).brightness == Brightness.light;
+
+Color _footerBg(BuildContext context) => Theme.of(context).scaffoldBackgroundColor;
+
+Color _footerBorder(BuildContext context) => _isLight(context)
+  ? Colors.black.withOpacity(0.08)
+  : Colors.white.withOpacity(0.06);
+
+Color _footerText(BuildContext context, double alpha) => _isLight(context)
+  ? const Color(0xFF1A1A2E).withOpacity(alpha)
+  : Colors.white.withOpacity(alpha);
+
 class ConsoleFooter extends StatelessWidget {
   const ConsoleFooter({super.key});
 
@@ -17,9 +30,9 @@ class ConsoleFooter extends StatelessWidget {
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B0B0F),
+        color: _footerBg(context),
         border: Border(
-          top: BorderSide(color: Colors.white.withOpacity(0.06)),
+          top: BorderSide(color: _footerBorder(context)),
         ),
       ),
       child: Row(
@@ -28,7 +41,7 @@ class ConsoleFooter extends StatelessWidget {
           Text(
             '© ${DateTime.now().year} Applad. All rights reserved.',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.25),
+              color: _footerText(context, 0.32),
               fontSize: 12,
             ),
           ),
@@ -38,7 +51,7 @@ class ConsoleFooter extends StatelessWidget {
             height: 14,
             width: 1,
             margin: const EdgeInsets.symmetric(horizontal: 12),
-            color: Colors.white.withOpacity(0.1),
+            color: _footerBorder(context),
           ),
 
           // GitHub icon
@@ -63,7 +76,7 @@ class ConsoleFooter extends StatelessWidget {
           Text(
             'Version $_version',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.25),
+              color: _footerText(context, 0.32),
               fontSize: 12,
             ),
           ),
@@ -128,8 +141,7 @@ class _FooterIconButtonState extends State<_FooterIconButton> {
           child: Icon(
             widget.icon,
             size: 15,
-            color: Colors.white
-                .withOpacity(_hovered ? 0.5 : 0.25),
+            color: _footerText(context, _hovered ? 0.6 : 0.32),
           ),
         ),
       ),
@@ -161,7 +173,7 @@ class _FooterTextLinkState extends State<_FooterTextLink> {
         child: Text(
           widget.label,
           style: TextStyle(
-            color: Colors.white.withOpacity(_hovered ? 0.6 : 0.3),
+            color: _footerText(context, _hovered ? 0.68 : 0.38),
             fontSize: 12,
           ),
         ),

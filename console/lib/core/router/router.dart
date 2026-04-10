@@ -16,6 +16,7 @@ import '../../features/workflows/workflows_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/flags/flags_page.dart';
 import '../../features/experiments/experiments_page.dart';
+import '../../features/health/health_page.dart';
 import '../../features/sites/sites_page.dart';
 import '../../features/containers/containers_page.dart';
 import '../../features/mobile/mobile_page.dart';
@@ -27,16 +28,6 @@ import '../../features/get_started/get_started_page.dart';
 
 Page<void> _noTransition(GoRouterState state, Widget child) {
   return NoTransitionPage(key: state.pageKey, child: child);
-}
-
-Page<void> _fade(GoRouterState state, Widget child) {
-  return CustomTransitionPage(
-    key: state.pageKey,
-    child: child,
-    transitionDuration: const Duration(milliseconds: 150),
-    transitionsBuilder: (_, animation, __, child) =>
-        FadeTransition(opacity: animation, child: child),
-  );
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -137,6 +128,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/project/:projectId/experiments',
             pageBuilder: (_, state) =>
                 _noTransition(state, const ExperimentsPage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/health',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const HealthPage()),
           ),
           GoRoute(
             path: '/project/:projectId/sites',

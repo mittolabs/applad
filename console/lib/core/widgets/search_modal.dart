@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import '../theme/console_colors.dart';
 
 // ── Public search item model ──────────────────────────────────────────────────
 
@@ -162,6 +163,12 @@ class _SearchModalState extends State<SearchModal> {
         ),
         SearchItem(
           category: 'NAVIGATION',
+          label: 'Go to health',
+          isCreate: false,
+          action: () => widget.onNavigate(_projectPath('health')),
+        ),
+        SearchItem(
+          category: 'NAVIGATION',
           label: 'Go to workflows',
           isCreate: false,
           action: () => widget.onNavigate(_projectPath('workflows')),
@@ -225,6 +232,7 @@ class _SearchModalState extends State<SearchModal> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final display = _displayList;
     int selectableCounter = -1;
 
@@ -240,9 +248,9 @@ class _SearchModalState extends State<SearchModal> {
             width: 640,
             constraints: const BoxConstraints(maxHeight: 480),
             decoration: BoxDecoration(
-              color: const Color(0xFF16171B),
+              color: colors.surface,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withOpacity(0.08)),
+              border: Border.all(color: colors.border),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.6),
@@ -261,18 +269,18 @@ class _SearchModalState extends State<SearchModal> {
                     children: [
                       Icon(LucideIcons.search,
                           size: 16,
-                          color: Colors.white.withOpacity(0.3)),
+                          color: colors.textMuted),
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextField(
                           controller: _ctrl,
                           autofocus: true,
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 14),
+                          style: TextStyle(
+                              color: colors.textPrimary, fontSize: 14),
                           decoration: InputDecoration(
                             hintText: 'Search...',
                             hintStyle: TextStyle(
-                                color: Colors.white.withOpacity(0.22),
+                                color: colors.textSubtle,
                                 fontSize: 14),
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
@@ -296,8 +304,7 @@ class _SearchModalState extends State<SearchModal> {
                   ),
                 ),
 
-                Container(
-                    height: 1, color: Colors.white.withOpacity(0.06)),
+                Container(height: 1, color: colors.border),
 
                 // Results
                 if (display.isEmpty)
@@ -308,12 +315,12 @@ class _SearchModalState extends State<SearchModal> {
                       children: [
                         Icon(LucideIcons.search,
                             size: 28,
-                            color: Colors.white.withOpacity(0.12)),
+                          color: colors.textSubtle),
                         const SizedBox(height: 12),
                         Text(
                           'No results found',
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.3),
+                              color: colors.textMuted,
                               fontSize: 13),
                         ),
                       ],
@@ -334,7 +341,7 @@ class _SearchModalState extends State<SearchModal> {
                             child: Text(
                               entry,
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.3),
+                                color: colors.textMuted,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 letterSpacing: 1.0,
@@ -359,8 +366,7 @@ class _SearchModalState extends State<SearchModal> {
                     ),
                   ),
 
-                Container(
-                    height: 1, color: Colors.white.withOpacity(0.06)),
+                Container(height: 1, color: colors.border),
 
                 // Bottom hints
                 Padding(
@@ -372,14 +378,14 @@ class _SearchModalState extends State<SearchModal> {
                       const SizedBox(width: 6),
                       Text('select',
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.25),
+                            color: colors.textSubtle,
                               fontSize: 11)),
                       const SizedBox(width: 16),
                       const SearchHintBadge(label: '↑↓'),
                       const SizedBox(width: 6),
                       Text('navigate',
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.25),
+                            color: colors.textSubtle,
                               fontSize: 11)),
                       const Spacer(),
                     ],
@@ -412,6 +418,7 @@ class SearchItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return MouseRegion(
       onEnter: (_) => onHover(),
       cursor: SystemMouseCursors.click,
@@ -422,7 +429,7 @@ class SearchItemTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: isSelected
-                ? Colors.white.withOpacity(0.08)
+                ? colors.fillActive
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
@@ -434,7 +441,7 @@ class SearchItemTile extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: item.isCreate
                       ? const Color(0xFF3472A4).withOpacity(0.12)
-                      : Colors.white.withOpacity(0.05),
+                      : colors.fill,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Center(
@@ -443,7 +450,7 @@ class SearchItemTile extends StatelessWidget {
                     size: 13,
                     color: item.isCreate
                         ? const Color(0xFF3472A4)
-                        : Colors.white.withOpacity(0.35),
+                        : colors.textMuted,
                   ),
                 ),
               ),
@@ -452,7 +459,7 @@ class SearchItemTile extends StatelessWidget {
                 child: Text(
                   item.label,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(isSelected ? 0.95 : 0.6),
+                    color: isSelected ? colors.textPrimary : colors.textSecondary,
                     fontSize: 13,
                     fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
                   ),
@@ -460,7 +467,7 @@ class SearchItemTile extends StatelessWidget {
               ),
               if (item.shortcut != null) ...[
                 const SizedBox(width: 8),
-                _buildShortcut(item.shortcut!),
+                _buildShortcut(context, item.shortcut!),
               ],
             ],
           ),
@@ -469,7 +476,7 @@ class SearchItemTile extends StatelessWidget {
     );
   }
 
-  Widget _buildShortcut(String shortcut) {
+  Widget _buildShortcut(BuildContext context, String shortcut) {
     final parts = shortcut.split(' then ');
     if (parts.length == 1) return SearchHintBadge(label: parts[0]);
     return Row(
@@ -480,7 +487,7 @@ class SearchItemTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Text('then',
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.25), fontSize: 11)),
+                  color: consoleColors(context).textSubtle, fontSize: 11)),
         ),
         SearchHintBadge(label: parts[1]),
       ],
@@ -496,17 +503,18 @@ class SearchHintBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+        color: colors.badgeFill,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: colors.border),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: Colors.white.withOpacity(0.4),
+          color: colors.textMuted,
           fontSize: 10,
           fontWeight: FontWeight.w500,
         ),

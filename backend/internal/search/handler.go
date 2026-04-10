@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
@@ -31,10 +32,12 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/indexes/{indexId}", h.deleteIndex)
 
 	// Document management
+	r.Post("/indexes/{indexId}/documents", h.createDocument)
 	r.Put("/indexes/{indexId}/documents/{docId}", h.upsertDocument)
 	r.Delete("/indexes/{indexId}/documents/{docId}", h.deleteDocument)
 
 	// Query
+	r.Post("/indexes/{indexId}/search", h.query)
 	r.Post("/indexes/{indexId}/query", h.query)
 	r.Get("/indexes/{indexId}/query", h.queryGET)
 
@@ -55,24 +58,49 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	var body struct {
+		IndexID        string   `json:"indexId"`
 		CollectionID  string   `json:"collectionId"`
 		Name          string   `json:"name"`
 		Fields        []string `json:"fields"`
+		Attributes    []string `json:"attributes"`
 		TypoTolerance bool     `json:"typoTolerance"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name is required")
 		return
 	}
+	if len(body.Fields) == 0 && len(body.Attributes) > 0 {
+		body.Fields = body.Attributes
+	}
 	if len(body.Fields) == 0 {
 		body.Fields = []string{"content"}
 	}
-	idx, err := h.svc.CreateIndex(r.Context(), projectID, body.CollectionID, body.Name, body.Fields, body.TypoTolerance)
+	idx, err := h.svc.CreateIndex(r.Context(), projectID, body.IndexID, body.CollectionID, body.Name, body.Fields, body.TypoTolerance)
 	if err != nil {
 		apperr.Write(w, http.StatusConflict, "search_index_exists", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, idx)
+}
+
+func (h *Handler) createDocument(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	indexID := chi.URLParam(r, "indexId")
+	var body struct {
+		DocumentID string                 `json:"documentId"`
+		Data       map[string]interface{} `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DocumentID == "" || body.Data == nil {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "documentId and data are required")
+		return
+	}
+	content := searchContentFromData(body.Data)
+	doc, err := h.svc.Upsert(r.Context(), indexID, projectID, body.DocumentID, content, body.Data)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, doc)
 }
 
 func (h *Handler) listIndexes(w http.ResponseWriter, r *http.Request) {
@@ -214,4 +242,24 @@ func (h *Handler) deleteSynonym(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func searchContentFromData(data map[string]interface{}) string {
+	if raw, ok := data["content"].(string); ok && strings.TrimSpace(raw) != "" {
+		return raw
+	}
+	if raw, ok := data["text"].(string); ok && strings.TrimSpace(raw) != "" {
+		return raw
+	}
+	parts := make([]string, 0, len(data))
+	for _, value := range data {
+		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, " ")
+	}
+	raw, _ := json.Marshal(data)
+	return string(raw)
 }

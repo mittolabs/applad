@@ -24,5 +24,9 @@ scripts:
     description: Format all Dart/Flutter packages.
 
   build:web:
-    run: melos exec --scope="applad_console" -- flutter build web --release
+    run: melos exec --scope="applad_console" -- flutter build web --release --dart2js-optimization=O2
     description: Build the Flutter Web console.
+
+  build:web:fast:
+    run: melos exec --scope="applad_console" -- flutter build web --release --dart2js-optimization=O1 --no-minify
+    description: Build the Flutter Web console with lower memory usage (larger output).

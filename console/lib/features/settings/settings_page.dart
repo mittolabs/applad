@@ -5,19 +5,13 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
 
 // --- Constants ---------------------------------------------------------------
 
-const _bgColor = Color(0xFF0B0B0F);
-const _cardColor = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _border = Color(0x0DFFFFFF);
-const _fieldFill = Color(0x0AFFFFFF);
-const _fieldBorder = Color(0x1AFFFFFF);
 const _green = Color(0xFF10B981);
 const _red = Color(0xFFEF4444);
 
@@ -83,16 +77,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final routerState = GoRouterState.of(context);
     final projectId = routerState.pathParameters['projectId'];
     if (projectId == null) {
-      return const Center(
+      return Center(
           child: Text('No project selected',
-              style: TextStyle(color: _dimText)));
+              style: TextStyle(color: colors.textSecondary)));
     }
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: colors.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
@@ -102,15 +97,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           children: [
             const SizedBox(height: 32),
             // Title
-            const Text('Settings',
+            Text('Settings',
                 style: TextStyle(
-                    color: Colors.white,
+                color: colors.textPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text('Manage your project configuration',
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.4), fontSize: 14)),
+                color: colors.textSecondary, fontSize: 14)),
             const SizedBox(height: 24),
 
             // Tabs
@@ -416,6 +411,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<void> _deleteProject(String projectId) async {
+    final colors = consoleColors(context);
     final confirmed = await showAppDialog<bool>(
       context: context,
       title: 'Delete project',
@@ -425,12 +421,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         children: [
           Text(
             'This will permanently delete the project and all its data including databases, storage, functions, and deployments.',
-            style: TextStyle(color: Colors.white.withOpacity(0.6)),
+            style: TextStyle(color: colors.textSecondary),
           ),
           const SizedBox(height: 16),
           Text('Type the project ID to confirm:',
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.5), fontSize: 13)),
+                  color: colors.textSecondary, fontSize: 13)),
           const SizedBox(height: 8),
           _DeleteConfirmField(projectId: projectId),
         ],
@@ -463,6 +459,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   // ===========================================================================
 
   Widget _buildApiKeysTab(String projectId) {
+    final colors = consoleColors(context);
     final keysAsync = ref.watch(apiKeysProvider(projectId));
 
     return keysAsync.when(
@@ -477,7 +474,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             Row(
               children: [
                 Text('${keys.length} API key${keys.length == 1 ? '' : 's'}',
-                    style: const TextStyle(color: _dimText, fontSize: 13)),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 13)),
                 const Spacer(),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
@@ -553,12 +550,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<void> _deleteKey(String projectId, String keyId) async {
+    final colors = consoleColors(context);
     final confirmed = await showAppDialog<bool>(
       context: context,
       title: 'Delete API key',
       content: Text(
           'Any applications using this key will lose access immediately.',
-          style: TextStyle(color: Colors.white.withOpacity(0.6))),
+          style: TextStyle(color: colors.textSecondary)),
       actions: [
         const AppDialogCancel(),
         AppDialogAction(
@@ -579,6 +577,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   // ===========================================================================
 
   Widget _buildPlatformsTab(String projectId) {
+    final colors = consoleColors(context);
     final platformsAsync = ref.watch(_platformsProvider(projectId));
 
     return platformsAsync.when(
@@ -606,30 +605,28 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   child: TextField(
                     controller: _platformSearchCtrl,
                     onChanged: (_) => setState(() {}),
-                    style:
-                        const TextStyle(fontSize: 13, color: Colors.white),
+                    style: TextStyle(fontSize: 13, color: colors.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Search platforms...',
-                      hintStyle:
-                          const TextStyle(color: _subtleText, fontSize: 13),
-                      prefixIcon: const Padding(
+                      hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
+                      prefixIcon: Padding(
                         padding: EdgeInsets.only(left: 10, right: 6),
                         child: Icon(Icons.search,
-                            size: 16, color: _subtleText),
+                        size: 16, color: colors.textSubtle),
                       ),
                       prefixIconConstraints:
                           const BoxConstraints(minWidth: 32, minHeight: 0),
                       filled: true,
-                      fillColor: _fieldFill,
+                      fillColor: colors.fieldFill,
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
                           vertical: 10, horizontal: 12),
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: _fieldBorder)),
+                        borderSide: BorderSide(color: colors.fieldBorder)),
                       enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: _fieldBorder)),
+                        borderSide: BorderSide(color: colors.fieldBorder)),
                       focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: const BorderSide(color: _accent)),
@@ -638,7 +635,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ),
                 const SizedBox(width: 12),
                 Text('${platforms.length} platform${platforms.length == 1 ? '' : 's'}',
-                    style: const TextStyle(color: _dimText, fontSize: 13)),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 13)),
                 const Spacer(),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
@@ -680,6 +677,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _showAddPlatformDialog(String projectId) {
+    final colors = consoleColors(context);
     final nameCtrl = TextEditingController();
     final hostnameCtrl = TextEditingController();
     String selectedType = 'web';
@@ -698,7 +696,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               children: [
                 Text('Type',
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
+                    color: colors.textSecondary,
                         fontSize: 12,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 6),
@@ -785,11 +783,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<void> _deletePlatform(String projectId, String platformId) async {
+    final colors = consoleColors(context);
     final confirmed = await showAppDialog<bool>(
       context: context,
       title: 'Remove platform',
       content: Text('This platform will no longer have API access.',
-          style: TextStyle(color: Colors.white.withOpacity(0.6))),
+          style: TextStyle(color: colors.textSecondary)),
       actions: [
         const AppDialogCancel(),
         AppDialogAction(
@@ -812,6 +811,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   // ===========================================================================
 
   Widget _buildWebhooksTab(String projectId) {
+    final colors = consoleColors(context);
     final webhooksAsync = ref.watch(_webhooksProvider(projectId));
 
     return webhooksAsync.when(
@@ -838,30 +838,28 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   child: TextField(
                     controller: _webhookSearchCtrl,
                     onChanged: (_) => setState(() {}),
-                    style:
-                        const TextStyle(fontSize: 13, color: Colors.white),
+                    style: TextStyle(fontSize: 13, color: colors.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Search webhooks...',
-                      hintStyle:
-                          const TextStyle(color: _subtleText, fontSize: 13),
-                      prefixIcon: const Padding(
+                      hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
+                      prefixIcon: Padding(
                         padding: EdgeInsets.only(left: 10, right: 6),
                         child: Icon(Icons.search,
-                            size: 16, color: _subtleText),
+                        size: 16, color: colors.textSubtle),
                       ),
                       prefixIconConstraints:
                           const BoxConstraints(minWidth: 32, minHeight: 0),
                       filled: true,
-                      fillColor: _fieldFill,
+                      fillColor: colors.fieldFill,
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
                           vertical: 10, horizontal: 12),
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: _fieldBorder)),
+                        borderSide: BorderSide(color: colors.fieldBorder)),
                       enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: _fieldBorder)),
+                        borderSide: BorderSide(color: colors.fieldBorder)),
                       focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: const BorderSide(color: _accent)),
@@ -871,7 +869,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 const SizedBox(width: 12),
                 Text(
                     '${webhooks.length} webhook${webhooks.length == 1 ? '' : 's'}',
-                    style: const TextStyle(color: _dimText, fontSize: 13)),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 13)),
                 const Spacer(),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
@@ -913,6 +911,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _showCreateWebhookDialog(String projectId) {
+    final colors = consoleColors(context);
     final nameCtrl = TextEditingController();
     final urlCtrl = TextEditingController();
     final Set<String> selectedEvents = {};
@@ -952,7 +951,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             const SizedBox(height: 16),
             Text('Events',
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
+                color: colors.textSecondary,
                     fontSize: 12,
                     fontWeight: FontWeight.w500)),
             const SizedBox(height: 8),
@@ -964,7 +963,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 return FilterChip(
                   label: Text(e,
                       style: TextStyle(
-                          color: selected ? Colors.white : _dimText,
+                          color: selected ? colors.textPrimary : colors.textSecondary,
                           fontSize: 12)),
                   selected: selected,
                   onSelected: (v) {
@@ -976,13 +975,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       }
                     });
                   },
-                  backgroundColor: _fieldFill,
+                    backgroundColor: colors.fieldFill,
                   selectedColor: _accent.withOpacity(0.3),
                   checkmarkColor: Colors.white,
                   side: BorderSide(
                       color: selected
                           ? _accent
-                          : Colors.white.withOpacity(0.1)),
+                        : colors.fieldBorder),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(6)),
                 );
@@ -1017,11 +1016,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<void> _deleteWebhook(String webhookId) async {
+    final colors = consoleColors(context);
     final confirmed = await showAppDialog<bool>(
       context: context,
       title: 'Delete webhook',
       content: Text('This webhook will stop receiving notifications.',
-          style: TextStyle(color: Colors.white.withOpacity(0.6))),
+          style: TextStyle(color: colors.textSecondary)),
       actions: [
         const AppDialogCancel(),
         AppDialogAction(
@@ -1063,16 +1063,17 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
             color: danger
                 ? _red.withOpacity(0.3)
-                : Colors.white.withOpacity(0.06)),
+                : colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1085,14 +1086,14 @@ class _SettingsCard extends StatelessWidget {
                   children: [
                     Text(title,
                         style: TextStyle(
-                            color: danger ? _red : Colors.white,
+                        color: danger ? _red : colors.textPrimary,
                             fontSize: 15,
                             fontWeight: FontWeight.w600)),
                     if (subtitle != null) ...[
                       const SizedBox(height: 4),
                       Text(subtitle!,
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.4),
+                            color: colors.textSecondary,
                               fontSize: 13)),
                     ],
                   ],
@@ -1102,8 +1103,7 @@ class _SettingsCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Container(
-              height: 1, color: Colors.white.withOpacity(0.06)),
+            Container(height: 1, color: colors.border),
           const SizedBox(height: 16),
           ...children,
         ],
@@ -1133,6 +1133,7 @@ class _SettingsField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1142,7 +1143,7 @@ class _SettingsField extends StatelessWidget {
             padding: const EdgeInsets.only(top: 10),
             child: Text(label,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
+                color: colors.textSecondary,
                     fontSize: 13,
                     fontWeight: FontWeight.w500)),
           ),
@@ -1154,9 +1155,9 @@ class _SettingsField extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: _fieldFill,
+                    color: colors.fieldFill,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _fieldBorder),
+                    border: Border.all(color: colors.fieldBorder),
                   ),
                   child: Row(
                     children: [
@@ -1164,7 +1165,7 @@ class _SettingsField extends StatelessWidget {
                         child: SelectableText(
                           value ?? controller?.text ?? '',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.6),
+                            color: colors.textSecondary,
                             fontSize: 13,
                             fontFamily: 'monospace',
                           ),
@@ -1181,7 +1182,7 @@ class _SettingsField extends StatelessWidget {
                             );
                           },
                           child: Icon(LucideIcons.copy,
-                              size: 14, color: Colors.white.withOpacity(0.4)),
+                              size: 14, color: colors.textSecondary),
                         ),
                     ],
                   ),
@@ -1189,24 +1190,24 @@ class _SettingsField extends StatelessWidget {
               : TextField(
                   controller: controller,
                   onChanged: onChanged,
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: 13),
+                  style: TextStyle(
+                    color: colors.textPrimary, fontSize: 13),
                   decoration: InputDecoration(
                     hintText: hint,
                     hintStyle: TextStyle(
-                        color: Colors.white.withOpacity(0.22),
+                    color: colors.textSubtle,
                         fontSize: 13),
                     filled: true,
-                    fillColor: _fieldFill,
+                  fillColor: colors.fieldFill,
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 10),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: _fieldBorder)),
+                    borderSide: BorderSide(color: colors.fieldBorder)),
                     enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: _fieldBorder)),
+                    borderSide: BorderSide(color: colors.fieldBorder)),
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: const BorderSide(color: _accent)),
@@ -1235,24 +1236,25 @@ class _ServiceToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: _dimText),
+          Icon(icon, size: 16, color: colors.textSecondary),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(
-                        color: Colors.white,
+                  style: TextStyle(
+                    color: colors.textPrimary,
                         fontSize: 13,
                         fontWeight: FontWeight.w500)),
                 Text(description,
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.35),
+                    color: colors.textSecondary,
                         fontSize: 12)),
               ],
             ),
@@ -1283,6 +1285,7 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final name = widget.keyData['name'] as String? ?? 'Unnamed';
     final id = widget.keyData['\$id'] as String? ?? '';
     final secret = widget.keyData['secret'] as String?;
@@ -1292,9 +1295,9 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1305,19 +1308,19 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(name,
-                    style: const TextStyle(
-                        color: Colors.white,
+                  style: TextStyle(
+                    color: colors.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w500)),
               ),
               if (createdAt != null)
                 Text(createdAt,
-                    style: const TextStyle(color: _subtleText, fontSize: 11)),
+                  style: TextStyle(color: colors.textSubtle, fontSize: 11)),
               const SizedBox(width: 12),
               GestureDetector(
                 onTap: widget.onDelete,
                 child: Icon(LucideIcons.trash2,
-                    size: 14, color: Colors.white.withOpacity(0.3)),
+                  size: 14, color: colors.textSubtle),
               ),
             ],
           ),
@@ -1327,9 +1330,9 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.03),
+                color: colors.fill,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.white.withOpacity(0.06)),
+                border: Border.all(color: colors.border),
               ),
               child: Row(
                 children: [
@@ -1339,7 +1342,7 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
                       style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 12,
-                        color: Colors.white.withOpacity(0.5),
+                        color: colors.textSecondary,
                       ),
                     ),
                   ),
@@ -1348,7 +1351,7 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
                     child: Icon(
                       _showSecret ? LucideIcons.eyeOff : LucideIcons.eye,
                       size: 14,
-                      color: Colors.white.withOpacity(0.3),
+                      color: colors.textSubtle,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1360,7 +1363,7 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
                       );
                     },
                     child: Icon(LucideIcons.copy,
-                        size: 14, color: Colors.white.withOpacity(0.3)),
+                        size: 14, color: colors.textSubtle),
                   ),
                 ],
               ),
@@ -1368,7 +1371,7 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
           ],
           const SizedBox(height: 8),
           Text('ID: $id',
-              style: const TextStyle(color: _subtleText, fontSize: 11)),
+              style: TextStyle(color: colors.textSubtle, fontSize: 11)),
         ],
       ),
     );
@@ -1416,6 +1419,7 @@ class _PlatformCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final name = platform['name'] as String? ?? 'Unnamed';
     final type = platform['type'] as String? ?? '';
     final hostname = platform['hostname'] as String? ?? '';
@@ -1424,9 +1428,9 @@ class _PlatformCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
@@ -1445,8 +1449,8 @@ class _PlatformCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(name,
-                    style: const TextStyle(
-                        color: Colors.white,
+                  style: TextStyle(
+                    color: colors.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 2),
@@ -1468,8 +1472,8 @@ class _PlatformCard extends StatelessWidget {
                     if (hostname.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       Text(hostname,
-                          style: const TextStyle(
-                              color: _dimText,
+                          style: TextStyle(
+                            color: colors.textSecondary,
                               fontSize: 12,
                               fontFamily: 'monospace')),
                     ],
@@ -1481,7 +1485,7 @@ class _PlatformCard extends StatelessWidget {
           GestureDetector(
             onTap: onDelete,
             child: Icon(LucideIcons.trash2,
-                size: 14, color: Colors.white.withOpacity(0.3)),
+                size: 14, color: colors.textSubtle),
           ),
         ],
       ),
@@ -1498,6 +1502,7 @@ class _WebhookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final name = webhook['name'] as String? ?? 'Unnamed';
     final url = webhook['url'] as String? ?? '';
     final enabled = webhook['enabled'] as bool? ?? true;
@@ -1507,9 +1512,9 @@ class _WebhookCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1534,8 +1539,8 @@ class _WebhookCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(name,
-                            style: const TextStyle(
-                                color: Colors.white,
+                          style: TextStyle(
+                            color: colors.textPrimary,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500)),
                         const SizedBox(width: 8),
@@ -1543,14 +1548,14 @@ class _WebhookCard extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: (enabled ? _green : _subtleText)
+                            color: (enabled ? _green : colors.textSubtle)
                                 .withOpacity(0.15),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             enabled ? 'Active' : 'Disabled',
                             style: TextStyle(
-                                color: enabled ? _green : _subtleText,
+                              color: enabled ? _green : colors.textSubtle,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500),
                           ),
@@ -1559,8 +1564,8 @@ class _WebhookCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(url,
-                        style: const TextStyle(
-                            color: _dimText,
+                      style: TextStyle(
+                        color: colors.textSecondary,
                             fontSize: 12,
                             fontFamily: 'monospace'),
                         overflow: TextOverflow.ellipsis),
@@ -1570,7 +1575,7 @@ class _WebhookCard extends StatelessWidget {
               GestureDetector(
                 onTap: onDelete,
                 child: Icon(LucideIcons.trash2,
-                    size: 14, color: Colors.white.withOpacity(0.3)),
+                  size: 14, color: colors.textSubtle),
               ),
             ],
           ),
@@ -1584,14 +1589,13 @@ class _WebhookCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.04),
+                          color: colors.fill,
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                              color: Colors.white.withOpacity(0.08)),
+                          border: Border.all(color: colors.border),
                         ),
                         child: Text(e,
-                            style: const TextStyle(
-                                color: _dimText,
+                            style: TextStyle(
+                                color: colors.textSecondary,
                                 fontSize: 11,
                                 fontFamily: 'monospace')),
                       ))
@@ -1621,6 +1625,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 60),
@@ -1630,20 +1635,20 @@ class _EmptyState extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: colors.fill,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, size: 22, color: _subtleText),
+            child: Icon(icon, size: 22, color: colors.textSubtle),
           ),
           const SizedBox(height: 16),
           Text(title,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: colors.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
           Text(subtitle,
-              style: const TextStyle(color: _dimText, fontSize: 13),
+              style: TextStyle(color: colors.textSecondary, fontSize: 13),
               textAlign: TextAlign.center),
           const SizedBox(height: 16),
           FilledButton(
@@ -1679,26 +1684,26 @@ class _PlatformTypeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? _accent.withOpacity(0.15) : _fieldFill,
+          color: selected ? _accent.withOpacity(0.15) : colors.fieldFill,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-              color: selected ? _accent : Colors.white.withOpacity(0.1)),
+          border: Border.all(color: selected ? _accent : colors.fieldBorder),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon,
                 size: 14,
-                color: selected ? _accent : _dimText),
+              color: selected ? _accent : colors.textSecondary),
             const SizedBox(width: 6),
             Text(label,
                 style: TextStyle(
-                    color: selected ? Colors.white : _dimText,
+                color: selected ? colors.textPrimary : colors.textSecondary,
                     fontSize: 12)),
           ],
         ),
@@ -1726,24 +1731,24 @@ class _DeleteConfirmFieldState extends State<_DeleteConfirmField> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return TextField(
       controller: _ctrl,
-      style: const TextStyle(color: Colors.white, fontSize: 13),
+      style: TextStyle(color: colors.textPrimary, fontSize: 13),
       decoration: InputDecoration(
         hintText: widget.projectId,
-        hintStyle:
-            TextStyle(color: Colors.white.withOpacity(0.22), fontSize: 13),
+      hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
         filled: true,
-        fillColor: _fieldFill,
+      fillColor: colors.fieldFill,
         isDense: true,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _fieldBorder)),
+        borderSide: BorderSide(color: colors.fieldBorder)),
         enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _fieldBorder)),
+        borderSide: BorderSide(color: colors.fieldBorder)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
             borderSide: const BorderSide(color: _red)),

@@ -66,7 +66,7 @@ func TestAssignRegion_ClearsPrimary(t *testing.T) {
 	svc := NewService(database)
 
 	// Expects primary clear
-	mock.ExpectExec("UPDATE project_regions SET primary_region=0").
+	mock.ExpectExec("UPDATE project_regions SET primary_region=FALSE").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	// Expects upsert
 	mock.ExpectExec("INSERT INTO project_regions").
@@ -123,8 +123,40 @@ func TestRemoveRegion(t *testing.T) {
 	}
 }
 
-func TestBoolInt(t *testing.T) {
-	if boolInt(true) != 1 || boolInt(false) != 0 {
-		t.Error("boolInt mismatch")
+func TestGetPrimaryRegion(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT pr.id, pr.project_id, pr.region_id").
+		WithArgs("proj1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id", "region_id", "primary_region", "gdpr", "hipaa", "created_at", "r_id", "r_name", "r_code", "r_location", "r_endpoint", "r_latitude", "r_longitude", "r_status", "r_created_at"}).
+			AddRow("pr1", "proj1", "r1", 1, 1, 0, now, "r1", "US East", "us-east-1", "Virginia", "", 38.9, -77.0, "active", now))
+
+	pr, err := svc.GetPrimaryRegion(context.Background(), "proj1")
+	if err != nil {
+		t.Fatalf("GetPrimaryRegion: %v", err)
+	}
+	if !pr.PrimaryRegion || pr.Region.Code != "us-east-1" {
+		t.Errorf("unexpected primary region: %+v", pr)
+	}
+}
+
+func TestRegionHealth(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .* FROM regions WHERE id = .* OR code = .*").
+		WithArgs("r1", "r1").
+		WillReturnRows(sqlmock.NewRows(regionCols).
+			AddRow("r1", "US East", "us-east-1", "Virginia", "", 38.9, -77.0, "active", now))
+
+	health, err := svc.RegionHealth(context.Background(), "r1")
+	if err != nil {
+		t.Fatalf("RegionHealth: %v", err)
+	}
+	if health["healthy"] != true {
+		t.Errorf("expected healthy region, got %+v", health)
 	}
 }

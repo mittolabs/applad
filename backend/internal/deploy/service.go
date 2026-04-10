@@ -1176,20 +1176,20 @@ func (s *Service) GetTargetDetailedStats(ctx context.Context, targetID, projectI
 	case "7d":
 		since = now.AddDate(0, 0, -7)
 		granularity = "day"
-		dateFmt = "%Y-%m-%d"
+		dateFmt = "YYYY-MM-DD"
 	case "30d":
 		since = now.AddDate(0, 0, -30)
 		granularity = "day"
-		dateFmt = "%Y-%m-%d"
+		dateFmt = "YYYY-MM-DD"
 	default: // "24h"
 		since = now.Add(-24 * time.Hour)
 		granularity = "hour"
-		dateFmt = "%Y-%m-%d %H:00:00"
+		dateFmt = `YYYY-MM-DD HH24":00:00"`
 		timeRange = "24h"
 	}
 
 	query := fmt.Sprintf(
-		`SELECT DATE_FORMAT(created_at, '%s') AS bucket,
+		`SELECT to_char(created_at AT TIME ZONE 'UTC', '%s') AS bucket,
 		        COUNT(*) AS total_count,
 		        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS error_count,
 		        COALESCE(SUM(CASE WHEN duration_ms > 0 AND duration_ms > 1000 THEN 1 ELSE 0 END), 0) AS cold_start_count,

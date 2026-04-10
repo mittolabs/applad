@@ -162,9 +162,9 @@ func (s *Service) ListMessages(ctx context.Context, projectID string, limit, off
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, type, subject, body, recipients, status,
-		        DATE_FORMAT(scheduled_at,'%Y-%m-%dT%TZ'),
-		        DATE_FORMAT(delivered_at,'%Y-%m-%dT%TZ'),
-		        DATE_FORMAT(created_at,'%Y-%m-%dT%TZ')
+		        to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        to_char(delivered_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM messages WHERE `+where+` ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 		args...)
 	if err != nil {
@@ -199,9 +199,9 @@ func (s *Service) GetMessage(ctx context.Context, projectID, id string) (*Messag
 	var recipJSON string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, type, subject, body, recipients, status,
-		        DATE_FORMAT(scheduled_at,'%Y-%m-%dT%TZ'),
-		        DATE_FORMAT(delivered_at,'%Y-%m-%dT%TZ'),
-		        DATE_FORMAT(created_at,'%Y-%m-%dT%TZ')
+		        to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        to_char(delivered_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM messages WHERE id=? AND project_id=?`, id, projectID).
 		Scan(&m.ID, &m.ProjectID, &m.Type, &m.Subject, &m.Body,
 			&recipJSON, &m.Status, &m.ScheduledAt, &m.DeliveredAt, &m.CreatedAt)
@@ -475,7 +475,7 @@ func (s *Service) CreateTopic(ctx context.Context, projectID, name string) (*Top
 func (s *Service) ListTopics(ctx context.Context, projectID string) ([]*Topic, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT t.id, t.name,
-		        GROUP_CONCAT(ts.target ORDER BY ts.id SEPARATOR ',') AS subs
+		        string_agg(ts.target, ',' ORDER BY ts.id) AS subs
 		 FROM msg_topics t
 		 LEFT JOIN msg_topic_subscribers ts ON ts.topic_id = t.id
 		 WHERE t.project_id = ?
@@ -511,7 +511,7 @@ func (s *Service) GetTopic(ctx context.Context, projectID, topicID string) (*Top
 	var subsStr *string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT t.id, t.name,
-		        GROUP_CONCAT(ts.target ORDER BY ts.id SEPARATOR ',') AS subs
+		        string_agg(ts.target, ',' ORDER BY ts.id) AS subs
 		 FROM msg_topics t
 		 LEFT JOIN msg_topic_subscribers ts ON ts.topic_id = t.id
 		 WHERE t.id=? AND t.project_id=?
@@ -538,7 +538,7 @@ func (s *Service) AddSubscriber(ctx context.Context, projectID, topicID, target 
 		return nil, fmt.Errorf("messaging: topic not found")
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT IGNORE INTO msg_topic_subscribers (topic_id, target) VALUES (?,?)`,
+		`INSERT INTO msg_topic_subscribers (topic_id, target) VALUES (?,?) ON CONFLICT DO NOTHING`,
 		topicID, target)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: add subscriber: %w", err)

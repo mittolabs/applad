@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 //go:embed migrations/*.sql
@@ -19,8 +20,8 @@ func (db *DB) Migrate() error {
 	// below never hits a "table doesn't exist" error on a fresh database.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    VARCHAR(32) NOT NULL PRIMARY KEY,
-		applied_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`); err != nil {
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`); err != nil {
 		return fmt.Errorf("migrate: bootstrap: %w", err)
 	}
 
@@ -33,7 +34,7 @@ func (db *DB) Migrate() error {
 	for _, f := range files {
 		version := filepath.Base(f)
 		var count int
-		_ = db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = ?", version).Scan(&count)
+		_ = db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = $1", version).Scan(&count)
 		if count > 0 {
 			continue
 		}
@@ -43,10 +44,13 @@ func (db *DB) Migrate() error {
 		}
 		for _, stmt := range splitStatements(string(content)) {
 			if _, err := db.Exec(stmt); err != nil {
+				if shouldIgnoreMigrationError(stmt, err) {
+					continue
+				}
 				return fmt.Errorf("migrate: exec %s: %w\nSQL: %s", version, err, stmt)
 			}
 		}
-		if _, err := db.Exec("INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
+		if _, err := db.Exec("INSERT INTO schema_migrations (version) VALUES ($1)", version); err != nil {
 			return fmt.Errorf("migrate: record %s: %w", version, err)
 		}
 		log.Printf("migrate: applied %s", version)
@@ -55,12 +59,131 @@ func (db *DB) Migrate() error {
 }
 
 func splitStatements(sql string) []string {
-	var stmts []string
-	for _, s := range strings.Split(sql, ";") {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			stmts = append(stmts, s)
+	var (
+		stmts         []string
+		current       strings.Builder
+		inSingleQuote bool
+		inDoubleQuote bool
+		lineComment   bool
+		blockComment  bool
+		dollarTag     string
+	)
+
+	flush := func() {
+		stmt := strings.TrimSpace(current.String())
+		if stmt != "" {
+			stmts = append(stmts, stmt)
+		}
+		current.Reset()
+	}
+
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+
+		if lineComment {
+			current.WriteByte(ch)
+			if ch == '\n' {
+				lineComment = false
+			}
+			continue
+		}
+
+		if blockComment {
+			current.WriteByte(ch)
+			if ch == '*' && i+1 < len(sql) && sql[i+1] == '/' {
+				current.WriteByte(sql[i+1])
+				i++
+				blockComment = false
+			}
+			continue
+		}
+
+		if dollarTag != "" {
+			current.WriteByte(ch)
+			if ch == '$' && strings.HasPrefix(sql[i:], dollarTag) {
+				for j := 1; j < len(dollarTag); j++ {
+					current.WriteByte(sql[i+j])
+				}
+				i += len(dollarTag) - 1
+				dollarTag = ""
+			}
+			continue
+		}
+
+		if !inSingleQuote && !inDoubleQuote {
+			if ch == '-' && i+1 < len(sql) && sql[i+1] == '-' {
+				current.WriteString("--")
+				i++
+				lineComment = true
+				continue
+			}
+			if ch == '/' && i+1 < len(sql) && sql[i+1] == '*' {
+				current.WriteString("/*")
+				i++
+				blockComment = true
+				continue
+			}
+			if ch == '$' {
+				if tag, ok := readDollarTag(sql[i:]); ok {
+					current.WriteString(tag)
+					i += len(tag) - 1
+					dollarTag = tag
+					continue
+				}
+			}
+		}
+
+		current.WriteByte(ch)
+
+		if ch == '\'' && !inDoubleQuote {
+			if inSingleQuote && i+1 < len(sql) && sql[i+1] == '\'' {
+				current.WriteByte(sql[i+1])
+				i++
+				continue
+			}
+			inSingleQuote = !inSingleQuote
+			continue
+		}
+
+		if ch == '"' && !inSingleQuote {
+			if inDoubleQuote && i+1 < len(sql) && sql[i+1] == '"' {
+				current.WriteByte(sql[i+1])
+				i++
+				continue
+			}
+			inDoubleQuote = !inDoubleQuote
+			continue
+		}
+
+		if ch == ';' && !inSingleQuote && !inDoubleQuote {
+			flush()
 		}
 	}
+
+	flush()
 	return stmts
+}
+
+func readDollarTag(sql string) (string, bool) {
+	if len(sql) < 2 || sql[0] != '$' {
+		return "", false
+	}
+	for i := 1; i < len(sql); i++ {
+		if sql[i] == '$' {
+			return sql[:i+1], true
+		}
+		if !unicode.IsLetter(rune(sql[i])) && !unicode.IsDigit(rune(sql[i])) && sql[i] != '_' {
+			return "", false
+		}
+	}
+	return "", false
+}
+
+func shouldIgnoreMigrationError(stmt string, err error) bool {
+	message := strings.ToLower(err.Error())
+	statement := strings.ToLower(strings.TrimSpace(stmt))
+	if strings.HasPrefix(statement, "create trigger set_updated_at") && strings.Contains(message, "already exists") {
+		return true
+	}
+	return false
 }

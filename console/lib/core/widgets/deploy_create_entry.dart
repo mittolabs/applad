@@ -2,16 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../api/client.dart';
+import '../theme/console_colors.dart';
 import 'app_dialog.dart';
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _border = Color(0x14FFFFFF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _fieldFill = Color(0x0AFFFFFF);
-const _fieldBorder = Color(0x1AFFFFFF);
 
 /// Result of the 3-option entry point dialog.
 enum CreateEntryChoice { template, repository, upload }
@@ -89,6 +83,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Center(
       child: Material(
         color: Colors.transparent,
@@ -96,11 +91,11 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
           width: _view == 'entry' ? 540 : 640,
           constraints: const BoxConstraints(maxHeight: 600),
           decoration: BoxDecoration(
-            color: _surface,
+            color: colors.surface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: colors.border),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 32, offset: const Offset(0, 8)),
+              BoxShadow(color: colors.shadow, blurRadius: 32, offset: const Offset(0, 8)),
             ],
           ),
           child: Column(
@@ -126,7 +121,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
                           : _view == 'templates' ? 'Clone a template'
                           : _view == 'repo' ? 'Connect a repository'
                           : 'Manual upload',
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(color: colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -134,20 +129,20 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
                           : _view == 'templates' ? 'Choose a template to get started quickly'
                           : _view == 'repo' ? 'Import from a Git repository'
                           : 'Upload your project files directly',
-                        style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 13),
+                        style: TextStyle(color: colors.textMuted, fontSize: 13),
                       ),
                     ]),
                   ),
                   GestureDetector(
                     onTap: () => Navigator.of(context).pop(),
-                    child: Icon(LucideIcons.x, size: 16, color: Colors.white.withOpacity(0.3)),
+                    child: Icon(LucideIcons.x, size: 16, color: colors.textMuted),
                   ),
                 ]),
               ),
               const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(height: 1, color: Colors.white.withOpacity(0.06)),
+                child: Container(height: 1, color: colors.border),
               ),
               const SizedBox(height: 16),
               // Content
@@ -208,6 +203,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
     required String description,
     required VoidCallback onTap,
   }) {
+    final colors = consoleColors(context);
     return GestureDetector(
       onTap: onTap,
       child: MouseRegion(
@@ -216,9 +212,9 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: _bg,
+            color: colors.background,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: _border),
+            border: Border.all(color: colors.border),
           ),
           child: Row(children: [
             Container(
@@ -229,12 +225,12 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
             const SizedBox(width: 14),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+                Text(title, style: TextStyle(color: colors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
                 const SizedBox(height: 3),
-                Text(description, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
+                Text(description, style: TextStyle(color: colors.textMuted, fontSize: 12)),
               ]),
             ),
-            Icon(LucideIcons.chevronRight, size: 16, color: Colors.white.withOpacity(0.2)),
+            Icon(LucideIcons.chevronRight, size: 16, color: colors.textSubtle),
           ]),
         ),
       ),
@@ -260,6 +256,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
   }
 
   Widget _templatesView() {
+    final colors = consoleColors(context);
     if (_loadingTemplates) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),
@@ -292,17 +289,17 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
       // Search bar
       TextField(
         controller: _templateSearchCtrl,
-        style: const TextStyle(color: Colors.white, fontSize: 13),
+        style: TextStyle(color: colors.textPrimary, fontSize: 13),
         onChanged: (v) => setState(() => _templateSearch = v),
         decoration: InputDecoration(
           hintText: 'Search templates...',
-          hintStyle: TextStyle(color: Colors.white.withOpacity(0.22), fontSize: 13),
-          prefixIcon: Icon(LucideIcons.search, size: 16, color: Colors.white.withOpacity(0.3)),
+          hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
+          prefixIcon: Icon(LucideIcons.search, size: 16, color: colors.textMuted),
           filled: true,
-          fillColor: _fieldFill,
+          fillColor: colors.fieldFill,
           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _fieldBorder)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _fieldBorder)),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.fieldBorder)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.fieldBorder)),
           focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _accent)),
         ),
       ),
@@ -328,7 +325,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
           padding: const EdgeInsets.symmetric(vertical: 32),
           child: Text(
             _templates.isEmpty ? 'No templates available' : 'No templates match your search',
-            style: const TextStyle(color: _dimText, fontSize: 13),
+            style: TextStyle(color: colors.textSecondary, fontSize: 13),
           ),
         )
       else
@@ -341,6 +338,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
   }
 
   Widget _filterChip(String label, bool active, VoidCallback onTap) {
+    final colors = consoleColors(context);
     return GestureDetector(
       onTap: onTap,
       child: MouseRegion(
@@ -348,17 +346,18 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: active ? _accent.withOpacity(0.15) : _bg,
+            color: active ? _accent.withOpacity(0.15) : colors.background,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: active ? _accent.withOpacity(0.4) : _border),
+            border: Border.all(color: active ? _accent.withOpacity(0.4) : colors.border),
           ),
-          child: Text(label, style: TextStyle(color: active ? _accent : _dimText, fontSize: 12, fontWeight: active ? FontWeight.w500 : FontWeight.w400)),
+          child: Text(label, style: TextStyle(color: active ? _accent : colors.textSecondary, fontSize: 12, fontWeight: active ? FontWeight.w500 : FontWeight.w400)),
         ),
       ),
     );
   }
 
   Widget _templateCard(Map<String, dynamic> t) {
+    final colors = consoleColors(context);
     return GestureDetector(
       onTap: () {
         Navigator.of(context).pop(
@@ -371,9 +370,9 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
           width: 185,
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: _bg,
+            color: colors.background,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: _border),
+            border: Border.all(color: colors.border),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Container(
@@ -382,13 +381,13 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
               child: Icon(LucideIcons.layoutTemplate, size: 18, color: _accent),
             ),
             const SizedBox(height: 10),
-            Text(t['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+            Text(t['name'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
             const SizedBox(height: 4),
             Text(
               t['description'] ?? '',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 11),
+              style: TextStyle(color: colors.textMuted, fontSize: 11),
             ),
             if (t['framework'] != null) ...[
               const SizedBox(height: 8),
@@ -444,6 +443,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
   }
 
   Widget _repoView() {
+    final colors = consoleColors(context);
     if (_loadingConnections) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),
@@ -460,9 +460,9 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
           child: const Icon(LucideIcons.gitBranch, size: 28, color: _accent),
         ),
         const SizedBox(height: 16),
-        const Text('No Git connections', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+        Text('No Git connections', style: TextStyle(color: colors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600)),
         const SizedBox(height: 6),
-        Text('Connect your GitHub account to import repositories', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+        Text('Connect your GitHub account to import repositories', style: TextStyle(color: colors.textMuted, fontSize: 13)),
         const SizedBox(height: 20),
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: _accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
@@ -482,24 +482,24 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
-          color: _fieldFill,
+          color: colors.fieldFill,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _fieldBorder),
+          border: Border.all(color: colors.fieldBorder),
         ),
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             isExpanded: true,
-            dropdownColor: _surface,
+            dropdownColor: colors.popupSurface,
             value: _selectedConnectionId,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
-            icon: Icon(LucideIcons.chevronDown, size: 14, color: Colors.white.withOpacity(0.3)),
+            style: TextStyle(color: colors.textPrimary, fontSize: 13),
+            icon: Icon(LucideIcons.chevronDown, size: 14, color: colors.textMuted),
             items: _connections.map((c) {
               return DropdownMenuItem<String>(
                 value: c['\$id'] as String,
                 child: Row(children: [
-                  const Icon(LucideIcons.github, size: 14, color: _dimText),
+                  Icon(LucideIcons.github, size: 14, color: colors.textSecondary),
                   const SizedBox(width: 8),
-                  Text(c['name'] ?? c['login'] ?? c['\$id'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                  Text(c['name'] ?? c['login'] ?? c['\$id'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 13)),
                 ]),
               );
             }).toList(),
@@ -517,17 +517,17 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
       // Search repos
       TextField(
         controller: _repoSearchCtrl,
-        style: const TextStyle(color: Colors.white, fontSize: 13),
+        style: TextStyle(color: colors.textPrimary, fontSize: 13),
         onChanged: (v) => setState(() => _repoSearch = v),
         decoration: InputDecoration(
           hintText: 'Search repositories...',
-          hintStyle: TextStyle(color: Colors.white.withOpacity(0.22), fontSize: 13),
-          prefixIcon: Icon(LucideIcons.search, size: 16, color: Colors.white.withOpacity(0.3)),
+          hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
+          prefixIcon: Icon(LucideIcons.search, size: 16, color: colors.textMuted),
           filled: true,
-          fillColor: _fieldFill,
+          fillColor: colors.fieldFill,
           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _fieldBorder)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _fieldBorder)),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.fieldBorder)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.fieldBorder)),
           focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _accent)),
         ),
       ),
@@ -548,7 +548,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: Text(
               _repos.isEmpty ? 'No repositories found' : 'No repositories match your search',
-              style: const TextStyle(color: _dimText, fontSize: 13),
+              style: TextStyle(color: colors.textSecondary, fontSize: 13),
             ),
           ),
       ],
@@ -566,6 +566,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
   }
 
   Widget _repoCard(Map<String, dynamic> repo) {
+    final colors = consoleColors(context);
     return GestureDetector(
       onTap: () {
         Navigator.of(context).pop(
@@ -578,19 +579,19 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: _bg,
+            color: colors.background,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: _border),
+            border: Border.all(color: colors.border),
           ),
           child: Row(children: [
             const Icon(LucideIcons.gitBranch, size: 16, color: _accent),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(repo['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+                Text(repo['name'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
                 if (repo['description'] != null && (repo['description'] as String).isNotEmpty)
                   Text(repo['description'], maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 11)),
+                    style: TextStyle(color: colors.textMuted, fontSize: 11)),
               ]),
             ),
             Container(
@@ -607,27 +608,28 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
   // ── Upload view ─────────────────────────────────────────────────────────────
 
   Widget _uploadView() {
+    final colors = consoleColors(context);
     return Column(mainAxisSize: MainAxisSize.min, children: [
       const SizedBox(height: 8),
       Container(
         width: double.infinity,
         height: 160,
         decoration: BoxDecoration(
-          color: _bg,
+          color: colors.background,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _border, style: BorderStyle.solid),
+          border: Border.all(color: colors.border, style: BorderStyle.solid),
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(LucideIcons.uploadCloud, size: 36, color: Colors.white.withOpacity(0.25)),
+          Icon(LucideIcons.uploadCloud, size: 36, color: colors.textSubtle),
           const SizedBox(height: 12),
           Text('Drag & drop your project files\nor click to browse',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+            style: TextStyle(color: colors.textMuted, fontSize: 13)),
           const SizedBox(height: 14),
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white70,
-              side: BorderSide(color: Colors.white.withOpacity(0.12)),
+              foregroundColor: colors.textSecondary,
+              side: BorderSide(color: colors.border),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             ),
             icon: const Icon(LucideIcons.folderOpen, size: 14),

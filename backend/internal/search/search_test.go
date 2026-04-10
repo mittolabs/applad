@@ -28,14 +28,14 @@ func TestCreateIndex_Inserts(t *testing.T) {
 			nil, // collection_id
 			"products",
 			sqlmock.AnyArg(), // fields JSON
-			1,                // typo_tolerance
+			true,             // typo_tolerance (bool in PostgreSQL)
 			"ready",
 			sqlmock.AnyArg(), // created_at
 			sqlmock.AnyArg(), // updated_at
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	idx, err := svc.CreateIndex(context.Background(), "proj1", "", "products", []string{"name", "description"}, true)
+	idx, err := svc.CreateIndex(context.Background(), "proj1", "", "", "products", []string{"name", "description"}, true)
 	if err != nil {
 		t.Fatalf("CreateIndex: %v", err)
 	}
@@ -47,6 +47,22 @@ func TestCreateIndex_Inserts(t *testing.T) {
 	}
 	if idx.Status != "ready" {
 		t.Errorf("status = %s", idx.Status)
+	}
+}
+
+func TestCreateIndex_UsesProvidedID(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	mock.ExpectExec("INSERT INTO search_indexes").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	idx, err := svc.CreateIndex(context.Background(), "proj1", "idx_custom", "", "products", []string{"content"}, false)
+	if err != nil {
+		t.Fatalf("CreateIndex: %v", err)
+	}
+	if idx.ID != "idx_custom" {
+		t.Errorf("id = %s, want idx_custom", idx.ID)
 	}
 }
 
@@ -120,11 +136,3 @@ func TestDeleteDocument(t *testing.T) {
 	}
 }
 
-func TestBoolInt(t *testing.T) {
-	if boolInt(true) != 1 {
-		t.Error("boolInt(true) should be 1")
-	}
-	if boolInt(false) != 0 {
-		t.Error("boolInt(false) should be 0")
-	}
-}

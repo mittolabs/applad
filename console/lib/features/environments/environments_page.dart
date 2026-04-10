@@ -3,17 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/environment_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
 
 // --- Local constants ---------------------------------------------------------
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF6C47FF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
-const _fieldFill = Color(0x0AFFFFFF);
 const _green = Color(0xFF10B981);
 const _amber = Color(0xFFF59E0B);
 const _purple = Color(0xFF8B5CF6);
@@ -30,11 +26,12 @@ class EnvironmentsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final envsAsync = ref.watch(environmentsProvider);
     final selectedId = ref.watch(_selectedEnvProvider);
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: colors.background,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -46,7 +43,7 @@ class EnvironmentsPage extends ConsumerWidget {
                     style: Theme.of(context)
                         .textTheme
                         .headlineSmall
-                        ?.copyWith(color: Colors.white)),
+                    ?.copyWith(color: colors.textPrimary)),
                 const Spacer(),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
@@ -65,7 +62,7 @@ class EnvironmentsPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Container(height: 1, color: Colors.white.withOpacity(0.06)),
+          Container(height: 1, color: colors.border),
           Expanded(
             child: Row(
               children: [
@@ -83,7 +80,7 @@ class EnvironmentsPage extends ConsumerWidget {
                   ),
                 ),
                 Container(
-                    width: 1, color: Colors.white.withOpacity(0.06)),
+                  width: 1, color: colors.border),
                 // Right: detail view
                 Expanded(
                   child: selectedId != null
@@ -150,15 +147,16 @@ class EnvironmentsPage extends ConsumerWidget {
 
   Future<void> _deleteEnv(
       BuildContext context, WidgetRef ref, String id) async {
+    final colors = consoleColors(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: _surface,
-        title: const Text('Delete environment',
-            style: TextStyle(color: Colors.white)),
-        content: const Text(
+        backgroundColor: colors.surface,
+        title: Text('Delete environment',
+          style: TextStyle(color: colors.textPrimary)),
+        content: Text(
             'This will permanently remove the environment and its variables.',
-            style: TextStyle(color: _dimText)),
+          style: TextStyle(color: colors.textSecondary)),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -196,18 +194,19 @@ class _EnvList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return envsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(
           child: Text('Error: $e',
-              style: const TextStyle(color: _dimText))),
+              style: TextStyle(color: colors.textSecondary))),
       data: (envs) {
         if (envs.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text('No environments yet',
-                  style: const TextStyle(color: _dimText, fontSize: 13),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 13),
                   textAlign: TextAlign.center),
             ),
           );
@@ -239,18 +238,18 @@ class _EnvList extends StatelessWidget {
               ),
               title: Text(name,
                   style: TextStyle(
-                      color: selected ? Colors.white : Colors.white70,
+                    color: selected ? colors.textPrimary : colors.textSecondary,
                       fontSize: 13,
                       fontWeight: selected
                           ? FontWeight.w500
                           : FontWeight.w400)),
               subtitle: isDefault
-                  ? const Text('default',
-                      style: TextStyle(color: _subtleText, fontSize: 11))
+                  ? Text('default',
+                    style: TextStyle(color: colors.textSubtle, fontSize: 11))
                   : null,
               trailing: IconButton(
                 icon: const Icon(LucideIcons.trash2, size: 14),
-                color: _subtleText,
+                color: colors.textSubtle,
                 tooltip: 'Delete',
                 onPressed: () => onDelete(id),
               ),
@@ -265,7 +264,7 @@ class _EnvList extends StatelessWidget {
     if (slug == 'production' || slug == 'prod') return _green;
     if (slug == 'staging') return _amber;
     if (slug == 'development' || slug == 'dev') return _purple;
-    return _dimText;
+    return const Color(0xFF9AA0B4);
   }
 }
 
@@ -284,6 +283,7 @@ class _EnvDetail extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final tab = ref.watch(_envDetailTabProvider);
     final envAsync = ref.watch(_envDetailProvider(envId));
 
@@ -298,7 +298,7 @@ class _EnvDetail extends ConsumerWidget {
               style: Theme.of(context)
                   .textTheme
                   .titleLarge
-                  ?.copyWith(color: Colors.white)),
+                ?.copyWith(color: colors.textPrimary)),
         ),
         PageTabs(
           tabs: const ['Overview', 'Variables', 'Settings'],
@@ -306,14 +306,14 @@ class _EnvDetail extends ConsumerWidget {
           onChanged: (i) =>
               ref.read(_envDetailTabProvider.notifier).state = i,
         ),
-        Container(height: 1, color: Colors.white.withOpacity(0.06)),
+        Container(height: 1, color: colors.border),
         Expanded(
           child: envAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(
                 child: Text('Error: $e',
-                    style: const TextStyle(color: _dimText))),
+                style: TextStyle(color: colors.textSecondary))),
             data: (env) {
               switch (tab) {
                 case 0:
@@ -388,26 +388,26 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: _surface,
+          color: colors.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.07)),
+          border: Border.all(color: colors.border),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 16, color: _dimText),
+          Icon(icon, size: 16, color: colors.textSecondary),
           const SizedBox(height: 8),
           Text(value,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: colors.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
           Text(label,
-              style:
-                  const TextStyle(color: _subtleText, fontSize: 11)),
+              style: TextStyle(color: colors.textSubtle, fontSize: 11)),
         ]),
       ),
     );
@@ -460,6 +460,7 @@ class _EnvVariablesTabState extends ConsumerState<_EnvVariablesTab> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Column(
       children: [
         Padding(
@@ -468,7 +469,7 @@ class _EnvVariablesTabState extends ConsumerState<_EnvVariablesTab> {
             children: [
               const Text('Environment variables',
                   style: TextStyle(
-                      color: Colors.white,
+                    color: Colors.white,
                       fontSize: 13,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
@@ -493,9 +494,8 @@ class _EnvVariablesTabState extends ConsumerState<_EnvVariablesTab> {
               const SizedBox(width: 8),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  side: BorderSide(
-                      color: Colors.white.withOpacity(0.12)),
+                  foregroundColor: colors.textSecondary,
+                  side: BorderSide(color: colors.border),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                   padding: const EdgeInsets.symmetric(
@@ -509,25 +509,23 @@ class _EnvVariablesTabState extends ConsumerState<_EnvVariablesTab> {
             ],
           ),
         ),
-        Container(height: 1, color: Colors.white.withOpacity(0.06)),
+        Container(height: 1, color: colors.border),
         Expanded(
           child: _vars.isEmpty
               ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(LucideIcons.keyRound,
-                          size: 40, color: _subtleText),
+                        Icon(LucideIcons.keyRound,
+                            size: 40, color: colors.textSubtle),
                       const SizedBox(height: 12),
-                      const Text('No variables yet',
-                          style:
-                              TextStyle(color: _dimText, fontSize: 13)),
+                        Text('No variables yet',
+                          style: TextStyle(color: colors.textSecondary, fontSize: 13)),
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                          side: BorderSide(
-                              color: Colors.white.withOpacity(0.12)),
+                          foregroundColor: colors.textSecondary,
+                          side: BorderSide(color: colors.border),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8)),
                         ),
@@ -629,26 +627,27 @@ class _VarRowState extends State<_VarRow> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: _surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.07)),
+        border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
           SizedBox(
             width: 200,
             child: Text(widget.varKey,
-                style: const TextStyle(
+              style: TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 12,
-                    color: Colors.white)),
+                color: colors.textPrimary)),
           ),
           Container(
-              width: 1, height: 20, color: Colors.white.withOpacity(0.1)),
+              width: 1, height: 20, color: colors.border),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -658,7 +657,7 @@ class _VarRowState extends State<_VarRow> {
               style: TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 12,
-                  color: _obscure ? _subtleText : Colors.white70),
+                  color: _obscure ? colors.textSubtle : colors.textSecondary),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -666,13 +665,13 @@ class _VarRowState extends State<_VarRow> {
             icon: Icon(
                 _obscure ? LucideIcons.eye : LucideIcons.eyeOff,
                 size: 14),
-            color: _dimText,
+            color: colors.textSecondary,
             tooltip: _obscure ? 'Show' : 'Hide',
             onPressed: () => setState(() => _obscure = !_obscure),
           ),
           IconButton(
             icon: const Icon(LucideIcons.trash2, size: 14),
-            color: _dimText,
+            color: colors.textSecondary,
             tooltip: 'Delete',
             onPressed: widget.onDelete,
           ),
@@ -774,17 +773,18 @@ class _EnvSettingsTabState extends ConsumerState<_EnvSettingsTab> {
   }
 
   Widget _section(String title, List<Widget> children) {
+    final colors = consoleColors(context);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.07)),
+        border: Border.all(color: colors.border),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(title,
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                color: colors.textPrimary,
                 fontSize: 13,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 16),
@@ -794,27 +794,27 @@ class _EnvSettingsTabState extends ConsumerState<_EnvSettingsTab> {
   }
 
   Widget _field(String label, TextEditingController ctrl, String hint) {
+    final colors = consoleColors(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(color: _dimText, fontSize: 12)),
+            style: TextStyle(color: colors.textSecondary, fontSize: 12)),
         const SizedBox(height: 6),
         TextField(
           controller: ctrl,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          style: TextStyle(color: colors.textPrimary, fontSize: 13),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(color: _subtleText, fontSize: 13),
+            hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
             filled: true,
-            fillColor: _fieldFill,
+            fillColor: colors.fieldFill,
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12, vertical: 10),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide:
-                  BorderSide(color: Colors.white.withOpacity(0.1)),
+              borderSide: BorderSide(color: colors.fieldBorder),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
@@ -834,6 +834,7 @@ class _EnvEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -841,23 +842,22 @@ class _EnvEmptyState extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: _surface,
+              color: colors.surface,
               borderRadius: BorderRadius.circular(16),
-              border:
-                  Border.all(color: Colors.white.withOpacity(0.07)),
+              border: Border.all(color: colors.border),
             ),
-            child: const Icon(LucideIcons.layers,
-                size: 32, color: _dimText),
+            child: Icon(LucideIcons.layers,
+                size: 32, color: colors.textSecondary),
           ),
           const SizedBox(height: 16),
-          const Text('Select an environment',
+          Text('Select an environment',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
-          const Text('Choose from the left or create a new one.',
-              style: TextStyle(color: _dimText, fontSize: 13)),
+          Text('Choose from the left or create a new one.',
+              style: TextStyle(color: colors.textSecondary, fontSize: 13)),
         ],
       ),
     );

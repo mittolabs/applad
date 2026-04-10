@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
@@ -19,12 +20,7 @@ double _hPad(BuildContext context) {
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _border = Color(0x14FFFFFF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
@@ -82,19 +78,20 @@ class _AuthPageState extends ConsumerState<AuthPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final tab = ref.watch(_authTabProvider);
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: colors.background,
       body: Padding(
         padding: EdgeInsets.symmetric(horizontal: _hPad(context)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 32),
-            const Text('Auth',
+            Text('Auth',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: colors.textPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 24),
@@ -151,13 +148,15 @@ class _UsersTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final usersAsync = ref.watch(usersProvider);
     final perPage = ref.watch(_userPerPageProvider);
     final currentPage = ref.watch(_userPageProvider);
 
     return usersAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => _errorView(e.toString(), () => ref.invalidate(usersProvider)),
+        error: (e, _) =>
+          _errorView(context, e.toString(), () => ref.invalidate(usersProvider)),
       data: (data) {
         final users = List<Map<String, dynamic>>.from(data['users'] ?? []);
         final total = data['total'] as int? ?? 0;
@@ -172,32 +171,30 @@ class _UsersTab extends ConsumerWidget {
                   child: TextField(
                     controller: searchCtrl,
                     onSubmitted: (_) => onSearch(),
-                    style: const TextStyle(fontSize: 13, color: Colors.white),
+                    style: TextStyle(fontSize: 13, color: colors.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Search by name, email, or ID',
-                      hintStyle: const TextStyle(
-                          color: _subtleText, fontSize: 13),
-                      prefixIcon: const Padding(
+                      hintStyle: TextStyle(
+                          color: colors.textSubtle, fontSize: 13),
+                      prefixIcon: Padding(
                         padding: EdgeInsets.only(left: 10, right: 6),
                         child: Icon(Icons.search,
-                            size: 16, color: _subtleText),
+                            size: 16, color: colors.textSubtle),
                       ),
                       prefixIconConstraints:
                           const BoxConstraints(minWidth: 32, minHeight: 0),
                       filled: true,
-                      fillColor: const Color(0x0AFFFFFF),
+                      fillColor: colors.fieldFill,
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
                           vertical: 10, horizontal: 12),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                            color: Colors.white.withOpacity(0.08)),
+                        borderSide: BorderSide(color: colors.fieldBorder),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                            color: Colors.white.withOpacity(0.08)),
+                        borderSide: BorderSide(color: colors.fieldBorder),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -326,6 +323,7 @@ class _UsersEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -334,21 +332,21 @@ class _UsersEmptyState extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: colors.fill,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(LucideIcons.users, size: 22, color: _subtleText),
+            child: Icon(LucideIcons.users, size: 22, color: colors.textSubtle),
           ),
           const SizedBox(height: 16),
-          const Text('No users yet',
+          Text('No users yet',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
-          const Text(
+          Text(
               'Add users manually or let them sign up through your app.',
-              style: TextStyle(color: _dimText, fontSize: 13)),
+              style: TextStyle(color: colors.textSecondary, fontSize: 13)),
           const SizedBox(height: 16),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -373,15 +371,15 @@ class _UsersEmptyState extends StatelessWidget {
 class _TableHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    const style = TextStyle(
-        color: _dimText, fontSize: 12, fontWeight: FontWeight.w500);
+    final colors = consoleColors(context);
+    final style = TextStyle(
+        color: colors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        border: Border(
-            bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
+        border: Border(bottom: BorderSide(color: colors.border)),
       ),
-      child: const Row(
+      child: Row(
         children: [
           Expanded(flex: 3, child: Text('User ID', style: style)),
           Expanded(flex: 3, child: Text('Name', style: style)),
@@ -412,6 +410,7 @@ class _UserRowState extends State<_UserRow> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final u = widget.user;
     final id = (u['\$id'] as String? ?? '');
     final name = (u['name'] as String? ?? '').trim();
@@ -427,9 +426,8 @@ class _UserRowState extends State<_UserRow> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: _hovered ? Colors.white.withOpacity(0.02) : null,
-          border: Border(
-              bottom: BorderSide(color: Colors.white.withOpacity(0.04))),
+          color: _hovered ? colors.fill : null,
+          border: Border(bottom: BorderSide(color: colors.border)),
         ),
         child: Row(
           children: [
@@ -443,8 +441,8 @@ class _UserRowState extends State<_UserRow> {
                   Expanded(
                     child: Text(
                       id,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: colors.textPrimary,
                           fontSize: 13,
                           fontFamily: 'monospace'),
                       overflow: TextOverflow.ellipsis,
@@ -459,7 +457,7 @@ class _UserRowState extends State<_UserRow> {
               flex: 3,
               child: Text(
                 name.isNotEmpty ? name : 'Anonymous',
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: TextStyle(color: colors.textPrimary, fontSize: 13),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -469,8 +467,7 @@ class _UserRowState extends State<_UserRow> {
               flex: 4,
               child: Text(
                 email.isNotEmpty ? email : '—',
-                style:
-                    const TextStyle(color: _dimText, fontSize: 12),
+                style: TextStyle(color: colors.textSecondary, fontSize: 12),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -487,7 +484,7 @@ class _UserRowState extends State<_UserRow> {
               flex: 2,
               child: Text(
                 _relativeTime(createdAt),
-                style: const TextStyle(color: _dimText, fontSize: 12),
+                style: TextStyle(color: colors.textSecondary, fontSize: 12),
               ),
             ),
 
@@ -498,8 +495,8 @@ class _UserRowState extends State<_UserRow> {
                   ? GestureDetector(
                       onTap: () =>
                           _deleteUser(context, widget.ref, id),
-                      child: const Icon(LucideIcons.trash2,
-                          size: 14, color: _subtleText),
+                      child: Icon(LucideIcons.trash2,
+                        size: 14, color: colors.textSubtle),
                     )
                   : const SizedBox.shrink(),
             ),
@@ -511,12 +508,13 @@ class _UserRowState extends State<_UserRow> {
 
   Future<void> _deleteUser(
       BuildContext context, WidgetRef ref, String userId) async {
+    final colors = consoleColors(context);
     final confirmed = await showAppDialog<bool>(
       context: context,
       title: 'Delete user',
       content: Text(
         'Are you sure you want to delete this user? This action cannot be undone.',
-        style: TextStyle(color: Colors.white.withOpacity(0.7)),
+        style: TextStyle(color: colors.textSecondary),
       ),
       actions: [
         const AppDialogCancel(),
@@ -532,62 +530,6 @@ class _UserRowState extends State<_UserRow> {
       await api.delete('/users/$userId');
       ref.invalidate(usersProvider);
     }
-  }
-}
-
-// ── Avatar widget ─────────────────────────────────────────────────────────────
-
-class _Avatar extends StatelessWidget {
-  final String name;
-  final String email;
-  final double size;
-
-  const _Avatar({required this.name, required this.email, this.size = 32});
-
-  @override
-  Widget build(BuildContext context) {
-    final initials = _initials(name, email);
-    final color = _colorFor(name.isNotEmpty ? name : email);
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: Center(
-        child: Text(initials,
-            style: TextStyle(
-                color: Colors.white,
-                fontSize: size * 0.4,
-                fontWeight: FontWeight.w600)),
-      ),
-    );
-  }
-
-  String _initials(String name, String email) {
-    if (name.trim().isNotEmpty) {
-      final parts = name.trim().split(RegExp(r'\s+'));
-      if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-      return parts[0][0].toUpperCase();
-    }
-    return email.isNotEmpty ? email[0].toUpperCase() : '?';
-  }
-
-  Color _colorFor(String s) {
-    const colors = [
-      Color(0xFF3472A4),
-      Color(0xFF7C3AED),
-      Color(0xFF059669),
-      Color(0xFFD97706),
-      Color(0xFFDC2626),
-      Color(0xFF0891B2),
-      Color(0xFF7C2D12),
-      Color(0xFF1D4ED8),
-    ];
-    if (s.isEmpty) return colors[0];
-    int hash = 0;
-    for (final c in s.codeUnits) {
-      hash = (hash * 31 + c) & 0x7FFFFFFF;
-    }
-    return colors[hash % colors.length];
   }
 }
 
@@ -647,18 +589,20 @@ class _TeamsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = consoleColors(context);
     final teamsAsync = ref.watch(teamsProvider);
 
     return teamsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) =>
-          _errorView(e.toString(), () => ref.invalidate(teamsProvider)),
+        error: (e, _) =>
+          _errorView(context, e.toString(), () => ref.invalidate(teamsProvider)),
       data: (data) {
         final teams = List<Map<String, dynamic>>.from(data['teams'] ?? []);
         final total = data['total'] as int? ?? 0;
 
         if (teams.isEmpty) {
           return _emptyState(
+            context,
             icon: LucideIcons.users,
             title: 'No teams yet',
             description: 'Create a team to group users together.',
@@ -671,7 +615,7 @@ class _TeamsTab extends ConsumerWidget {
             Row(
               children: [
                 Text('$total team${total == 1 ? '' : 's'}',
-                    style: const TextStyle(color: _dimText, fontSize: 13)),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 13)),
                 const Spacer(),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
@@ -693,15 +637,14 @@ class _TeamsTab extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
-                border: Border(
-                    bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
+                border: Border(bottom: BorderSide(color: colors.border)),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Expanded(flex: 3, child: Text('Team ID', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-                  Expanded(flex: 3, child: Text('Name', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-                  Expanded(flex: 2, child: Text('Members', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
-                  Expanded(flex: 2, child: Text('Created', style: TextStyle(color: _dimText, fontSize: 12, fontWeight: FontWeight.w500))),
+                  Expanded(flex: 3, child: Text('Team ID', style: TextStyle(color: colors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500))),
+                  Expanded(flex: 3, child: Text('Name', style: TextStyle(color: colors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500))),
+                  Expanded(flex: 2, child: Text('Members', style: TextStyle(color: colors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500))),
+                  Expanded(flex: 2, child: Text('Created', style: TextStyle(color: colors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500))),
                 ],
               ),
             ),
@@ -752,6 +695,7 @@ class _TeamRowState extends State<_TeamRow> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -759,9 +703,8 @@ class _TeamRowState extends State<_TeamRow> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: _hovered ? Colors.white.withOpacity(0.02) : null,
-          border: Border(
-              bottom: BorderSide(color: Colors.white.withOpacity(0.04))),
+          color: _hovered ? colors.fill : null,
+          border: Border(bottom: BorderSide(color: colors.border)),
         ),
         child: Row(
           children: [
@@ -773,8 +716,8 @@ class _TeamRowState extends State<_TeamRow> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(widget.id,
-                        style: const TextStyle(
-                            color: Colors.white,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                             fontSize: 13,
                             fontFamily: 'monospace'),
                         overflow: TextOverflow.ellipsis),
@@ -785,20 +728,17 @@ class _TeamRowState extends State<_TeamRow> {
             Expanded(
               flex: 3,
               child: Text(widget.name,
-                  style:
-                      const TextStyle(color: Colors.white, fontSize: 13)),
+                  style: TextStyle(color: colors.textPrimary, fontSize: 13)),
             ),
             Expanded(
               flex: 2,
               child: Text('${widget.members}',
-                  style:
-                      const TextStyle(color: _dimText, fontSize: 13)),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 13)),
             ),
             Expanded(
               flex: 2,
               child: Text(_relativeTime(widget.createdAt),
-                  style:
-                      const TextStyle(color: _dimText, fontSize: 12)),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 12)),
             ),
           ],
         ),
@@ -829,20 +769,21 @@ class _ProvidersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Auth providers',
+          Text('Auth providers',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Enable sign-in methods for your project users.',
-            style: TextStyle(color: _dimText, fontSize: 13),
+            style: TextStyle(color: colors.textSecondary, fontSize: 13),
           ),
           const SizedBox(height: 20),
           ...List.generate(_providers.length, (i) {
@@ -883,23 +824,24 @@ class _ProviderRowState extends State<_ProviderRow> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: _surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
-          Icon(widget.icon, size: 16, color: _enabled ? Colors.white : _dimText),
+          Icon(widget.icon, size: 16, color: _enabled ? colors.textPrimary : colors.textSecondary),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               widget.name,
               style: TextStyle(
-                  color: _enabled ? Colors.white : _dimText,
+                  color: _enabled ? colors.textPrimary : colors.textSecondary,
                   fontSize: 14),
             ),
           ),
@@ -936,49 +878,52 @@ class _SecurityTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Security',
+          Text('Security',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Configure security policies for your project.',
-            style: TextStyle(color: _dimText, fontSize: 13),
+            style: TextStyle(color: colors.textSecondary, fontSize: 13),
           ),
           const SizedBox(height: 20),
-          _settingRow('Session duration', '365 days',
+            _settingRow(context, 'Session duration', '365 days',
               'How long sessions remain valid before expiring'),
-          _settingRow('Max sessions per user', '10',
+            _settingRow(context, 'Max sessions per user', '10',
               'Maximum number of concurrent active sessions'),
-          _settingRow('Password minimum length', '8 characters',
+            _settingRow(context, 'Password minimum length', '8 characters',
               'Minimum number of characters required for passwords'),
-          _settingRow('Password history', 'Disabled',
+            _settingRow(context, 'Password history', 'Disabled',
               'Prevent reuse of previously used passwords'),
-          _settingRow('MFA enforcement', 'Optional',
+            _settingRow(context, 'MFA enforcement', 'Optional',
               'Require multi-factor authentication for all users'),
-          _settingRow('Personal data check', 'Disabled',
+            _settingRow(context, 'Personal data check', 'Disabled',
               'Reject passwords that contain personal information'),
-          _settingRow('Dictionary attack check', 'Disabled',
+            _settingRow(context, 'Dictionary attack check', 'Disabled',
               'Reject commonly used or compromised passwords'),
         ],
       ),
     );
   }
 
-  Widget _settingRow(String label, String value, String description) {
+  Widget _settingRow(
+      BuildContext context, String label, String value, String description) {
+    final colors = consoleColors(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: colors.border),
       ),
       child: Row(children: [
         Expanded(
@@ -986,23 +931,23 @@ class _SecurityTab extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
               Text(label,
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                    color: colors.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const SizedBox(height: 2),
               Text(description,
-                  style: const TextStyle(color: _subtleText, fontSize: 12)),
+                  style: TextStyle(color: colors.textSubtle, fontSize: 12)),
             ])),
         Container(
           padding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.06),
+              color: colors.fill,
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(value,
-              style: const TextStyle(color: _dimText, fontSize: 13)),
+                style: TextStyle(color: colors.textSecondary, fontSize: 13)),
         ),
       ]),
     );
@@ -1044,20 +989,21 @@ class _TemplatesTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Email & SMS templates',
+          Text('Email & SMS templates',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Customize the messages sent to your users during authentication flows.',
-            style: TextStyle(color: _dimText, fontSize: 13),
+            style: TextStyle(color: colors.textSecondary, fontSize: 13),
           ),
           const SizedBox(height: 20),
           ..._templates.map((t) => _TemplateRow(
@@ -1081,27 +1027,28 @@ class _TemplateRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     final isEmail = type == 'email';
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: colors.border),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: colors.fill,
               borderRadius: BorderRadius.circular(6),
             ),
             child: Icon(
               isEmail ? LucideIcons.mail : LucideIcons.smartphone,
               size: 14,
-              color: _dimText,
+              color: colors.textSecondary,
             ),
           ),
           const SizedBox(width: 14),
@@ -1110,21 +1057,20 @@ class _TemplateRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(name,
-                    style: const TextStyle(
-                        color: Colors.white,
+                    style: TextStyle(
+                        color: colors.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 2),
                 Text(description,
-                    style:
-                        const TextStyle(color: _subtleText, fontSize: 12)),
+                    style: TextStyle(color: colors.textSubtle, fontSize: 12)),
               ],
             ),
           ),
           OutlinedButton(
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white70,
-              side: BorderSide(color: Colors.white.withOpacity(0.12)),
+              foregroundColor: colors.textSecondary,
+              side: BorderSide(color: colors.border),
               padding:
                   const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               shape: RoundedRectangleBorder(
@@ -1146,40 +1092,41 @@ class _UsageTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Usage',
+            Text('Usage',
               style: TextStyle(
-                  color: Colors.white,
+                color: colors.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          const Text('Authentication activity for the past 30 days.',
-              style: TextStyle(color: _dimText, fontSize: 13)),
+            Text('Authentication activity for the past 30 days.',
+              style: TextStyle(color: colors.textSecondary, fontSize: 13)),
           const SizedBox(height: 24),
           Row(
             children: [
-              _statCard('Total users', '—', LucideIcons.users),
+              _statCard(context, 'Total users', '—', LucideIcons.users),
               const SizedBox(width: 12),
-              _statCard('Active sessions', '—', LucideIcons.activity),
+              _statCard(context, 'Active sessions', '—', LucideIcons.activity),
               const SizedBox(width: 12),
-              _statCard('New signups (30d)', '—', LucideIcons.userPlus),
+              _statCard(context, 'New signups (30d)', '—', LucideIcons.userPlus),
             ],
           ),
           const SizedBox(height: 24),
           Container(
             height: 200,
             decoration: BoxDecoration(
-              color: _surface,
+              color: colors.surface,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: _border),
+              border: Border.all(color: colors.border),
             ),
-            child: const Center(
+            child: Center(
               child: Text('Usage charts coming soon',
-                  style: TextStyle(color: _subtleText, fontSize: 13)),
+                  style: TextStyle(color: colors.textSubtle, fontSize: 13)),
             ),
           ),
         ],
@@ -1187,28 +1134,30 @@ class _UsageTab extends StatelessWidget {
     );
   }
 
-  Widget _statCard(String label, String value, IconData icon) {
+  Widget _statCard(
+      BuildContext context, String label, String value, IconData icon) {
+    final colors = consoleColors(context);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: _surface,
+          color: colors.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _border),
+          border: Border.all(color: colors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 16, color: _dimText),
+            Icon(icon, size: 16, color: colors.textSecondary),
             const SizedBox(height: 12),
             Text(value,
-                style: const TextStyle(
-                    color: Colors.white,
+                style: TextStyle(
+                    color: colors.textPrimary,
                     fontSize: 24,
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             Text(label,
-                style: const TextStyle(color: _dimText, fontSize: 12)),
+                style: TextStyle(color: colors.textSecondary, fontSize: 12)),
           ],
         ),
       ),
@@ -1223,45 +1172,48 @@ class _SettingsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Auth settings',
+          Text('Auth settings',
               style: TextStyle(
-                  color: Colors.white,
+                  color: colors.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Control global authentication behavior for your project.',
-            style: TextStyle(color: _dimText, fontSize: 13),
+            style: TextStyle(color: colors.textSecondary, fontSize: 13),
           ),
           const SizedBox(height: 20),
-          _toggleRow('Email / Password sign-in', true,
+            _toggleRow(context, 'Email / Password sign-in', true,
               'Allow users to sign in with email and password'),
-          _toggleRow('Anonymous sessions', true,
+            _toggleRow(context, 'Anonymous sessions', true,
               'Allow users to create anonymous sessions without credentials'),
-          _toggleRow('Email verification required', false,
+            _toggleRow(context, 'Email verification required', false,
               'Block access until the user has verified their email'),
-          _toggleRow('Phone number sign-in', false,
+            _toggleRow(context, 'Phone number sign-in', false,
               'Allow users to sign in with a phone number and OTP'),
-          _toggleRow('Limit login attempts', true,
+            _toggleRow(context, 'Limit login attempts', true,
               'Temporarily block users after multiple failed sign-in attempts'),
         ],
       ),
     );
   }
 
-  Widget _toggleRow(String label, bool value, String description) {
+  Widget _toggleRow(
+      BuildContext context, String label, bool value, String description) {
+    final colors = consoleColors(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: _surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        border: Border.all(color: colors.border),
       ),
       child: Row(children: [
         Expanded(
@@ -1269,13 +1221,13 @@ class _SettingsTab extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
               Text(label,
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                    color: colors.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const SizedBox(height: 2),
               Text(description,
-                  style: const TextStyle(color: _subtleText, fontSize: 12)),
+                  style: TextStyle(color: colors.textSubtle, fontSize: 12)),
             ])),
         Switch(value: value, onChanged: (_) {}, activeColor: _accent),
       ]),
@@ -1285,7 +1237,8 @@ class _SettingsTab extends StatelessWidget {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-Widget _errorView(String message, VoidCallback onRetry) {
+Widget _errorView(BuildContext context, String message, VoidCallback onRetry) {
+  final colors = consoleColors(context);
   return Center(
     child: Column(
       mainAxisSize: MainAxisSize.min,
@@ -1294,16 +1247,16 @@ Widget _errorView(String message, VoidCallback onRetry) {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.04),
+            color: colors.fill,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const Icon(LucideIcons.alertTriangle,
-              size: 22, color: _subtleText),
+          child: Icon(LucideIcons.alertTriangle,
+              size: 22, color: colors.textSubtle),
         ),
         const SizedBox(height: 16),
         Text('Error: $message',
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                color: colors.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w500)),
         const SizedBox(height: 16),
@@ -1324,9 +1277,11 @@ Widget _errorView(String message, VoidCallback onRetry) {
 }
 
 Widget _emptyState(
+    BuildContext context,
     {required IconData icon,
     required String title,
     required String description}) {
+  final colors = consoleColors(context);
   return Center(
     child: Column(
       mainAxisSize: MainAxisSize.min,
@@ -1335,20 +1290,20 @@ Widget _emptyState(
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.04),
+            color: colors.fill,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, size: 22, color: _subtleText),
+          child: Icon(icon, size: 22, color: colors.textSubtle),
         ),
         const SizedBox(height: 16),
         Text(title,
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                color: colors.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         Text(description,
-            style: const TextStyle(color: _dimText, fontSize: 13)),
+            style: TextStyle(color: colors.textSecondary, fontSize: 13)),
       ],
     ),
   );

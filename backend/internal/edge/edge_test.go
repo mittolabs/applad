@@ -128,3 +128,12 @@ func TestList(t *testing.T) {
 		t.Errorf("count = %d, want 2", len(fns))
 	}
 }
+
+func TestEdgeSlug(t *testing.T) {
+	if got := edgeSlug("/hello/world", "Hello World"); got != "hello-world" {
+		t.Errorf("edgeSlug(route) = %s", got)
+	}
+	if got := edgeSlug("", "Hello World"); got != "hello-world" {
+		t.Errorf("edgeSlug(name) = %s", got)
+	}
+}

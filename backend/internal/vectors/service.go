@@ -60,7 +60,7 @@ func NewService(database *db.DB) *Service {
 // ── Index management ──────────────────────────────────────────────────────────
 
 // CreateIndex creates a new vector index.
-func (s *Service) CreateIndex(ctx context.Context, projectID, name string, dimensions int, metric, collectionID, embeddingField, model string) (*VectorIndex, error) {
+func (s *Service) CreateIndex(ctx context.Context, projectID, indexID, name string, dimensions int, metric, collectionID, embeddingField, model string) (*VectorIndex, error) {
 	if dimensions <= 0 {
 		dimensions = 1536
 	}
@@ -76,6 +76,9 @@ func (s *Service) CreateIndex(ctx context.Context, projectID, name string, dimen
 		Model: model, Status: "ready",
 		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
+	if indexID != "" {
+		idx.ID = indexID
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO vector_indexes (id, project_id, name, dimensions, metric, collection_id, embedding_field, model, status, created_at, updated_at)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
@@ -84,7 +87,7 @@ func (s *Service) CreateIndex(ctx context.Context, projectID, name string, dimen
 		idx.CreatedAt, idx.UpdatedAt,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "Duplicate entry") {
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
 			return nil, fmt.Errorf("vectors: index %q already exists", name)
 		}
 		return nil, fmt.Errorf("vectors: create index: %w", err)
@@ -141,7 +144,7 @@ func (s *Service) Upsert(ctx context.Context, indexID, projectID, docID string, 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO vector_embeddings (id, index_id, project_id, doc_id, vector, metadata, created_at)
 		 VALUES (?,?,?,?,?,?,?)
-		 ON DUPLICATE KEY UPDATE vector=VALUES(vector), metadata=VALUES(metadata), created_at=VALUES(created_at)`,
+		 ON CONFLICT (index_id, doc_id) DO UPDATE SET vector=EXCLUDED.vector, metadata=EXCLUDED.metadata, created_at=EXCLUDED.created_at`,
 		emb.ID, indexID, projectID, docID, string(vecJSON), nullBytes(metaJSON), emb.CreatedAt,
 	)
 	if err != nil {

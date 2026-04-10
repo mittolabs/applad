@@ -62,12 +62,12 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 
 	projectSvc := projects.NewService(database)
 	authSvc := auth.NewService(database, cfg.JWTSecret)
-	dbSvc := databases.NewService(database)
+	dbSvc := databases.NewService(database, cfg.PostgRESTURL, cfg.JWTSecret)
 	storageSvc := storage.NewService(database, cfg.StoragePath)
 	teamSvc := teams.NewService(database)
 	deployQueue := queue.New(cacheClient.Client())
 	deploySvc := deploy.NewService(database, deployQueue)
-	healthHandler := health.NewHandler(database, cacheClient)
+	healthHandler := health.NewHandler(database, cacheClient, cfg.PostgRESTURL)
 	messagingSvc := messaging.NewService(database, messaging.Config{
 		Host:         cfg.SMTPHost,
 		Port:         cfg.SMTPPort,
@@ -97,7 +97,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	functionSvc := functions.NewService(database, functionQueue)
 
 	// Realtime hub — wire into services for auto-publishing
-	hub := realtime.NewHub()
+	hub := realtime.NewHub(cfg.DatabaseDSN)
 	realtimeHandler := realtime.NewHandler(hub)
 	dbSvc.SetEventPublisher(hub)
 	storageSvc.SetEventPublisher(hub)

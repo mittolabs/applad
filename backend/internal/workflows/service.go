@@ -462,7 +462,7 @@ func (s *Service) ListVersions(ctx context.Context, workflowID string) ([]map[st
 func (s *Service) ShareWorkflow(ctx context.Context, workflowID, userID, role string) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO workflow_shares (id, workflow_id, user_id, role) VALUES (?, ?, ?, ?)
-		 ON DUPLICATE KEY UPDATE role=VALUES(role)`,
+		 ON CONFLICT (workflow_id, user_id) DO UPDATE SET role=EXCLUDED.role`,
 		uid.New("unique()"), workflowID, userID, role)
 	return err
 }

@@ -218,6 +218,32 @@ func (s *Service) DAU(ctx context.Context, projectID string, from, to time.Time)
 	return out, nil
 }
 
+// RealtimeSummary returns a lightweight realtime snapshot for the last window.
+func (s *Service) RealtimeSummary(ctx context.Context, projectID string, since time.Time) (map[string]int64, error) {
+	var activeUsers int64
+	var activeSessions int64
+	var eventsLast5m int64
+	s.db.QueryRowContext(ctx,
+		`SELECT COUNT(DISTINCT user_id) FROM analytics_events
+		 WHERE project_id = ? AND user_id IS NOT NULL AND created_at >= ?`,
+		projectID, since,
+	).Scan(&activeUsers) //nolint:errcheck
+	s.db.QueryRowContext(ctx,
+		`SELECT COUNT(DISTINCT session_id) FROM analytics_events
+		 WHERE project_id = ? AND session_id IS NOT NULL AND created_at >= ?`,
+		projectID, since,
+	).Scan(&activeSessions) //nolint:errcheck
+	s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM analytics_events WHERE project_id = ? AND created_at >= ?`,
+		projectID, since,
+	).Scan(&eventsLast5m) //nolint:errcheck
+	return map[string]int64{
+		"activeUsers":    activeUsers,
+		"activeSessions": activeSessions,
+		"eventsLast5m":   eventsLast5m,
+	}, nil
+}
+
 // ── Funnels ──────────────────────────────────────────────────────────────────
 
 // CreateFunnel creates a new funnel definition.

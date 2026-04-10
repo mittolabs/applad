@@ -1,20 +1,14 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
+import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/deploy_create_entry.dart';
-import '../../core/widgets/search_list.dart';
 import '../../core/widgets/page_tabs.dart';
 
-const _bg = Color(0xFF0B0B0F);
-const _surface = Color(0xFF16171B);
 const _accent = Color(0xFF3472A4);
-const _border = Color(0x14FFFFFF);
-const _dimText = Color(0x80FFFFFF);
-const _subtleText = Color(0x40FFFFFF);
 const _green = Color(0xFF10B981);
 const _red = Color(0xFFEF4444);
 
@@ -38,20 +32,21 @@ class _MobilePageState extends ConsumerState<MobilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = consoleColors(context);
     if (_selectedId != null) return _detailView();
     final dataAsync = ref.watch(_mobileProvider);
 
     return Container(
-      color: _bg,
+      color: colors.background,
       child: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
           child: Row(children: [
-            const Expanded(
+            Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Mobile Apps', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700)),
+                Text('Mobile Apps', style: TextStyle(color: colors.textPrimary, fontSize: 24, fontWeight: FontWeight.w700)),
                 SizedBox(height: 4),
-                Text('Build and publish Android and iOS apps', style: TextStyle(color: _dimText, fontSize: 14)),
+                Text('Build and publish Android and iOS apps', style: TextStyle(color: colors.textSecondary, fontSize: 14)),
               ]),
             ),
             FilledButton.icon(
@@ -67,7 +62,7 @@ class _MobilePageState extends ConsumerState<MobilePage> {
         Expanded(
           child: dataAsync.when(
             loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
-            error: (e, _) => Center(child: Text('$e', style: const TextStyle(color: _dimText))),
+            error: (e, _) => Center(child: Text('$e', style: TextStyle(color: colors.textSecondary))),
             data: (data) {
               final targets = List<Map<String, dynamic>>.from(data['targets'] ?? []);
               if (targets.isEmpty) return _emptyState();
@@ -79,7 +74,9 @@ class _MobilePageState extends ConsumerState<MobilePage> {
     );
   }
 
-  Widget _emptyState() => Center(
+  Widget _emptyState() {
+    final colors = consoleColors(context);
+    return Center(
     child: Column(mainAxisSize: MainAxisSize.min, children: [
       Row(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 56, height: 56, decoration: BoxDecoration(color: _green.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
@@ -89,9 +86,9 @@ class _MobilePageState extends ConsumerState<MobilePage> {
           child: const Icon(LucideIcons.tablet, size: 24, color: _accent)),
       ]),
       const SizedBox(height: 24),
-      const Text('No mobile apps yet', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+      Text('No mobile apps yet', style: TextStyle(color: colors.textPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
-      const Text('Build Android APK/AAB and iOS IPA from source', style: TextStyle(color: _dimText, fontSize: 14)),
+      Text('Build Android APK/AAB and iOS IPA from source', style: TextStyle(color: colors.textSecondary, fontSize: 14)),
       const SizedBox(height: 24),
       FilledButton.icon(
         style: FilledButton.styleFrom(backgroundColor: _accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
@@ -101,8 +98,10 @@ class _MobilePageState extends ConsumerState<MobilePage> {
       ),
     ]),
   );
+  }
 
   Widget _list(List<Map<String, dynamic>> targets) {
+    final colors = consoleColors(context);
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 32),
       itemCount: targets.length,
@@ -117,19 +116,19 @@ class _MobilePageState extends ConsumerState<MobilePage> {
             cursor: SystemMouseCursors.click,
             child: Container(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+              decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: colors.border)),
               child: Row(children: [
                 Container(width: 40, height: 40, decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
                   child: Icon(icon, size: 20, color: _accent)),
                 const SizedBox(width: 14),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
-                  Text(platform, style: const TextStyle(color: _subtleText, fontSize: 12)),
+                  Text(t['name'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+                  Text(platform, style: TextStyle(color: colors.textSubtle, fontSize: 12)),
                 ])),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: (platform == 'iOS' ? _subtleText : _green).withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                  child: Text(platform, style: TextStyle(color: platform == 'iOS' ? _subtleText : _green, fontSize: 11)),
+                  decoration: BoxDecoration(color: (platform == 'iOS' ? colors.textSubtle : _green).withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                  child: Text(platform, style: TextStyle(color: platform == 'iOS' ? colors.textSubtle : _green, fontSize: 11)),
                 ),
               ]),
             ),
@@ -143,17 +142,18 @@ class _MobilePageState extends ConsumerState<MobilePage> {
     return FutureBuilder<dynamic>(
       future: ref.read(apiClientProvider).get('/deploy/targets/$_selectedId').then((r) => r.data),
       builder: (ctx, snap) {
+        final colors = consoleColors(ctx);
         if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: _accent));
         final target = snap.data as Map<String, dynamic>;
         return Container(
-          color: _bg,
+          color: colors.background,
           child: Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(32, 20, 32, 16),
               child: Row(children: [
-                IconButton(icon: const Icon(LucideIcons.arrowLeft, size: 18, color: _dimText), onPressed: () => setState(() => _selectedId = null)),
+                IconButton(icon: Icon(LucideIcons.arrowLeft, size: 18, color: colors.textSecondary), onPressed: () => setState(() => _selectedId = null)),
                 const SizedBox(width: 8),
-                Expanded(child: Text(target['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600))),
+                Expanded(child: Text(target['name'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 20, fontWeight: FontWeight.w600))),
               ]),
             ),
             Padding(
@@ -173,6 +173,7 @@ class _MobilePageState extends ConsumerState<MobilePage> {
   }
 
   Widget _overviewTab(Map<String, dynamic> t) {
+    final colors = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.all(32),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -184,39 +185,43 @@ class _MobilePageState extends ConsumerState<MobilePage> {
           _infoCard('Runtime', t['runtime'] ?? '—'),
         ]),
         const SizedBox(height: 24),
-        const Text('Distribution', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        Text('Distribution', style: TextStyle(color: colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+          decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: colors.border)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Store publishing and distribution can be configured in Settings.',
-                style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+                style: TextStyle(color: colors.textSecondary, fontSize: 13)),
           ]),
         ),
       ]),
     );
   }
 
-  Widget _infoCard(String label, String value) => Expanded(
+  Widget _infoCard(String label, String value) {
+    final colors = consoleColors(context);
+    return Expanded(
     child: Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+      decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: colors.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: const TextStyle(color: _subtleText, fontSize: 12)),
+        Text(label, style: TextStyle(color: colors.textSubtle, fontSize: 12)),
         const SizedBox(height: 6),
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+        Text(value, style: TextStyle(color: colors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
       ]),
     ),
   );
+  }
 
   Widget _buildsTab() {
     return FutureBuilder<dynamic>(
       future: ref.read(apiClientProvider).get('/deploy/releases?targetId=$_selectedId').then((r) => r.data),
       builder: (ctx, snap) {
+        final colors = consoleColors(ctx);
         if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: _accent));
         final releases = List<Map<String, dynamic>>.from((snap.data as Map)['releases'] ?? []);
-        if (releases.isEmpty) return const Center(child: Text('No builds yet', style: TextStyle(color: _dimText)));
+        if (releases.isEmpty) return Center(child: Text('No builds yet', style: TextStyle(color: colors.textSecondary)));
         return ListView.separated(
           padding: const EdgeInsets.all(32),
           itemCount: releases.length,
@@ -227,13 +232,13 @@ class _MobilePageState extends ConsumerState<MobilePage> {
             final sc = status == 'completed' ? _green : status == 'failed' ? _red : const Color(0xFFF59E0B);
             return Container(
               padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+              decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: colors.border)),
               child: Row(children: [
                 Container(width: 8, height: 8, decoration: BoxDecoration(color: sc, shape: BoxShape.circle)),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(r['\$id'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace')),
-                  Text('${r['triggerType'] ?? 'manual'} • ${r['durationMs'] ?? 0}ms', style: const TextStyle(color: _subtleText, fontSize: 11)),
+                  Text(r['\$id'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 12, fontFamily: 'monospace')),
+                  Text('${r['triggerType'] ?? 'manual'} • ${r['durationMs'] ?? 0}ms', style: TextStyle(color: colors.textSubtle, fontSize: 11)),
                 ])),
                 Text(status, style: TextStyle(color: sc, fontSize: 12)),
               ]),
@@ -245,21 +250,22 @@ class _MobilePageState extends ConsumerState<MobilePage> {
   }
 
   Widget _signingTab(Map<String, dynamic> t) {
+    final colors = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.all(32),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Code Signing', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        Text('Code Signing', style: TextStyle(color: colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 24),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+          decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: colors.border)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Android Keystore', style: TextStyle(color: Colors.white, fontSize: 14)),
+            Text('Android Keystore', style: TextStyle(color: colors.textPrimary, fontSize: 14)),
             const SizedBox(height: 4),
-            Text('Upload your keystore file for signed APK/AAB builds', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+            Text('Upload your keystore file for signed APK/AAB builds', style: TextStyle(color: colors.textSecondary, fontSize: 13)),
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: BorderSide(color: Colors.white.withOpacity(0.12))),
+              style: OutlinedButton.styleFrom(foregroundColor: colors.textSecondary, side: BorderSide(color: colors.border)),
               icon: const Icon(LucideIcons.upload, size: 14),
               label: const Text('Upload keystore', style: TextStyle(fontSize: 12)),
               onPressed: () {},
@@ -269,14 +275,14 @@ class _MobilePageState extends ConsumerState<MobilePage> {
         const SizedBox(height: 16),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _border)),
+          decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: colors.border)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('iOS Provisioning', style: TextStyle(color: Colors.white, fontSize: 14)),
+            Text('iOS Provisioning', style: TextStyle(color: colors.textPrimary, fontSize: 14)),
             const SizedBox(height: 4),
-            Text('Upload provisioning profile + P12 certificate for IPA builds', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+            Text('Upload provisioning profile + P12 certificate for IPA builds', style: TextStyle(color: colors.textSecondary, fontSize: 13)),
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: BorderSide(color: Colors.white.withOpacity(0.12))),
+              style: OutlinedButton.styleFrom(foregroundColor: colors.textSecondary, side: BorderSide(color: colors.border)),
               icon: const Icon(LucideIcons.upload, size: 14),
               label: const Text('Upload profile', style: TextStyle(fontSize: 12)),
               onPressed: () {},
@@ -288,10 +294,11 @@ class _MobilePageState extends ConsumerState<MobilePage> {
   }
 
   Widget _settingsTab(Map<String, dynamic> t) {
+    final colors = consoleColors(context);
     return Padding(
       padding: const EdgeInsets.all(32),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('App Settings', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        Text('App Settings', style: TextStyle(color: colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 24),
         _settingRow('Name', t['name'] ?? ''),
         _settingRow('Platform', t['buildType'] == 'ipa' ? 'iOS' : 'Android'),
@@ -299,11 +306,11 @@ class _MobilePageState extends ConsumerState<MobilePage> {
         const SizedBox(height: 32),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withOpacity(0.3))),
+          decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withOpacity(0.3))),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('Danger zone', style: TextStyle(color: _red, fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            Text('Delete this app and all its builds.', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13)),
+            Text('Delete this app and all its builds.', style: TextStyle(color: colors.textSecondary, fontSize: 13)),
             const SizedBox(height: 12),
             OutlinedButton(
               style: OutlinedButton.styleFrom(foregroundColor: _red, side: const BorderSide(color: _red)),
@@ -320,13 +327,16 @@ class _MobilePageState extends ConsumerState<MobilePage> {
     );
   }
 
-  Widget _settingRow(String label, String value) => Padding(
+  Widget _settingRow(String label, String value) {
+    final colors = consoleColors(context);
+    return Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: Row(children: [
-      SizedBox(width: 140, child: Text(label, style: const TextStyle(color: _subtleText, fontSize: 13))),
-      Expanded(child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 13))),
+      SizedBox(width: 140, child: Text(label, style: TextStyle(color: colors.textSubtle, fontSize: 13))),
+      Expanded(child: Text(value, style: TextStyle(color: colors.textPrimary, fontSize: 13))),
     ]),
   );
+  }
 
   void _create() async {
     final result = await showCreateEntryDialog(
@@ -387,6 +397,7 @@ class _MobilePageState extends ConsumerState<MobilePage> {
   }
 
   Widget _platformChip(String label, String value, IconData icon, String current, ValueChanged<String> onTap) {
+    final colors = consoleColors(context);
     final active = value == current;
     return Expanded(
       child: GestureDetector(
@@ -394,14 +405,14 @@ class _MobilePageState extends ConsumerState<MobilePage> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
-            color: active ? _accent.withOpacity(0.15) : _surface,
+            color: active ? _accent.withOpacity(0.15) : colors.surface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: active ? _accent : _border),
+            border: Border.all(color: active ? _accent : colors.border),
           ),
           child: Column(children: [
-            Icon(icon, size: 20, color: active ? _accent : _dimText),
+            Icon(icon, size: 20, color: active ? _accent : colors.textSecondary),
             const SizedBox(height: 6),
-            Text(label, style: TextStyle(color: active ? Colors.white : _dimText, fontSize: 13, fontWeight: active ? FontWeight.w600 : FontWeight.w400)),
+            Text(label, style: TextStyle(color: active ? colors.textPrimary : colors.textSecondary, fontSize: 13, fontWeight: active ? FontWeight.w600 : FontWeight.w400)),
           ]),
         ),
       ),

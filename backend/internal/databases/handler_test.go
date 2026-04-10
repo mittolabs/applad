@@ -54,7 +54,7 @@ func TestCreateDatabase_MissingName(t *testing.T) {
 	}
 }
 
-func TestCreateCollection_MissingName(t *testing.T) {
+func TestCreateTable_MissingName(t *testing.T) {
 	svc := &Service{}
 	h := NewHandler(svc)
 
@@ -70,13 +70,13 @@ func TestCreateCollection_MissingName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/db1/collections", bytes.NewReader([]byte(tc.body)))
+			req := httptest.NewRequest(http.MethodPost, "/db1/tables", bytes.NewReader([]byte(tc.body)))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 
 			mux := chi.NewMux()
 			mux.Use(withProject)
-			mux.Post("/{databaseId}/collections", h.createCollection)
+			mux.Post("/{databaseId}/tables", h.createTable)
 			mux.ServeHTTP(w, req)
 
 			if w.Code != tc.want {
@@ -86,7 +86,7 @@ func TestCreateCollection_MissingName(t *testing.T) {
 	}
 }
 
-func TestCreateAttribute_MissingKey(t *testing.T) {
+func TestCreateColumn_MissingKey(t *testing.T) {
 	svc := &Service{}
 	h := NewHandler(svc)
 
@@ -107,7 +107,7 @@ func TestCreateAttribute_MissingKey(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			mux := chi.NewMux()
-			mux.Post("/{databaseId}/tables/{tableId}/columns/string", h.createAttr("string"))
+			mux.Post("/{databaseId}/tables/{tableId}/columns/string", h.createColumn("string"))
 			mux.ServeHTTP(w, req)
 
 			if w.Code != tc.want {
@@ -134,7 +134,7 @@ func TestCreateIndex_MissingKey(t *testing.T) {
 	}
 }
 
-func TestCreateDocument_InvalidJSON(t *testing.T) {
+func TestCreateRow_InvalidJSON(t *testing.T) {
 	svc := &Service{}
 	h := NewHandler(svc)
 
@@ -144,7 +144,7 @@ func TestCreateDocument_InvalidJSON(t *testing.T) {
 
 	mux := chi.NewMux()
 	mux.Use(withProject)
-	mux.Post("/{databaseId}/tables/{tableId}/rows", h.createDocument)
+	mux.Post("/{databaseId}/tables/{tableId}/rows", h.createRow)
 	mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {

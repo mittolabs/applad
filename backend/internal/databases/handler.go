@@ -38,25 +38,25 @@ func Routes(h *Handler) http.Handler {
 	r.Put("/{databaseId}", h.updateDatabase)
 	r.Delete("/{databaseId}", h.deleteDatabase)
 
-	// Tables (stored in `collections` MySQL table)
-	r.Post("/{databaseId}/tables", h.createCollection)
-	r.Get("/{databaseId}/tables", h.listCollections)
-	r.Get("/{databaseId}/tables/{tableId}", h.getCollection)
-	r.Put("/{databaseId}/tables/{tableId}", h.updateCollection)
-	r.Delete("/{databaseId}/tables/{tableId}", h.deleteCollection)
+	// Tables
+	r.Post("/{databaseId}/tables", h.createTable)
+	r.Get("/{databaseId}/tables", h.listTables)
+	r.Get("/{databaseId}/tables/{tableId}", h.getTable)
+	r.Put("/{databaseId}/tables/{tableId}", h.updateTable)
+	r.Delete("/{databaseId}/tables/{tableId}", h.deleteTable)
 
-	// Columns (stored in `attributes` MySQL table)
-	r.Post("/{databaseId}/tables/{tableId}/columns/string", h.createAttr("string"))
-	r.Post("/{databaseId}/tables/{tableId}/columns/integer", h.createAttr("integer"))
-	r.Post("/{databaseId}/tables/{tableId}/columns/float", h.createAttr("double"))
-	r.Post("/{databaseId}/tables/{tableId}/columns/boolean", h.createAttr("boolean"))
-	r.Post("/{databaseId}/tables/{tableId}/columns/email", h.createAttr("email"))
-	r.Post("/{databaseId}/tables/{tableId}/columns/url", h.createAttr("url"))
-	r.Post("/{databaseId}/tables/{tableId}/columns/datetime", h.createAttr("datetime"))
-	r.Post("/{databaseId}/tables/{tableId}/columns/enum", h.createAttr("enum"))
-	r.Post("/{databaseId}/tables/{tableId}/columns/point", h.createAttr("point"))
-	r.Get("/{databaseId}/tables/{tableId}/columns", h.listAttributes)
-	r.Delete("/{databaseId}/tables/{tableId}/columns/{key}", h.deleteAttribute)
+	// Columns
+	r.Post("/{databaseId}/tables/{tableId}/columns/string", h.createColumn("string"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/integer", h.createColumn("integer"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/float", h.createColumn("double"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/boolean", h.createColumn("boolean"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/email", h.createColumn("email"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/url", h.createColumn("url"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/datetime", h.createColumn("datetime"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/enum", h.createColumn("enum"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/point", h.createColumn("point"))
+	r.Get("/{databaseId}/tables/{tableId}/columns", h.listColumns)
+	r.Delete("/{databaseId}/tables/{tableId}/columns/{key}", h.deleteColumn)
 
 	// Relationships
 	r.Post("/{databaseId}/tables/{tableId}/columns/relationship", h.createRelationship)
@@ -70,21 +70,22 @@ func Routes(h *Handler) http.Handler {
 
 	// Transactions
 	r.Post("/{databaseId}/transactions", h.executeTransaction)
+	r.Post("/{databaseId}/sql", h.executeSQL)
 
 	// CSV Import
 	r.Post("/{databaseId}/tables/{tableId}/import/csv", h.importCSV)
 	r.Post("/{databaseId}/tables/{tableId}/import/csv/preview", h.previewCSV)
 
-	// Rows (stored in `documents` MySQL table)
-	r.Post("/{databaseId}/tables/{tableId}/rows", h.createDocument)
-	r.Get("/{databaseId}/tables/{tableId}/rows", h.listDocuments)
-	r.Get("/{databaseId}/tables/{tableId}/rows/{rowId}", h.getDocument)
-	r.Patch("/{databaseId}/tables/{tableId}/rows/{rowId}", h.updateDocument)
-	r.Delete("/{databaseId}/tables/{tableId}/rows/{rowId}", h.deleteDocument)
+	// Rows
+	r.Post("/{databaseId}/tables/{tableId}/rows", h.createRow)
+	r.Get("/{databaseId}/tables/{tableId}/rows", h.listRows)
+	r.Get("/{databaseId}/tables/{tableId}/rows/{rowId}", h.getRow)
+	r.Patch("/{databaseId}/tables/{tableId}/rows/{rowId}", h.updateRow)
+	r.Delete("/{databaseId}/tables/{tableId}/rows/{rowId}", h.deleteRow)
 
 	// Permissions
-	r.Post("/{databaseId}/tables/{tableId}/permissions", h.setCollectionPermissions)
-	r.Get("/{databaseId}/tables/{tableId}/permissions", h.getCollectionPermissions)
+	r.Post("/{databaseId}/tables/{tableId}/permissions", h.setTablePermissions)
+	r.Get("/{databaseId}/tables/{tableId}/permissions", h.getTablePermissions)
 
 	return r
 }
@@ -156,14 +157,14 @@ func (h *Handler) deleteDatabase(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createTable(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
 	var body struct {
-		TableID          string   `json:"tableId"`
-		Name             string   `json:"name"`
-		Permissions      []string `json:"permissions"`
-		RowSecurity      bool     `json:"rowSecurity"`
+		TableID     string   `json:"tableId"`
+		Name        string   `json:"name"`
+		Permissions []string `json:"permissions"`
+		RowSecurity bool     `json:"rowSecurity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
@@ -172,44 +173,44 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	c, err := h.svc.CreateCollection(r.Context(), projectID, dbID, body.TableID, body.Name, body.Permissions, body.RowSecurity)
+	table, err := h.svc.CreateTable(r.Context(), projectID, dbID, body.TableID, body.Name, body.Permissions, body.RowSecurity)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, c)
+	writeJSON(w, http.StatusCreated, table)
 }
 
-func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listTables(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
-	colls, total, err := h.svc.ListCollections(r.Context(), dbID, projectID)
+	tables, total, err := h.svc.ListTables(r.Context(), dbID, projectID)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	if colls == nil {
-		colls = []*model.Collection{}
+	if tables == nil {
+		tables = []*model.Table{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "tables": colls})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "tables": tables})
 }
 
-func (h *Handler) getCollection(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getTable(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
-	c, err := h.svc.GetCollection(r.Context(), collID, dbID, projectID)
+	tableID := chi.URLParam(r, "tableId")
+	table, err := h.svc.GetTable(r.Context(), tableID, dbID, projectID)
 	if err != nil {
-		apperr.NotFound(w, "collection")
+		apperr.NotFound(w, "table")
 		return
 	}
-	writeJSON(w, http.StatusOK, c)
+	writeJSON(w, http.StatusOK, table)
 }
 
-func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) updateTable(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	var body struct {
 		Name        string   `json:"name"`
 		Permissions []string `json:"permissions"`
@@ -223,28 +224,28 @@ func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	c, err := h.svc.UpdateCollection(r.Context(), collID, dbID, projectID, body.Name, body.Permissions, enabled)
+	table, err := h.svc.UpdateTable(r.Context(), tableID, dbID, projectID, body.Name, body.Permissions, enabled)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, c)
+	writeJSON(w, http.StatusOK, table)
 }
 
-func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) deleteTable(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
-	if err := h.svc.DeleteCollection(r.Context(), collID, dbID, projectID); err != nil {
+	tableID := chi.URLParam(r, "tableId")
+	if err := h.svc.DeleteTable(r.Context(), tableID, dbID, projectID); err != nil {
 		apperr.Internal(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) createAttr(attrType string) http.HandlerFunc {
+func (h *Handler) createColumn(attrType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		collID := chi.URLParam(r, "tableId")
+		tableID := chi.URLParam(r, "tableId")
 		var body struct {
 			Key      string      `json:"key"`
 			Required bool        `json:"required"`
@@ -276,29 +277,29 @@ func (h *Handler) createAttr(attrType string) http.HandlerFunc {
 		case "enum":
 			options["elements"] = body.Elements
 		}
-		attr, err := h.svc.CreateAttribute(r.Context(), collID, body.Key, attrType, body.Required, body.Array, body.Default, options)
+		column, err := h.svc.CreateColumn(r.Context(), tableID, body.Key, attrType, body.Required, body.Array, body.Default, options)
 		if err != nil {
 			apperr.Internal(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, attr)
+		writeJSON(w, http.StatusCreated, column)
 	}
 }
 
-func (h *Handler) listAttributes(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "tableId")
-	attrs, err := h.svc.ListAttributes(r.Context(), collID)
+func (h *Handler) listColumns(w http.ResponseWriter, r *http.Request) {
+	tableID := chi.URLParam(r, "tableId")
+	columns, err := h.svc.ListColumns(r.Context(), tableID)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(attrs), "columns": attrs})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(columns), "columns": columns})
 }
 
-func (h *Handler) deleteAttribute(w http.ResponseWriter, r *http.Request) {
-	collID := chi.URLParam(r, "tableId")
+func (h *Handler) deleteColumn(w http.ResponseWriter, r *http.Request) {
+	tableID := chi.URLParam(r, "tableId")
 	key := chi.URLParam(r, "key")
-	if err := h.svc.DeleteAttribute(r.Context(), collID, key); err != nil {
+	if err := h.svc.DeleteColumn(r.Context(), tableID, key); err != nil {
 		apperr.Internal(w, err)
 		return
 	}
@@ -390,12 +391,12 @@ func (h *Handler) deleteRelationship(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) createDocument(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createRow(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	var body struct {
 		RowID       string                 `json:"rowId"`
 		Data        map[string]interface{} `json:"data"`
@@ -411,23 +412,24 @@ func (h *Handler) createDocument(w http.ResponseWriter, r *http.Request) {
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	doc, err := h.svc.CreateDocumentWithAuth(ctx, projectID, dbID, collID, body.RowID, body.Data, body.Permissions, userID, nil)
+	row, err := h.svc.CreateRowWithAuth(ctx, projectID, dbID, tableID, body.RowID, body.Data, body.Permissions, userID, nil)
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
-			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to create documents in this collection")
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to create rows in this table")
 			return
 		}
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, doc)
+	writeJSON(w, http.StatusCreated, row)
 }
 
-func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listRows(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	pg := middleware.ParsePagination(r)
 
 	params := ListParams{
@@ -435,6 +437,7 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 		Offset:      pg.Offset,
 		OrderAttr:   r.URL.Query().Get("orderAttr"),
 		OrderType:   r.URL.Query().Get("orderType"),
+		Select:      r.URL.Query().Get("select"),
 		CursorAfter: r.URL.Query().Get("cursorAfter"),
 	}
 
@@ -446,15 +449,15 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	docs, total, err := h.svc.ListDocumentsWithQuery(ctx, projectID, dbID, collID, params)
+	rows, total, err := h.svc.ListRowsWithAuth(ctx, projectID, dbID, tableID, userID, nil, params)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	if docs == nil {
-		docs = []*model.Document{}
+	if rows == nil {
+		rows = []*model.Row{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "rows": docs})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "rows": rows})
 }
 
 // parseQueryString parses Appwrite-style query strings like:
@@ -489,34 +492,34 @@ func parseQueryString(q string) *Query {
 		if len(args) < 2 {
 			return nil
 		}
-		return &Query{Attribute: args[0], Method: method, Values: args[1]}
+		return &Query{Field: args[0], Method: method, Values: args[1]}
 	case "lessThan", "greaterThan", "lessThanEqual", "greaterThanEqual":
 		if len(args) < 2 {
 			return nil
 		}
-		return &Query{Attribute: args[0], Method: method, Values: args[1]}
+		return &Query{Field: args[0], Method: method, Values: args[1]}
 	case "between":
 		if len(args) < 3 {
 			return nil
 		}
-		return &Query{Attribute: args[0], Method: method, Values: []interface{}{args[1], args[2]}}
+		return &Query{Field: args[0], Method: method, Values: []interface{}{args[1], args[2]}}
 	case "geo_near":
 		// geo_near("field", lat, lng, maxDistanceKm)
 		if len(args) < 4 {
 			return nil
 		}
-		return &Query{Attribute: args[0], Method: method, Values: []interface{}{args[1], args[2], args[3]}}
+		return &Query{Field: args[0], Method: method, Values: []interface{}{args[1], args[2], args[3]}}
 	case "geo_within":
 		// geo_within("field", minLat, maxLat, minLng, maxLng)
 		if len(args) < 5 {
 			return nil
 		}
-		return &Query{Attribute: args[0], Method: method, Values: []interface{}{args[1], args[2], args[3], args[4]}}
+		return &Query{Field: args[0], Method: method, Values: []interface{}{args[1], args[2], args[3], args[4]}}
 	case "isNull", "isNotNull":
 		if len(args) < 1 {
 			return nil
 		}
-		return &Query{Attribute: args[0], Method: method}
+		return &Query{Field: args[0], Method: method}
 	case "orderAsc":
 		// Handled via orderAttr/orderType params — ignore here
 		return nil
@@ -549,32 +552,32 @@ func splitQueryArgs(s string) []string {
 	return args
 }
 
-func (h *Handler) getDocument(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getRow(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
-	docID := chi.URLParam(r, "rowId")
-	doc, err := h.svc.GetDocumentWithAuth(ctx, docID, collID, dbID, projectID, userID, nil)
+	tableID := chi.URLParam(r, "tableId")
+	rowID := chi.URLParam(r, "rowId")
+	row, err := h.svc.GetRowWithAuth(ctx, rowID, tableID, dbID, projectID, userID, nil)
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
-			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to read this document")
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to read this row")
 			return
 		}
-		apperr.NotFound(w, "document")
+		apperr.NotFound(w, "row")
 		return
 	}
-	writeJSON(w, http.StatusOK, doc)
+	writeJSON(w, http.StatusOK, row)
 }
 
-func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) updateRow(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
-	docID := chi.URLParam(r, "rowId")
+	tableID := chi.URLParam(r, "tableId")
+	rowID := chi.URLParam(r, "rowId")
 	var body struct {
 		Data        map[string]interface{} `json:"data"`
 		Permissions []string               `json:"permissions"`
@@ -583,28 +586,28 @@ func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	doc, err := h.svc.UpdateDocumentWithAuth(ctx, docID, collID, dbID, projectID, body.Data, body.Permissions, userID, nil)
+	row, err := h.svc.UpdateRowWithAuth(ctx, rowID, tableID, dbID, projectID, body.Data, body.Permissions, userID, nil)
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
-			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to update this document")
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to update this row")
 			return
 		}
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, doc)
+	writeJSON(w, http.StatusOK, row)
 }
 
-func (h *Handler) deleteDocument(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) deleteRow(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
-	docID := chi.URLParam(r, "rowId")
-	if err := h.svc.DeleteDocumentWithAuth(ctx, docID, collID, dbID, projectID, userID, nil); err != nil {
+	tableID := chi.URLParam(r, "tableId")
+	rowID := chi.URLParam(r, "rowId")
+	if err := h.svc.DeleteRowWithAuth(ctx, rowID, tableID, dbID, projectID, userID, nil); err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
-			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to delete this document")
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to delete this row")
 			return
 		}
 		apperr.Internal(w, err)
@@ -618,7 +621,7 @@ func (h *Handler) deleteDocument(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 
 	// Parse multipart form — 32 MB max
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -649,10 +652,10 @@ func (h *Handler) importCSV(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := h.svc.ImportCSV(r.Context(), projectID, dbID, collID, csvData, columnMapping)
+	result, err := h.svc.ImportCSV(r.Context(), projectID, dbID, tableID, csvData, columnMapping)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			apperr.NotFound(w, "collection")
+			apperr.NotFound(w, "table")
 			return
 		}
 		apperr.Internal(w, err)
@@ -691,10 +694,10 @@ func (h *Handler) previewCSV(w http.ResponseWriter, r *http.Request) {
 
 // --- permissions handlers ---
 
-func (h *Handler) setCollectionPermissions(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) setTablePermissions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	var body struct {
 		Permissions []Permission `json:"permissions"`
 	}
@@ -705,7 +708,7 @@ func (h *Handler) setCollectionPermissions(w http.ResponseWriter, r *http.Reques
 	if body.Permissions == nil {
 		body.Permissions = []Permission{}
 	}
-	if err := h.svc.SetPermissions(ctx, projectID, "collection", collID, body.Permissions); err != nil {
+	if err := h.svc.SetPermissions(ctx, projectID, "table", tableID, body.Permissions); err != nil {
 		apperr.Internal(w, err)
 		return
 	}
@@ -715,11 +718,11 @@ func (h *Handler) setCollectionPermissions(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-func (h *Handler) getCollectionPermissions(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getTablePermissions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
-	collID := chi.URLParam(r, "tableId")
-	perms, err := h.svc.GetPermissions(ctx, projectID, "collection", collID)
+	tableID := chi.URLParam(r, "tableId")
+	perms, err := h.svc.GetPermissions(ctx, projectID, "table", tableID)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -732,12 +735,12 @@ func (h *Handler) getCollectionPermissions(w http.ResponseWriter, r *http.Reques
 
 // ── Upsert ──
 
-func (h *Handler) upsertDocument(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) upsertRow(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	var body struct {
 		Data        map[string]interface{} `json:"data"`
 		ID          string                 `json:"$id"`
@@ -751,81 +754,81 @@ func (h *Handler) upsertDocument(w http.ResponseWriter, r *http.Request) {
 		body.Permissions = []string{}
 	}
 	if body.ID != "" {
-		existing, _ := h.svc.GetDocument(ctx, body.ID, collID, dbID, projectID)
+		existing, _ := h.svc.GetRow(ctx, body.ID, tableID, dbID, projectID)
 		if existing != nil {
-			doc, err := h.svc.UpdateDocumentWithAuth(ctx, body.ID, collID, dbID, projectID, body.Data, body.Permissions, userID, nil)
+			row, err := h.svc.UpdateRowWithAuth(ctx, body.ID, tableID, dbID, projectID, body.Data, body.Permissions, userID, nil)
 			if err != nil {
 				apperr.Internal(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, doc)
+			writeJSON(w, http.StatusOK, row)
 			return
 		}
 	}
-	doc, err := h.svc.CreateDocumentWithAuth(ctx, projectID, dbID, collID, body.ID, body.Data, body.Permissions, userID, nil)
+	row, err := h.svc.CreateRowWithAuth(ctx, projectID, dbID, tableID, body.ID, body.Data, body.Permissions, userID, nil)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, doc)
+	writeJSON(w, http.StatusCreated, row)
 }
 
 // ── Bulk operations ──
 
-func (h *Handler) bulkCreateDocuments(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) bulkCreateRows(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	var body struct {
-		Documents []map[string]interface{} `json:"documents"`
+		Rows []map[string]interface{} `json:"rows"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Invalid JSON body")
 		return
 	}
 	var created []interface{}
-	for _, data := range body.Documents {
-		doc, err := h.svc.CreateDocumentWithAuth(ctx, projectID, dbID, collID, "", data, []string{}, userID, nil)
+	for _, data := range body.Rows {
+		row, err := h.svc.CreateRowWithAuth(ctx, projectID, dbID, tableID, "", data, []string{}, userID, nil)
 		if err == nil {
-			created = append(created, doc)
+			created = append(created, row)
 		}
 	}
-	writeJSON(w, http.StatusCreated, map[string]interface{}{"created": len(created), "documents": created})
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"created": len(created), "rows": created})
 }
 
-func (h *Handler) bulkUpdateDocuments(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) bulkUpdateRows(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	var body struct {
-		Documents []struct {
+		Rows []struct {
 			ID   string                 `json:"$id"`
 			Data map[string]interface{} `json:"data"`
-		} `json:"documents"`
+		} `json:"rows"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Invalid JSON body")
 		return
 	}
 	updated := 0
-	for _, item := range body.Documents {
-		if _, err := h.svc.UpdateDocumentWithAuth(ctx, item.ID, collID, dbID, projectID, item.Data, []string{}, userID, nil); err == nil {
+	for _, item := range body.Rows {
+		if _, err := h.svc.UpdateRowWithAuth(ctx, item.ID, tableID, dbID, projectID, item.Data, []string{}, userID, nil); err == nil {
 			updated++
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"updated": updated})
 }
 
-func (h *Handler) bulkDeleteDocuments(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) bulkDeleteRows(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	var body struct {
 		IDs []string `json:"ids"`
 	}
@@ -835,7 +838,7 @@ func (h *Handler) bulkDeleteDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	deleted := 0
 	for _, id := range body.IDs {
-		if err := h.svc.DeleteDocumentWithAuth(ctx, id, collID, dbID, projectID, userID, nil); err == nil {
+		if err := h.svc.DeleteRowWithAuth(ctx, id, tableID, dbID, projectID, userID, nil); err == nil {
 			deleted++
 		}
 	}
@@ -857,7 +860,7 @@ func (h *Handler) atomicNumericOp(w http.ResponseWriter, r *http.Request, sign f
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	rowID := chi.URLParam(r, "rowId")
 	var body struct {
 		Field string  `json:"field"`
@@ -867,12 +870,12 @@ func (h *Handler) atomicNumericOp(w http.ResponseWriter, r *http.Request, sign f
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "field and delta required")
 		return
 	}
-	doc, err := h.svc.GetDocument(ctx, rowID, collID, dbID, projectID)
+	row, err := h.svc.GetRow(ctx, rowID, tableID, dbID, projectID)
 	if err != nil {
-		apperr.NotFound(w, "document")
+		apperr.NotFound(w, "row")
 		return
 	}
-	data := doc.Data
+	data := row.Data
 	cur := 0.0
 	if v, ok := data[body.Field]; ok {
 		switch n := v.(type) {
@@ -881,7 +884,7 @@ func (h *Handler) atomicNumericOp(w http.ResponseWriter, r *http.Request, sign f
 		}
 	}
 	cur += body.Delta * sign
-	updated, err := h.svc.UpdateDocumentWithAuth(ctx, rowID, collID, dbID, projectID,
+	updated, err := h.svc.UpdateRowWithAuth(ctx, rowID, tableID, dbID, projectID,
 		map[string]interface{}{body.Field: cur}, []string{}, userID, nil)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -895,7 +898,7 @@ func (h *Handler) atomicAppend(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
-	collID := chi.URLParam(r, "tableId")
+	tableID := chi.URLParam(r, "tableId")
 	rowID := chi.URLParam(r, "rowId")
 	var body struct {
 		Field string      `json:"field"`
@@ -905,17 +908,17 @@ func (h *Handler) atomicAppend(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "field and value required")
 		return
 	}
-	doc, err := h.svc.GetDocument(ctx, rowID, collID, dbID, projectID)
+	row, err := h.svc.GetRow(ctx, rowID, tableID, dbID, projectID)
 	if err != nil {
-		apperr.NotFound(w, "document")
+		apperr.NotFound(w, "row")
 		return
 	}
 	var arr []interface{}
-	if existing, ok := doc.Data[body.Field].([]interface{}); ok {
+	if existing, ok := row.Data[body.Field].([]interface{}); ok {
 		arr = existing
 	}
 	arr = append(arr, body.Value)
-	updated, err := h.svc.UpdateDocumentWithAuth(ctx, rowID, collID, dbID, projectID,
+	updated, err := h.svc.UpdateRowWithAuth(ctx, rowID, tableID, dbID, projectID,
 		map[string]interface{}{body.Field: arr}, []string{}, userID, nil)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -954,4 +957,26 @@ func (h *Handler) executeTransaction(w http.ResponseWriter, r *http.Request) {
 		"total":   len(results),
 		"results": results,
 	})
+}
+
+func (h *Handler) executeSQL(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
+	databaseID := chi.URLParam(r, "databaseId")
+	var body struct {
+		Statement    string   `json:"statement"`
+		WriteAllowed bool     `json:"writeAllowed"`
+		Roles        []string `json:"roles"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Statement) == "" {
+		apperr.BadRequest(w, "statement is required")
+		return
+	}
+	result, err := h.svc.ExecuteSQL(ctx, projectID, databaseID, userID, body.Roles, body.Statement, body.WriteAllowed)
+	if err != nil {
+		apperr.Write(w, http.StatusBadRequest, "sql_execution_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }

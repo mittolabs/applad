@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-func TestDocument_MarshalJSON_MergesData(t *testing.T) {
-	doc := Document{
+func TestRow_MarshalJSON_MergesData(t *testing.T) {
+	row := Row{
 		ID:           "doc1",
-		TableID: "coll1",
+		TableID:      "tbl1",
 		DatabaseID:   "db1",
 		CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		UpdatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -20,7 +20,7 @@ func TestDocument_MarshalJSON_MergesData(t *testing.T) {
 		},
 	}
 
-	b, err := json.Marshal(doc)
+	b, err := json.Marshal(row)
 	if err != nil {
 		t.Fatalf("marshal error: %v", err)
 	}
@@ -42,18 +42,18 @@ func TestDocument_MarshalJSON_MergesData(t *testing.T) {
 	if result["$id"] != "doc1" {
 		t.Fatalf("expected $id='doc1', got %v", result["$id"])
 	}
-	if result["$tableId"] != "coll1" {
-		t.Fatalf("expected $tableId='coll1', got %v", result["$tableId"])
+	if result["$tableId"] != "tbl1" {
+		t.Fatalf("expected $tableId='tbl1', got %v", result["$tableId"])
 	}
 }
 
-func TestDocument_MarshalJSON_EmptyData(t *testing.T) {
-	doc := Document{
+func TestRow_MarshalJSON_EmptyData(t *testing.T) {
+	row := Row{
 		ID:          "doc2",
 		Permissions: []string{},
 	}
 
-	b, err := json.Marshal(doc)
+	b, err := json.Marshal(row)
 	if err != nil {
 		t.Fatalf("marshal error: %v", err)
 	}

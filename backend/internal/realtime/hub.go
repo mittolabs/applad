@@ -3,15 +3,20 @@
 package realtime
 
 import (
+	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Event is a realtime event broadcast to subscribers.
 type Event struct {
-	Type      string      `json:"type"`      // e.g. "databases.documents.create"
-	Channel   string      `json:"channel"`   // e.g. "databases.db1.collections.c1.documents"
+	Type      string      `json:"type"`      // e.g. "databases.rows.create"
+	Channel   string      `json:"channel"`   // e.g. "databases.db1.tables.t1.rows"
 	Timestamp string      `json:"timestamp"`
 	Payload   interface{} `json:"payload"`
 }
@@ -26,8 +31,8 @@ type Hub struct {
 	unregister  chan *Client
 }
 
-// NewHub creates and starts a new realtime Hub.
-func NewHub() *Hub {
+// NewHub creates a hub and optionally starts a PostgreSQL LISTEN loop.
+func NewHub(databaseDSN ...string) *Hub {
 	h := &Hub{
 		clients:    make(map[*Client]bool),
 		channels:   make(map[string]map[*Client]bool),
@@ -36,7 +41,72 @@ func NewHub() *Hub {
 		unregister: make(chan *Client),
 	}
 	go h.run()
+	if len(databaseDSN) > 0 && strings.TrimSpace(databaseDSN[0]) != "" {
+		go h.listenPostgres(databaseDSN[0])
+	}
 	return h
+}
+
+func (h *Hub) listenPostgres(databaseDSN string) {
+	for {
+		if err := h.listenLoop(databaseDSN); err != nil {
+			log.Printf("realtime: postgres listener stopped: %v", err)
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func (h *Hub) listenLoop(databaseDSN string) error {
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, databaseDSN)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+
+	if _, err := conn.Exec(ctx, "LISTEN applad_changes"); err != nil {
+		return err
+	}
+
+	for {
+		notification, err := conn.WaitForNotification(ctx)
+		if err != nil {
+			return err
+		}
+		h.publishDatabaseNotification(notification.Payload)
+	}
+}
+
+func (h *Hub) publishDatabaseNotification(payload string) {
+	var message map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &message); err != nil {
+		log.Printf("realtime: invalid notification payload: %v", err)
+		return
+	}
+	projectID, _ := message["project_id"].(string)
+	if projectID == "" {
+		return
+	}
+	action, _ := message["action"].(string)
+	action = strings.ToLower(action)
+	switch action {
+	case "insert":
+		action = "create"
+	case "update":
+		action = "update"
+	case "delete":
+		action = "delete"
+	}
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	if value, ok := message["timestamp"].(string); ok && value != "" {
+		timestamp = value
+	}
+	h.Publish(Event{
+		Type:      "databases.rows." + action,
+		Channel:   "projects." + projectID + ".databases.rows",
+		Timestamp: timestamp,
+		Payload:   message,
+	})
 }
 
 func (h *Hub) run() {

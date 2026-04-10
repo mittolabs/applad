@@ -14,7 +14,7 @@ const (
 type Pagination struct {
 	Limit       int
 	Offset      int
-	CursorAfter string // document/resource ID for cursor-based pagination
+	CursorAfter string // row/resource ID for cursor-based pagination
 	OrderAttr   string
 	OrderType   string // ASC or DESC
 }

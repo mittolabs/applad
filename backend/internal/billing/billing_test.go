@@ -74,7 +74,7 @@ func TestCancelSubscription(t *testing.T) {
 	database, mock := newMockDB(t)
 	svc := NewService(database)
 
-	mock.ExpectExec("UPDATE billing_subscriptions SET cancel_at_period_end=1").
+	mock.ExpectExec("UPDATE billing_subscriptions SET cancel_at_period_end=TRUE").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := svc.CancelSubscription(context.Background(), "proj1"); err != nil {
@@ -156,5 +156,24 @@ func TestListPlans_Empty(t *testing.T) {
 	}
 	if plans != nil {
 		t.Errorf("expected nil slice for empty result, got %v", plans)
+	}
+}
+
+func TestGetInvoice(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT id, project_id").
+		WithArgs("proj1", "inv1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id", "subscription_id", "amount_cents", "currency", "status", "stripe_invoice_id", "period_start", "period_end", "paid_at", "created_at"}).
+			AddRow("inv1", "proj1", "sub1", 2900, "USD", "paid", "", now, now, now, now))
+
+	inv, err := svc.GetInvoice(context.Background(), "proj1", "inv1")
+	if err != nil {
+		t.Fatalf("GetInvoice: %v", err)
+	}
+	if inv.ID != "inv1" {
+		t.Errorf("invoice id = %s", inv.ID)
 	}
 }

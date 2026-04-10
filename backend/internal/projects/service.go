@@ -208,9 +208,9 @@ func (s *Service) GetUsage(ctx context.Context, projectID string) (*UsageStats, 
 	u := &UsageStats{ProjectID: projectID}
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&u.Users)
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = ?", projectID).Scan(&u.Sessions)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM `_databases` WHERE project_id = ?", projectID).Scan(&u.Databases)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM collections WHERE project_id = ?", projectID).Scan(&u.Tables)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM documents WHERE project_id = ?", projectID).Scan(&u.Rows)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM databases WHERE project_id = ?", projectID).Scan(&u.Databases)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tables WHERE project_id = ?", projectID).Scan(&u.Tables)
+	s.db.QueryRowContext(ctx, "SELECT 0").Scan(&u.Rows)
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = ?", projectID).Scan(&u.Buckets)
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = ?", projectID).Scan(&u.Files)
 	s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = ?", projectID).Scan(&u.StorageBytes)

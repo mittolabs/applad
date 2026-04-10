@@ -66,13 +66,13 @@ func (w *Migrations) process(ctx context.Context, job *queue.Job) {
 		log.Printf("migrations worker: migrations completed successfully")
 
 	case "optimize_tables":
-		tables := []string{"documents", "files", "sessions", "users"}
+		tables := []string{"files", "sessions", "users"}
 		for _, table := range tables {
-			_, err := w.db.ExecContext(ctx, "OPTIMIZE TABLE "+table)
+			_, err := w.db.ExecContext(ctx, "VACUUM ANALYZE "+table)
 			if err != nil {
-				log.Printf("migrations worker: optimize %s failed: %v", table, err)
+				log.Printf("migrations worker: vacuum %s failed: %v", table, err)
 			} else {
-				log.Printf("migrations worker: optimized table %s", table)
+				log.Printf("migrations worker: vacuumed table %s", table)
 			}
 		}
 
