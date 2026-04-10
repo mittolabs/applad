@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="Applad" width="150" />
+  <img src="assets/logo.jpg" alt="Applad" width="180" />
 </p>
 
 <p align="center">
