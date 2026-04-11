@@ -225,7 +225,7 @@ class _EnvList extends StatelessWidget {
               dense: true,
               onTap: () => onSelect(id),
               selected: selected,
-              selectedTileColor: _accent.withOpacity(0.08),
+              selectedTileColor: _accent.withValues(alpha: 0.08),
               leading: Container(
                 width: 8,
                 height: 8,
@@ -278,9 +278,9 @@ class _EnvDetail extends ConsumerWidget {
   final String envId;
   const _EnvDetail({required this.envId});
 
-  @override
   static const _tabNames = ['overview', 'variables', 'settings'];
 
+  @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = consoleColors(context);
     final tabName = tabFromQuery(context, defaultTab: 'overview');

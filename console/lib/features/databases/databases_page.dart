@@ -258,7 +258,7 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
                       final created = _fmtDate(db['createdAt'] ?? db['\$createdAt']);
                       return [
                         Row(children: [
-                          Icon(LucideIcons.database, size: 14, color: _accent),
+                          const Icon(LucideIcons.database, size: 14, color: _accent),
                           const SizedBox(width: 8),
                           Expanded(child: IdText(id: id)),
                         ]),
@@ -559,7 +559,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                       _fmtDate(t['createdAt'] ?? t['\$createdAt']);
                   return [
                     Row(children: [
-                      Icon(LucideIcons.table2,
+                      const Icon(LucideIcons.table2,
                           size: 14, color: _accent),
                       const SizedBox(width: 8),
                       Expanded(child: IdText(id: id)),
@@ -816,7 +816,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
                                   }
                                   _confirmWriteMode();
                                 },
-                          activeColor: _accent,
+                          activeThumbColor: _accent,
                         ),
                         const SizedBox(width: 8),
                         Text(
@@ -1798,7 +1798,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 5, vertical: 1),
                           decoration: BoxDecoration(
-                            color: _accent.withOpacity(0.15),
+                            color: _accent.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(3),
                           ),
                           child: const Text('required',
@@ -1826,11 +1826,11 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                       spacing: 4,
                       children: [
                         if (perms.contains('read'))
-                          _PermChip(label: 'read', color: _green),
+                          const _PermChip(label: 'read', color: _green),
                         if (perms.contains('write'))
-                          _PermChip(label: 'write', color: _accent),
+                          const _PermChip(label: 'write', color: _accent),
                         if (!perms.contains('read') && !perms.contains('write'))
-                          _PermChip(label: 'none', color: _red),
+                          const _PermChip(label: 'none', color: _red),
                       ],
                     ),
                   ];
@@ -2037,7 +2037,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                                   .put(_basePath, data: {'enabled': v});
                               ref.invalidate(_tableDetailsProvider(_key));
                             },
-                            activeColor: _accent,
+                            activeThumbColor: _accent,
                           ),
                           const SizedBox(width: 4),
                           Text('Enabled',
@@ -2094,7 +2094,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                               _basePath, data: {'rowSecurity': v});
                           ref.invalidate(_tableDetailsProvider(_key));
                         },
-                        activeColor: _accent,
+                        activeThumbColor: _accent,
                       ),
                       const SizedBox(width: 8),
                       Text('Row security',
@@ -2190,11 +2190,11 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: _accent.withOpacity(0.12),
+                          color: _accent.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(action,
-                            style: TextStyle(
+                            style: const TextStyle(
                                 color: _accent,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500)),
@@ -2232,8 +2232,8 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
         const SizedBox(height: 12),
         TextButton.icon(
           onPressed: () => _showAddPermissionDialog(perms),
-          icon: Icon(LucideIcons.plus, size: 14, color: _accent),
-          label: Text('Add permission',
+          icon: const Icon(LucideIcons.plus, size: 14, color: _accent),
+          label: const Text('Add permission',
               style: TextStyle(color: _accent, fontSize: 13)),
           style: TextButton.styleFrom(
             padding:
@@ -2297,9 +2297,8 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
               data: {'permissions': updated},
             );
             ref.invalidate(_columnsProvider(_key));
-            if (context.mounted) {
-              Navigator.of(context, rootNavigator: true).pop();
-            }
+            if (!mounted) return;
+            Navigator.of(context, rootNavigator: true).pop();
           },
         ),
       ],
@@ -2347,7 +2346,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                             horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: sel
-                              ? _accent.withOpacity(0.15)
+                              ? _accent.withValues(alpha: 0.15)
                               : consoleColors(ctx).fill,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
@@ -2566,7 +2565,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                             horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: sel
-                              ? _accent.withOpacity(0.15)
+                              ? _accent.withValues(alpha: 0.15)
                               : _cs.fill,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
@@ -2663,7 +2662,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                             horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: sel
-                              ? _accent.withOpacity(0.15)
+                              ? _accent.withValues(alpha: 0.15)
                               : _cs.fill,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
@@ -2690,7 +2689,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
           label: 'Create',
           onTap: () async {
             if (keyCtrl.text.trim().isEmpty ||
-                relTableCtrl.text.trim().isEmpty) return;
+                relTableCtrl.text.trim().isEmpty) { return; }
             await ref.read(apiClientProvider).post(
                 '$_basePath/columns/relationship',
                 data: {
@@ -2821,7 +2820,7 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
                   _PanelField(controller: _keyCtrl, label: 'Key', hint: 'Enter key'),
                   const SizedBox(height: 12),
                   // Type
-                  _PanelLabel('Type'),
+                  const _PanelLabel('Type'),
                   const SizedBox(height: 6),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
@@ -3151,9 +3150,31 @@ class _RowsGrid extends StatelessWidget {
                         iconSize: 16,
                         icon: Icon(LucideIcons.moreHorizontal,
                             size: 14, color: cs.textSubtle),
-                        onSelected: (v) {
+                        onSelected: (v) async {
                           if (v == 'edit') onEdit(row);
-                          if (v == 'delete') onDelete(rowId);
+                          if (v == 'delete') {
+                            final cs2 = consoleColors(context);
+                            final confirmed = await showAppDialog<bool>(
+                              context: context,
+                              title: 'Delete row',
+                              content: Text(
+                                'Are you sure? This action cannot be undone.',
+                                style: TextStyle(color: cs2.textSecondary),
+                              ),
+                              actions: [
+                                const AppDialogCancel(),
+                                AppDialogAction(
+                                  label: 'Delete',
+                                  destructive: true,
+                                  onTap: () => Navigator.of(
+                                    context,
+                                    rootNavigator: true,
+                                  ).pop(true),
+                                ),
+                              ],
+                            );
+                            if (confirmed == true) await onDelete(rowId);
+                          }
                         },
                         itemBuilder: (bCtx) => [
                           PopupMenuItem(
@@ -3295,7 +3316,7 @@ class _SQLSummaryView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(LucideIcons.badgeCheck, size: 28, color: _green),
+          const Icon(LucideIcons.badgeCheck, size: 28, color: _green),
           const SizedBox(height: 12),
           Text(
             'Statement completed',
@@ -3330,9 +3351,9 @@ class _SQLErrorView extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _red.withOpacity(0.08),
+        color: _red.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _red.withOpacity(0.25)),
+        border: Border.all(color: _red.withValues(alpha: 0.25)),
       ),
       child: SelectableText(
         message,
@@ -3611,7 +3632,29 @@ class _DataTable extends StatelessWidget {
                       SizedBox(
                         width: 40,
                         child: _DeleteIcon(
-                            onTap: () => onRowDelete!(row)),
+                            onTap: () async {
+                              final cs = consoleColors(context);
+                              final confirmed = await showAppDialog<bool>(
+                                context: context,
+                                title: 'Delete item',
+                                content: Text(
+                                  'Are you sure? This action cannot be undone.',
+                                  style: TextStyle(color: cs.textSecondary),
+                                ),
+                                actions: [
+                                  const AppDialogCancel(),
+                                  AppDialogAction(
+                                    label: 'Delete',
+                                    destructive: true,
+                                    onTap: () => Navigator.of(
+                                      context,
+                                      rootNavigator: true,
+                                    ).pop(true),
+                                  ),
+                                ],
+                              );
+                              if (confirmed == true) await onRowDelete!(row);
+                            }),
                       ),
                   ],
                 ),
@@ -3897,7 +3940,7 @@ class _SettingsTextFieldState extends State<_SettingsTextField> {
 class _DangerCard extends StatelessWidget {
   final String title;
   final String description;
-  final VoidCallback onDelete;
+  final Future<void> Function() onDelete;
 
   const _DangerCard({
     required this.title,
@@ -3914,7 +3957,7 @@ class _DangerCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: cs.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _red.withOpacity(0.3)),
+        border: Border.all(color: _red.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -3944,7 +3987,27 @@ class _DangerCard extends StatelessWidget {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8)),
             ),
-            onPressed: onDelete,
+            onPressed: () async {
+              final cs = consoleColors(context);
+              final confirmed = await showAppDialog<bool>(
+                context: context,
+                title: 'Confirm delete',
+                content: Text(
+                  description,
+                  style: TextStyle(color: cs.textSecondary),
+                ),
+                actions: [
+                  const AppDialogCancel(),
+                  AppDialogAction(
+                    label: 'Delete',
+                    destructive: true,
+                    onTap: () =>
+                        Navigator.of(context, rootNavigator: true).pop(true),
+                  ),
+                ],
+              );
+              if (confirmed == true) await onDelete();
+            },
             child: const Text('Delete', style: TextStyle(fontSize: 13)),
           ),
         ],
@@ -4238,7 +4301,7 @@ class _PermToggleRow extends StatelessWidget {
         Switch(
           value: value,
           onChanged: onChanged,
-          activeColor: const Color(0xFF6C47FF),
+          activeThumbColor: const Color(0xFF6C47FF),
         ),
       ],
     );

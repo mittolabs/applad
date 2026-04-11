@@ -1,4 +1,4 @@
-// ignore: avoid_web_libraries_in_flutter
+// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
@@ -12,12 +12,12 @@ bool _isLight(BuildContext context) =>
 Color _footerBg(BuildContext context) => Theme.of(context).scaffoldBackgroundColor;
 
 Color _footerBorder(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.08)
-  : Colors.white.withOpacity(0.06);
+  ? Colors.black.withValues(alpha: 0.08)
+  : Colors.white.withValues(alpha: 0.06);
 
 Color _footerText(BuildContext context, double alpha) => _isLight(context)
-  ? const Color(0xFF1A1A2E).withOpacity(alpha)
-  : Colors.white.withOpacity(alpha);
+  ? const Color(0xFF1A1A2E).withValues(alpha: alpha)
+  : Colors.white.withValues(alpha: alpha);
 
 class ConsoleFooter extends StatelessWidget {
   const ConsoleFooter({super.key});

@@ -37,6 +37,7 @@ class Client:
         self._edge = None
         self._billing = None
         self._regions = None
+        self._observe = None
 
     # -----------------------------------------------------------------
     # Internal helpers
@@ -168,3 +169,10 @@ class Client:
             from .regions import Regions
             self._regions = Regions(self)
         return self._regions
+
+    @property
+    def observe(self):
+        if self._observe is None:
+            from .observe import Observe
+            self._observe = Observe(self)
+        return self._observe

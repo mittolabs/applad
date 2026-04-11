@@ -91,7 +91,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final colors = consoleColors(context);
     final routerState = GoRouterState.of(context);
     final projectId = routerState.pathParameters['projectId'];
-    final _tabIndex = _tabNames.indexOf(
+    final tabIndex = _tabNames.indexOf(
       routerState.uri.queryParameters['tab'] ?? 'general',
     ).clamp(0, _tabNames.length - 1);
     if (projectId == null) {
@@ -130,7 +130,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 'Webhooks',
                 'Audit Log',
               ],
-              selected: _tabIndex,
+              selected: tabIndex,
               onChanged: (i) => context.go(
                 withQuery(context, {'tab': _tabNames[i]}),
               ),
@@ -140,7 +140,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             // Tab body
             Expanded(
               child: SingleChildScrollView(
-                child: _buildTabBody(projectId, _tabIndex),
+                child: _buildTabBody(projectId, tabIndex),
               ),
             ),
           ],
@@ -149,8 +149,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _buildTabBody(String projectId, int _tabIndex) {
-    switch (_tabIndex) {
+  Widget _buildTabBody(String projectId, int tabIndex) {
+    switch (tabIndex) {
       case 0:
         return _buildGeneralTab(projectId);
       case 1:
@@ -194,6 +194,27 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             _SettingsCard(
               title: 'Project details',
               subtitle: 'Update your project name and description',
+              trailing: _generalDirty
+                  ? FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _accent,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed:
+                          _generalSaving ? null : () => _saveGeneral(projectId),
+                      child: _generalSaving
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Text('Save',
+                              style: TextStyle(fontSize: 13)),
+                    )
+                  : null,
               children: [
                 _SettingsField(
                   label: 'Project name',
@@ -220,27 +241,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   copyable: true,
                 ),
               ],
-              trailing: _generalDirty
-                  ? FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _accent,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 10),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                      ),
-                      onPressed:
-                          _generalSaving ? null : () => _saveGeneral(projectId),
-                      child: _generalSaving
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Text('Save',
-                              style: TextStyle(fontSize: 13)),
-                    )
-                  : null,
             ),
             const SizedBox(height: 20),
 
@@ -310,7 +310,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   padding: const EdgeInsets.only(top: 12, bottom: 4),
                   child: Text('Experimental',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.3),
+                          color: Colors.white.withValues(alpha: 0.3),
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.5)),
@@ -365,7 +365,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           Text(
                               'Permanently delete this project and all its data. This action cannot be undone.',
                               style: TextStyle(
-                                  color: Colors.white.withOpacity(0.4),
+                                  color: Colors.white.withValues(alpha: 0.4),
                                   fontSize: 13)),
                         ],
                       ),
@@ -589,6 +589,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   // Platforms Tab
   // ===========================================================================
 
+  // ignore: unused_element
   Widget _buildPlatformsTab(String projectId) {
     final colors = consoleColors(context);
     final platformsAsync = ref.watch(_platformsProvider(projectId));
@@ -622,7 +623,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       hintText: 'Search platforms...',
                       hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
                       prefixIcon: Padding(
-                        padding: EdgeInsets.only(left: 10, right: 6),
+                        padding: const EdgeInsets.only(left: 10, right: 6),
                         child: Icon(Icons.search,
                         size: 16, color: colors.textSubtle),
                       ),
@@ -854,7 +855,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       hintText: 'Search webhooks...',
                       hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
                       prefixIcon: Padding(
-                        padding: EdgeInsets.only(left: 10, right: 6),
+                        padding: const EdgeInsets.only(left: 10, right: 6),
                         child: Icon(Icons.search,
                         size: 16, color: colors.textSubtle),
                       ),
@@ -988,7 +989,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     });
                   },
                     backgroundColor: colors.fieldFill,
-                  selectedColor: _accent.withOpacity(0.3),
+                  selectedColor: _accent.withValues(alpha: 0.3),
                   checkmarkColor: Colors.white,
                   side: BorderSide(
                       color: selected
@@ -1045,6 +1046,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
     if (confirmed == true) {
       await ref.read(apiClientProvider).delete('/webhooks/$webhookId');
+      if (!mounted) return;
       final routerState = GoRouterState.of(context);
       final projectId = routerState.pathParameters['projectId'];
       if (projectId != null) {
@@ -1266,7 +1268,7 @@ class _SettingsCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
             color: danger
-                ? _red.withOpacity(0.3)
+                ? _red.withValues(alpha: 0.3)
                 : colors.border),
       ),
       child: Column(
@@ -1456,7 +1458,7 @@ class _ServiceToggle extends StatelessWidget {
           Switch(
             value: enabled,
             onChanged: onChanged,
-            activeColor: _accent,
+            activeThumbColor: _accent,
           ),
         ],
       ),
@@ -1498,7 +1500,7 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
         children: [
           Row(
             children: [
-              Icon(LucideIcons.key, size: 16, color: _accent),
+              const Icon(LucideIcons.key, size: 16, color: _accent),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(name,
@@ -1632,7 +1634,7 @@ class _PlatformCard extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: _accent.withOpacity(0.1),
+              color: _accent.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(_typeIcon(type), size: 18, color: _accent),
@@ -1654,11 +1656,11 @@ class _PlatformCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: _accent.withOpacity(0.15),
+                        color: _accent.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(_typeLabel(type),
-                          style: TextStyle(
+                          style: const TextStyle(
                               color: _accent,
                               fontSize: 11,
                               fontWeight: FontWeight.w500)),
@@ -1719,11 +1721,11 @@ class _WebhookCard extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: _accent.withOpacity(0.1),
+                  color: _accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child:
-                    Icon(LucideIcons.webhook, size: 18, color: _accent),
+                    const Icon(LucideIcons.webhook, size: 18, color: _accent),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1743,7 +1745,7 @@ class _WebhookCard extends StatelessWidget {
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: (enabled ? _green : colors.textSubtle)
-                                .withOpacity(0.15),
+                                .withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -1884,7 +1886,7 @@ class _PlatformTypeChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? _accent.withOpacity(0.15) : colors.fieldFill,
+          color: selected ? _accent.withValues(alpha: 0.15) : colors.fieldFill,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: selected ? _accent : colors.fieldBorder),
         ),

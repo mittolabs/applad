@@ -764,7 +764,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
         Switch(
           value: _htmlMode,
           onChanged: (v) => setState(() => _htmlMode = v),
-          activeColor: _accent,
+          activeThumbColor: _accent,
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
         const SizedBox(width: 10),
@@ -955,7 +955,7 @@ class _SmsPhonePreview extends StatelessWidget {
         color: const Color(0xFF111113),
         borderRadius: BorderRadius.circular(26),
         border:
-            Border.all(color: Colors.white.withOpacity(0.15), width: 2),
+            Border.all(color: Colors.white.withValues(alpha: 0.15), width: 2),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
@@ -1000,7 +1000,7 @@ class _SmsPhonePreview extends StatelessWidget {
                       child: Text(
                         'Enter your message in the input field on the left to see it here',
                         style: TextStyle(
-                            color: Colors.white.withOpacity(0.3),
+                            color: Colors.white.withValues(alpha: 0.3),
                             fontSize: 9),
                         textAlign: TextAlign.center,
                       ),
@@ -1022,21 +1022,21 @@ class _SmsPhonePreview extends StatelessWidget {
         children: [
           Text('9:41',
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
+                  color: Colors.white.withValues(alpha: 0.8),
                   fontSize: 10,
                   fontWeight: FontWeight.w600)),
           const Spacer(),
           Icon(Icons.signal_cellular_alt,
               size: 10,
-              color: Colors.white.withOpacity(0.7)),
+              color: Colors.white.withValues(alpha: 0.7)),
           const SizedBox(width: 2),
           Icon(Icons.wifi,
               size: 10,
-              color: Colors.white.withOpacity(0.7)),
+              color: Colors.white.withValues(alpha: 0.7)),
           const SizedBox(width: 2),
           Icon(Icons.battery_full,
               size: 10,
-              color: Colors.white.withOpacity(0.7)),
+              color: Colors.white.withValues(alpha: 0.7)),
         ],
       ),
     );
@@ -1047,7 +1047,7 @@ class _SmsPhonePreview extends StatelessWidget {
       width: 36,
       height: 36,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
+        color: Colors.white.withValues(alpha: 0.1),
         shape: BoxShape.circle,
       ),
     );
@@ -1071,7 +1071,7 @@ class _PushPhonePreview extends StatelessWidget {
         color: const Color(0xFF111113),
         borderRadius: BorderRadius.circular(26),
         border:
-            Border.all(color: Colors.white.withOpacity(0.15), width: 2),
+            Border.all(color: Colors.white.withValues(alpha: 0.15), width: 2),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
@@ -1088,7 +1088,7 @@ class _PushPhonePreview extends StatelessWidget {
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
                             color:
-                                Colors.white.withOpacity(0.1),
+                                Colors.white.withValues(alpha: 0.1),
                             borderRadius:
                                 BorderRadius.circular(12),
                           ),
@@ -1112,14 +1112,14 @@ class _PushPhonePreview extends StatelessWidget {
                                     'App',
                                     style: TextStyle(
                                         color: Colors.white
-                                            .withOpacity(0.5),
+                                            .withValues(alpha: 0.5),
                                         fontSize: 9),
                                   ),
                                   const Spacer(),
                                   Text('now',
                                       style: TextStyle(
                                           color: Colors.white
-                                              .withOpacity(0.4),
+                                              .withValues(alpha: 0.4),
                                           fontSize: 9)),
                                 ],
                               ),
@@ -1137,7 +1137,7 @@ class _PushPhonePreview extends StatelessWidget {
                                 Text(message,
                                     style: TextStyle(
                                         color: Colors.white
-                                            .withOpacity(0.7),
+                                            .withValues(alpha: 0.7),
                                         fontSize: 9),
                                     maxLines: 3,
                                     overflow:
@@ -1153,7 +1153,7 @@ class _PushPhonePreview extends StatelessWidget {
                         child: Text(
                           'Enter your message in the input field on the left to see it here',
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.3),
+                              color: Colors.white.withValues(alpha: 0.3),
                               fontSize: 9),
                           textAlign: TextAlign.center,
                         ),
@@ -1174,21 +1174,21 @@ class _PushPhonePreview extends StatelessWidget {
         children: [
           Text('9:41',
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
+                  color: Colors.white.withValues(alpha: 0.8),
                   fontSize: 10,
                   fontWeight: FontWeight.w600)),
           const Spacer(),
           Icon(Icons.signal_cellular_alt,
               size: 10,
-              color: Colors.white.withOpacity(0.7)),
+              color: Colors.white.withValues(alpha: 0.7)),
           const SizedBox(width: 2),
           Icon(Icons.wifi,
               size: 10,
-              color: Colors.white.withOpacity(0.7)),
+              color: Colors.white.withValues(alpha: 0.7)),
           const SizedBox(width: 2),
           Icon(Icons.battery_full,
               size: 10,
-              color: Colors.white.withOpacity(0.7)),
+              color: Colors.white.withValues(alpha: 0.7)),
         ],
       ),
     );
@@ -1806,59 +1806,6 @@ class _ProvidersTab extends StatelessWidget {
   }
 }
 
-// ── Shared search field ───────────────────────────────────────────────────────
-class _SearchField extends StatelessWidget {
-  final TextEditingController controller;
-  final String hint;
-  final ValueChanged<String> onChanged;
-
-  const _SearchField({
-    required this.controller,
-    required this.hint,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = consoleColors(context);
-    return SizedBox(
-      width: 300,
-      child: TextField(
-        controller: controller,
-        onChanged: onChanged,
-        style: TextStyle(fontSize: 13, color: cs.textPrimary),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(color: cs.textSubtle, fontSize: 13),
-          prefixIcon: Padding(
-            padding: const EdgeInsets.only(left: 10, right: 6),
-            child: Icon(Icons.search, size: 16, color: cs.textSubtle),
-          ),
-          prefixIconConstraints:
-              const BoxConstraints(minWidth: 32),
-          filled: true,
-          fillColor: cs.fieldFill,
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(
-              vertical: 10, horizontal: 12),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: cs.fieldBorder),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: cs.fieldBorder),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: _accent),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ── Templates Tab ──────────────────────────────────────────────────────────────
 
 class _TemplatesTab extends ConsumerStatefulWidget {
@@ -2171,6 +2118,26 @@ class _TemplateRow extends ConsumerWidget {
             icon: Icon(LucideIcons.trash2,
                 size: 14, color: cs.textSubtle),
             onPressed: () async {
+              final confirmed = await showAppDialog<bool>(
+                context: context,
+                title: 'Delete template',
+                content: Text(
+                  'Are you sure? This action cannot be undone.',
+                  style: TextStyle(color: cs.textSecondary),
+                ),
+                actions: [
+                  const AppDialogCancel(),
+                  AppDialogAction(
+                    label: 'Delete',
+                    destructive: true,
+                    onTap: () => Navigator.of(
+                      context,
+                      rootNavigator: true,
+                    ).pop(true),
+                  ),
+                ],
+              );
+              if (confirmed != true) return;
               final api = ref.read(apiClientProvider);
               await api.delete('/messaging/templates/$id');
               ref.invalidate(_templatesApiProvider);

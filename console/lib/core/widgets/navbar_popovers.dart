@@ -1,4 +1,4 @@
-// ignore: avoid_web_libraries_in_flutter
+// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
@@ -199,10 +199,12 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
     setState(() => _loading = true);
     // Simulate async submission
     await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted) setState(() {
-      _loading = false;
-      _submitted = true;
-    });
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _submitted = true;
+      });
+    }
   }
 
   @override
@@ -236,7 +238,7 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: const Color(0xFF3472A4).withOpacity(0.15),
+              color: const Color(0xFF3472A4).withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
             child: const Icon(LucideIcons.check,
@@ -351,12 +353,12 @@ class _FeedbackPanelState extends State<_FeedbackPanel> {
                             horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: selected
-                              ? const Color(0xFF3472A4).withOpacity(0.15)
+                              ? const Color(0xFF3472A4).withValues(alpha: 0.15)
                               : _cs.fill,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                             color: selected
-                                ? const Color(0xFF3472A4).withOpacity(0.6)
+                                ? const Color(0xFF3472A4).withValues(alpha: 0.6)
                                 : _cs.border,
                           ),
                         ),
@@ -767,10 +769,10 @@ class _UserMenuButtonState extends ConsumerState<UserMenuButton> {
           decoration: BoxDecoration(
             color: isOpen
                 ? const Color(0xFF3472A4)
-                : const Color(0xFF3472A4).withOpacity(0.85),
+                : const Color(0xFF3472A4).withValues(alpha: 0.85),
             shape: BoxShape.circle,
             border: isOpen
-                ? Border.all(color: Colors.white.withOpacity(0.2), width: 2)
+                ? Border.all(color: Colors.white.withValues(alpha: 0.2), width: 2)
                 : null,
           ),
           child: Center(

@@ -415,7 +415,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
         Container(
           width: 32, height: 32,
           decoration: BoxDecoration(
-            color: enabled ? _green.withOpacity(0.1) : _cs.textSubtle.withOpacity(0.05),
+            color: enabled ? _green.withValues(alpha: 0.1) : _cs.textSubtle.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Icon(
@@ -460,7 +460,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
         const SizedBox(height: 32),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withOpacity(0.3))),
+          decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withValues(alpha: 0.3))),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('Danger zone', style: TextStyle(color: _red, fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -469,6 +469,26 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
             OutlinedButton(
               style: OutlinedButton.styleFrom(foregroundColor: _red, side: const BorderSide(color: _red)),
               onPressed: () async {
+                final confirmed = await showAppDialog<bool>(
+                  context: context,
+                  title: 'Delete app',
+                  content: Text(
+                    'Delete this app and all its builds. This action cannot be undone.',
+                    style: TextStyle(color: _cs.textSecondary),
+                  ),
+                  actions: [
+                    const AppDialogCancel(),
+                    AppDialogAction(
+                      label: 'Delete',
+                      destructive: true,
+                      onTap: () => Navigator.of(
+                        context,
+                        rootNavigator: true,
+                      ).pop(true),
+                    ),
+                  ],
+                );
+                if (confirmed != true) return;
                 await ref.read(apiClientProvider).delete('/deploy/targets/$_selectedId');
                 ref.invalidate(_desktopProvider);
                 setState(() => _selectedId = null);
@@ -611,7 +631,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
           width: 110,
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: active ? _accent.withOpacity(0.15) : _cs.surface,
+            color: active ? _accent.withValues(alpha: 0.15) : _cs.surface,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: active ? _accent : _cs.border),
           ),
@@ -634,7 +654,7 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: active ? _accent.withOpacity(0.15) : _cs.surface,
+            color: active ? _accent.withValues(alpha: 0.15) : _cs.surface,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: active ? _accent : _cs.border),
           ),

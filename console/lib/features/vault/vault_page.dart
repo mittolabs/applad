@@ -151,7 +151,7 @@ class _VaultPageState extends ConsumerState<VaultPage> {
             const SizedBox(height: 32),
             Row(
               children: [
-                Icon(LucideIcons.shieldCheck, size: 20, color: _accent),
+                const Icon(LucideIcons.shieldCheck, size: 20, color: _accent),
                 const SizedBox(width: 10),
                 Text(
                   'Vault',
@@ -650,7 +650,7 @@ class _CredentialModalState extends ConsumerState<_CredentialModal> {
         Switch(
           value: _protected,
           onChanged: (v) => setState(() => _protected = v),
-          activeColor: _accent,
+          activeThumbColor: _accent,
         ),
         const SizedBox(width: 8),
         Expanded(

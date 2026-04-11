@@ -84,6 +84,12 @@ class Databases {
     deleteColumn(databaseId, tableId, key) {
         return this.client.call('DELETE', `/databases/${databaseId}/tables/${tableId}/columns/${key}`);
     }
+    getColumnPermissions(databaseId, tableId, key) {
+        return this.client.call('GET', `/databases/${databaseId}/tables/${tableId}/columns/${key}/permissions`);
+    }
+    setColumnPermissions(databaseId, tableId, key, permissions) {
+        return this.client.call('POST', `/databases/${databaseId}/tables/${tableId}/columns/${key}/permissions`, { permissions });
+    }
     // --- Indexes ---
     createIndex(databaseId, tableId, key, type, columns, orders) {
         return this.client.call('POST', `/databases/${databaseId}/tables/${tableId}/indexes`, { key, type, columns, ...(orders && { orders }) });

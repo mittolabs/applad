@@ -16,6 +16,7 @@ const flags_1 = require("./flags");
 const regions_1 = require("./regions");
 const search_1 = require("./search");
 const vectors_1 = require("./vectors");
+const observe_1 = require("./observe");
 class ApplAdServer {
     constructor(config) {
         this.endpoint = config.endpoint.replace(/\/$/, '');
@@ -40,6 +41,7 @@ class ApplAdServer {
         this.regions = new regions_1.Regions(this);
         this.search = new search_1.Search(this);
         this.vectors = new vectors_1.Vectors(this);
+        this.observe = new observe_1.Observe(this);
     }
     async call(method, path, body) {
         const res = await fetch(`${this.endpoint}/v1${path}`, {

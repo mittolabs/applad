@@ -301,7 +301,7 @@ class _CreateDeployContentState extends ConsumerState<_CreateDeployContent> {
                 fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
-          value: _type,
+          initialValue: _type,
           dropdownColor: cs.popupSurface,
           style: TextStyle(color: cs.textPrimary, fontSize: 13),
           decoration: InputDecoration(
@@ -413,7 +413,7 @@ class _DeployGridCardState extends State<_DeployGridCard> {
             color: _hovered ? cs.fillHover : cs.surface,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-                color: _hovered ? _accent.withOpacity(0.35) : cs.border),
+                color: _hovered ? _accent.withValues(alpha: 0.35) : cs.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -473,9 +473,9 @@ class _StatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(label,
           style: TextStyle(
@@ -719,7 +719,7 @@ class _DeployDetailViewState extends ConsumerState<_DeployDetailView> {
                 decoration: BoxDecoration(
                   color: cs.surface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _red.withOpacity(0.3)),
+                  border: Border.all(color: _red.withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -782,6 +782,27 @@ class _DeployDetailViewState extends ConsumerState<_DeployDetailView> {
                               borderRadius: BorderRadius.circular(8)),
                         ),
                         onPressed: () async {
+                          final cs2 = consoleColors(context);
+                          final confirmed = await showAppDialog<bool>(
+                            context: context,
+                            title: 'Delete deployment',
+                            content: Text(
+                              'Are you sure? This action cannot be undone.',
+                              style: TextStyle(color: cs2.textSecondary),
+                            ),
+                            actions: [
+                              const AppDialogCancel(),
+                              AppDialogAction(
+                                label: 'Delete',
+                                destructive: true,
+                                onTap: () => Navigator.of(
+                                  context,
+                                  rootNavigator: true,
+                                ).pop(true),
+                              ),
+                            ],
+                          );
+                          if (confirmed != true) return;
                           final api = ref.read(apiClientProvider);
                           await api.delete('/deploy/${widget.deployId}');
                           ref.invalidate(deploymentsProvider);

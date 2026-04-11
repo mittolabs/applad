@@ -1,3 +1,4 @@
+// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -143,7 +144,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   ? 'Your backend,\nyour rules.'
                   : 'Ship faster\nwith Applad_',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.85),
+                color: Colors.white.withValues(alpha: 0.85),
                 fontSize: 48,
                 fontWeight: FontWeight.w700,
                 height: 1.15,
@@ -156,7 +157,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               'Auth, Databases, Storage, Functions, Workflows\n'
               'and Messaging \u2014 one docker compose up.',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.4),
+                color: Colors.white.withValues(alpha: 0.4),
                 fontSize: 16,
                 height: 1.5,
               ),
@@ -167,9 +168,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: Colors.white.withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -178,7 +179,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     '\u201cSelf-hosted BaaS with a workflow engine built in \u2014 '
                     'exactly what we needed.\u201d',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
+                      color: Colors.white.withValues(alpha: 0.6),
                       fontSize: 14,
                       fontStyle: FontStyle.italic,
                       height: 1.5,
@@ -190,7 +191,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       CircleAvatar(
                         radius: 16,
                         backgroundColor:
-                            const Color(0xFF3472A4).withOpacity(0.3),
+                            const Color(0xFF3472A4).withValues(alpha: 0.3),
                         child: const Text(
                           'OS',
                           style: TextStyle(
@@ -207,7 +208,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           Text(
                             'Open Source',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
+                              color: Colors.white.withValues(alpha: 0.7),
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
@@ -215,7 +216,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           Text(
                             'Community',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.35),
+                              color: Colors.white.withValues(alpha: 0.35),
                               fontSize: 12,
                             ),
                           ),
@@ -322,10 +323,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.1),
+                            color: Colors.red.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                             border:
-                                Border.all(color: Colors.red.withOpacity(0.3)),
+                                Border.all(color: Colors.red.withValues(alpha: 0.3)),
                           ),
                           child: Row(
                             children: [

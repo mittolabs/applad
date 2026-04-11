@@ -149,6 +149,7 @@ func (c *Client) Vectors() *VectorsService     { return &VectorsService{client: 
 func (c *Client) Edge() *EdgeService           { return &EdgeService{client: c} }
 func (c *Client) Billing() *BillingService     { return &BillingService{client: c} }
 func (c *Client) Regions() *RegionsService     { return &RegionsService{client: c} }
+func (c *Client) Observe() *ObserveService     { return &ObserveService{client: c} }
 
 // ---------------------------------------------------------------------------
 // Users
@@ -1040,4 +1041,108 @@ func (s *RegionsService) SetActive(regionID string) (map[string]interface{}, err
 
 func (s *RegionsService) GetHealth(regionID string) (map[string]interface{}, error) {
 	return s.client.call("GET", fmt.Sprintf("/regions/%s/health", regionID), nil)
+}
+
+// ---------------------------------------------------------------------------
+// Observe
+// ---------------------------------------------------------------------------
+
+type ObserveService struct{ client *Client }
+
+func (s *ObserveService) GetOverview() (map[string]interface{}, error) {
+	return s.client.call("GET", "/observe/overview", nil)
+}
+
+// ── Errors ──────────────────────────────────────────────────────────────────
+
+func (s *ObserveService) CaptureError(title string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"title": title}
+	for k, v := range opts {
+		body[k] = v
+	}
+	return s.client.call("POST", "/observe/errors", body)
+}
+
+func (s *ObserveService) ListErrors(params map[string]string) (map[string]interface{}, error) {
+	q := url.Values{}
+	for k, v := range params {
+		q.Set(k, v)
+	}
+	path := "/observe/errors"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	return s.client.call("GET", path, nil)
+}
+
+func (s *ObserveService) GetError(errorID string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/observe/errors/"+errorID, nil)
+}
+
+func (s *ObserveService) ResolveError(errorID string) (map[string]interface{}, error) {
+	return s.client.call("PATCH", "/observe/errors/"+errorID+"/resolve", nil)
+}
+
+func (s *ObserveService) IgnoreError(errorID string) (map[string]interface{}, error) {
+	return s.client.call("PATCH", "/observe/errors/"+errorID+"/ignore", nil)
+}
+
+// ── Logs ─────────────────────────────────────────────────────────────────────
+
+func (s *ObserveService) CaptureLog(message string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"message": message}
+	for k, v := range opts {
+		body[k] = v
+	}
+	return s.client.call("POST", "/observe/logs", body)
+}
+
+func (s *ObserveService) ListLogs(params map[string]string) (map[string]interface{}, error) {
+	q := url.Values{}
+	for k, v := range params {
+		q.Set(k, v)
+	}
+	path := "/observe/logs"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	return s.client.call("GET", path, nil)
+}
+
+// ── Performance ───────────────────────────────────────────────────────────────
+
+func (s *ObserveService) GetPerformance() (map[string]interface{}, error) {
+	return s.client.call("GET", "/observe/performance", nil)
+}
+
+func (s *ObserveService) RecordPerf(path string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"path": path}
+	for k, v := range opts {
+		body[k] = v
+	}
+	return s.client.call("POST", "/observe/performance", body)
+}
+
+func (s *ObserveService) ReportWebVitals(vitals map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("POST", "/observe/performance/vitals", vitals)
+}
+
+// ── Releases ──────────────────────────────────────────────────────────────────
+
+func (s *ObserveService) ListReleases() (map[string]interface{}, error) {
+	return s.client.call("GET", "/observe/releases", nil)
+}
+
+func (s *ObserveService) CreateRelease(version string, opts map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"version": version}
+	for k, v := range opts {
+		body[k] = v
+	}
+	return s.client.call("POST", "/observe/releases", body)
+}
+
+// ── Cron checkin ──────────────────────────────────────────────────────────────
+
+func (s *ObserveService) CronCheckin(monitorID string, opts map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/observe/crons/%s/checkin", monitorID), opts)
 }

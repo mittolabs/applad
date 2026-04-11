@@ -15,7 +15,6 @@ import '../../features/messaging/messaging_page.dart';
 import '../../features/workflows/workflows_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/flags/flags_page.dart';
-import '../../features/experiments/experiments_page.dart';
 import '../../features/health/health_page.dart';
 import '../../features/sites/sites_page.dart';
 import '../../features/containers/containers_page.dart';
@@ -26,7 +25,9 @@ import '../../features/projects/projects_page.dart';
 import '../../features/get_started/get_started_page.dart';
 import '../../features/vault/vault_page.dart';
 import '../../features/realtime/realtime_page.dart';
+import '../../features/content/content_page.dart';
 import '../../features/platforms/platforms_page.dart';
+import '../../features/observe/observe_page.dart';
 
 Page<void> _noTransition(GoRouterState state, Widget child) {
   return NoTransitionPage(key: state.pageKey, child: child);
@@ -132,14 +133,59 @@ final routerProvider = Provider<GoRouter>((ref) {
                 _noTransition(state, const RealtimePage()),
           ),
           GoRoute(
-            path: '/project/:projectId/experiments',
+            path: '/project/:projectId/content',
             pageBuilder: (_, state) =>
-                _noTransition(state, const ExperimentsPage()),
+                _noTransition(state, const ContentPage()),
           ),
           GoRoute(
             path: '/project/:projectId/health',
             pageBuilder: (_, state) =>
                 _noTransition(state, const HealthPage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/observe',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/errors',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/logs',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/performance',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/uptime',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/alerts',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/releases',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/replays',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/crons',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ObservePage()),
           ),
           GoRoute(
             path: '/project/:projectId/sites',

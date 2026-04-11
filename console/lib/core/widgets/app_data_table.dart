@@ -1,8 +1,9 @@
-// ignore: avoid_web_libraries_in_flutter
+// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../theme/console_colors.dart';
+import 'app_dialog.dart';
 import 'app_empty_state.dart';
 import 'id_text.dart';
 import 'search_list.dart';
@@ -228,7 +229,7 @@ class _AppDataTableState extends State<AppDataTable> {
   }
 
   int get _activeFilterCount =>
-      _activeFilters.values.where((v) => v != null && v!.isNotEmpty).length;
+      _activeFilters.values.where((v) => v != null && v.isNotEmpty).length;
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
@@ -550,8 +551,31 @@ class _ListBody extends StatelessWidget {
                 getRowIcon: getRowIcon,
                 getRowIconColor: getRowIconColor,
                 onTap: onRowTap != null ? () => onRowTap!(row) : null,
-                onDelete:
-                    onDeleteRow != null ? () => onDeleteRow!(row) : null,
+                onDelete: onDeleteRow != null
+                    ? () async {
+                        final colors = consoleColors(context);
+                        final confirmed = await showAppDialog<bool>(
+                          context: context,
+                          title: 'Delete item',
+                          content: Text(
+                            'Are you sure? This action cannot be undone.',
+                            style: TextStyle(color: colors.textSecondary),
+                          ),
+                          actions: [
+                            const AppDialogCancel(),
+                            AppDialogAction(
+                              label: 'Delete',
+                              destructive: true,
+                              onTap: () => Navigator.of(
+                                context,
+                                rootNavigator: true,
+                              ).pop(true),
+                            ),
+                          ],
+                        );
+                        if (confirmed == true) await onDeleteRow!(row);
+                      }
+                    : null,
               );
             },
           ),
@@ -1078,7 +1102,7 @@ class _FilterPanelState extends State<_FilterPanel> {
   }
 
   bool get _hasActive =>
-      _local.values.any((v) => v != null && v!.isNotEmpty);
+      _local.values.any((v) => v != null && v.isNotEmpty);
 
   @override
   Widget build(BuildContext context) {
@@ -1118,7 +1142,7 @@ class _FilterPanelState extends State<_FilterPanel> {
                         setState(() =>
                             _local = {for (final f in widget.filters) f.key: null});
                       },
-                      child: MouseRegion(
+                      child: const MouseRegion(
                         cursor: SystemMouseCursors.click,
                         child: Text('Clear all',
                             style: TextStyle(
@@ -1142,7 +1166,7 @@ class _FilterPanelState extends State<_FilterPanel> {
                             fontWeight: FontWeight.w500)),
                     const SizedBox(height: 4),
                     DropdownButtonFormField<String?>(
-                      value: _local[f.key],
+                      initialValue: _local[f.key],
                       dropdownColor: cs.popupSurface,
                       style:
                           TextStyle(color: cs.textPrimary, fontSize: 13),
@@ -1349,14 +1373,14 @@ class _ToolbarChipState extends State<_ToolbarChip> {
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             color: widget.active
-                ? _kAccent.withOpacity(0.10)
+                ? _kAccent.withValues(alpha: 0.10)
                 : _hovered
                     ? cs.fillHover
                     : cs.fieldFill,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
                 color: widget.active
-                    ? _kAccent.withOpacity(0.35)
+                    ? _kAccent.withValues(alpha: 0.35)
                     : cs.fieldBorder),
           ),
           child: Center(child: widget.child),

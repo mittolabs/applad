@@ -1,4 +1,4 @@
-// ignore: avoid_web_libraries_in_flutter
+// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:html' as html;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,7 +19,7 @@ final getStartedDoneProvider =
 
 /// Permanently marks get-started as done for [projectId].
 /// Writes to localStorage and updates the in-memory provider state.
-/// Accepts either [Ref] or [WidgetRef] via the common [AutoDisposeRef] base.
+/// Accepts either [Ref] or [WidgetRef].
 void markGetStartedDone(String projectId, dynamic ref) {
   try {
     html.window.localStorage[_key(projectId)] = '1';

@@ -205,9 +205,9 @@ class _OverviewTab extends ConsumerWidget {
   Widget _errorCard(dynamic colors) => Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.redAccent.withOpacity(0.08),
+          color: Colors.redAccent.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
+          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.2)),
         ),
         child: Row(children: [
           const Icon(LucideIcons.alertTriangle, size: 14, color: Colors.redAccent),

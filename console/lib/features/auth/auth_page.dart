@@ -10,6 +10,7 @@ import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/status_chip.dart';
 
@@ -321,6 +322,16 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
 
 // ── Teams tab ─────────────────────────────────────────────────────────────────
 
+// Provider for a single team's memberships
+final _teamMembershipsProvider =
+    FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
+  (ref, teamId) async {
+    final api = ref.read(apiClientProvider);
+    final res = await api.get('/teams/$teamId/memberships');
+    return res.data as Map<String, dynamic>;
+  },
+);
+
 class _TeamsTab extends ConsumerStatefulWidget {
   const _TeamsTab();
 
@@ -330,6 +341,8 @@ class _TeamsTab extends ConsumerStatefulWidget {
 
 class _TeamsTabState extends ConsumerState<_TeamsTab> {
   final _searchCtrl = TextEditingController();
+  String? _selectedTeamId;
+  String _selectedTeamName = '';
 
   @override
   void dispose() {
@@ -342,35 +355,104 @@ class _TeamsTabState extends ConsumerState<_TeamsTab> {
     ref.read(_teamPageProvider.notifier).state = 1;
   }
 
+  void _showCreateTeamDialog() {
+    final nameCtrl = TextEditingController();
+    final rolesCtrl = TextEditingController();
+    showAppDialog(
+      context: context,
+      title: 'Create team',
+      subtitle: 'Group users with shared roles',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppDialogField(
+            controller: nameCtrl,
+            label: 'Team name',
+            hint: 'e.g. Admins, Beta Testers',
+            autofocus: true,
+          ),
+          const SizedBox(height: 12),
+          AppDialogField(
+            controller: rolesCtrl,
+            label: 'Default roles (optional)',
+            hint: 'Comma-separated, e.g. admin, viewer',
+          ),
+        ],
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Create',
+          onTap: () async {
+            if (nameCtrl.text.trim().isEmpty) return;
+            final api = ref.read(apiClientProvider);
+            final roles = rolesCtrl.text
+                .split(',')
+                .map((r) => r.trim())
+                .where((r) => r.isNotEmpty)
+                .toList();
+            await api.post('/teams', data: {
+              'name': nameCtrl.text.trim(),
+              if (roles.isNotEmpty) 'roles': roles,
+            });
+            ref.invalidate(teamsProvider);
+            if (!mounted) return;
+            Navigator.of(context, rootNavigator: true).pop();
+          },
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_selectedTeamId != null) {
+      return _TeamDetail(
+        teamId: _selectedTeamId!,
+        teamName: _selectedTeamName,
+        onBack: () => setState(() => _selectedTeamId = null),
+      );
+    }
+
     final teamsAsync = ref.watch(teamsProvider);
     final perPage = ref.watch(_teamPerPageProvider);
     final currentPage = ref.watch(_teamPageProvider);
 
     return teamsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(teamsProvider)),
+      error: (e, _) =>
+          AppErrorState(error: e, onRetry: () => ref.invalidate(teamsProvider)),
       data: (data) {
         final teams = List<Map<String, dynamic>>.from(data['teams'] ?? []);
         final total = data['total'] as int? ?? 0;
         return AppDataTable(
           columns: const [
-            AppTableColumn(key: r'$id',       label: 'Team ID', flex: 3),
-            AppTableColumn(key: 'name',        label: 'Name',    flex: 3),
-            AppTableColumn(key: 'total',       label: 'Members', flex: 2),
+            AppTableColumn(key: r'$id', label: 'Team ID', flex: 3),
+            AppTableColumn(key: 'name', label: 'Name', flex: 3),
+            AppTableColumn(key: 'total', label: 'Members', flex: 2),
             AppTableColumn(key: r'$createdAt', label: 'Created', flex: 2),
           ],
           rows: teams,
           getCellValue: (row, key) => switch (key) {
-            r'$id'        => row[r'$id'] as String? ?? '',
-            'name'        => row['name'] as String? ?? 'Unnamed',
-            'total'       => '${row['total'] as int? ?? 0}',
-            r'$createdAt' => _relativeTime(row[r'$createdAt'] as String? ?? ''),
-            _             => '',
+            r'$id' => row[r'$id'] as String? ?? '',
+            'name' => row['name'] as String? ?? 'Unnamed',
+            'total' => '${row['total'] as int? ?? 0}',
+            r'$createdAt' =>
+              _relativeTime(row[r'$createdAt'] as String? ?? ''),
+            _ => '',
           },
           getRowIcon: (_) => LucideIcons.users,
+          onRowTap: (row) => setState(() {
+            _selectedTeamId = row[r'$id'] as String? ?? '';
+            _selectedTeamName = row['name'] as String? ?? 'Team';
+          }),
+          onDeleteRow: (row) async {
+            final api = ref.read(apiClientProvider);
+            await api.delete('/teams/${row[r'$id']}');
+            ref.invalidate(teamsProvider);
+          },
           createLabel: 'Create team',
+          onCreateTap: _showCreateTeamDialog,
           total: total,
           perPage: perPage,
           currentPage: currentPage,
@@ -397,6 +479,475 @@ class _TeamsTabState extends ConsumerState<_TeamsTab> {
           emptySubtitle: 'Create a team to group users together.',
         );
       },
+    );
+  }
+}
+
+// ── Team detail view ──────────────────────────────────────────────────────────
+
+class _TeamDetail extends ConsumerStatefulWidget {
+  final String teamId;
+  final String teamName;
+  final VoidCallback onBack;
+
+  const _TeamDetail({
+    required this.teamId,
+    required this.teamName,
+    required this.onBack,
+  });
+
+  @override
+  ConsumerState<_TeamDetail> createState() => _TeamDetailState();
+}
+
+class _TeamDetailState extends ConsumerState<_TeamDetail> {
+  @override
+  Widget build(BuildContext context) {
+    final colors = consoleColors(context);
+    final membershipsAsync =
+        ref.watch(_teamMembershipsProvider(widget.teamId));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Row(
+          children: [
+            InkWell(
+              onTap: widget.onBack,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(LucideIcons.arrowLeft,
+                    size: 18, color: colors.textMuted),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(LucideIcons.users, size: 18, color: colors.textMuted),
+            const SizedBox(width: 8),
+            Text(widget.teamName,
+                style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(width: 8),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: colors.fill,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text('ID: ${widget.teamId}',
+                  style: TextStyle(
+                      color: colors.textSubtle,
+                      fontSize: 11,
+                      fontFamily: 'monospace')),
+            ),
+            const Spacer(),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: _accent.withValues(alpha: 0.15),
+                side: const BorderSide(color: _accent),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              ),
+              icon: const Icon(LucideIcons.userPlus, size: 15),
+              label:
+                  const Text('Add member', style: TextStyle(fontSize: 13)),
+              onPressed: _showAddMemberDialog,
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        // Memberships table
+        Expanded(
+          child: membershipsAsync.when(
+            loading: () =>
+                const Center(child: CircularProgressIndicator()),
+            error: (e, _) => AppErrorState(error: e),
+            data: (data) {
+              final memberships = List<Map<String, dynamic>>.from(
+                  data['memberships'] ?? []);
+              if (memberships.isEmpty) {
+                return const AppEmptyState(
+                  icon: LucideIcons.userX,
+                  title: 'No members yet',
+                  subtitle: 'Add members to this team.',
+                );
+              }
+              return Container(
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Table header
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border(
+                            bottom: BorderSide(color: colors.border)),
+                      ),
+                      child: Row(children: [
+                        Expanded(
+                            flex: 3,
+                            child: Text('Email',
+                                style: TextStyle(
+                                    color: colors.textMuted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500))),
+                        Expanded(
+                            flex: 3,
+                            child: Text('Roles',
+                                style: TextStyle(
+                                    color: colors.textMuted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500))),
+                        Expanded(
+                            flex: 2,
+                            child: Text('Status',
+                                style: TextStyle(
+                                    color: colors.textMuted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500))),
+                        Expanded(
+                            flex: 2,
+                            child: Text('Joined',
+                                style: TextStyle(
+                                    color: colors.textMuted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500))),
+                        const SizedBox(width: 40),
+                      ]),
+                    ),
+                    // Rows
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: memberships.length,
+                        itemBuilder: (ctx, i) {
+                          final m = memberships[i];
+                          final membershipId =
+                              m[r'$id'] as String? ?? '';
+                          final email =
+                              m['userEmail'] as String? ??
+                                  m['invitedEmail'] as String? ??
+                                  '—';
+                          final roles = (m['roles'] as List?)
+                                  ?.map((r) => r.toString())
+                                  .toList() ??
+                              [];
+                          final joined = m['joined'] == true ||
+                              m['joined'] == 1;
+                          final createdAt =
+                              m[r'$createdAt'] as String? ?? '';
+                          final isLast =
+                              i == memberships.length - 1;
+
+                          return _MembershipRow(
+                            email: email,
+                            roles: roles,
+                            joined: joined,
+                            createdAt: createdAt,
+                            isLast: isLast,
+                            onDelete: () async {
+                              final cs = consoleColors(context);
+                              final confirmed =
+                                  await showAppDialog<bool>(
+                                context: context,
+                                title: 'Remove member',
+                                content: Text(
+                                  'Remove $email from this team?',
+                                  style: TextStyle(
+                                      color: cs.textSecondary),
+                                ),
+                                actions: [
+                                  const AppDialogCancel(),
+                                  AppDialogAction(
+                                    label: 'Remove',
+                                    destructive: true,
+                                    onTap: () => Navigator.of(
+                                      context,
+                                      rootNavigator: true,
+                                    ).pop(true),
+                                  ),
+                                ],
+                              );
+                              if (confirmed != true) return;
+                              final api =
+                                  ref.read(apiClientProvider);
+                              await api.delete(
+                                  '/teams/${widget.teamId}/memberships/$membershipId');
+                              ref.invalidate(
+                                  _teamMembershipsProvider(
+                                      widget.teamId));
+                              ref.invalidate(teamsProvider);
+                            },
+                            onEditRoles: () =>
+                                _showEditRolesDialog(m),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showAddMemberDialog() {
+    final emailCtrl = TextEditingController();
+    final rolesCtrl = TextEditingController();
+    showAppDialog(
+      context: context,
+      title: 'Add member',
+      subtitle: 'Invite a user to ${widget.teamName}',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppDialogField(
+            controller: emailCtrl,
+            label: 'Email address',
+            hint: 'user@example.com',
+            autofocus: true,
+          ),
+          const SizedBox(height: 12),
+          AppDialogField(
+            controller: rolesCtrl,
+            label: 'Roles (optional)',
+            hint: 'Comma-separated, e.g. admin, editor',
+          ),
+        ],
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Add',
+          onTap: () async {
+            if (emailCtrl.text.trim().isEmpty) return;
+            final roles = rolesCtrl.text
+                .split(',')
+                .map((r) => r.trim())
+                .where((r) => r.isNotEmpty)
+                .toList();
+            final api = ref.read(apiClientProvider);
+            await api.post('/teams/${widget.teamId}/memberships',
+                data: {
+                  'email': emailCtrl.text.trim(),
+                  'roles': roles,
+                });
+            ref.invalidate(
+                _teamMembershipsProvider(widget.teamId));
+            ref.invalidate(teamsProvider);
+            if (!mounted) return;
+            Navigator.of(context, rootNavigator: true).pop();
+          },
+        ),
+      ],
+    );
+  }
+
+  void _showEditRolesDialog(Map<String, dynamic> membership) {
+    final membershipId = membership[r'$id'] as String? ?? '';
+    final email = membership['userEmail'] as String? ??
+        membership['invitedEmail'] as String? ??
+        '—';
+    final currentRoles =
+        (membership['roles'] as List?)?.map((r) => r.toString()).join(', ') ??
+            '';
+    final rolesCtrl = TextEditingController(text: currentRoles);
+
+    showAppDialog(
+      context: context,
+      title: 'Edit roles',
+      subtitle: email,
+      content: AppDialogField(
+        controller: rolesCtrl,
+        label: 'Roles',
+        hint: 'Comma-separated, e.g. admin, editor',
+        autofocus: true,
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Save',
+          onTap: () async {
+            final roles = rolesCtrl.text
+                .split(',')
+                .map((r) => r.trim())
+                .where((r) => r.isNotEmpty)
+                .toList();
+            final api = ref.read(apiClientProvider);
+            // Teams API: update membership roles via PATCH (or recreate via delete+create)
+            // The backend handler doesn't expose a PATCH membership endpoint,
+            // so we delete and re-invite with new roles.
+            await api.delete(
+                '/teams/${widget.teamId}/memberships/$membershipId');
+            await api.post('/teams/${widget.teamId}/memberships',
+                data: {
+                  'email': email,
+                  'roles': roles,
+                });
+            ref.invalidate(
+                _teamMembershipsProvider(widget.teamId));
+            if (!mounted) return;
+            Navigator.of(context, rootNavigator: true).pop();
+          },
+        ),
+      ],
+    );
+  }
+}
+
+// ── Membership row ────────────────────────────────────────────────────────────
+
+class _MembershipRow extends StatefulWidget {
+  final String email;
+  final List<String> roles;
+  final bool joined;
+  final String createdAt;
+  final bool isLast;
+  final VoidCallback onDelete;
+  final VoidCallback onEditRoles;
+
+  const _MembershipRow({
+    required this.email,
+    required this.roles,
+    required this.joined,
+    required this.createdAt,
+    required this.isLast,
+    required this.onDelete,
+    required this.onEditRoles,
+  });
+
+  @override
+  State<_MembershipRow> createState() => _MembershipRowState();
+}
+
+class _MembershipRowState extends State<_MembershipRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          color: _hovered ? cs.fillHover : null,
+          border: widget.isLast
+              ? null
+              : Border(bottom: BorderSide(color: cs.border)),
+        ),
+        child: Row(children: [
+          // Email
+          Expanded(
+            flex: 3,
+            child: Text(widget.email,
+                style: TextStyle(color: cs.textPrimary, fontSize: 13),
+                overflow: TextOverflow.ellipsis),
+          ),
+          // Roles
+          Expanded(
+            flex: 3,
+            child: widget.roles.isEmpty
+                ? Text('No roles',
+                    style:
+                        TextStyle(color: cs.textSubtle, fontSize: 12))
+                : Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: widget.roles
+                        .map((r) => _RoleChip(label: r))
+                        .toList(),
+                  ),
+          ),
+          // Status
+          Expanded(
+            flex: 2,
+            child: StatusChip.fromStatus(
+                widget.joined ? 'active' : 'pending'),
+          ),
+          // Joined date
+          Expanded(
+            flex: 2,
+            child: Text(
+                widget.createdAt.isEmpty
+                    ? '—'
+                    : _relativeTime(widget.createdAt),
+                style:
+                    TextStyle(color: cs.textMuted, fontSize: 12)),
+          ),
+          // Actions
+          SizedBox(
+            width: 40,
+            child: PopupMenuButton<String>(
+              color: cs.popupSurface,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+              iconSize: 16,
+              icon: Icon(LucideIcons.moreHorizontal,
+                  size: 14,
+                  color: _hovered ? cs.textMuted : Colors.transparent),
+              onSelected: (v) {
+                if (v == 'edit') widget.onEditRoles();
+                if (v == 'remove') widget.onDelete();
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'edit',
+                  child: Text('Edit roles',
+                      style: TextStyle(
+                          color: cs.textPrimary, fontSize: 13)),
+                ),
+                PopupMenuItem(
+                  value: 'remove',
+                  child: Text('Remove',
+                      style: TextStyle(
+                          color: Colors.red.shade400, fontSize: 13)),
+                ),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Role chip ─────────────────────────────────────────────────────────────────
+
+class _RoleChip extends StatelessWidget {
+  final String label;
+  const _RoleChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: _accent.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: _accent.withValues(alpha: 0.3)),
+      ),
+      child: Text(label,
+          style: const TextStyle(
+              color: _accent, fontSize: 11, fontWeight: FontWeight.w500)),
     );
   }
 }
@@ -1345,7 +1896,7 @@ class _AuthSettingsTabState extends State<_AuthSettingsTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Auth methods ───────────────────────────────────────────────
-          _SectionHeader(
+          const _SectionHeader(
             title: 'Auth methods',
             subtitle: 'Enable the authentication methods you wish to use.',
           ),
@@ -1359,7 +1910,7 @@ class _AuthSettingsTabState extends State<_AuthSettingsTab> {
             child: LayoutBuilder(
               builder: (_, constraints) {
                 final cols = constraints.maxWidth > 680 ? 2 : 1;
-                final items = _authMethods;
+                const items = _authMethods;
                 if (cols == 1) {
                   return Column(
                     children: items.asMap().entries.map((e) {
@@ -1417,7 +1968,7 @@ class _AuthSettingsTabState extends State<_AuthSettingsTab> {
           const SizedBox(height: 32),
 
           // ── OAuth providers ────────────────────────────────────────────
-          _SectionHeader(
+          const _SectionHeader(
             title: 'OAuth2 Providers',
             subtitle:
                 'Allow users to sign in with their existing third-party accounts.',
@@ -1782,7 +2333,7 @@ class _OAuthConfigDialogState extends State<_OAuthConfigDialog> {
 
   @override
   void dispose() {
-    for (final c in _ctrls.values) c.dispose();
+    for (final c in _ctrls.values) { c.dispose(); }
     super.dispose();
   }
 
@@ -1934,7 +2485,7 @@ class _OAuthConfigDialogState extends State<_OAuthConfigDialog> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(LucideIcons.info,
+                          const Icon(LucideIcons.info,
                               size: 14,
                               color: _accent),
                           const SizedBox(width: 10),
@@ -2154,10 +2705,10 @@ class _CopyIconButtonState extends State<_CopyIconButton> {
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 180),
           child: _copied
-              ? Icon(LucideIcons.check,
-                  key: const ValueKey('ck'),
+              ? const Icon(LucideIcons.check,
+                  key: ValueKey('ck'),
                   size: 14,
-                  color: const Color(0xFF10B981))
+                  color: Color(0xFF10B981))
               : Icon(LucideIcons.copy,
                   key: const ValueKey('cp'),
                   size: 14,
@@ -2168,39 +2719,6 @@ class _CopyIconButtonState extends State<_CopyIconButton> {
   }
 }
 
-
-Widget _emptyState(
-    BuildContext context,
-    {required IconData icon,
-    required String title,
-    required String description}) {
-  final colors = consoleColors(context);
-  return Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: colors.fill,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, size: 22, color: colors.textSubtle),
-        ),
-        const SizedBox(height: 16),
-        Text(title,
-            style: TextStyle(
-                color: colors.textPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w500)),
-        const SizedBox(height: 6),
-        Text(description,
-            style: TextStyle(color: colors.textSecondary, fontSize: 13)),
-      ],
-    ),
-  );
-}
 
 String _relativeTime(String iso) {
   if (iso.isEmpty) return '—';

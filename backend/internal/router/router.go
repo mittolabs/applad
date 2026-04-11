@@ -24,6 +24,7 @@ import (
 	"github.com/mittolabs/applad/internal/deploy"
 	"github.com/mittolabs/applad/internal/edge"
 	"github.com/mittolabs/applad/internal/flags"
+	"github.com/mittolabs/applad/internal/observe"
 	"github.com/mittolabs/applad/internal/functions"
 	"github.com/mittolabs/applad/internal/health"
 	"github.com/mittolabs/applad/internal/jobs"
@@ -55,10 +56,16 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	// Audit log middleware — records all authenticated API calls
 	auditSvc := audit.NewService(database)
 
+	// Perf collector — buffers per-request latencies and flushes percentiles
+	// to observe_perf_snapshots every 60 s.
+	observeSvcEarly := observe.NewService(database)
+	perfCollector := observe.NewPerfCollector(observeSvcEarly, 60*time.Second)
+	perfCollector.Start(context.Background())
+
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(trace.Middleware)
-	r.Use(observabilityMiddleware)
+	r.Use(observabilityMiddleware(perfCollector))
 	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS)
 	r.Use(mw.SecurityHeaders)
@@ -278,6 +285,11 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/search", search.Routes(search.NewHandler(search.NewService(database))))
 				r.Mount("/vectors", vectors.Routes(vectors.NewHandler(vectors.NewService(database))))
 				r.Mount("/project-regions", regions.ProjectRoutes(regions.NewHandler(regions.NewService(database))))
+
+				// Observe (errors, logs, performance, releases, replays, uptime, crons, alerts)
+				observeSvc := observeSvcEarly
+				observeSvc.StartUptimeWorker(context.Background())
+				r.Mount("/observe", observe.Routes(observe.NewHandler(observeSvc)))
 			})
 		})
 	})
@@ -286,20 +298,31 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 }
 
 // observabilityMiddleware records HTTP request metrics (count + latency) using
-// the built-in metrics package.  It wraps the response writer to capture the
-// status code written by downstream handlers.
-func observabilityMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		ww := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(ww, r)
-		// Use chi's route pattern if available for low-cardinality labels.
-		pattern := r.URL.Path
-		if rctx := chi.RouteContext(r.Context()); rctx != nil && rctx.RoutePattern() != "" {
-			pattern = rctx.RoutePattern()
-		}
-		metrics.ObserveRequest(r.Method, pattern, ww.status, start)
-	})
+// the built-in metrics package, and also feeds per-project latency samples
+// into the PerfCollector for DB-backed percentile snapshots.
+func observabilityMiddleware(pc *observe.PerfCollector) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			ww := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(ww, r)
+			elapsed := time.Since(start)
+
+			// Use chi's route pattern for low-cardinality labels.
+			pattern := r.URL.Path
+			if rctx := chi.RouteContext(r.Context()); rctx != nil && rctx.RoutePattern() != "" {
+				pattern = rctx.RoutePattern()
+			}
+
+			metrics.ObserveRequest(r.Method, pattern, ww.status, start)
+
+			// Record per-project sample for DB-backed performance snapshots.
+			if projectID := mw.ProjectFromContext(r.Context()); projectID != "" {
+				pc.Record(projectID, r.Method, pattern,
+					float64(elapsed.Milliseconds()), ww.status >= 400)
+			}
+		})
+	}
 }
 
 type statusWriter struct {

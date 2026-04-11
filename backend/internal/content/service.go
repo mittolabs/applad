@@ -15,12 +15,12 @@ import (
 
 // Field describes a single field within a ContentType.
 type Field struct {
-	Key      string   `json:"key"`
-	Label    string   `json:"label"`
-	Type     string   `json:"type"` // text | richtext | number | boolean | date | media | reference | slug | seo
-	Required bool     `json:"required"`
+	Key      string      `json:"key"`
+	Label    string      `json:"label"`
+	Type     string      `json:"type"` // text | richtext | number | boolean | date | media | reference | slug | seo
+	Required bool        `json:"required"`
 	Default  interface{} `json:"default,omitempty"`
-	Options  []string `json:"options,omitempty"`
+	Options  []string    `json:"options,omitempty"`
 }
 
 // ContentType is a schema definition for content entries.
@@ -38,18 +38,18 @@ type ContentType struct {
 
 // Entry is a content entry (instance of a ContentType).
 type Entry struct {
-	ID          string     `json:"$id"`
-	TypeID      string     `json:"typeId"`
-	ProjectID   string     `json:"projectId"`
-	Slug        string     `json:"slug,omitempty"`
-	Status      string     `json:"status"` // draft | published | archived
-	Locale      string     `json:"locale"`
-	AuthorID    string     `json:"authorId,omitempty"`
+	ID          string                 `json:"$id"`
+	TypeID      string                 `json:"typeId"`
+	ProjectID   string                 `json:"projectId"`
+	Slug        string                 `json:"slug,omitempty"`
+	Status      string                 `json:"status"` // draft | published | archived
+	Locale      string                 `json:"locale"`
+	AuthorID    string                 `json:"authorId,omitempty"`
 	Data        map[string]interface{} `json:"data,omitempty"`
-	Version     int        `json:"version"`
-	PublishedAt *time.Time `json:"publishedAt,omitempty"`
-	CreatedAt   time.Time  `json:"$createdAt"`
-	UpdatedAt   time.Time  `json:"$updatedAt"`
+	Version     int                    `json:"version"`
+	PublishedAt *time.Time             `json:"publishedAt,omitempty"`
+	CreatedAt   time.Time              `json:"$createdAt"`
+	UpdatedAt   time.Time              `json:"$updatedAt"`
 }
 
 // Version is a historical snapshot of an entry's data.
@@ -84,13 +84,13 @@ func (s *Service) CreateType(ctx context.Context, projectID, name, slug string, 
 	fieldsJSON, _ := json.Marshal(fields)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO content_types (id, project_id, name, slug, fields, versioning, localization, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 		ct.ID, ct.ProjectID, ct.Name, ct.Slug, fieldsJSON,
-		boolInt(ct.Versioning), boolInt(ct.Localization),
+		ct.Versioning, ct.Localization,
 		ct.CreatedAt, ct.UpdatedAt,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "Duplicate entry") {
+		if strings.Contains(err.Error(), "duplicate key value") {
 			return nil, fmt.Errorf("content: type with slug %q already exists", slug)
 		}
 		return nil, fmt.Errorf("content: create type: %w", err)
@@ -102,7 +102,7 @@ func (s *Service) CreateType(ctx context.Context, projectID, name, slug string, 
 func (s *Service) GetType(ctx context.Context, typeID, projectID string) (*ContentType, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, slug, fields, versioning, localization, created_at, updated_at
-		 FROM content_types WHERE id = ? AND project_id = ?`, typeID, projectID)
+		 FROM content_types WHERE id = $1 AND project_id = $2`, typeID, projectID)
 	return scanType(row)
 }
 
@@ -110,7 +110,7 @@ func (s *Service) GetType(ctx context.Context, typeID, projectID string) (*Conte
 func (s *Service) ListTypes(ctx context.Context, projectID string) ([]*ContentType, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, slug, fields, versioning, localization, created_at, updated_at
-		 FROM content_types WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM content_types WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -140,14 +140,14 @@ func (s *Service) UpdateType(ctx context.Context, typeID, projectID, name string
 	}
 	fieldsJSON, _ := json.Marshal(ct.Fields)
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE content_types SET name=?, fields=?, updated_at=? WHERE id=?",
+		"UPDATE content_types SET name=$1, fields=$2, updated_at=$3 WHERE id=$4",
 		ct.Name, fieldsJSON, time.Now().UTC(), ct.ID)
 	return ct, err
 }
 
 // DeleteType deletes a content type and all its entries.
 func (s *Service) DeleteType(ctx context.Context, typeID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM content_types WHERE id = ? AND project_id = ?", typeID, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM content_types WHERE id = $1 AND project_id = $2", typeID, projectID)
 	return err
 }
 
@@ -172,7 +172,7 @@ func (s *Service) CreateEntry(ctx context.Context, typeID, projectID, slug, loca
 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO content_entries (id, type_id, project_id, slug, status, locale, author_id, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 		entry.ID, entry.TypeID, entry.ProjectID, nullStr(entry.Slug),
 		entry.Status, entry.Locale, nullStr(entry.AuthorID),
 		entry.CreatedAt, entry.UpdatedAt,
@@ -184,7 +184,7 @@ func (s *Service) CreateEntry(ctx context.Context, typeID, projectID, slug, loca
 	// Create initial version
 	dataJSON, _ := json.Marshal(data)
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO content_versions (id, entry_id, version, data, created_by, created_at) VALUES (?,?,?,?,?,?)",
+		"INSERT INTO content_versions (id, entry_id, version, data, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
 		uid.New(""), entry.ID, 1, dataJSON, nullStr(authorID), entry.CreatedAt,
 	)
 	if err != nil {
@@ -200,7 +200,7 @@ func (s *Service) GetEntry(ctx context.Context, entryID, projectID string) (*Ent
 		        COALESCE(v.data,'{}'), COALESCE(v.version,1), e.published_at, e.created_at, e.updated_at
 		 FROM content_entries e
 		 LEFT JOIN content_versions v ON v.entry_id = e.id AND v.version = (SELECT MAX(version) FROM content_versions WHERE entry_id = e.id)
-		 WHERE e.id = ? AND e.project_id = ?`, entryID, projectID)
+		 WHERE e.id = $1 AND e.project_id = $2`, entryID, projectID)
 	return scanEntry(row)
 }
 
@@ -209,29 +209,31 @@ func (s *Service) ListEntries(ctx context.Context, typeID, projectID, status, lo
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
-	where := "e.type_id = ? AND e.project_id = ?"
+	// Build dynamic WHERE clause with numbered placeholders.
 	args := []interface{}{typeID, projectID}
+	where := "e.type_id = $1 AND e.project_id = $2"
+	n := 3
 	if status != "" {
-		where += " AND e.status = ?"
+		where += fmt.Sprintf(" AND e.status = $%d", n)
 		args = append(args, status)
+		n++
 	}
 	if locale != "" {
-		where += " AND e.locale = ?"
+		where += fmt.Sprintf(" AND e.locale = $%d", n)
 		args = append(args, locale)
+		n++
 	}
 
 	var total int
-	countArgs := make([]interface{}, len(args))
-	copy(countArgs, args)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM content_entries e WHERE "+where, countArgs...).Scan(&total) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM content_entries e WHERE "+where, args...).Scan(&total) //nolint:errcheck
 
-	args = append(args, limit, offset)
+	listArgs := append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT e.id, e.type_id, e.project_id, COALESCE(e.slug,''), e.status, e.locale, COALESCE(e.author_id,''),
 		        COALESCE(v.data,'{}'), COALESCE(v.version,1), e.published_at, e.created_at, e.updated_at
 		 FROM content_entries e
 		 LEFT JOIN content_versions v ON v.entry_id = e.id AND v.version = (SELECT MAX(version) FROM content_versions WHERE entry_id = e.id)
-		 WHERE `+where+` ORDER BY e.created_at DESC LIMIT ? OFFSET ?`, args...)
+		 WHERE `+where+fmt.Sprintf(` ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, n, n+1), listArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -261,13 +263,13 @@ func (s *Service) UpdateEntry(ctx context.Context, entryID, projectID, authorID 
 	}
 	defer tx.Rollback() //nolint:errcheck
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO content_versions (id, entry_id, version, data, created_by, created_at) VALUES (?,?,?,?,?,?)",
+		"INSERT INTO content_versions (id, entry_id, version, data, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
 		uid.New(""), entryID, newVer, dataJSON, nullStr(authorID), time.Now().UTC(),
 	)
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE content_entries SET updated_at=? WHERE id=?", time.Now().UTC(), entryID)
+	_, err = tx.ExecContext(ctx, "UPDATE content_entries SET updated_at=$1 WHERE id=$2", time.Now().UTC(), entryID)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +285,7 @@ func (s *Service) UpdateEntry(ctx context.Context, entryID, projectID, authorID 
 func (s *Service) PublishEntry(ctx context.Context, entryID, projectID string) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE content_entries SET status='published', published_at=?, updated_at=? WHERE id=? AND project_id=?",
+		"UPDATE content_entries SET status='published', published_at=$1, updated_at=$2 WHERE id=$3 AND project_id=$4",
 		now, now, entryID, projectID)
 	return err
 }
@@ -291,14 +293,14 @@ func (s *Service) PublishEntry(ctx context.Context, entryID, projectID string) e
 // UnpublishEntry reverts a published entry back to draft.
 func (s *Service) UnpublishEntry(ctx context.Context, entryID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE content_entries SET status='draft', updated_at=? WHERE id=? AND project_id=?",
+		"UPDATE content_entries SET status='draft', updated_at=$1 WHERE id=$2 AND project_id=$3",
 		time.Now().UTC(), entryID, projectID)
 	return err
 }
 
 // DeleteEntry deletes an entry and all its versions.
 func (s *Service) DeleteEntry(ctx context.Context, entryID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM content_entries WHERE id=? AND project_id=?", entryID, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM content_entries WHERE id=$1 AND project_id=$2", entryID, projectID)
 	return err
 }
 
@@ -308,7 +310,7 @@ func (s *Service) ListVersions(ctx context.Context, entryID, projectID string) (
 		`SELECT v.id, v.entry_id, v.version, v.data, COALESCE(v.created_by,''), v.created_at
 		 FROM content_versions v
 		 JOIN content_entries e ON e.id = v.entry_id
-		 WHERE v.entry_id = ? AND e.project_id = ?
+		 WHERE v.entry_id = $1 AND e.project_id = $2
 		 ORDER BY v.version DESC`, entryID, projectID)
 	if err != nil {
 		return nil, err
@@ -332,14 +334,11 @@ func (s *Service) ListVersions(ctx context.Context, entryID, projectID string) (
 func scanType(row interface{ Scan(...interface{}) error }) (*ContentType, error) {
 	ct := &ContentType{}
 	var fieldsRaw []byte
-	var versioningInt, localizationInt int
 	if err := row.Scan(&ct.ID, &ct.ProjectID, &ct.Name, &ct.Slug, &fieldsRaw,
-		&versioningInt, &localizationInt, &ct.CreatedAt, &ct.UpdatedAt); err != nil {
+		&ct.Versioning, &ct.Localization, &ct.CreatedAt, &ct.UpdatedAt); err != nil {
 		return nil, err
 	}
 	json.Unmarshal(fieldsRaw, &ct.Fields) //nolint:errcheck
-	ct.Versioning = versioningInt == 1
-	ct.Localization = localizationInt == 1
 	return ct, nil
 }
 
@@ -361,11 +360,4 @@ func nullStr(s string) interface{} {
 		return nil
 	}
 	return s
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

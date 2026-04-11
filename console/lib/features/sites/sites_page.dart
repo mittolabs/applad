@@ -401,7 +401,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           final fw = _frameworkById(selectedFramework);
@@ -534,19 +534,19 @@ class _SitesPageState extends ConsumerState<SitesPage> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: _accent.withOpacity(0.08),
+                      color: _accent.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _accent.withOpacity(0.15)),
+                      border: Border.all(color: _accent.withValues(alpha: 0.15)),
                     ),
                     child: Row(
                       children: [
-                        Icon(LucideIcons.info, size: 14, color: _accent),
+                        const Icon(LucideIcons.info, size: 14, color: _accent),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Auto-detected from ${fw.label}. Edit if needed.',
                             style:
-                                TextStyle(color: _accent, fontSize: 12),
+                                const TextStyle(color: _accent, fontSize: 12),
                           ),
                         ),
                       ],
@@ -773,14 +773,14 @@ class _FrameworkCardState extends State<_FrameworkCard> {
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
             color: widget.selected
-                ? _accent.withOpacity(0.1)
+                ? _accent.withValues(alpha: 0.1)
                 : _hovered
                     ? _cs.fillHover
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: widget.selected
-                  ? _accent.withOpacity(0.4)
+                  ? _accent.withValues(alpha: 0.4)
                   : _cs.border,
             ),
           ),
@@ -844,14 +844,14 @@ class _SourceTypeChipState extends State<_SourceTypeChip> {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: widget.selected
-                ? _accent.withOpacity(0.1)
+                ? _accent.withValues(alpha: 0.1)
                 : _hovered
                     ? _cs.fillHover
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: widget.selected
-                  ? _accent.withOpacity(0.4)
+                  ? _accent.withValues(alpha: 0.4)
                   : _cs.border,
             ),
           ),
@@ -875,74 +875,6 @@ class _SourceTypeChipState extends State<_SourceTypeChip> {
   }
 }
 
-// --- Status dot --------------------------------------------------------------
-
-class _StatusDot extends StatelessWidget {
-  final String status;
-  const _StatusDot({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = consoleColors(context);
-    Color color;
-    String label;
-    switch (status) {
-      case 'active':
-        color = _green;
-        label = 'Active';
-      case 'building':
-        color = _orange;
-        label = 'Building';
-      case 'failed':
-        color = _red;
-        label = 'Failed';
-      default:
-        color = cs.textMuted;
-        label = status;
-    }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 5),
-        Text(label, style: TextStyle(fontSize: 11, color: color)),
-      ],
-    );
-  }
-}
-
-// --- Framework badge ---------------------------------------------------------
-
-class _FrameworkBadge extends StatelessWidget {
-  final _Framework framework;
-  const _FrameworkBadge({required this.framework});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: _accent.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: _accent.withOpacity(0.15)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(framework.icon, size: 11, color: _accent),
-          const SizedBox(width: 4),
-          Text(framework.label,
-              style: const TextStyle(fontSize: 11, color: _accent)),
-        ],
-      ),
-    );
-  }
-}
-
 // --- List-level usage tab ----------------------------------------------------
 
 class _SiteListUsageTab extends ConsumerWidget {
@@ -959,20 +891,20 @@ class _SiteListUsageTab extends ConsumerWidget {
             style: TextStyle(color: cs.textMuted, fontSize: 13),
           ),
           const SizedBox(height: 20),
-          Row(
+          const Row(
             children: [
               _StatCard(
                 icon: LucideIcons.activity,
                 label: 'Total requests',
                 value: '--',
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               _StatCard(
                 icon: LucideIcons.hardDrive,
                 label: 'Bandwidth',
                 value: '--',
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               _StatCard(
                 icon: LucideIcons.timer,
                 label: 'Build minutes',
@@ -1246,7 +1178,7 @@ class _OverviewTab extends ConsumerWidget {
                                       content: Text(
                                           'Roll back to deployment ${releaseId.length > 8 ? releaseId.substring(0, 8) : releaseId}…?',
                                           style: TextStyle(
-                                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
+                                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
                                       actions: [
                                         TextButton(
                                           onPressed: () =>
@@ -1665,9 +1597,9 @@ class _DeployStatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1924,9 +1856,9 @@ class _HttpStatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
       child: Text('$code',
           style: TextStyle(
@@ -2110,7 +2042,7 @@ class _DomainsTab extends ConsumerWidget {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           final dlgCs = consoleColors(ctx);
@@ -2309,14 +2241,14 @@ class _TargetTypeChipState extends State<_TargetTypeChip> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: widget.selected
-                ? _accent.withOpacity(0.1)
+                ? _accent.withValues(alpha: 0.1)
                 : _hovered
                     ? _cs.fillHover
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: widget.selected
-                  ? _accent.withOpacity(0.4)
+                  ? _accent.withValues(alpha: 0.4)
                   : _cs.border,
             ),
           ),
@@ -2383,20 +2315,20 @@ class _UsageTabState extends ConsumerState<_UsageTab> {
           const SizedBox(height: 20),
           // Stat cards
           statsAsync.when(
-            loading: () => Row(
+            loading: () => const Row(
               children: [
                 Expanded(
                     child: _StatCard(
                         icon: LucideIcons.activity,
                         label: 'Requests',
                         value: '--')),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                     child: _StatCard(
                         icon: LucideIcons.hardDrive,
                         label: 'Bandwidth',
                         value: '--')),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                     child: _StatCard(
                         icon: LucideIcons.timer,
@@ -2469,7 +2401,7 @@ class _TimeRangeSelector extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color:
-                      selected ? _accent.withOpacity(0.15) : Colors.transparent,
+                      selected ? _accent.withValues(alpha: 0.15) : Colors.transparent,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(r,
@@ -2657,7 +2589,7 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── General ──────────────────────────────────────────────────────
-          _SectionHeader(title: 'General'),
+          const _SectionHeader(title: 'General'),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(20),
@@ -2689,7 +2621,7 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
           const SizedBox(height: 24),
 
           // ── Build configuration ──────────────────────────────────────────
-          _SectionHeader(title: 'Build configuration'),
+          const _SectionHeader(title: 'Build configuration'),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(20),
@@ -2724,7 +2656,7 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
           const SizedBox(height: 24),
 
           // ── Environment variables ────────────────────────────────────────
-          _SectionHeader(title: 'Environment variables'),
+          const _SectionHeader(title: 'Environment variables'),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(20),
@@ -2840,13 +2772,13 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
                       TextEditingController(),
                     ));
                   }),
-                  child: MouseRegion(
+                  child: const MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(LucideIcons.plus, size: 14, color: _accent),
-                        const SizedBox(width: 6),
+                        SizedBox(width: 6),
                         Text('Add variable',
                             style: TextStyle(
                                 color: _accent, fontSize: 13)),
@@ -2873,14 +2805,14 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
           const SizedBox(height: 32),
 
           // ── Danger zone ──────────────────────────────────────────────────
-          _SectionHeader(title: 'Danger zone', danger: true),
+          const _SectionHeader(title: 'Danger zone', danger: true),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: _cs.surface,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: _red.withOpacity(0.2)),
+              border: Border.all(color: _red.withValues(alpha: 0.2)),
             ),
             child: Row(
               children: [

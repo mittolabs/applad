@@ -36,39 +36,39 @@ Color _panelSurface(BuildContext context) =>
   _isLight(context) ? Colors.white : _panelBg;
 
 Color _dividerColor(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.08)
-  : Colors.white.withOpacity(0.06);
+  ? Colors.black.withValues(alpha: 0.08)
+  : Colors.white.withValues(alpha: 0.06);
 
 Color _primaryTextColor(BuildContext context) =>
   _isLight(context) ? const Color(0xFF1A1A2E) : Colors.white;
 
 Color _secondaryTextColor(BuildContext context) => _isLight(context)
-  ? const Color(0xFF1A1A2E).withOpacity(0.62)
-  : Colors.white.withOpacity(0.55);
+  ? const Color(0xFF1A1A2E).withValues(alpha: 0.62)
+  : Colors.white.withValues(alpha: 0.55);
 
 Color _mutedTextColor(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.35)
-  : Colors.white.withOpacity(0.35);
+  ? Colors.black.withValues(alpha: 0.35)
+  : Colors.white.withValues(alpha: 0.35);
 
 Color _iconColor(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.55)
-  : Colors.white.withOpacity(0.45);
+  ? Colors.black.withValues(alpha: 0.55)
+  : Colors.white.withValues(alpha: 0.45);
 
 Color _hoverFillColor(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.04)
-  : Colors.white.withOpacity(0.04);
+  ? Colors.black.withValues(alpha: 0.04)
+  : Colors.white.withValues(alpha: 0.04);
 
 Color _activeFillColor(BuildContext context) => _isLight(context)
-  ? _accent.withOpacity(0.1)
-  : Colors.white.withOpacity(0.08);
+  ? _accent.withValues(alpha: 0.1)
+  : Colors.white.withValues(alpha: 0.08);
 
 Color _placeholderTextColor(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.22)
-  : Colors.white.withOpacity(0.22);
+  ? Colors.black.withValues(alpha: 0.22)
+  : Colors.white.withValues(alpha: 0.22);
 
 Color _inputFillColor(BuildContext context) => _isLight(context)
-  ? Colors.black.withOpacity(0.03)
-  : Colors.white.withOpacity(0.04);
+  ? Colors.black.withValues(alpha: 0.03)
+  : Colors.white.withValues(alpha: 0.04);
 
 Color _popupSurface(BuildContext context) => Theme.of(context).popupMenuTheme.color ??
   (_isLight(context) ? Colors.white : const Color(0xFF1A1A22));
@@ -94,70 +94,47 @@ class _NavChild {
   final String label;
   final String route; // relative to /project/{id}/
   final IconData icon;
-  final bool placeholder; // not yet implemented
+  final bool placeholder;
 
-  const _NavChild(this.label, this.route, this.icon,
-      {this.placeholder = false});
+  // ignore: unused_element_parameter
+  const _NavChild(this.label, this.route, this.icon, {this.placeholder = false});
 }
 
 List<_NavGroup> _buildGroups() => [
-      _NavGroup('overview', 'Overview', LucideIcons.barChart3, []),
-      _NavGroup('specify', 'Specify', LucideIcons.fileText, [
-        _NavChild('Feature specs', 'specify', LucideIcons.fileText,
-            placeholder: true),
-        _NavChild('User stories', 'specify/stories', LucideIcons.bookOpen,
-            placeholder: true),
-        _NavChild(
-            'API contracts', 'specify/api', LucideIcons.fileCode,
-            placeholder: true),
-      ]),
-      _NavGroup('design', 'Design', LucideIcons.figma, [
-        _NavChild('Components', 'design', LucideIcons.component,
-            placeholder: true),
-        _NavChild('Pages', 'design/pages', LucideIcons.layout,
-            placeholder: true),
-        _NavChild('Assets', 'design/assets', LucideIcons.image,
-            placeholder: true),
-        _NavChild('Prototypes', 'design/prototypes', LucideIcons.play,
-            placeholder: true),
-      ]),
-      _NavGroup('build', 'Build', LucideIcons.box, [
+      const _NavGroup('overview', 'Overview', LucideIcons.barChart3, []),
+      const _NavGroup('build', 'Build', LucideIcons.box, [
         _NavChild('Auth', 'auth', LucideIcons.users),
         _NavChild('Databases', 'databases', LucideIcons.database),
         _NavChild('Functions', 'functions', LucideIcons.zap),
         _NavChild('Storage', 'storage', LucideIcons.folderClosed),
         _NavChild('Messaging', 'messaging', LucideIcons.messageSquare),
+        _NavChild('Content', 'content', LucideIcons.fileText),
         _NavChild('Realtime', 'realtime', LucideIcons.radio),
         _NavChild('Workflows', 'workflows', LucideIcons.gitBranch),
         _NavChild('Feature Flags', 'flags', LucideIcons.toggleRight),
       ]),
-      _NavGroup('test', 'Test', LucideIcons.flaskConical, [
-        _NavChild('Test recorder', 'test', LucideIcons.video,
-            placeholder: true),
-        _NavChild('Test suites', 'test/suites', LucideIcons.listChecks,
-            placeholder: true),
-        _NavChild('Device lab', 'test/devices', LucideIcons.smartphone,
-            placeholder: true),
-        _NavChild('Bug capture', 'test/bugs', LucideIcons.bug,
-            placeholder: true),
-        _NavChild('Coverage', 'test/coverage', LucideIcons.pieChart,
-            placeholder: true),
+      const _NavGroup('platforms', 'Platforms', LucideIcons.layers, [
+        _NavChild('Sites', 'sites', LucideIcons.globe),
+        _NavChild('Containers', 'containers', LucideIcons.box),
+        _NavChild('Mobile', 'mobile', LucideIcons.smartphone),
+        _NavChild('Desktop', 'desktop', LucideIcons.monitor),
+        _NavChild('Deployments', 'deploy', LucideIcons.rocket),
       ]),
-      _NavGroup('platforms', 'Platforms', LucideIcons.layers, []),
-      _NavGroup('observe', 'Observe', LucideIcons.activity, [
-        _NavChild('Analytics', 'analytics', LucideIcons.barChart3,
-            placeholder: true),
-        _NavChild('Logs', 'logs', LucideIcons.terminal, placeholder: true),
-        _NavChild('Health', 'health', LucideIcons.heartPulse,
-            placeholder: true),
-        _NavChild('Errors', 'errors', LucideIcons.alertTriangle,
-            placeholder: true),
+      const _NavGroup('observe', 'Observe', LucideIcons.activity, [
+        _NavChild('Overview',    'observe',     LucideIcons.layoutDashboard),
+        _NavChild('Errors',      'errors',      LucideIcons.alertTriangle),
+        _NavChild('Performance', 'performance', LucideIcons.zap),
+        _NavChild('Releases',    'releases',    LucideIcons.tag),
+        _NavChild('Logs',        'logs',        LucideIcons.terminal),
+        _NavChild('Replays',     'replays',     LucideIcons.video),
+        _NavChild('Uptime',      'uptime',      LucideIcons.heartPulse),
+        _NavChild('Crons',       'crons',       LucideIcons.clock),
+        _NavChild('Alerts',      'alerts',      LucideIcons.bell),
       ]),
-_NavGroup('settings', 'Settings', LucideIcons.settings, [
+      const _NavGroup('settings', 'Settings', LucideIcons.settings, [
         _NavChild('General', 'settings', LucideIcons.settings),
         _NavChild('Team', 'settings', LucideIcons.users),
         _NavChild('Vault', 'vault', LucideIcons.shieldCheck),
-        _NavChild('Experiments', 'experiments', LucideIcons.flaskConical),
       ], pinBottom: true),
     ];
 
@@ -203,7 +180,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final orgs = ref.read(orgsProvider).valueOrNull ?? [];
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.65),
+      barrierColor: Colors.black.withValues(alpha: 0.65),
       builder: (ctx) => SearchModal(
         projects: projects,
         orgs: orgs,
@@ -283,24 +260,27 @@ class _AppShellState extends ConsumerState<AppShell> {
       'storage': 'build',
       'functions': 'build',
       'messaging': 'build',
+      'content': 'build',
       'workflows': 'build',
       'flags': 'build',
+      'realtime': 'build',
+      'platforms': 'platforms',
       'deploy': 'platforms',
       'sites': 'platforms',
       'containers': 'platforms',
       'mobile': 'platforms',
       'desktop': 'platforms',
-      'platforms': 'platforms',
-      'api-platforms': 'platforms',
-      'environments': 'platforms',
       'vault': 'settings',
       'settings': 'settings',
-      'specify': 'specify',
-      'design': 'design',
-      'test': 'test',
-      'analytics': 'observe',
-      'logs': 'observe',
-      'health': 'observe',
+      'observe':     'observe',
+      'errors':      'observe',
+      'logs':        'observe',
+      'performance': 'observe',
+      'releases':    'observe',
+      'replays':     'observe',
+      'uptime':      'observe',
+      'crons':       'observe',
+      'alerts':      'observe',
     };
     return routeToGroup[segment] ?? 'overview';
   }
@@ -314,14 +294,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (projectId != null) _syncProject(projectId);
 
     final experiments = ref.watch(experimentsProvider);
-    final allGroups = _buildGroups();
-    // Filter groups based on experiments
-    final experimentalGroups = {'specify', 'design', 'test', 'observe'};
-    final groups = allGroups.where((g) {
-      if (!experimentalGroups.contains(g.id)) return true;
-      final map = experiments.toMap();
-      return map[g.id] == true;
-    }).toList();
+    final groups = _buildGroups();
     final activeGroup = _activeGroup(currentPath, projectId ?? '');
 
     final isMobile = _isMobile(context);
@@ -614,11 +587,11 @@ class _RailIconState extends State<_RailIcon> {
     final hoverFill = _hoverFillColor(context);
     final activeIconColor = _isLight(context) ? accentColor : Colors.white;
     final hoverIconColor = _isLight(context)
-      ? _primaryTextColor(context).withOpacity(0.72)
-      : Colors.white.withOpacity(0.65);
+      ? _primaryTextColor(context).withValues(alpha: 0.72)
+      : Colors.white.withValues(alpha: 0.65);
     final idleIconColor = _isLight(context)
-      ? _primaryTextColor(context).withOpacity(0.4)
-      : Colors.white.withOpacity(0.28);
+      ? _primaryTextColor(context).withValues(alpha: 0.4)
+      : Colors.white.withValues(alpha: 0.28);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -737,9 +710,9 @@ class _GetStartedRailItem extends ConsumerWidget {
                       bottom: 6,
                       child: Container(
                         width: 3,
-                        decoration: BoxDecoration(
+                        decoration: const BoxDecoration(
                           color: _accent,
-                          borderRadius: const BorderRadius.only(
+                          borderRadius: BorderRadius.only(
                             topRight: Radius.circular(3),
                             bottomRight: Radius.circular(3),
                           ),
@@ -760,7 +733,7 @@ class _GetStartedRailItem extends ConsumerWidget {
                           child: CircularProgressIndicator(
                             value: 1.0,
                             strokeWidth: 2.5,
-                            color: Colors.white.withOpacity(0.08),
+                            color: Colors.white.withValues(alpha: 0.08),
                           ),
                         ),
                         // Progress ring
@@ -902,13 +875,13 @@ class _BottomNavItem extends StatelessWidget {
     final iconColor = active
         ? (_isLight(context) ? _accent : Colors.white)
         : (_isLight(context)
-            ? Colors.black.withOpacity(0.4)
-            : Colors.white.withOpacity(0.35));
+            ? Colors.black.withValues(alpha: 0.4)
+            : Colors.white.withValues(alpha: 0.35));
     final labelColor = active
         ? (_isLight(context) ? _accent : Colors.white)
         : (_isLight(context)
-            ? Colors.black.withOpacity(0.4)
-            : Colors.white.withOpacity(0.35));
+            ? Colors.black.withValues(alpha: 0.4)
+            : Colors.white.withValues(alpha: 0.35));
 
     return Expanded(
       child: GestureDetector(
@@ -1139,20 +1112,20 @@ class _PanelItemState extends State<_PanelItem> {
     final activeFill = _activeFillColor(context);
     final hoverFill = _hoverFillColor(context);
     final placeholderIconColor = _isLight(context)
-      ? _primaryTextColor(context).withOpacity(0.25)
-      : Colors.white.withOpacity(0.15);
+      ? _primaryTextColor(context).withValues(alpha: 0.25)
+      : Colors.white.withValues(alpha: 0.15);
     final activeIconColor = _isLight(context)
       ? _accent
-      : Colors.white.withOpacity(0.9);
+      : Colors.white.withValues(alpha: 0.9);
     final idleIconColor = _isLight(context)
-      ? _primaryTextColor(context).withOpacity(0.45)
-      : Colors.white.withOpacity(0.4);
+      ? _primaryTextColor(context).withValues(alpha: 0.45)
+      : Colors.white.withValues(alpha: 0.4);
     final placeholderTextColor = _isLight(context)
-      ? _primaryTextColor(context).withOpacity(0.32)
-      : Colors.white.withOpacity(0.2);
+      ? _primaryTextColor(context).withValues(alpha: 0.32)
+      : Colors.white.withValues(alpha: 0.2);
     final activeTextColor = _isLight(context)
       ? _primaryTextColor(context)
-      : Colors.white.withOpacity(0.9);
+      : Colors.white.withValues(alpha: 0.9);
     final idleTextColor = _secondaryTextColor(context);
 
     return MouseRegion(
@@ -1350,13 +1323,13 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                               height: 24,
                               decoration: BoxDecoration(
                                 color: isUser
-                                    ? _accent.withOpacity(0.15)
+                                    ? _accent.withValues(alpha: 0.15)
                                     : const Color(0xFF8B5CF6)
-                                        .withOpacity(0.15),
+                                        .withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: isUser
-                                  ? Icon(LucideIcons.user, size: 12, color: _accent)
+                                  ? const Icon(LucideIcons.user, size: 12, color: _accent)
                                   : ClipOval(
                                       child: Image.asset(
                                         'assets/applad-mascot-head.png',
@@ -1374,7 +1347,7 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                                   color: (isUser
                                           ? _primaryTextColor(context)
                                           : _secondaryTextColor(context))
-                                      .withOpacity(isUser ? 0.92 : 0.88),
+                                      .withValues(alpha: isUser ? 0.92 : 0.88),
                                   fontSize: 13,
                                   height: 1.5,
                                 ),
@@ -1618,7 +1591,7 @@ class _TopNavBar extends ConsumerWidget {
               if (navWidth < 780) {
                 return _NavOverflowMenu();
               }
-              return Row(mainAxisSize: MainAxisSize.min, children: const [
+              return const Row(mainAxisSize: MainAxisSize.min, children: [
                 FeedbackButton(),
                 SizedBox(width: 2),
                 SupportButton(),
@@ -1657,8 +1630,8 @@ class _TopNavBar extends ConsumerWidget {
         '/',
         style: TextStyle(
           color: _isLight(context)
-              ? Colors.black.withOpacity(0.18)
-              : Colors.white.withOpacity(0.18),
+              ? Colors.black.withValues(alpha: 0.18)
+              : Colors.white.withValues(alpha: 0.18),
           fontSize: 18,
           fontWeight: FontWeight.w300,
         ),
@@ -2036,9 +2009,9 @@ class _EnvironmentBadge extends ConsumerWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: envColor.withOpacity(0.1),
+          color: envColor.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: envColor.withOpacity(0.25)),
+          border: Border.all(color: envColor.withValues(alpha: 0.25)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Container(width: 6, height: 6, decoration: BoxDecoration(color: envColor, shape: BoxShape.circle)),

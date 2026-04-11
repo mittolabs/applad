@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../api/client.dart';
 import '../theme/console_colors.dart';
-import 'app_dialog.dart';
 
 const _accent = Color(0xFF3472A4);
 
@@ -32,7 +31,7 @@ Future<CreateEntryResult?> showCreateEntryDialog({
 }) {
   return showDialog<CreateEntryResult>(
     context: context,
-    barrierColor: Colors.black.withOpacity(0.6),
+    barrierColor: Colors.black.withValues(alpha: 0.6),
     builder: (ctx) => _CreateEntryDialog(
       category: category,
       title: title,
@@ -111,7 +110,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
                       onTap: () => setState(() => _view = 'entry'),
                       child: Padding(
                         padding: const EdgeInsets.only(right: 10),
-                        child: Icon(LucideIcons.arrowLeft, size: 16, color: Colors.white.withOpacity(0.4)),
+                        child: Icon(LucideIcons.arrowLeft, size: 16, color: Colors.white.withValues(alpha: 0.4)),
                       ),
                     ),
                   Expanded(
@@ -219,7 +218,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
           child: Row(children: [
             Container(
               width: 44, height: 44,
-              decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: _accent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
               child: Icon(icon, size: 20, color: _accent),
             ),
             const SizedBox(width: 14),
@@ -346,9 +345,9 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: active ? _accent.withOpacity(0.15) : colors.background,
+            color: active ? _accent.withValues(alpha: 0.15) : colors.background,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: active ? _accent.withOpacity(0.4) : colors.border),
+            border: Border.all(color: active ? _accent.withValues(alpha: 0.4) : colors.border),
           ),
           child: Text(label, style: TextStyle(color: active ? _accent : colors.textSecondary, fontSize: 12, fontWeight: active ? FontWeight.w500 : FontWeight.w400)),
         ),
@@ -377,8 +376,8 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Container(
               width: 36, height: 36,
-              decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-              child: Icon(LucideIcons.layoutTemplate, size: 18, color: _accent),
+              decoration: BoxDecoration(color: _accent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+              child: const Icon(LucideIcons.layoutTemplate, size: 18, color: _accent),
             ),
             const SizedBox(height: 10),
             Text(t['name'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
@@ -393,7 +392,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                decoration: BoxDecoration(color: _accent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
                 child: Text(t['framework'], style: const TextStyle(color: _accent, fontSize: 10)),
               ),
             ],
@@ -456,7 +455,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
         const SizedBox(height: 20),
         Container(
           width: 64, height: 64,
-          decoration: BoxDecoration(color: _accent.withOpacity(0.1), shape: BoxShape.circle),
+          decoration: BoxDecoration(color: _accent.withValues(alpha: 0.1), shape: BoxShape.circle),
           child: const Icon(LucideIcons.gitBranch, size: 28, color: _accent),
         ),
         const SizedBox(height: 16),
@@ -596,7 +595,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: _accent.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+              decoration: BoxDecoration(color: _accent.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
               child: const Text('Connect', style: TextStyle(color: _accent, fontSize: 11, fontWeight: FontWeight.w500)),
             ),
           ]),

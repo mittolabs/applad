@@ -1013,6 +1013,26 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
                         foregroundColor: _red,
                         side: const BorderSide(color: _red)),
                     onPressed: () async {
+                      final confirmed = await showAppDialog<bool>(
+                        context: context,
+                        title: 'Delete platform',
+                        content: Text(
+                          'Delete this platform and all its builds. This action cannot be undone.',
+                          style: TextStyle(color: cs.textSecondary),
+                        ),
+                        actions: [
+                          const AppDialogCancel(),
+                          AppDialogAction(
+                            label: 'Delete',
+                            destructive: true,
+                            onTap: () => Navigator.of(
+                              context,
+                              rootNavigator: true,
+                            ).pop(true),
+                          ),
+                        ],
+                      );
+                      if (confirmed != true) return;
                       await ref
                           .read(apiClientProvider)
                           .delete('/deploy/targets/$_selectedId');

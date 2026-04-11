@@ -48,11 +48,11 @@ _Runtime _runtimeById(String id) =>
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
-final _funcSearchProvider   = StateProvider<String>((ref) => '');
-final _funcPerPageProvider  = StateProvider<int>((ref) => 12);
-final _funcPageProvider     = StateProvider<int>((ref) => 1);
+final _funcSearchProvider    = StateProvider<String>((ref) => '');
+final _funcPerPageProvider   = StateProvider<int>((ref) => 12);
+final _funcPageProvider      = StateProvider<int>((ref) => 1);
 final _funcDetailTabProvider = StateProvider<int>((ref) => 0);
-final _selectedFuncProvider = StateProvider<Map<String, dynamic>?>((ref) => null);
+final _selectedFuncProvider  = StateProvider<Map<String, dynamic>?>((ref) => null);
 
 final functionsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.read(apiClientProvider);
@@ -186,7 +186,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
       loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
       error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(functionsProvider)),
       data: (data) {
-        final fns = List<Map<String, dynamic>>.from(data['functions'] ?? []);
+        final fns   = List<Map<String, dynamic>>.from(data['functions'] ?? []);
         final total = data['total'] as int? ?? fns.length;
         return AppDataTable(
           columns: const [
@@ -231,9 +231,34 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
           itemLabel: 'functions',
           searchController: _searchCtrl,
           onSearch: _doSearch,
-          emptyIcon: LucideIcons.plus,
+          emptyIcon: LucideIcons.zap,
           emptyTitle: 'No functions yet',
           emptySubtitle: 'Write backend logic that runs on demand in any language.',
+          filters: const [
+            AppTableFilter(
+              key: 'runtime',
+              label: 'Runtime',
+              options: [
+                'node-18', 'node-20', 'node-22', 'bun-1',
+                'python-3.11', 'python-3.12', 'go-1.22',
+                'dart-3', 'rust-1', 'ruby-3', 'php-8', 'custom',
+              ],
+            ),
+            AppTableFilter(
+              key: 'status',
+              label: 'Status',
+              options: ['active', 'inactive', 'building', 'failed'],
+            ),
+          ],
+          persistKey: 'functions_view',
+          gridCardBuilder: (row) => _FuncGridCard(
+            fn: row,
+            onTap: () => ref.read(_selectedFuncProvider.notifier).state = row,
+            onDelete: () async {
+              await ref.read(apiClientProvider).delete('/functions/${row[r'$id']}');
+              ref.invalidate(functionsProvider);
+            },
+          ),
         );
       },
     );
@@ -345,58 +370,34 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
     );
   }
 
-  Future<void> _delete(WidgetRef ref, String id) async {
-    final colors = consoleColors(context);
-    final confirmed = await showAppDialog<bool>(
-      context: context,
-      title: 'Delete function',
-      content: Text(
-        'This will permanently delete the function and all its executions.',
-        style: TextStyle(color: colors.textSecondary),
-      ),
-      actions: [
-        const AppDialogCancel(),
-        AppDialogAction(
-          label: 'Delete',
-          destructive: true,
-          onTap: () =>
-              Navigator.of(context, rootNavigator: true).pop(true),
-        ),
-      ],
-    );
-    if (confirmed == true) {
-      await ref.read(apiClientProvider).delete('/functions/$id');
-      ref.invalidate(functionsProvider);
-    }
-  }
 }
 
-// ── Function card ─────────────────────────────────────────────────────────────
+// ── Function grid card ────────────────────────────────────────────────────────
 
-class _FuncCard extends StatefulWidget {
+class _FuncGridCard extends StatefulWidget {
   final Map<String, dynamic> fn;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
-  const _FuncCard(
+  const _FuncGridCard(
       {required this.fn, required this.onTap, required this.onDelete});
 
   @override
-  State<_FuncCard> createState() => _FuncCardState();
+  State<_FuncGridCard> createState() => _FuncGridCardState();
 }
 
-class _FuncCardState extends State<_FuncCard> {
+class _FuncGridCardState extends State<_FuncGridCard> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    final colors = consoleColors(context);
-    final fn      = widget.fn;
-    final name    = fn['name'] as String? ?? 'Unnamed';
-    final runtime = fn['runtime'] as String? ?? 'custom';
-    final status  = fn['status'] as String? ?? 'inactive';
-    final rt      = _runtimeById(runtime);
-    final createdAt = fn['\$createdAt'] as String? ?? '';
+    final colors    = consoleColors(context);
+    final fn        = widget.fn;
+    final name      = fn['name'] as String? ?? 'Unnamed';
+    final runtime   = fn['runtime'] as String? ?? 'custom';
+    final status    = fn['status'] as String? ?? 'inactive';
+    final updatedAt = fn['updatedAt'] as String? ?? '';
+    final rt        = _runtimeById(runtime);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -411,62 +412,64 @@ class _FuncCardState extends State<_FuncCard> {
             color: _hovered ? colors.fillHover : colors.surface,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: _hovered ? colors.fieldBorder : colors.border,
-            ),
+                color: _hovered ? colors.fieldBorder : colors.border),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Runtime icon
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: _accent.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(rt.icon, size: 18, color: _accent),
+              // Top row: icon + delete button on hover
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: _accent.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(rt.icon, size: 16, color: _accent),
+                  ),
+                  const Spacer(),
+                  if (_hovered)
+                    InkWell(
+                      onTap: widget.onDelete,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(LucideIcons.trash2,
+                            size: 13, color: colors.textSubtle),
+                      ),
+                    ),
+                ],
               ),
-              const SizedBox(width: 14),
-
-              // Name + runtime
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(name,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500)),
-                    const SizedBox(height: 2),
-                    Text(rt.label,
-                      style: TextStyle(
-                        color: colors.textSecondary, fontSize: 12)),
-                  ],
-                ),
+              const SizedBox(height: 12),
+              // Name
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500),
               ),
-
-              // Created
-              Text(_relativeTime(createdAt),
-                    style: TextStyle(color: colors.textSubtle, fontSize: 12)),
-              const SizedBox(width: 16),
-
-              // Status
-              _StatusBadge(status: status),
-              const SizedBox(width: 12),
-
-              // Delete
-              if (_hovered)
-                IconButton(
-                  icon: Icon(LucideIcons.trash2,
-                      size: 14, color: colors.textSubtle),
-                  onPressed: widget.onDelete,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                )
-              else
-                Icon(LucideIcons.chevronRight,
-                    size: 14, color: colors.textSubtle),
+              const SizedBox(height: 2),
+              // Runtime label
+              Text(rt.label,
+                  style: TextStyle(color: colors.textSecondary, fontSize: 11)),
+              const Spacer(),
+              // Footer: status + updated time
+              Row(children: [
+                _StatusBadge(status: status),
+                const Spacer(),
+                Text(
+                  updatedAt.isNotEmpty
+                      ? updatedAt.split('T').first
+                      : '—',
+                  style: TextStyle(color: colors.textSubtle, fontSize: 11),
+                ),
+              ]),
             ],
           ),
         ),
@@ -1501,7 +1504,7 @@ class _RuntimePicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = consoleColors(context);
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       dropdownColor: colors.popupSurface,
       style: TextStyle(color: colors.textPrimary, fontSize: 13),
       decoration: InputDecoration(

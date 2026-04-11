@@ -211,7 +211,9 @@ class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
     if (path.contains('/auth'))       return 'Auth page';
     if (path.contains('/deploy') || path.contains('/sites') ||
         path.contains('/containers') || path.contains('/mobile') ||
-        path.contains('/desktop'))    return 'Deploy page';
+        path.contains('/desktop')) {
+      return 'Deploy page';
+    }
     if (path.contains('/messaging'))  return 'Messaging page';
     if (path.contains('/workflows'))  return 'Workflows page';
     if (path.contains('/settings'))   return 'Project settings';
@@ -703,8 +705,8 @@ class _ExpandedSidebar extends StatelessWidget {
           const SizedBox(height: 8),
           Expanded(
             child: sessions.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                ? const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
                     child: Text(
                       'Previous conversations will appear here.',
                       style: TextStyle(
@@ -1156,11 +1158,11 @@ class _ExpandedBottom extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                       child: Row(children: [
-                        _ToolbarIcon(icon: LucideIcons.paperclip),
+                        const _ToolbarIcon(icon: LucideIcons.paperclip),
                         const SizedBox(width: 2),
-                        _ToolbarIcon(icon: LucideIcons.smile),
+                        const _ToolbarIcon(icon: LucideIcons.smile),
                         const SizedBox(width: 2),
-                        _ToolbarIcon(icon: LucideIcons.mic),
+                        const _ToolbarIcon(icon: LucideIcons.mic),
                         const Spacer(),
                         // Model label
                         Container(
@@ -1172,7 +1174,7 @@ class _ExpandedBottom extends StatelessWidget {
                             border: Border.all(
                                 color: Colors.white.withValues(alpha: 0.08)),
                           ),
-                          child: Row(children: const [
+                          child: const Row(children: [
                             Icon(LucideIcons.sparkles,
                                 size: 11, color: _textMuted),
                             SizedBox(width: 5),
@@ -1619,11 +1621,11 @@ class _FinInput extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 2, 10, 10),
               child: Row(children: [
-                _ToolbarIcon(icon: LucideIcons.paperclip),
+                const _ToolbarIcon(icon: LucideIcons.paperclip),
                 const SizedBox(width: 2),
-                _ToolbarIcon(icon: LucideIcons.smile),
+                const _ToolbarIcon(icon: LucideIcons.smile),
                 const SizedBox(width: 2),
-                _ToolbarIcon(icon: LucideIcons.mic),
+                const _ToolbarIcon(icon: LucideIcons.mic),
                 const Spacer(),
                 _SendBtn(onSend: onSend, loading: loading),
               ]),
@@ -1643,9 +1645,9 @@ class _FinFooter extends StatelessWidget {
     return Container(
       color: _headerBg,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
+      child: const Row(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
+        children: [
           Icon(LucideIcons.messageCircle, size: 11, color: _textMuted),
           SizedBox(width: 5),
           Text('Chat with Applad',

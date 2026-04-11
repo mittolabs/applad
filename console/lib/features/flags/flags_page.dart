@@ -154,7 +154,7 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
                       return Switch(
                         value: row['enabled'] == true,
                         onChanged: (_) => _toggleFlag(ref, row),
-                        activeColor: _accent,
+                        activeThumbColor: _accent,
                       );
                     }
                     if (key == 'type') {
@@ -225,7 +225,7 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           final cs = consoleColors(ctx);
@@ -241,7 +241,7 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
                   border: Border.all(color: cs.border),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
+                      color: Colors.black.withValues(alpha: 0.5),
                       blurRadius: 32,
                       offset: const Offset(0, 8),
                     ),
@@ -369,161 +369,6 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
     );
   }
 
-  void _showEditFlagDialog(
-      BuildContext context, WidgetRef ref, Map<String, dynamic> flag) {
-    final keyCtrl = TextEditingController(text: flag['key'] ?? '');
-    final nameCtrl = TextEditingController(text: flag['name'] ?? '');
-    final descCtrl = TextEditingController(text: flag['description'] ?? '');
-    final defaultValCtrl =
-        TextEditingController(text: '${flag['defaultValue'] ?? ''}');
-    String selectedType = flag['type'] ?? 'boolean';
-
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          final cs = consoleColors(ctx);
-          return Center(
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 480,
-                constraints: const BoxConstraints(maxHeight: 600),
-                decoration: BoxDecoration(
-                  color: cs.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cs.border),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 32,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text('Edit Flag',
-                                style: TextStyle(
-                                  color: cs.textPrimary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                )),
-                          ),
-                          GestureDetector(
-                            onTap: () => Navigator.of(ctx).pop(),
-                            child: Icon(LucideIcons.x,
-                                size: 16,
-                                color: cs.textSubtle),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Container(
-                          height: 1, color: cs.border),
-                    ),
-                    const SizedBox(height: 16),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            AppDialogField(
-                              controller: keyCtrl,
-                              label: 'Key',
-                              hint: 'e.g. enable_dark_mode',
-                              autofocus: true,
-                            ),
-                            const SizedBox(height: 12),
-                            AppDialogField(
-                              controller: nameCtrl,
-                              label: 'Name',
-                              hint: 'Dark Mode',
-                            ),
-                            const SizedBox(height: 12),
-                            AppDialogField(
-                              controller: descCtrl,
-                              label: 'Description',
-                              hint: 'Controls whether dark mode is available',
-                              maxLines: 3,
-                            ),
-                            const SizedBox(height: 12),
-                            _buildDropdown(
-                              cs: cs,
-                              label: 'Type',
-                              value: selectedType,
-                              items: const [
-                                'boolean',
-                                'string',
-                                'number',
-                                'json'
-                              ],
-                              onChanged: (v) =>
-                                  setDialogState(() => selectedType = v!),
-                            ),
-                            const SizedBox(height: 12),
-                            AppDialogField(
-                              controller: defaultValCtrl,
-                              label: 'Default Value',
-                              hint: selectedType == 'boolean'
-                                  ? 'true or false'
-                                  : selectedType == 'number'
-                                      ? '0'
-                                      : selectedType == 'json'
-                                          ? '{}'
-                                          : 'value',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          const AppDialogCancel(),
-                          AppDialogAction(
-                            label: 'Save',
-                            onTap: () async {
-                              final api = ref.read(apiClientProvider);
-                              await api.put('/flags/${flag['\$id']}', data: {
-                                'key': keyCtrl.text,
-                                'name': nameCtrl.text,
-                                'description': descCtrl.text,
-                                'type': selectedType,
-                                'defaultValue': defaultValCtrl.text,
-                              });
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              ref.invalidate(flagsProvider);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   Future<void> _deleteFlag(
       BuildContext context, WidgetRef ref, Map<String, dynamic> flag) async {
     final confirmed = await showAppDialog<bool>(
@@ -570,7 +415,7 @@ Widget _buildDropdown({
               fontWeight: FontWeight.w500)),
       const SizedBox(height: 6),
       DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         dropdownColor: cs.surface,
         style: TextStyle(color: cs.textPrimary, fontSize: 13),
         decoration: InputDecoration(
@@ -624,9 +469,9 @@ class _TypeBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: _accent.withOpacity(0.1),
+        color: _accent.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: _accent.withOpacity(0.2)),
+        border: Border.all(color: _accent.withValues(alpha: 0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -654,9 +499,9 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -770,7 +615,7 @@ class _FlagDetailView extends ConsumerWidget {
       BuildContext context, WidgetRef ref, int tab, String flagId) {
     switch (tab) {
       case 0:
-        return _SettingsTab(flag: flag);
+        return _SettingsTab(flag: flag, onBack: onBack);
       case 1:
         return _RulesTab(flagId: flagId);
       case 2:
@@ -785,49 +630,135 @@ class _FlagDetailView extends ConsumerWidget {
 
 // --- Settings tab ----------------------------------------------------------
 
-class _SettingsTab extends StatelessWidget {
+const _dangerRed = Color(0xFFEF4444);
+
+class _SettingsTab extends ConsumerWidget {
   final Map<String, dynamic> flag;
-  const _SettingsTab({required this.flag});
+  final VoidCallback onBack;
+  const _SettingsTab({required this.flag, required this.onBack});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cs = consoleColors(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: cs.surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: cs.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _settingRow(cs, 'Key', flag['key'] ?? '', mono: true),
-            Divider(color: cs.border, height: 24),
-            _settingRow(cs, 'Name', flag['name'] ?? ''),
-            Divider(color: cs.border, height: 24),
-            _settingRow(cs, 'Description', flag['description'] ?? 'No description'),
-            Divider(color: cs.border, height: 24),
-            _settingRow(cs, 'Type', flag['type'] ?? 'boolean'),
-            Divider(color: cs.border, height: 24),
-            _settingRow(cs, 'Default Value', '${flag['defaultValue'] ?? 'N/A'}',
-                mono: true),
-            Divider(color: cs.border, height: 24),
-            _settingRow(
-                cs, 'Status', flag['enabled'] == true ? 'Enabled' : 'Disabled'),
-            Divider(color: cs.border, height: 24),
-            _settingRow(cs, 'Created', _formatTimestamp(flag['\$createdAt'])),
-            Divider(color: cs.border, height: 24),
-            _settingRow(cs, 'Updated', _formatTimestamp(flag['\$updatedAt'])),
-          ],
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Info card + Edit button
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: cs.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('Flag details',
+                        style: TextStyle(
+                            color: cs.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: BorderSide(color: cs.border),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                      ),
+                      icon: const Icon(LucideIcons.pencil, size: 13),
+                      label: const Text('Edit', style: TextStyle(fontSize: 13)),
+                      onPressed: () => _showEditDialog(context, ref),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _row(cs, 'Key', flag['key'] ?? '', mono: true),
+                Divider(color: cs.border, height: 24),
+                _row(cs, 'Name', flag['name'] ?? ''),
+                Divider(color: cs.border, height: 24),
+                _row(cs, 'Description',
+                    (flag['description'] as String?)?.isNotEmpty == true
+                        ? flag['description']
+                        : 'No description'),
+                Divider(color: cs.border, height: 24),
+                _row(cs, 'Type', flag['type'] ?? 'boolean'),
+                Divider(color: cs.border, height: 24),
+                _row(cs, 'Default value',
+                    '${flag['defaultValue'] ?? 'N/A'}',
+                    mono: true),
+                Divider(color: cs.border, height: 24),
+                _row(cs, 'Status',
+                    flag['enabled'] == true ? 'Enabled' : 'Disabled'),
+                Divider(color: cs.border, height: 24),
+                _row(cs, 'Created', _fmt(flag[r'$createdAt'])),
+                Divider(color: cs.border, height: 24),
+                _row(cs, 'Updated', _fmt(flag[r'$updatedAt'])),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Danger zone
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _dangerRed.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Delete flag',
+                          style: TextStyle(
+                              color: _dangerRed,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 4),
+                      Text(
+                          'Permanently delete this flag and all its rules and overrides.',
+                          style:
+                              TextStyle(color: cs.textMuted, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _dangerRed,
+                    side: const BorderSide(color: _dangerRed),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 10),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => _deleteFlag(context, ref),
+                  child:
+                      const Text('Delete', style: TextStyle(fontSize: 13)),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _settingRow(ConsoleColors cs, String label, String value, {bool mono = false}) {
+  Widget _row(ConsoleColors cs, String label, String value,
+      {bool mono = false}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -835,7 +766,9 @@ class _SettingsTab extends StatelessWidget {
           width: 140,
           child: Text(label,
               style: TextStyle(
-                  color: cs.textMuted, fontSize: 13, fontWeight: FontWeight.w500)),
+                  color: cs.textMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500)),
         ),
         Expanded(
           child: SelectableText(
@@ -851,17 +784,124 @@ class _SettingsTab extends StatelessWidget {
     );
   }
 
-  String _formatTimestamp(dynamic ts) {
+  String _fmt(dynamic ts) {
     if (ts == null) return 'N/A';
     final str = ts.toString();
     if (str.isEmpty) return 'N/A';
     try {
       final dt = DateTime.parse(str);
-      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+          '${dt.day.toString().padLeft(2, '0')} '
+          '${dt.hour.toString().padLeft(2, '0')}:'
+          '${dt.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return str;
     }
+  }
+
+  void _showEditDialog(BuildContext context, WidgetRef ref) {
+    final nameCtrl =
+        TextEditingController(text: flag['name'] as String? ?? '');
+    final descCtrl = TextEditingController(
+        text: flag['description'] as String? ?? '');
+    final defaultValCtrl =
+        TextEditingController(text: '${flag['defaultValue'] ?? ''}');
+    String selectedType = flag['type'] as String? ?? 'boolean';
+
+    showAppDialog(
+      context: context,
+      title: 'Edit flag',
+      subtitle: flag['key'] as String? ?? '',
+      content: StatefulBuilder(
+        builder: (ctx, setD) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppDialogField(
+                controller: nameCtrl,
+                label: 'Name',
+                hint: 'Display name',
+                autofocus: true),
+            const SizedBox(height: 12),
+            AppDialogField(
+                controller: descCtrl,
+                label: 'Description',
+                hint: 'What does this flag control?',
+                maxLines: 2),
+            const SizedBox(height: 12),
+            _buildDropdown(
+              cs: consoleColors(ctx),
+              label: 'Type',
+              value: selectedType,
+              items: const ['boolean', 'string', 'number', 'json'],
+              onChanged: (v) => setD(() => selectedType = v!),
+            ),
+            const SizedBox(height: 12),
+            AppDialogField(
+                controller: defaultValCtrl,
+                label: 'Default value',
+                hint: selectedType == 'boolean'
+                    ? 'true or false'
+                    : selectedType == 'number'
+                        ? '0'
+                        : selectedType == 'json'
+                            ? '{}'
+                            : 'value'),
+          ],
+        ),
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Save',
+          onTap: () async {
+            final nav =
+                Navigator.of(context, rootNavigator: true);
+            final api = ref.read(apiClientProvider);
+            final updated = await api.put(
+              '/flags/${flag[r'$id']}',
+              data: {
+                'name': nameCtrl.text.trim(),
+                'description': descCtrl.text.trim(),
+                'type': selectedType,
+                'defaultValue': defaultValCtrl.text.trim(),
+                'enabled': flag['enabled'] ?? false,
+              },
+            );
+            ref.read(_selectedFlagProvider.notifier).state =
+                updated.data as Map<String, dynamic>;
+            ref.invalidate(flagsProvider);
+            nav.pop();
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _deleteFlag(BuildContext context, WidgetRef ref) async {
+    final cs = consoleColors(context);
+    final confirmed = await showAppDialog<bool>(
+      context: context,
+      title: 'Delete flag',
+      content: Text(
+        'Permanently delete "${flag['name'] ?? flag['key']}" and all its rules and overrides? This cannot be undone.',
+        style: TextStyle(color: cs.textSecondary),
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Delete',
+          destructive: true,
+          onTap: () =>
+              Navigator.of(context, rootNavigator: true).pop(true),
+        ),
+      ],
+    );
+    if (confirmed != true) return;
+    final api = ref.read(apiClientProvider);
+    await api.delete('/flags/${flag[r'$id']}');
+    ref.invalidate(flagsProvider);
+    ref.read(_selectedFlagProvider.notifier).state = null;
+    onBack();
   }
 }
 
@@ -960,181 +1000,157 @@ class _RulesTab extends ConsumerWidget {
 
   void _showAddRuleDialog(BuildContext context, WidgetRef ref) {
     final valueCtrl = TextEditingController();
-    final conditionsCtrl = TextEditingController();
+    final attrCtrl = TextEditingController();
+    final condValCtrl = TextEditingController();
     String selectedType = 'percentage';
+    String selectedOp = 'eq';
     double rollout = 100;
 
-    showDialog(
+    showAppDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
+      title: 'Add rule',
+      subtitle: 'Target a subset of users with a specific value',
+      content: StatefulBuilder(
+        builder: (ctx, setD) {
           final cs = consoleColors(ctx);
-          return Center(
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 480,
-                constraints: const BoxConstraints(maxHeight: 560),
-                decoration: BoxDecoration(
-                  color: cs.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cs.border),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 32,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDropdown(
+                cs: cs,
+                label: 'Rule type',
+                value: selectedType,
+                items: const [
+                  'percentage',
+                  'attribute',
+                  'user',
+                  'team',
+                ],
+                onChanged: (v) => setD(() => selectedType = v!),
+              ),
+              const SizedBox(height: 12),
+              // Condition fields (shown for attribute/user/team types)
+              if (selectedType != 'percentage') ...[
+                AppDialogField(
+                  controller: attrCtrl,
+                  label: 'Attribute',
+                  hint: selectedType == 'user'
+                      ? 'userId'
+                      : selectedType == 'team'
+                          ? 'teamId'
+                          : 'e.g. email, country, plan',
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text('Add Rule',
-                                style: TextStyle(
-                                  color: cs.textPrimary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                )),
+                const SizedBox(height: 12),
+                _buildDropdown(
+                  cs: cs,
+                  label: 'Operator',
+                  value: selectedOp,
+                  items: const [
+                    'eq',
+                    'neq',
+                    'contains',
+                    'starts_with',
+                    'ends_with',
+                    'in',
+                    'not_in',
+                    'gt',
+                    'lt',
+                  ],
+                  onChanged: (v) => setD(() => selectedOp = v!),
+                ),
+                const SizedBox(height: 12),
+                AppDialogField(
+                  controller: condValCtrl,
+                  label: 'Condition value',
+                  hint: 'e.g. US  (comma-separate for in/not_in)',
+                ),
+                const SizedBox(height: 12),
+              ],
+              AppDialogField(
+                controller: valueCtrl,
+                label: 'Serve value',
+                hint: 'Value returned when this rule matches',
+              ),
+              const SizedBox(height: 16),
+              // Rollout slider
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Rollout',
+                      style: TextStyle(
+                          color: cs.textMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SliderTheme(
+                          data: SliderThemeData(
+                            activeTrackColor: _accent,
+                            inactiveTrackColor: _accent.withValues(alpha: 0.2),
+                            thumbColor: _accent,
+                            overlayColor: _accent.withValues(alpha: 0.12),
                           ),
-                          GestureDetector(
-                            onTap: () => Navigator.of(ctx).pop(),
-                            child: Icon(LucideIcons.x,
-                                size: 16,
-                                color: cs.textSubtle),
+                          child: Slider(
+                            value: rollout,
+                            min: 0,
+                            max: 100,
+                            divisions: 100,
+                            onChanged: (v) => setD(() => rollout = v),
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Container(
-                          height: 1, color: cs.border),
-                    ),
-                    const SizedBox(height: 16),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildDropdown(
-                              cs: cs,
-                              label: 'Rule Type',
-                              value: selectedType,
-                              items: const [
-                                'percentage',
-                                'attribute',
-                                'segment',
-                                'schedule'
-                              ],
-                              onChanged: (v) =>
-                                  setDialogState(() => selectedType = v!),
-                            ),
-                            const SizedBox(height: 12),
-                            AppDialogField(
-                              controller: conditionsCtrl,
-                              label: 'Conditions (JSON)',
-                              hint:
-                                  '{"attribute": "country", "operator": "eq", "value": "US"}',
-                              maxLines: 3,
-                            ),
-                            const SizedBox(height: 12),
-                            AppDialogField(
-                              controller: valueCtrl,
-                              label: 'Value',
-                              hint: 'Value when rule matches',
-                            ),
-                            const SizedBox(height: 16),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Rollout Percentage',
-                                    style: TextStyle(
-                                        color: cs.textMuted,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500)),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: SliderTheme(
-                                        data: SliderThemeData(
-                                          activeTrackColor: _accent,
-                                          inactiveTrackColor:
-                                              _accent.withOpacity(0.2),
-                                          thumbColor: _accent,
-                                          overlayColor:
-                                              _accent.withOpacity(0.12),
-                                        ),
-                                        child: Slider(
-                                          value: rollout,
-                                          min: 0,
-                                          max: 100,
-                                          divisions: 100,
-                                          onChanged: (v) =>
-                                              setDialogState(() => rollout = v),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    SizedBox(
-                                      width: 48,
-                                      child: Text(
-                                        '${rollout.round()}%',
-                                        style: TextStyle(
-                                            color: cs.textPrimary,
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w500),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          const AppDialogCancel(),
-                          AppDialogAction(
-                            label: 'Add Rule',
-                            onTap: () async {
-                              final api = ref.read(apiClientProvider);
-                              await api.post('/flags/$flagId/rules', data: {
-                                'type': selectedType,
-                                'conditions': conditionsCtrl.text,
-                                'value': valueCtrl.text,
-                                'rolloutPercentage': rollout.round(),
-                              });
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              ref.invalidate(_flagRulesProvider(flagId));
-                            },
-                          ),
-                        ],
+                      SizedBox(
+                        width: 44,
+                        child: Text(
+                          '${rollout.round()}%',
+                          style: TextStyle(
+                              color: cs.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
               ),
-            ),
+            ],
           );
         },
       ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Add rule',
+          onTap: () async {
+            final nav = Navigator.of(context, rootNavigator: true);
+            final api = ref.read(apiClientProvider);
+            // Build conditions array
+            final List<Map<String, dynamic>> conditions = [];
+            if (selectedType != 'percentage' &&
+                attrCtrl.text.trim().isNotEmpty) {
+              final raw = condValCtrl.text.trim();
+              final condValue = (selectedOp == 'in' || selectedOp == 'not_in')
+                  ? raw.split(',').map((s) => s.trim()).toList()
+                  : raw;
+              conditions.add({
+                'attribute': attrCtrl.text.trim(),
+                'operator': selectedOp,
+                'value': condValue,
+              });
+            }
+            await api.post('/flags/$flagId/rules', data: {
+              'type': selectedType,
+              'conditions': conditions,
+              'value': valueCtrl.text.trim(),
+              'rolloutPct': rollout.round(),
+            });
+            ref.invalidate(_flagRulesProvider(flagId));
+            nav.pop();
+          },
+        ),
+      ],
     );
   }
 }
@@ -1150,8 +1166,7 @@ class _RuleCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = consoleColors(context);
     final ruleType = rule['type'] ?? 'percentage';
-    final enabled = rule['enabled'] != false;
-    final rollout = (rule['rolloutPercentage'] ?? 100).toDouble();
+    final rollout = ((rule['rolloutPct'] ?? rule['rolloutPercentage'] ?? 100) as num).toDouble();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1164,32 +1179,45 @@ class _RuleCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top row: type badge, toggle, delete
+          // Top row: type badge, conditions summary, delete
           Row(
             children: [
               _RuleTypeBadge(type: ruleType),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  rule['conditions']?.toString() ?? 'No conditions',
+                  _conditionsSummary(rule['conditions']),
                   style: TextStyle(
                       color: cs.textMuted, fontSize: 12, fontFamily: 'monospace'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Switch(
-                value: enabled,
-                activeColor: _accent,
-                onChanged: (_) {
-                  // Toggle would require a PATCH endpoint; placeholder
-                },
-              ),
               IconButton(
                 icon: Icon(LucideIcons.trash2,
                     size: 16, color: cs.textMuted),
                 tooltip: 'Delete rule',
                 onPressed: () async {
+                  final confirmed = await showAppDialog<bool>(
+                    context: context,
+                    title: 'Delete rule',
+                    content: Text(
+                      'Are you sure? This action cannot be undone.',
+                      style: TextStyle(color: cs.textSecondary),
+                    ),
+                    actions: [
+                      const AppDialogCancel(),
+                      AppDialogAction(
+                        label: 'Delete',
+                        destructive: true,
+                        onTap: () => Navigator.of(
+                          context,
+                          rootNavigator: true,
+                        ).pop(true),
+                      ),
+                    ],
+                  );
+                  if (confirmed != true) return;
                   final api = ref.read(apiClientProvider);
                   await api.delete('/flags/$flagId/rules/${rule['\$id']}');
                   ref.invalidate(_flagRulesProvider(flagId));
@@ -1226,7 +1254,7 @@ class _RuleCard extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(3),
                   child: LinearProgressIndicator(
                     value: rollout / 100,
-                    backgroundColor: _accent.withOpacity(0.1),
+                    backgroundColor: _accent.withValues(alpha: 0.1),
                     valueColor:
                         const AlwaysStoppedAnimation<Color>(_accent),
                     minHeight: 6,
@@ -1238,6 +1266,18 @@ class _RuleCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  String _conditionsSummary(dynamic conditions) {
+    if (conditions == null) return 'No conditions';
+    if (conditions is List && conditions.isNotEmpty) {
+      return conditions.map((c) {
+        final m = c as Map<String, dynamic>;
+        return '${m['attribute']} ${m['operator']} ${m['value']}';
+      }).join(', ');
+    }
+    if (conditions is String && conditions.isNotEmpty) return conditions;
+    return 'No conditions';
   }
 }
 
@@ -1272,9 +1312,9 @@ class _RuleTypeBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: badgeColor.withOpacity(0.1),
+        color: badgeColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: badgeColor.withOpacity(0.3)),
+        border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1403,7 +1443,7 @@ class _OverridesTab extends ConsumerWidget {
                             color: (isUser
                                     ? const Color(0xFF0EA5E9)
                                     : const Color(0xFFF59E0B))
-                                .withOpacity(0.1),
+                                .withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -1445,6 +1485,27 @@ class _OverridesTab extends ConsumerWidget {
                               size: 16, color: cs.textMuted),
                           tooltip: 'Remove override',
                           onPressed: () async {
+                            final cs2 = consoleColors(context);
+                            final confirmed = await showAppDialog<bool>(
+                              context: context,
+                              title: 'Remove override',
+                              content: Text(
+                                'Are you sure? This action cannot be undone.',
+                                style: TextStyle(color: cs2.textSecondary),
+                              ),
+                              actions: [
+                                const AppDialogCancel(),
+                                AppDialogAction(
+                                  label: 'Delete',
+                                  destructive: true,
+                                  onTap: () => Navigator.of(
+                                    context,
+                                    rootNavigator: true,
+                                  ).pop(true),
+                                ),
+                              ],
+                            );
+                            if (confirmed != true) return;
                             final api = ref.read(apiClientProvider);
                             await api.delete(
                                 '/flags/$flagId/overrides/$targetType/${o['targetId']}');
@@ -1471,7 +1532,7 @@ class _OverridesTab extends ConsumerWidget {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           final cs = consoleColors(ctx);
@@ -1487,7 +1548,7 @@ class _OverridesTab extends ConsumerWidget {
                   border: Border.all(color: cs.border),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
+                      color: Colors.black.withValues(alpha: 0.5),
                       blurRadius: 32,
                       offset: const Offset(0, 8),
                     ),
@@ -1700,7 +1761,7 @@ class _StatsTab extends ConsumerWidget {
                             ? entry.value as int
                             : int.tryParse(entry.value.toString()) ?? 0;
                         final total = totalEvals is int && totalEvals > 0
-                            ? totalEvals as int
+                            ? totalEvals
                             : 1;
                         final pct = (count / total * 100);
                         return Padding(
@@ -1729,7 +1790,7 @@ class _StatsTab extends ConsumerWidget {
                                 child: LinearProgressIndicator(
                                   value: pct / 100,
                                   backgroundColor:
-                                      _accent.withOpacity(0.1),
+                                      _accent.withValues(alpha: 0.1),
                                   valueColor:
                                       const AlwaysStoppedAnimation<Color>(
                                           _accent),

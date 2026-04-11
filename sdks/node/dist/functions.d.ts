@@ -7,6 +7,7 @@ export declare class Functions {
         timeout?: number;
         vars?: Record<string, string>;
         source?: string;
+        cron?: string;
     }): Promise<any>;
     list(): Promise<any>;
     get(functionId: string): Promise<any>;

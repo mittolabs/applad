@@ -46,7 +46,7 @@ class SearchListHeader extends StatelessWidget {
               hintText: searchHint,
               hintStyle: TextStyle(color: colors.textSubtle, fontSize: 13),
               prefixIcon: Padding(
-                padding: EdgeInsets.only(left: 10, right: 6),
+                padding: const EdgeInsets.only(left: 10, right: 6),
                 child: Icon(Icons.search, size: 16, color: colors.textSubtle),
               ),
               prefixIconConstraints:

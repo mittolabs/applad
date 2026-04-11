@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../theme/console_colors.dart';
 
@@ -131,22 +132,25 @@ class AppErrorState extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
-            if (onRetry != null) ...[
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(LucideIcons.refreshCw, size: 13),
-                label: const Text('Try again'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF3472A4),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                  textStyle: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500),
-                ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onRetry ?? () {
+                // No explicit retry: re-navigate to the same route,
+                // which rebuilds the widget tree and re-triggers providers.
+                final location = GoRouterState.of(context).uri.toString();
+                context.go(location);
+              },
+              icon: const Icon(LucideIcons.refreshCw, size: 13),
+              label: const Text('Try again'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF3472A4),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                textStyle: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w500),
               ),
-            ],
+            ),
           ],
         ),
       ),

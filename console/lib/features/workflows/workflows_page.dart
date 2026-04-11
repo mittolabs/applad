@@ -86,144 +86,162 @@ const _categories = <_Category>[
 
 final _allNodeDefs = <_NodeDef>[
   // ── Flow ──
-  _NodeDef('if_condition', 'IF', 'Branch on condition',
+  const _NodeDef('if_condition', 'IF', 'Branch on condition',
       LucideIcons.gitBranch, Color(0xFFF97316),
       category: 'Flow', outputs: 2, outputLabels: ['true', 'false']),
-  _NodeDef('switch', 'Switch', 'Route to multiple branches',
+  const _NodeDef('switch', 'Switch', 'Route to multiple branches',
       LucideIcons.split, Color(0xFFF97316),
       category: 'Flow', outputs: 3, outputLabels: ['1', '2', 'default']),
-  _NodeDef('merge', 'Merge', 'Combine data from branches',
+  const _NodeDef('merge', 'Merge', 'Combine data from branches',
       LucideIcons.merge, Color(0xFFF97316),
       category: 'Flow', inputs: 2),
-  _NodeDef('loop', 'Loop', 'Iterate over items',
+  const _NodeDef('loop', 'Loop', 'Iterate over items',
       LucideIcons.repeat, Color(0xFFF97316), category: 'Flow'),
-  _NodeDef('wait', 'Wait', 'Pause execution',
+  const _NodeDef('wait', 'Wait', 'Pause execution',
       LucideIcons.clock, Color(0xFF64748B), category: 'Flow'),
-  _NodeDef('no_operation', 'No Operation', 'Pass-through',
+  const _NodeDef('no_operation', 'No Operation', 'Pass-through',
       LucideIcons.arrowRight, Color(0xFF64748B), category: 'Flow'),
-  _NodeDef('execute_sub_workflow', 'Sub-Workflow', 'Call another workflow',
+  const _NodeDef('execute_sub_workflow', 'Sub-Workflow', 'Call another workflow',
       LucideIcons.workflow, Color(0xFFF97316), category: 'Flow'),
-  _NodeDef('filter', 'Filter', 'Keep items matching a condition',
+  const _NodeDef('filter', 'Filter', 'Keep items matching a condition',
       LucideIcons.filter, Color(0xFFF97316), category: 'Flow'),
 
   // ── Core ──
-  _NodeDef('http_request', 'HTTP Request', 'Make an API call',
+  const _NodeDef('http_request', 'HTTP Request', 'Make an API call',
       LucideIcons.globe, Color(0xFF8B5CF6), category: 'Core'),
-  _NodeDef('code', 'Code', 'Run template expression',
+  const _NodeDef('code', 'Code', 'Run template expression',
       LucideIcons.code2, Color(0xFF06B6D4), category: 'Core'),
-  _NodeDef('javascript', 'JavaScript', 'Run JS-like code with helpers',
+  const _NodeDef('javascript', 'JavaScript', 'Run JS-like code with helpers',
       LucideIcons.braces, Color(0xFFF7DF1E), category: 'Core'),
-  _NodeDef('send_email', 'Send Email', 'Send via SMTP',
+  const _NodeDef('send_email', 'Send Email', 'Send via SMTP',
       LucideIcons.mail, Color(0xFFEC4899), category: 'Core'),
-  _NodeDef('set_variable', 'Set Variable', 'Set a context value',
+  const _NodeDef('set_variable', 'Set Variable', 'Set a context value',
       LucideIcons.variable, Color(0xFFF59E0B), category: 'Core'),
-  _NodeDef('delay', 'Delay', 'Wait before continuing',
+  const _NodeDef('delay', 'Delay', 'Wait before continuing',
       LucideIcons.timer, Color(0xFF64748B), category: 'Core'),
 
   // ── Data transformation ──
-  _NodeDef('edit_fields', 'Edit Fields', 'Set multiple fields at once',
+  const _NodeDef('edit_fields', 'Edit Fields', 'Set multiple fields at once',
       LucideIcons.pencil, Color(0xFF06B6D4), category: 'Data transformation'),
-  _NodeDef('aggregate', 'Aggregate', 'Count, sum, avg, min, max',
+  const _NodeDef('aggregate', 'Aggregate', 'Count, sum, avg, min, max',
       LucideIcons.sigma, Color(0xFF06B6D4), category: 'Data transformation'),
-  _NodeDef('summarize', 'Summarize', 'Group and count items',
+  const _NodeDef('summarize', 'Summarize', 'Group and count items',
       LucideIcons.barChart3, Color(0xFF06B6D4),
       category: 'Data transformation'),
-  _NodeDef('limit', 'Limit', 'Restrict number of items',
+  const _NodeDef('limit', 'Limit', 'Restrict number of items',
       LucideIcons.arrowDownToLine, Color(0xFF06B6D4),
       category: 'Data transformation'),
-  _NodeDef('split_out', 'Split Out', 'Split array into items',
+  const _NodeDef('split_out', 'Split Out', 'Split array into items',
       LucideIcons.splitSquareVertical, Color(0xFF06B6D4),
       category: 'Data transformation'),
-  _NodeDef('remove_duplicates', 'Remove Duplicates', 'Deduplicate items',
+  const _NodeDef('remove_duplicates', 'Remove Duplicates', 'Deduplicate items',
       LucideIcons.copyMinus, Color(0xFF06B6D4),
       category: 'Data transformation'),
-  _NodeDef('date_time', 'Date & Time', 'Format or manipulate dates',
+  const _NodeDef('date_time', 'Date & Time', 'Format or manipulate dates',
       LucideIcons.calendar, Color(0xFF06B6D4),
       category: 'Data transformation'),
-  _NodeDef('convert_to_json', 'Convert to JSON', 'Serialize to JSON string',
+  const _NodeDef('convert_to_json', 'Convert to JSON', 'Serialize to JSON string',
       LucideIcons.fileJson, Color(0xFF06B6D4),
       category: 'Data transformation'),
-  _NodeDef('extract_from_json', 'Extract from JSON', 'Parse JSON field',
+  const _NodeDef('extract_from_json', 'Extract from JSON', 'Parse JSON field',
       LucideIcons.fileSearch, Color(0xFF06B6D4),
       category: 'Data transformation'),
-  _NodeDef('html_parse', 'HTML', 'Work with HTML content',
+  const _NodeDef('html_parse', 'HTML', 'Work with HTML content',
       LucideIcons.code, Color(0xFF06B6D4),
       category: 'Data transformation'),
-  _NodeDef('crypto', 'Crypto', 'Hash or encode data',
+  const _NodeDef('crypto', 'Crypto', 'Hash or encode data',
       LucideIcons.lock, Color(0xFF06B6D4),
       category: 'Data transformation'),
 
   // ── Error handling ──
-  _NodeDef('try_catch', 'Try / Catch', 'Handle errors gracefully',
+  const _NodeDef('try_catch', 'Try / Catch', 'Handle errors gracefully',
       LucideIcons.shield, Color(0xFFEF4444),
       category: 'Flow', outputs: 2, outputLabels: ['success', 'error']),
-  _NodeDef('stop_and_error', 'Stop and Error', 'Fail workflow with message',
+  const _NodeDef('stop_and_error', 'Stop and Error', 'Fail workflow with message',
       LucideIcons.octagon, Color(0xFFEF4444), category: 'Flow'),
 
   // ── AI ──
-  _NodeDef('ai_transform', 'AI Transform', 'Transform data with LLM',
+  const _NodeDef('ai_transform', 'AI Transform', 'Transform data with LLM',
       LucideIcons.sparkles, Color(0xFF8B5CF6), category: 'AI'),
-  _NodeDef('ai_agent', 'AI Agent', 'Multi-step LLM agent with tools',
+  const _NodeDef('ai_agent', 'AI Agent', 'Multi-step LLM agent with tools',
       LucideIcons.bot, Color(0xFF8B5CF6), category: 'AI'),
-  _NodeDef('ai_summarize', 'AI Summarize', 'Summarize text content',
+  const _NodeDef('ai_summarize', 'AI Summarize', 'Summarize text content',
       LucideIcons.fileText, Color(0xFF8B5CF6), category: 'AI'),
 
   // ── Integrations ──
-  _NodeDef('slack', 'Slack', 'Send Slack messages',
+  const _NodeDef('slack', 'Slack', 'Send Slack messages',
       LucideIcons.hash, Color(0xFF4A154B), category: 'Integrations'),
-  _NodeDef('discord', 'Discord', 'Send Discord messages',
+  const _NodeDef('discord', 'Discord', 'Send Discord messages',
       LucideIcons.messageCircle, Color(0xFF5865F2),
       category: 'Integrations'),
-  _NodeDef('telegram', 'Telegram', 'Send Telegram messages',
+  const _NodeDef('telegram', 'Telegram', 'Send Telegram messages',
       LucideIcons.send, Color(0xFF26A5E4), category: 'Integrations'),
-  _NodeDef('github', 'GitHub', 'Create issues, PRs',
+  const _NodeDef('github', 'GitHub', 'Create issues, PRs',
       LucideIcons.github, Color(0xFFE6EDF3), category: 'Integrations'),
-  _NodeDef('google_sheets', 'Google Sheets', 'Read/write spreadsheets',
+  const _NodeDef('google_sheets', 'Google Sheets', 'Read/write spreadsheets',
       LucideIcons.sheet, Color(0xFF34A853), category: 'Integrations'),
-  _NodeDef('notion', 'Notion', 'Query databases, create pages',
+  const _NodeDef('notion', 'Notion', 'Query databases, create pages',
       LucideIcons.bookOpen, Color(0xFFFFFFFF), category: 'Integrations'),
-  _NodeDef('stripe', 'Stripe', 'Charges, customers, payments',
+  const _NodeDef('stripe', 'Stripe', 'Charges, customers, payments',
       LucideIcons.creditCard, Color(0xFF635BFF), category: 'Integrations'),
-  _NodeDef('twilio_sms', 'Twilio SMS', 'Send SMS messages',
+  const _NodeDef('twilio_sms', 'Twilio SMS', 'Send SMS messages',
       LucideIcons.phone, Color(0xFFF22F46), category: 'Integrations'),
-  _NodeDef('postgres_query', 'PostgreSQL', 'Run SQL queries',
+  const _NodeDef('postgres_query', 'PostgreSQL', 'Run SQL queries',
       LucideIcons.database, Color(0xFF336791), category: 'Integrations'),
-  _NodeDef('mysql_query', 'MySQL', 'Run SQL queries',
+  const _NodeDef('mysql_query', 'MySQL', 'Run SQL queries',
       LucideIcons.database, Color(0xFF4479A1), category: 'Integrations'),
-  _NodeDef('redis_command', 'Redis', 'Run Redis commands',
+  const _NodeDef('redis_command', 'Redis', 'Run Redis commands',
       LucideIcons.database, Color(0xFFDC382D), category: 'Integrations'),
-  _NodeDef('s3', 'AWS S3', 'Get, put, list objects',
+  const _NodeDef('s3', 'AWS S3', 'Get, put, list objects',
       LucideIcons.cloud, Color(0xFFFF9900), category: 'Integrations'),
-  _NodeDef('sendgrid', 'SendGrid', 'Send transactional emails',
+  const _NodeDef('sendgrid', 'SendGrid', 'Send transactional emails',
       LucideIcons.mail, Color(0xFF1A82E2), category: 'Integrations'),
-  _NodeDef('jira', 'Jira', 'Create and manage issues',
+  const _NodeDef('jira', 'Jira', 'Create and manage issues',
       LucideIcons.ticket, Color(0xFF0052CC), category: 'Integrations'),
 
   // ── Applad-native ──
-  _NodeDef('applad_auth', 'Applad Auth', 'Manage users and sessions',
+  const _NodeDef('applad_auth', 'Applad Auth', 'Manage users and sessions',
       LucideIcons.users, Color(0xFF3472A4), category: 'Applad'),
-  _NodeDef('applad_database', 'Applad Database', 'CRUD documents in collections',
+  const _NodeDef('applad_database', 'Applad Database', 'CRUD documents in collections',
       LucideIcons.database, Color(0xFF3472A4), category: 'Applad'),
-  _NodeDef('applad_storage', 'Applad Storage', 'Manage files in buckets',
+  const _NodeDef('applad_storage', 'Applad Storage', 'Manage files in buckets',
       LucideIcons.folderClosed, Color(0xFF3472A4), category: 'Applad'),
-  _NodeDef('applad_functions', 'Applad Functions', 'Invoke serverless targets',
+  const _NodeDef('applad_functions', 'Applad Functions', 'Invoke serverless targets',
       LucideIcons.zap, Color(0xFF3472A4), category: 'Applad'),
-  _NodeDef('applad_messaging', 'Applad Messaging', 'Send email, SMS, push',
+  const _NodeDef('applad_messaging', 'Applad Messaging', 'Send email, SMS, push',
       LucideIcons.messageSquare, Color(0xFF3472A4), category: 'Applad'),
 
   // ── Additional flow ──
-  _NodeDef('sort', 'Sort', 'Sort items by field',
+  const _NodeDef('sort', 'Sort', 'Sort items by field',
       LucideIcons.arrowUpDown, Color(0xFF06B6D4), category: 'Data transformation'),
-  _NodeDef('rename_keys', 'Rename Keys', 'Rename fields on items',
+  const _NodeDef('rename_keys', 'Rename Keys', 'Rename fields on items',
       LucideIcons.replace, Color(0xFF06B6D4), category: 'Data transformation'),
-  _NodeDef('compare_datasets', 'Compare Datasets', 'Find added/removed/unchanged',
+  const _NodeDef('compare_datasets', 'Compare Datasets', 'Find added/removed/unchanged',
       LucideIcons.gitCompare, Color(0xFF06B6D4), category: 'Data transformation'),
+
+  // ── Triggers ──
+  const _NodeDef('trigger_manual', 'Manual', 'Run workflow manually from dashboard or API',
+      LucideIcons.play, _green, category: 'Triggers', inputs: 0),
+  const _NodeDef('trigger_webhook', 'Webhook', 'Trigger via an incoming HTTP request',
+      LucideIcons.webhook, _green, category: 'Triggers', inputs: 0),
+  const _NodeDef('trigger_schedule', 'Schedule', 'Run on a cron schedule',
+      LucideIcons.clock, _green, category: 'Triggers', inputs: 0),
+  const _NodeDef('trigger_database', 'Database Event', 'Fire on row insert, update or delete',
+      LucideIcons.database, _green, category: 'Triggers', inputs: 0),
+  const _NodeDef('trigger_auth', 'Auth Event', 'Fire on user signup, login or deletion',
+      LucideIcons.users, _green, category: 'Triggers', inputs: 0),
+  const _NodeDef('trigger_storage', 'Storage Event', 'Fire on file upload or deletion',
+      LucideIcons.hardDrive, _green, category: 'Triggers', inputs: 0),
+  const _NodeDef('trigger_messaging', 'Messaging Event', 'Fire when a message is sent',
+      LucideIcons.mail, _green, category: 'Triggers', inputs: 0),
 ];
 
 _NodeDef _def(String t) {
   if (t == 'trigger') return _triggerDef;
   return _allNodeDefs.firstWhere((d) => d.type == t,
-      orElse: () => _allNodeDefs.firstWhere((d) => d.type == 'http_request'));
+      orElse: () => t.startsWith('trigger_')
+          ? _triggerDef
+          : _allNodeDefs.firstWhere((d) => d.type == 'http_request'));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -296,7 +314,7 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (ctx) => Center(
         child: Material(
           color: Colors.transparent,
@@ -455,7 +473,7 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (ctx) => Center(
         child: Material(
           color: Colors.transparent,
@@ -551,7 +569,7 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
                                     decoration: BoxDecoration(
                                       color: hov ? colors.fillHover : colors.fill,
                                       borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: hov ? _accent.withOpacity(0.4) : colors.border),
+                                      border: Border.all(color: hov ? _accent.withValues(alpha: 0.4) : colors.border),
                                     ),
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -561,7 +579,7 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
                                             width: 32,
                                             height: 32,
                                             decoration: BoxDecoration(
-                                              color: _accent.withOpacity(0.12),
+                                              color: _accent.withValues(alpha: 0.12),
                                               borderRadius: BorderRadius.circular(7),
                                             ),
                                             child: Icon(t['icon'] as IconData, size: 15, color: _accent),
@@ -838,14 +856,14 @@ class _CardState extends State<_Card> {
           decoration: BoxDecoration(
             color: _h ? colors.fillHover : colors.surface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _h ? _accent.withOpacity(0.3) : colors.border),
+            border: Border.all(color: _h ? _accent.withValues(alpha: 0.3) : colors.border),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Container(
                 width: 36, height: 36,
                 decoration: BoxDecoration(
-                    color: _accent.withOpacity(0.12),
+                    color: _accent.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8)),
                 child: const Icon(LucideIcons.gitBranch, size: 18, color: _accent),
               ),
@@ -944,7 +962,7 @@ class _EditorState extends ConsumerState<_Editor> {
   // ── Tags, logs, minimap, sticky notes ──
   bool _showLogs = false;
   bool _showMinimap = true;
-  List<Map<String, dynamic>> _stickyNotes = [];
+  final List<Map<String, dynamic>> _stickyNotes = [];
   int _configTab = 0; // 0=Settings, 1=Input, 2=Output
   Map<String, dynamic>? _lastExecData; // nodeId → {input, output}
   Map<String, dynamic>? _pinnedData; // nodeId → pinned output
@@ -1160,9 +1178,10 @@ class _EditorState extends ConsumerState<_Editor> {
       final api = ref.read(apiClientProvider);
       final saveNodes = _nodes.map((n) {
         final c = Map<String, dynamic>.from(n);
-        if (c['type'] == 'trigger') {
+        final t = c['type'] as String? ?? '';
+        if (t == 'trigger' || t.startsWith('trigger_')) {
           c['type'] = 'set_variable';
-          c['config'] = {'key': '_trigger', 'value': 'start'};
+          c['config'] = {'key': '_trigger', 'value': t};
         }
         c.remove('disabled');
         return c;
@@ -1508,9 +1527,9 @@ class _EditorState extends ConsumerState<_Editor> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: c.withOpacity(0.12),
+          color: c.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: c.withOpacity(0.3)),
+          border: Border.all(color: c.withValues(alpha: 0.3)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Container(
@@ -2003,7 +2022,7 @@ class _EditorState extends ConsumerState<_Editor> {
                 GestureDetector(
                   onTap: () => setState(() => _palCategory = null),
                   child: Padding(
-                    padding: EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.only(right: 8),
                     child: Icon(LucideIcons.arrowLeft,
                     size: 16, color: colors.textSecondary),
                   ),
@@ -2169,6 +2188,20 @@ class _EditorState extends ConsumerState<_Editor> {
       ]);
     }
 
+    if (_palCategory == 'Triggers') {
+      return ListView(padding: const EdgeInsets.all(8), children: [
+        _palSection('Scheduling'),
+        ..._palFilterList(items, ['trigger_manual', 'trigger_schedule']),
+        _palSection('HTTP'),
+        ..._palFilterList(items, ['trigger_webhook']),
+        _palSection('Applad events'),
+        ..._palFilterList(items, [
+          'trigger_database', 'trigger_auth',
+          'trigger_storage',  'trigger_messaging',
+        ]),
+      ]);
+    }
+
     return ListView(
       padding: const EdgeInsets.all(8),
       children: items.map((d) => _palNodeItem(d)).toList(),
@@ -2268,7 +2301,7 @@ class _EditorState extends ConsumerState<_Editor> {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                      color: d.color.withOpacity(0.12),
+                      color: d.color.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(7)),
                   child: Icon(d.icon, size: 15, color: d.color),
                 ),
@@ -2322,7 +2355,7 @@ class _EditorState extends ConsumerState<_Editor> {
                 width: 30,
                 height: 30,
                 decoration: BoxDecoration(
-                    color: d.color.withOpacity(0.12),
+                    color: d.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(7)),
                 child: Icon(d.icon, size: 14, color: d.color),
               ),
@@ -2465,7 +2498,7 @@ class _EditorState extends ConsumerState<_Editor> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? const Color(0xFF6C47FF).withOpacity(0.15) : colors.surface,
+          color: active ? const Color(0xFF6C47FF).withValues(alpha: 0.15) : colors.surface,
           border: Border.all(color: active ? const Color(0xFF6C47FF) : colors.border),
           borderRadius: BorderRadius.circular(6),
         ),
@@ -2668,7 +2701,7 @@ class _EditorState extends ConsumerState<_Editor> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                    color: _orange.withOpacity(0.15),
+                    color: _orange.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(4)),
                 child: const Text('PINNED',
                     style: TextStyle(
@@ -3277,10 +3310,6 @@ class _EditorState extends ConsumerState<_Editor> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Top tabs (Editor / Executions)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  // ═══════════════════════════════════════════════════════════════════════════
   // Logs panel (bottom)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -3361,7 +3390,7 @@ class _EditorState extends ConsumerState<_Editor> {
         width: 160,
         height: 100,
         decoration: BoxDecoration(
-          color: colors.surface.withOpacity(0.9),
+          color: colors.surface.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: colors.border),
         ),
@@ -3500,7 +3529,7 @@ class _EditorState extends ConsumerState<_Editor> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Executions dialog (kept for toolbar History button)
+  // Executions dialog
   // ═══════════════════════════════════════════════════════════════════════════
 
   void _showExecs() {
@@ -3576,21 +3605,21 @@ class _CanvasPainter extends CustomPainter {
   });
 
     Color get _gridDotColor =>
-      isLight ? Colors.black.withOpacity(0.06) : Colors.white.withOpacity(0.06);
+      isLight ? Colors.black.withValues(alpha: 0.06) : Colors.white.withValues(alpha: 0.06);
 
     Color get _edgeColor =>
-      isLight ? Colors.black.withOpacity(0.16) : Colors.white.withOpacity(0.28);
+      isLight ? Colors.black.withValues(alpha: 0.16) : Colors.white.withValues(alpha: 0.28);
 
     Color get _nodeDisabledSurface =>
       isLight ? colors.surfaceAlt : const Color(0xFF111114);
 
     Color get _nodeDisabledBorder =>
-      isLight ? Colors.black.withOpacity(0.08) : Colors.white.withOpacity(0.04);
+      isLight ? Colors.black.withValues(alpha: 0.08) : Colors.white.withValues(alpha: 0.04);
 
     Color get _handleStrokeColor => colors.textSecondary;
 
     Color get _outputHandleStrokeColor =>
-      isLight ? Colors.white.withOpacity(0.75) : Colors.white.withOpacity(0.3);
+      isLight ? Colors.white.withValues(alpha: 0.75) : Colors.white.withValues(alpha: 0.3);
 
     Color get _statusSkippedColor =>
       isLight ? const Color(0xFF475569) : const Color(0xFF64748B);
@@ -3665,7 +3694,7 @@ class _CanvasPainter extends CustomPainter {
     if (connFrom != null && connCursor != null) {
       _drawBezier(canvas, _t(_outH(connFrom!)), _t(connCursor!),
           Paint()
-            ..color = _accent.withOpacity(0.6)
+            ..color = _accent.withValues(alpha: 0.6)
             ..strokeWidth = 2 * zoom
             ..style = PaintingStyle.stroke);
     }
@@ -3681,12 +3710,12 @@ class _CanvasPainter extends CustomPainter {
       canvas.drawRect(
           r,
           Paint()
-            ..color = _accent.withOpacity(0.08)
+            ..color = _accent.withValues(alpha: 0.08)
             ..style = PaintingStyle.fill);
       canvas.drawRect(
           r,
           Paint()
-            ..color = _accent.withOpacity(0.4)
+            ..color = _accent.withValues(alpha: 0.4)
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1);
     }
@@ -3779,8 +3808,8 @@ class _CanvasPainter extends CustomPainter {
         rect.shift(Offset(0, _s(4))),
         Paint()
           ..color = sel
-              ? d.color.withOpacity(0.08)
-          : colors.shadow.withOpacity(isLight ? 0.65 : 0.5)
+              ? d.color.withValues(alpha: 0.08)
+          : colors.shadow.withValues(alpha: isLight ? 0.65 : 0.5)
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, _s(8)));
 
     // Body
@@ -3808,7 +3837,7 @@ class _CanvasPainter extends CustomPainter {
         bottomLeft: Radius.circular(_s(10)));
     canvas.drawRRect(
         barRect,
-        Paint()..color = disabled ? const Color(0xFF333) : d.color);
+        Paint()..color = disabled ? const Color(0xFF333333) : d.color);
 
     // Icon bg
     final iconX = screenPos.dx + _s(16);
@@ -3816,7 +3845,7 @@ class _CanvasPainter extends CustomPainter {
     final iconRect = RRect.fromRectAndRadius(
         Rect.fromLTWH(iconX, iconY, _s(32), _s(32)),
         Radius.circular(_s(7)));
-    canvas.drawRRect(iconRect, Paint()..color = d.color.withOpacity(0.12));
+    canvas.drawRRect(iconRect, Paint()..color = d.color.withValues(alpha: 0.12));
 
     // Label text
     final labelTp = TextPainter(
@@ -3910,7 +3939,7 @@ class _CanvasPainter extends CustomPainter {
           Offset(screenPos.dx, screenPos.dy + h / 2),
           Offset(screenPos.dx + w, screenPos.dy + h / 2),
           Paint()
-            ..color = _red.withOpacity(0.3)
+            ..color = _red.withValues(alpha: 0.3)
             ..strokeWidth = _s(1.5));
     }
   }
@@ -3969,7 +3998,7 @@ class _MinimapPainter extends CustomPainter {
         RRect.fromRectAndRadius(
             Rect.fromLTWH(x * scale, y * scale, _nodeW * scale, _nodeH * scale),
             const Radius.circular(2)),
-        Paint()..color = d.color.withOpacity(0.5),
+        Paint()..color = d.color.withValues(alpha: 0.5),
       );
     }
 
@@ -3982,8 +4011,8 @@ class _MinimapPainter extends CustomPainter {
       Rect.fromLTWH(vpLeft, vpTop, vpW, vpH),
       Paint()
         ..color = isLight
-            ? Colors.black.withOpacity(0.18)
-            : Colors.white.withOpacity(0.15)
+            ? Colors.black.withValues(alpha: 0.18)
+            : Colors.white.withValues(alpha: 0.15)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );

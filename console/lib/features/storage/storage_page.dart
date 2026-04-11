@@ -11,7 +11,6 @@ import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
-import '../../core/widgets/search_list.dart';
 import '../../core/widgets/app_error_state.dart';
 
 // --- Constants ---------------------------------------------------------------
@@ -379,12 +378,12 @@ class _BucketGridCardState extends State<_BucketGridCard> {
             color: _hovered ? cs.fillHover : cs.surface,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-                color: _hovered ? _accent.withOpacity(0.35) : cs.border),
+                color: _hovered ? _accent.withValues(alpha: 0.35) : cs.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(LucideIcons.folderClosed, size: 20, color: _accent),
+              const Icon(LucideIcons.folderClosed, size: 20, color: _accent),
               const SizedBox(height: 10),
               Text(name,
                   style: TextStyle(
@@ -598,17 +597,17 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
   }
 
   Widget _buildUsageTab() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
+    return const Padding(
+      padding: EdgeInsets.only(top: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               _UsageStatCard(label: 'Total Files', value: '—'),
-              const SizedBox(width: 16),
+              SizedBox(width: 16),
               _UsageStatCard(label: 'Storage Used', value: '—'),
-              const SizedBox(width: 16),
+              SizedBox(width: 16),
               _UsageStatCard(label: 'Bandwidth', value: '—'),
             ],
           ),
@@ -693,7 +692,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                 title: 'Permissions',
                 subtitle:
                     'Choose who can access your buckets and files.',
-                children: [
+                children: const [
                   _PermissionsTable(),
                 ],
                 onUpdate: () {},
@@ -781,7 +780,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                         width: 120,
                         child: Text(
                             maxSize > 0
-                                ? '${(maxSize / (1024 * 1024)).toStringAsFixed(0)}'
+                                ? (maxSize / (1024 * 1024)).toStringAsFixed(0)
                                 : 'Unlimited',
                             style: TextStyle(
                                 color: cs.textPrimary, fontSize: 14)),
@@ -816,7 +815,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: _accent.withOpacity(0.15),
+                                  color: _accent.withValues(alpha: 0.15),
                                   borderRadius:
                                       BorderRadius.circular(4),
                                 ),
@@ -840,7 +839,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                 decoration: BoxDecoration(
                   color: cs.surface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _red.withOpacity(0.3)),
+                  border: Border.all(color: _red.withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -905,6 +904,27 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
                               borderRadius: BorderRadius.circular(8)),
                         ),
                         onPressed: () async {
+                          final cs2 = consoleColors(context);
+                          final confirmed = await showAppDialog<bool>(
+                            context: context,
+                            title: 'Delete bucket',
+                            content: Text(
+                              'All files in this bucket will be permanently deleted.',
+                              style: TextStyle(color: cs2.textSecondary),
+                            ),
+                            actions: [
+                              const AppDialogCancel(),
+                              AppDialogAction(
+                                label: 'Delete',
+                                destructive: true,
+                                onTap: () => Navigator.of(
+                                  context,
+                                  rootNavigator: true,
+                                ).pop(true),
+                              ),
+                            ],
+                          );
+                          if (confirmed != true) return;
                           final api = ref.read(apiClientProvider);
                           await api.delete(
                               '/storage/buckets/${widget.bucketId}');
@@ -945,12 +965,6 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
     ref.invalidate(_filesProvider(widget.bucketId));
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes <= 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    final i = (math.log(bytes) / math.log(1024)).floor().clamp(0, 3);
-    return '${(bytes / math.pow(1024, i)).toStringAsFixed(1)} ${units[i]}';
-  }
 }
 
 // =============================================================================
@@ -1100,8 +1114,30 @@ class _FileRowState extends State<_FileRow> {
                   icon: Icon(LucideIcons.moreHorizontal,
                       size: 16,
                       color: _hovered ? cs.textMuted : Colors.transparent),
-                  onSelected: (v) {
-                    if (v == 'delete') widget.onDelete();
+                  onSelected: (v) async {
+                    if (v == 'delete') {
+                      final cs2 = consoleColors(context);
+                      final confirmed = await showAppDialog<bool>(
+                        context: context,
+                        title: 'Delete file',
+                        content: Text(
+                          'Are you sure? This action cannot be undone.',
+                          style: TextStyle(color: cs2.textSecondary),
+                        ),
+                        actions: [
+                          const AppDialogCancel(),
+                          AppDialogAction(
+                            label: 'Delete',
+                            destructive: true,
+                            onTap: () => Navigator.of(
+                              context,
+                              rootNavigator: true,
+                            ).pop(true),
+                          ),
+                        ],
+                      );
+                      if (confirmed == true) widget.onDelete();
+                    }
                   },
                   itemBuilder: (_) => [
                     const PopupMenuItem(
@@ -1140,7 +1176,7 @@ class _FileRowState extends State<_FileRow> {
       width: 28,
       height: 28,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Icon(icon, size: 14, color: color),
@@ -1419,7 +1455,7 @@ class _FileDetailView extends ConsumerWidget {
               decoration: BoxDecoration(
                 color: cs.surface,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _red.withOpacity(0.3)),
+                border: Border.all(color: _red.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
@@ -1451,6 +1487,27 @@ class _FileDetailView extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(8)),
                     ),
                     onPressed: () async {
+                      final cs2 = consoleColors(context);
+                      final confirmed = await showAppDialog<bool>(
+                        context: context,
+                        title: 'Delete file',
+                        content: Text(
+                          'The file will be permanently deleted. This action is irreversible.',
+                          style: TextStyle(color: cs2.textSecondary),
+                        ),
+                        actions: [
+                          const AppDialogCancel(),
+                          AppDialogAction(
+                            label: 'Delete',
+                            destructive: true,
+                            onTap: () => Navigator.of(
+                              context,
+                              rootNavigator: true,
+                            ).pop(true),
+                          ),
+                        ],
+                      );
+                      if (confirmed != true) return;
                       await ref
                           .read(apiClientProvider)
                           .delete(
@@ -1511,36 +1568,6 @@ class _MetaRow extends StatelessWidget {
 // =============================================================================
 // Shared
 // =============================================================================
-
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-  const _InfoRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = consoleColors(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(label,
-                style: TextStyle(color: cs.textMuted, fontSize: 13)),
-          ),
-          Expanded(
-            child: SelectableText(value,
-                style: TextStyle(
-                    color: cs.textSecondary,
-                    fontSize: 13,
-                    fontFamily: 'monospace')),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _UsageStatCard extends StatelessWidget {
   final String label;
@@ -1745,7 +1772,7 @@ class _SettingsToggle extends StatelessWidget {
             Switch(
               value: value,
               onChanged: onChanged,
-              activeColor: _accent,
+              activeThumbColor: _accent,
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -1808,7 +1835,7 @@ class _SettingsTextFieldState extends State<_SettingsTextField> {
       children: [
         Text(widget.label,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
+                color: Colors.white.withValues(alpha: 0.5),
                 fontSize: 12,
                 fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
@@ -1963,7 +1990,7 @@ class _PermissionsTable extends StatelessWidget {
                               onChanged: (_) {},
                               activeColor: _accent,
                               side: BorderSide(
-                                  color: Colors.white.withOpacity(0.2)),
+                                  color: Colors.white.withValues(alpha: 0.2)),
                               shape: RoundedRectangleBorder(
                                   borderRadius:
                                       BorderRadius.circular(3)),

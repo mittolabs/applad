@@ -253,7 +253,7 @@ class _SearchModalState extends State<SearchModal> {
               border: Border.all(color: colors.border),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.6),
+                  color: Colors.black.withValues(alpha: 0.6),
                   blurRadius: 48,
                   offset: const Offset(0, 20),
                 ),
@@ -299,7 +299,7 @@ class _SearchModalState extends State<SearchModal> {
                         ),
                       ),
                       // Esc badge
-                      SearchHintBadge(label: 'Esc'),
+                      const SearchHintBadge(label: 'Esc'),
                     ],
                   ),
                 ),
@@ -440,7 +440,7 @@ class SearchItemTile extends StatelessWidget {
                 height: 28,
                 decoration: BoxDecoration(
                   color: item.isCreate
-                      ? const Color(0xFF3472A4).withOpacity(0.12)
+                      ? const Color(0xFF3472A4).withValues(alpha: 0.12)
                       : colors.fill,
                   borderRadius: BorderRadius.circular(6),
                 ),

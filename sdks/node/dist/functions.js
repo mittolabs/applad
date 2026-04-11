@@ -13,6 +13,7 @@ class Functions {
             timeout: opts?.timeout ?? 15,
             vars: opts?.vars ?? {},
             source: opts?.source ?? '',
+            cron: opts?.cron ?? '',
         });
     }
     list() {

@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -291,6 +290,25 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
   Future<void> _removeMember(String memberId) async {
     final orgId = ref.read(currentOrgProvider);
     if (orgId == null) return;
+    final colors = consoleColors(context);
+    final confirmed = await showAppDialog<bool>(
+      context: context,
+      title: 'Remove member',
+      content: Text(
+        'Are you sure you want to remove this member?',
+        style: TextStyle(color: colors.textSecondary),
+      ),
+      actions: [
+        const AppDialogCancel(),
+        AppDialogAction(
+          label: 'Remove',
+          destructive: true,
+          onTap: () =>
+              Navigator.of(context, rootNavigator: true).pop(true),
+        ),
+      ],
+    );
+    if (confirmed != true) return;
     try {
       await ref
           .read(apiClientProvider)
@@ -890,7 +908,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
       ]),
       const SizedBox(height: 16),
       if (_members.isEmpty)
-        AppEmptyState(
+        const AppEmptyState(
           icon: LucideIcons.users,
           title: 'No members yet',
           subtitle: 'Invite someone to collaborate on this organization.',
@@ -942,9 +960,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
               items: const [
                 DropdownMenuItem(value: 'owner', child: Text('Owner')),
                 DropdownMenuItem(value: 'admin', child: Text('Admin')),
-                DropdownMenuItem(
-                    value: 'developer', child: Text('Developer')),
-                DropdownMenuItem(value: 'viewer', child: Text('Viewer')),
+                DropdownMenuItem(value: 'member', child: Text('Member')),
               ],
               onChanged: isOwner
                   ? null
@@ -975,20 +991,19 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
   // ---------------------------------------------------------------------------
 
   Widget _buildRolesTab() {
-    const roles = ['Owner', 'Admin', 'Developer', 'Viewer'];
+    const roles = ['Owner', 'Admin', 'Member'];
     const permissions = <(String, List<bool>)>[
-      ('Manage organization settings', [true, false, false, false]),
-      ('Delete organization', [true, false, false, false]),
-      ('Invite & remove members', [true, true, false, false]),
-      ('Change member roles', [true, true, false, false]),
-      ('Create & delete projects', [true, true, false, false]),
-      ('View all projects', [true, true, true, true]),
-      ('Manage project settings', [true, true, true, false]),
-      ('View API keys', [true, true, true, false]),
-      ('Create & delete API keys', [true, true, false, false]),
-      ('Access databases & storage', [true, true, true, false]),
-      ('View usage & activity', [true, true, true, true]),
-      ('Manage billing', [true, false, false, false]),
+      ('Manage organization settings', [true, false, false]),
+      ('Delete organization',          [true, false, false]),
+      ('Invite & remove members',      [true, true,  false]),
+      ('Change member roles',          [true, true,  false]),
+      ('Create & delete projects',     [true, true,  false]),
+      ('View all projects',            [true, true,  true ]),
+      ('Manage project settings',      [true, true,  false]),
+      ('View API keys',                [true, true,  false]),
+      ('Create & delete API keys',     [true, true,  false]),
+      ('Access databases & storage',   [true, true,  true ]),
+      ('View usage & activity',        [true, true,  true ]),
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

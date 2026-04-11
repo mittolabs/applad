@@ -434,7 +434,7 @@ class _GraphPainter extends CustomPainter {
 
     // Grid lines
     final gridPaint = Paint()
-      ..color = const Color(0xFF1A1A1A).withOpacity(0.5)
+      ..color = const Color(0xFF1A1A1A).withValues(alpha: 0.5)
       ..strokeWidth = 1;
     for (var i = 0; i < 5; i++) {
       final y = size.height * i / 4;
@@ -717,7 +717,7 @@ class _RecentDeployments extends StatelessWidget {
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   onTap: () => context.go('/project/$projectId/deploy'),
-                  child: Text('View all',
+                  child: const Text('View all',
                       style: TextStyle(
                           color: _accent,
                           fontSize: 13,
@@ -777,7 +777,7 @@ class _RecentDeployments extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: color.withOpacity(0.12),
+                        color: color.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(_statusLabel(status),
@@ -976,7 +976,7 @@ class _ServiceCellState extends State<_ServiceCell> {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: _accent.withOpacity(0.1),
+                  color: _accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(7),
                 ),
                 child: Icon(s.icon, size: 15, color: _accent),
@@ -1107,7 +1107,7 @@ class _ActivityTab extends ConsumerWidget {
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          color: _accent.withOpacity(0.1),
+                          color: _accent.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(item.icon,

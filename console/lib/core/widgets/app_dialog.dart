@@ -27,7 +27,7 @@ Future<T?> showAppDialog<T>({
 }) {
   return showDialog<T>(
     context: context,
-    barrierColor: Colors.black.withOpacity(0.6),
+    barrierColor: Colors.black.withValues(alpha: 0.6),
     builder: (ctx) => Center(
       child: Material(
         color: Colors.transparent,
@@ -290,7 +290,7 @@ class AppSelectField<T> extends StatelessWidget {
           const SizedBox(height: 6),
         ],
         DropdownButtonFormField<T>(
-          value: value,
+          initialValue: value,
           dropdownColor: colors.surface,
           style: TextStyle(color: colors.textPrimary, fontSize: 13),
           hint: hint != null

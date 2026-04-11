@@ -127,55 +127,55 @@ _ChipColors _variantColors(StatusVariant v, bool isLight) {
     case StatusVariant.success:
       return isLight
           ? _ChipColors(
-              bg: const Color(0xFF059669).withOpacity(0.10),
+              bg: const Color(0xFF059669).withValues(alpha: 0.10),
               dot: const Color(0xFF059669),
               text: const Color(0xFF059669))
           : _ChipColors(
-              bg: const Color(0xFF34D399).withOpacity(0.12),
+              bg: const Color(0xFF34D399).withValues(alpha: 0.12),
               dot: const Color(0xFF34D399),
               text: const Color(0xFF34D399));
 
     case StatusVariant.warning:
       return isLight
           ? _ChipColors(
-              bg: const Color(0xFFD97706).withOpacity(0.10),
+              bg: const Color(0xFFD97706).withValues(alpha: 0.10),
               dot: const Color(0xFFD97706),
               text: const Color(0xFFD97706))
           : _ChipColors(
-              bg: const Color(0xFFFBBF24).withOpacity(0.12),
+              bg: const Color(0xFFFBBF24).withValues(alpha: 0.12),
               dot: const Color(0xFFFBBF24),
               text: const Color(0xFFFBBF24));
 
     case StatusVariant.danger:
       return isLight
           ? _ChipColors(
-              bg: const Color(0xFFDC2626).withOpacity(0.10),
+              bg: const Color(0xFFDC2626).withValues(alpha: 0.10),
               dot: const Color(0xFFDC2626),
               text: const Color(0xFFDC2626))
           : _ChipColors(
-              bg: const Color(0xFFF87171).withOpacity(0.12),
+              bg: const Color(0xFFF87171).withValues(alpha: 0.12),
               dot: const Color(0xFFF87171),
               text: const Color(0xFFF87171));
 
     case StatusVariant.info:
       return isLight
           ? _ChipColors(
-              bg: const Color(0xFF2563EB).withOpacity(0.10),
+              bg: const Color(0xFF2563EB).withValues(alpha: 0.10),
               dot: const Color(0xFF2563EB),
               text: const Color(0xFF2563EB))
           : _ChipColors(
-              bg: const Color(0xFF60A5FA).withOpacity(0.12),
+              bg: const Color(0xFF60A5FA).withValues(alpha: 0.12),
               dot: const Color(0xFF60A5FA),
               text: const Color(0xFF60A5FA));
 
     case StatusVariant.neutral:
       return isLight
           ? _ChipColors(
-              bg: Colors.black.withOpacity(0.06),
+              bg: Colors.black.withValues(alpha: 0.06),
               dot: const Color(0xFF6B7280),
               text: const Color(0xFF6B7280))
           : _ChipColors(
-              bg: Colors.white.withOpacity(0.06),
+              bg: Colors.white.withValues(alpha: 0.06),
               dot: const Color(0xFF9CA3AF),
               text: const Color(0xFF9CA3AF));
   }

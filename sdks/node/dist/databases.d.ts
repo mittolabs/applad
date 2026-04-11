@@ -41,6 +41,8 @@ export declare class Databases {
     }): Promise<any>;
     listColumns(databaseId: string, tableId: string): Promise<any>;
     deleteColumn(databaseId: string, tableId: string, key: string): Promise<any>;
+    getColumnPermissions(databaseId: string, tableId: string, key: string): Promise<any>;
+    setColumnPermissions(databaseId: string, tableId: string, key: string, permissions: ('read' | 'write')[]): Promise<any>;
     createIndex(databaseId: string, tableId: string, key: string, type: string, columns: string[], orders?: string[]): Promise<any>;
     listIndexes(databaseId: string, tableId: string): Promise<any>;
     deleteIndex(databaseId: string, tableId: string, key: string): Promise<any>;

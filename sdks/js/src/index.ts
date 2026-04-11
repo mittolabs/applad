@@ -18,3 +18,5 @@ export { Search } from './search';
 export { Storage } from './storage';
 export { Vectors } from './vectors';
 export { Workflows } from './workflows';
+export { Observe } from './observe';
+export type { CaptureErrorOptions, CaptureLogOptions, RecordPerfOptions, WebVitals } from './observe';

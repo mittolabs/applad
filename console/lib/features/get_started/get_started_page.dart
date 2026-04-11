@@ -910,8 +910,8 @@ class _CopyCardState extends State<_CopyCard> {
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
                 child: _copied
-                    ? Icon(LucideIcons.check,
-                        key: const ValueKey('check'),
+                    ? const Icon(LucideIcons.check,
+                        key: ValueKey('check'),
                         size: 14,
                         color: _green)
                     : Icon(LucideIcons.copy,
@@ -1069,8 +1069,8 @@ class _CodeCopyButtonState extends State<_CodeCopyButton> {
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 180),
           child: _copied
-              ? Icon(LucideIcons.check,
-                  key: const ValueKey('ck'), size: 13, color: _green)
+              ? const Icon(LucideIcons.check,
+                  key: ValueKey('ck'), size: 13, color: _green)
               : Icon(LucideIcons.copy,
                   key: const ValueKey('cp'),
                   size: 13,

@@ -20,37 +20,22 @@ class _Experiment {
 }
 
 const _experiments = <_Experiment>[
-  // Console sections
-  _Experiment('specify', 'Specify', 'Feature specs, user stories, and API contracts',
-      LucideIcons.fileText, 'Console Sections'),
-  _Experiment('design', 'Design', 'Component library, page layouts, and prototyping',
-      LucideIcons.figma, 'Console Sections'),
-  _Experiment('test', 'Test', 'Visual test recorder, device lab, and bug capture',
-      LucideIcons.flaskConical, 'Console Sections'),
-  _Experiment('observe', 'Observe', 'Analytics dashboard, logs, health, and error tracking',
-      LucideIcons.activity, 'Console Sections'),
   _Experiment('aiChat', 'AI Assistant', 'Chat interface to build and manage with natural language',
-      LucideIcons.sparkles, 'Console Sections'),
-
-  // Backend services
+      LucideIcons.sparkles, 'Coming soon'),
   _Experiment('search', 'Full-text Search', 'Search service with relevance ranking and facets',
-      LucideIcons.search, 'Backend Services'),
+      LucideIcons.search, 'Coming soon'),
   _Experiment('analytics', 'Event Analytics', 'First-party event tracking, funnels, and retention',
-      LucideIcons.barChart3, 'Backend Services'),
+      LucideIcons.barChart3, 'Coming soon'),
   _Experiment('cache', 'Managed Cache', 'Cache API with TTL and event-driven invalidation',
-      LucideIcons.database, 'Backend Services'),
+      LucideIcons.database, 'Coming soon'),
   _Experiment('billing', 'Billing & Metering', 'Usage metering, plans, and Stripe integration',
-      LucideIcons.creditCard, 'Backend Services'),
-  _Experiment('cms', 'CMS / Content', 'Structured content management with versioning and localization',
-      LucideIcons.newspaper, 'Backend Services'),
+      LucideIcons.creditCard, 'Coming soon'),
   _Experiment('edgeFunctions', 'Edge Functions', 'Serverless at the edge for low-latency middleware',
-      LucideIcons.globe, 'Backend Services'),
-  _Experiment('scheduledJobs', 'Scheduled Jobs', 'Named queues with priority, retry, and dead-letter',
-      LucideIcons.clock, 'Backend Services'),
+      LucideIcons.globe, 'Coming soon'),
   _Experiment('vectors', 'AI / Vectors', 'Vector store and embedding pipeline for RAG',
-      LucideIcons.brain, 'Backend Services'),
+      LucideIcons.brain, 'Coming soon'),
   _Experiment('regions', 'Multi-Region', 'Data residency and region-pinned deployments',
-      LucideIcons.mapPin, 'Backend Services'),
+      LucideIcons.mapPin, 'Coming soon'),
 ];
 
 class ExperimentsPage extends ConsumerWidget {
@@ -78,7 +63,7 @@ class ExperimentsPage extends ConsumerWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(LucideIcons.flaskConical,
+                          const Icon(LucideIcons.flaskConical,
                               size: 20, color: _orange),
                           const SizedBox(width: 8),
                           Text('Experiments',
@@ -132,13 +117,13 @@ class ExperimentsPage extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: _orange.withOpacity(0.08),
+                color: _orange.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _orange.withOpacity(0.2)),
+                border: Border.all(color: _orange.withValues(alpha: 0.2)),
               ),
               child: Row(
                 children: [
-                  Icon(LucideIcons.alertTriangle,
+                  const Icon(LucideIcons.alertTriangle,
                       size: 16, color: _orange),
                   const SizedBox(width: 10),
                   Expanded(
@@ -146,7 +131,7 @@ class ExperimentsPage extends ConsumerWidget {
                       'Experimental features may be incomplete, unstable, or change without notice. '
                       'They are not recommended for production use.',
                       style: TextStyle(
-                          color: _orange.withOpacity(0.8),
+                          color: _orange.withValues(alpha: 0.8),
                           fontSize: 12),
                     ),
                   ),
@@ -202,7 +187,7 @@ class ExperimentsPage extends ConsumerWidget {
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: enabled
-                  ? _green.withOpacity(0.2)
+                  ? _green.withValues(alpha: 0.2)
                   : colors.border,
             ),
           ),
@@ -213,7 +198,7 @@ class ExperimentsPage extends ConsumerWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   color: enabled
-                      ? _green.withOpacity(0.1)
+                      ? _green.withValues(alpha: 0.1)
                       : colors.fillHover,
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -241,7 +226,7 @@ class ExperimentsPage extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 6, vertical: 1),
                             decoration: BoxDecoration(
-                              color: _green.withOpacity(0.15),
+                              color: _green.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: const Text('ON',
@@ -262,7 +247,7 @@ class ExperimentsPage extends ConsumerWidget {
               ),
               Switch(
                 value: enabled,
-                activeColor: _green,
+                activeThumbColor: _green,
                 onChanged: (_) =>
                     ref.read(experimentsProvider.notifier).toggle(exp.key),
               ),

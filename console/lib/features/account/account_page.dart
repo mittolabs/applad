@@ -193,7 +193,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                             ),
                           ],
                         );
-                        if (confirmed == true && mounted) {
+                        if (confirmed == true && context.mounted) {
                           ref.read(consoleAuthProvider.notifier).logout();
                           context.go('/login');
                         }
@@ -254,33 +254,35 @@ class _AccountPageState extends ConsumerState<AccountPage> {
               // Name
               _AccountSection(
                 title: 'Name',
+                onUpdate: _savingName ? null : _updateName,
+                loading: _savingName,
                 children: [
                   _LabeledField(
                       label: 'Name',
                       controller: _nameCtrl,
                       hint: 'Full name'),
                 ],
-                onUpdate: _savingName ? null : _updateName,
-                loading: _savingName,
               ),
 
               // Email
               _AccountSection(
                 title: 'Email',
+                onUpdate: _savingEmail ? null : _updateEmail,
+                loading: _savingEmail,
                 children: [
                   _LabeledField(
                       label: 'Email',
                       controller: _emailCtrl,
                       hint: 'Email address'),
                 ],
-                onUpdate: _savingEmail ? null : _updateEmail,
-                loading: _savingEmail,
               ),
 
               // Password
               _AccountSection(
                 title: 'Password',
                 subtitle: 'Choose a strong password you don\'t use elsewhere.',
+                onUpdate: _savingPassword ? null : _updatePassword,
+                loading: _savingPassword,
                 children: [
                   _LabeledField(
                       label: 'Old password',
@@ -294,8 +296,6 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                       hint: 'Enter password',
                       obscure: true),
                 ],
-                onUpdate: _savingPassword ? null : _updatePassword,
-                loading: _savingPassword,
               ),
 
               // MFA
@@ -309,7 +309,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                       Switch(
                         value: false,
                         onChanged: (_) {},
-                        activeColor: _accent,
+                        activeThumbColor: _accent,
                       ),
                       const SizedBox(width: 8),
                       Text('Multi-factor authentication',
@@ -328,7 +328,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                 decoration: BoxDecoration(
                   color: colors.surface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _red.withOpacity(0.3)),
+                  border: Border.all(color: _red.withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

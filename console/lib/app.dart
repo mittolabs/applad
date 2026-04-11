@@ -92,7 +92,7 @@ class ApplAdApp extends ConsumerWidget {
       style: OutlinedButton.styleFrom(
         foregroundColor: Colors.white,
         shape: _shape,
-        side: BorderSide(color: Colors.white.withOpacity(0.12)),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
       ),
@@ -111,26 +111,26 @@ class ApplAdApp extends ConsumerWidget {
     // Input fields — sharp corners, dark fill
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Colors.white.withOpacity(0.04),
+      fillColor: Colors.white.withValues(alpha: 0.04),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
-        borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
-        borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
         borderSide: const BorderSide(color: _accent),
       ),
-      hintStyle: TextStyle(color: Colors.white.withOpacity(0.25)),
+      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.25)),
     ),
 
     // Chips
     chipTheme: ChipThemeData(
-      backgroundColor: Colors.white.withOpacity(0.06),
+      backgroundColor: Colors.white.withValues(alpha: 0.06),
       shape: _shape,
     ),
 
@@ -150,13 +150,13 @@ class ApplAdApp extends ConsumerWidget {
     // DropdownMenu
     dropdownMenuTheme: DropdownMenuThemeData(
       menuStyle: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(_surface),
+        backgroundColor: const WidgetStatePropertyAll(_surface),
         shape: WidgetStatePropertyAll(_shape),
       ),
     ),
 
     // Divider
-    dividerColor: Colors.white.withOpacity(0.06),
+    dividerColor: Colors.white.withValues(alpha: 0.06),
 
     // Snackbar
     snackBarTheme: SnackBarThemeData(
@@ -205,13 +205,13 @@ class ApplAdApp extends ConsumerWidget {
       style: OutlinedButton.styleFrom(
         foregroundColor: const Color(0xFF1A1A2E),
         shape: _shape,
-        side: BorderSide(color: Colors.black.withOpacity(0.12)),
+        side: BorderSide(color: Colors.black.withValues(alpha: 0.12)),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: const Color(0xFF555),
+        foregroundColor: const Color(0xFF555555),
         shape: _shape,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
@@ -222,20 +222,20 @@ class ApplAdApp extends ConsumerWidget {
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
-        borderSide: BorderSide(color: Colors.black.withOpacity(0.14)),
+        borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.14)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
-        borderSide: BorderSide(color: Colors.black.withOpacity(0.14)),
+        borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.14)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_radius),
         borderSide: const BorderSide(color: _accent),
       ),
-      hintStyle: TextStyle(color: Colors.black.withOpacity(0.35)),
+      hintStyle: TextStyle(color: Colors.black.withValues(alpha: 0.35)),
     ),
     chipTheme: ChipThemeData(
-      backgroundColor: Colors.black.withOpacity(0.06),
+      backgroundColor: Colors.black.withValues(alpha: 0.06),
       shape: _shape,
     ),
     cardTheme: CardThemeData(
@@ -247,7 +247,7 @@ class ApplAdApp extends ConsumerWidget {
       color: _lightSurface,
       shape: _shape,
     ),
-    dividerColor: Colors.black.withOpacity(0.10),
+    dividerColor: Colors.black.withValues(alpha: 0.10),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: const Color(0xFF1A1A2E),
       contentTextStyle: const TextStyle(color: Colors.white),

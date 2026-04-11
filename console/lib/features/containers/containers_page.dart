@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -105,7 +104,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
     child: Column(mainAxisSize: MainAxisSize.min, children: [
       Container(
         width: 72, height: 72,
-        decoration: BoxDecoration(color: _accent.withOpacity(0.1), shape: BoxShape.circle),
+        decoration: BoxDecoration(color: _accent.withValues(alpha: 0.1), shape: BoxShape.circle),
         child: const Icon(LucideIcons.box, size: 32, color: _accent),
       ),
       const SizedBox(height: 20),
@@ -157,7 +156,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
                     child: Row(children: [
                       Container(
                         width: 40, height: 40,
-                        decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                        decoration: BoxDecoration(color: _accent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                         child: const Icon(LucideIcons.box, size: 20, color: _accent),
                       ),
                       const SizedBox(width: 14),
@@ -167,7 +166,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
                       ])),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(color: _green.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                        decoration: BoxDecoration(color: _green.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
                         child: Text(t['tagStrategy'] ?? 'latest', style: const TextStyle(color: _green, fontSize: 11)),
                       ),
                     ]),
@@ -325,7 +324,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
         const SizedBox(height: 32),
         Container(
           width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withOpacity(0.3))),
+          decoration: BoxDecoration(color: _cs.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: _red.withValues(alpha: 0.3))),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('Danger zone', style: TextStyle(color: _red, fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -334,6 +333,26 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
             OutlinedButton(
               style: OutlinedButton.styleFrom(foregroundColor: _red, side: const BorderSide(color: _red)),
               onPressed: () async {
+                final confirmed = await showAppDialog<bool>(
+                  context: context,
+                  title: 'Delete container',
+                  content: Text(
+                    'Delete this container target and all its images. This action cannot be undone.',
+                    style: TextStyle(color: _cs.textSecondary),
+                  ),
+                  actions: [
+                    const AppDialogCancel(),
+                    AppDialogAction(
+                      label: 'Delete',
+                      destructive: true,
+                      onTap: () => Navigator.of(
+                        context,
+                        rootNavigator: true,
+                      ).pop(true),
+                    ),
+                  ],
+                );
+                if (confirmed != true) return;
                 await ref.read(apiClientProvider).delete('/deploy/targets/$_selectedId');
                 ref.invalidate(_containersProvider);
                 setState(() => _selectedId = null);
