@@ -8,8 +8,11 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/id_text.dart';
+import '../../core/widgets/status_chip.dart';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Constants & theme
@@ -610,12 +613,14 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
 
   Widget _dField(TextEditingController c, String hint) => TextField(
         controller: c,
-        style: TextStyle(color: consoleColors(context).textPrimary),
+        style: TextStyle(fontSize: 13, color: consoleColors(context).textPrimary),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: TextStyle(color: consoleColors(context).textSubtle),
+          hintStyle: TextStyle(color: consoleColors(context).textSubtle, fontSize: 13),
           filled: true,
           fillColor: consoleColors(context).fieldFill,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide(color: consoleColors(context).fieldBorder)),
@@ -633,137 +638,180 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
 // Workflow list page
 // ═════════════════════════════════════════════════════════════════════════════
 
-class _ListPage extends ConsumerWidget {
+class _ListPage extends ConsumerStatefulWidget {
   final ValueChanged<Map<String, dynamic>> onSelect;
   final VoidCallback onCreate;
   final VoidCallback onBrowseTemplates;
   const _ListPage({required this.onSelect, required this.onCreate, required this.onBrowseTemplates});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ListPage> createState() => _ListPageState();
+}
+
+class _ListPageState extends ConsumerState<_ListPage> {
+  final _searchCtrl = TextEditingController();
+  String _search = '';
+  int _page = 1;
+  int _perPage = 12;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colors = consoleColors(context);
     final wAsync = ref.watch(workflowsProvider);
-    return Container(
-      color: colors.background,
-      child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
-          child: Row(children: [
+
+    final allList = wAsync.valueOrNull == null
+        ? <Map<String, dynamic>>[]
+        : List<Map<String, dynamic>>.from(wAsync.valueOrNull!['workflows'] ?? []);
+
+    final filtered = _search.isEmpty
+        ? allList
+        : allList.where((wf) {
+            final name = (wf['name'] as String? ?? '').toLowerCase();
+            final id = (wf[r'$id'] as String? ?? '').toLowerCase();
+            return name.contains(_search) || id.contains(_search);
+          }).toList();
+
+    final total = filtered.length;
+    final start = (_page - 1) * _perPage;
+    final rows = filtered.skip(start).take(_perPage).toList();
+
+    return Scaffold(
+      backgroundColor: colors.background,
+      body: Padding(
+        padding: EdgeInsets.symmetric(horizontal: pageHPad(context)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(height: 32),
+          Row(children: [
             Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Workflows',
-                        style: TextStyle(
-                            color: colors.textPrimary,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700)),
-                    SizedBox(height: 4),
-                    Text('Automate tasks with visual pipelines',
-                        style: TextStyle(color: colors.textSecondary, fontSize: 14)),
-                  ]),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Workflows',
+                    style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text('Automate tasks with visual pipelines',
+                    style: TextStyle(color: colors.textSecondary, fontSize: 13)),
+              ]),
             ),
             TextButton.icon(
               style: TextButton.styleFrom(
                   foregroundColor: colors.textSecondary,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12)),
-              icon: const Icon(LucideIcons.layoutTemplate, size: 15),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10)),
+              icon: const Icon(LucideIcons.layoutTemplate, size: 14),
               label: const Text('Templates', style: TextStyle(fontSize: 13)),
-              onPressed: onBrowseTemplates,
-            ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                  backgroundColor: _accent,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 12)),
-              icon: const Icon(LucideIcons.plus, size: 16),
-              label:
-                  const Text('New Workflow', style: TextStyle(fontSize: 13)),
-              onPressed: onCreate,
+              onPressed: widget.onBrowseTemplates,
             ),
           ]),
-        ),
-        const SizedBox(height: 24),
-        Expanded(
-          child: wAsync.when(
-            loading: () =>
-                const Center(child: CircularProgressIndicator(color: _accent)),
-            error: (e, _) => Center(
-              child: Text('$e', style: TextStyle(color: colors.textSecondary))),
-            data: (data) {
-              final list = List<Map<String, dynamic>>.from(
-                  data['workflows'] ?? []);
-              if (list.isEmpty) return _empty(context);
-              return _grid(list);
-            },
-          ),
-        ),
-      ]),
+          const SizedBox(height: 24),
+          if (wAsync.isLoading)
+            const Expanded(child: Center(child: CircularProgressIndicator(color: _accent)))
+          else
+            Expanded(
+              child: AppDataTable(
+                columns: const [
+                  AppTableColumn(key: 'name',        label: 'Name',    flex: 4),
+                  AppTableColumn(key: 'triggerType',  label: 'Trigger', flex: 2),
+                  AppTableColumn(key: 'status',       label: 'Status',  flex: 2),
+                  AppTableColumn(key: 'nodes',        label: 'Nodes',   flex: 1),
+                  AppTableColumn(key: 'updatedAt',    label: 'Updated', flex: 2),
+                ],
+                rows: rows,
+                getCellValue: (row, key) => switch (key) {
+                  'name'        => row['name'] as String? ?? 'Unnamed',
+                  'triggerType' => row['triggerType'] as String? ?? 'manual',
+                  'status'      => row['status'] as String? ?? 'draft',
+                  'nodes'       => '${(row['nodes'] as List?)?.length ?? 0}',
+                  'updatedAt'   => _fmtDate(row['updatedAt']),
+                  _             => '',
+                },
+                cellBuilder: (row, key) {
+                  if (key == 'status') {
+                    return StatusChip.fromStatus(row['status'] as String? ?? 'draft');
+                  }
+                  if (key == 'triggerType') {
+                    final t = row['triggerType'] as String? ?? 'manual';
+                    final icon = t == 'webhook'
+                        ? LucideIcons.webhook
+                        : t == 'cron'
+                            ? LucideIcons.clock
+                            : LucideIcons.play;
+                    final colors = consoleColors(context);
+                    return Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(icon, size: 12, color: colors.textMuted),
+                      const SizedBox(width: 5),
+                      Text(t, style: TextStyle(fontSize: 12, color: colors.textSecondary)),
+                    ]);
+                  }
+                  return null;
+                },
+                getRowIcon: (_) => LucideIcons.gitBranch,
+                getRowIconColor: (_) => _accent,
+                onRowTap: widget.onSelect,
+                onDeleteRow: (row) async {
+                  final api = ref.read(apiClientProvider);
+                  await api.delete('/workflows/${row[r'$id']}');
+                  ref.invalidate(workflowsProvider);
+                },
+                createLabel: 'New Workflow',
+                onCreateTap: widget.onCreate,
+                total: total,
+                perPage: _perPage,
+                currentPage: _page,
+                onPrev: () => setState(() => _page--),
+                onNext: () => setState(() => _page++),
+                onPerPageChanged: (v) => setState(() {
+                  _perPage = v;
+                  _page = 1;
+                }),
+                itemLabel: 'workflows',
+                searchController: _searchCtrl,
+                onSearch: () => setState(() {
+                  _search = _searchCtrl.text.toLowerCase();
+                  _page = 1;
+                }),
+                emptyIcon: LucideIcons.gitBranch,
+                emptyTitle: 'No workflows yet',
+                emptySubtitle: 'Create your first workflow to get started',
+                persistKey: 'workflows',
+                gridCardBuilder: (row) => _Card(row, widget.onSelect),
+              ),
+            ),
+        ]),
+      ),
     );
   }
 
-  Widget _empty(BuildContext context) {
-    final colors = consoleColors(context);
-    return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-                color: _accent.withOpacity(0.1), shape: BoxShape.circle),
-            child: const Icon(LucideIcons.gitBranch, size: 32, color: _accent),
-          ),
-          const SizedBox(height: 20),
-            Text('No workflows yet',
-              style: TextStyle(
-                color: colors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-            Text('Create your first workflow to get started',
-              style: TextStyle(color: colors.textSecondary, fontSize: 14)),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-                backgroundColor: _accent,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 12)),
-            icon: const Icon(LucideIcons.plus, size: 16),
-            label: const Text('New Workflow'),
-            onPressed: onCreate,
-          ),
-        ]),
-      );
+  String _fmtDate(dynamic v) {
+    if (v == null) return '';
+    try {
+      final dt = DateTime.parse(v.toString()).toLocal();
+      final now = DateTime.now();
+      final diff = now.difference(dt);
+      if (diff.inMinutes < 1) return 'just now';
+      if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+      if (diff.inDays < 1) return '${diff.inHours}h ago';
+      if (diff.inDays < 30) return '${diff.inDays}d ago';
+      return '${dt.day}/${dt.month}/${dt.year}';
+    } catch (_) {
+      return v.toString();
+    }
   }
-
-  Widget _grid(List<Map<String, dynamic>> wfs) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: LayoutBuilder(builder: (ctx, box) {
-          final cols = (box.maxWidth / 340).floor().clamp(1, 4);
-          final w = (box.maxWidth - (cols - 1) * 16) / cols;
-          return SingleChildScrollView(
-            child: Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: wfs.map((wf) => _Card(wf, w, onSelect)).toList()),
-          );
-        }),
-      );
 }
+
+// ── Workflow grid card ─────────────────────────────────────────────────────────
 
 class _Card extends StatefulWidget {
   final Map<String, dynamic> wf;
-  final double w;
   final ValueChanged<Map<String, dynamic>> onSelect;
-  const _Card(this.wf, this.w, this.onSelect);
+  const _Card(this.wf, this.onSelect);
   @override
   State<_Card> createState() => _CardState();
 }
@@ -786,7 +834,6 @@ class _CardState extends State<_Card> {
         onTap: () => widget.onSelect(widget.wf),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          width: widget.w,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: _h ? colors.fillHover : colors.surface,
@@ -796,52 +843,33 @@ class _CardState extends State<_Card> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 36, height: 36,
                 decoration: BoxDecoration(
                     color: _accent.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(8)),
-                child: const Icon(LucideIcons.gitBranch,
-                    size: 18, color: _accent),
+                child: const Icon(LucideIcons.gitBranch, size: 18, color: _accent),
               ),
               const SizedBox(width: 12),
               Expanded(
                   child: Text(name,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                          fontSize: 15,
+                      style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 14,
                           fontWeight: FontWeight.w600),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis)),
-              _dot(status),
+              StatusChip.fromStatus(status),
             ]),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Row(children: [
-              _chip(_trigIcon(trigger), trigger),
+              _chip(_trigIcon(trigger), trigger, colors),
               const SizedBox(width: 8),
-              _chip(LucideIcons.boxes, '$nc nodes'),
+              _chip(LucideIcons.boxes, '$nc nodes', colors),
             ]),
           ]),
         ),
       ),
     );
-  }
-
-  Widget _dot(String s) {
-    final c = s == 'active'
-        ? _green
-        : s == 'paused'
-            ? _orange
-            : const Color(0xFF64748B);
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
-      const SizedBox(width: 6),
-      Text(s,
-          style: TextStyle(color: c, fontSize: 12, fontWeight: FontWeight.w500)),
-    ]);
   }
 
   IconData _trigIcon(String t) => t == 'webhook'
@@ -850,15 +878,14 @@ class _CardState extends State<_Card> {
           ? LucideIcons.clock
           : LucideIcons.play;
 
-  Widget _chip(IconData ic, String l) => Container(
+  Widget _chip(IconData ic, String l, dynamic colors) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-            color: consoleColors(context).fill,
-            borderRadius: BorderRadius.circular(6)),
+            color: colors.fill, borderRadius: BorderRadius.circular(6)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(ic, size: 12, color: consoleColors(context).textSubtle),
+          Icon(ic, size: 12, color: colors.textSubtle),
           const SizedBox(width: 5),
-          Text(l, style: TextStyle(color: consoleColors(context).textSubtle, fontSize: 11)),
+          Text(l, style: TextStyle(color: colors.textSubtle, fontSize: 11)),
         ]),
       );
 }
@@ -1755,10 +1782,12 @@ class _EditorState extends ConsumerState<_Editor> {
   void _showContextMenu(Offset screenPos, Offset canvasPos) {
     final nodeIdx = _hitNode(canvasPos);
     final colors = consoleColors(context);
+    final size = MediaQuery.sizeOf(context);
     showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(
-          screenPos.dx, screenPos.dy, screenPos.dx, screenPos.dy),
+          screenPos.dx, screenPos.dy,
+          size.width - screenPos.dx, size.height - screenPos.dy),
       color: colors.popupSurface,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),

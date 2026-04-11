@@ -9,6 +9,7 @@ import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // ── Colors ──────────────────────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ class _VaultPageState extends ConsumerState<VaultPage> {
       backgroundColor: _cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -167,10 +168,7 @@ class _VaultPageState extends ConsumerState<VaultPage> {
               child: creds.when(
                 loading: () => const Center(
                     child: CircularProgressIndicator(strokeWidth: 2)),
-                error: (e, _) => Center(
-                  child: Text('Error: $e',
-                      style: const TextStyle(color: Color(0xFFEF4444))),
-                ),
+                error: (e, _) => AppErrorState(error: e),
                 data: (data) {
                   final items = (data['credentials'] as List? ?? [])
                       .cast<Map<String, dynamic>>();
@@ -584,6 +582,7 @@ class _CredentialModalState extends ConsumerState<_CredentialModal> {
           decoration: InputDecoration(
             filled: true,
             fillColor: cs.surface,
+            isDense: true,
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
@@ -988,7 +987,7 @@ class _CredentialDetailModalState
     final logAsync = ref.watch(_accessLogProvider(credId));
     return logAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) => AppErrorState(error: e),
       data: (data) {
         final accesses = (data['accesses'] as List? ?? [])
             .cast<Map<String, dynamic>>();

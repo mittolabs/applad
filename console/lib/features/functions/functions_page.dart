@@ -8,8 +8,9 @@ import '../../core/theme/console_colors.dart';
 import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
+import '../../core/widgets/app_data_table.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/page_tabs.dart';
-import '../../core/widgets/search_list.dart';
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
@@ -143,7 +144,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
 
     return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
+        horizontal: pageHPad(context),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -154,7 +155,10 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
                   color: colors.textPrimary,
                   fontSize: 22,
                   fontWeight: FontWeight.w600)),
-          const SizedBox(height: 24),
+          const SizedBox(height: 4),
+          Text('Deploy serverless functions that run on demand in isolated containers',
+              style: TextStyle(color: colors.textSecondary, fontSize: 13)),
+          const SizedBox(height: 20),
           PageTabs(
             tabs: const ['Functions', 'Usage'],
             selected: listTab,
@@ -171,25 +175,45 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
     );
   }
 
+  String _fmtDate(dynamic v) => v?.toString().split('T').first ?? '—';
+
   Widget _buildFunctionsTab(
     AsyncValue<Map<String, dynamic>> functionsAsync,
     int perPage,
     int currentPage,
   ) {
-    final colors = consoleColors(context);
-    return Column(
-      children: [
-        SearchListHeader(
-          searchController: _searchCtrl,
-          total: functionsAsync.whenOrNull(
-                  data: (d) => d['total'] as int? ?? 0) ??
-              0,
+    return functionsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
+      error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(functionsProvider)),
+      data: (data) {
+        final fns = List<Map<String, dynamic>>.from(data['functions'] ?? []);
+        final total = data['total'] as int? ?? fns.length;
+        return AppDataTable(
+          columns: const [
+            AppTableColumn(key: 'name',      label: 'Name',    flex: 4),
+            AppTableColumn(key: 'runtime',   label: 'Runtime', flex: 2),
+            AppTableColumn(key: 'status',    label: 'Status',  flex: 2),
+            AppTableColumn(key: 'updatedAt', label: 'Updated', flex: 2),
+          ],
+          rows: fns,
+          getCellValue: (row, key) => switch (key) {
+            'name'      => row['name'] as String? ?? '',
+            'runtime'   => row['runtime'] as String? ?? '',
+            'status'    => row['status'] as String? ?? 'active',
+            'updatedAt' => _fmtDate(row['updatedAt']),
+            _           => '',
+          },
+          getRowIcon: (_) => LucideIcons.zap,
+          onRowTap: (row) => ref.read(_selectedFuncProvider.notifier).state = row,
+          onDeleteRow: (row) async {
+            await ref.read(apiClientProvider).delete('/functions/${row[r'$id']}');
+            ref.invalidate(functionsProvider);
+          },
+          createLabel: 'Create function',
+          onCreateTap: () => _showCreateDialog(context, ref),
+          total: total,
           perPage: perPage,
           currentPage: currentPage,
-          onPerPageChanged: (v) {
-            ref.read(_funcPerPageProvider.notifier).state = v;
-            ref.read(_funcPageProvider.notifier).state = 1;
-          },
           onPrev: () {
             final p = currentPage - 1;
             ref.read(_funcPageProvider.notifier).state = p;
@@ -200,132 +224,18 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
             ref.read(_funcPageProvider.notifier).state = p;
             context.go(withQuery(context, {'page': '$p'}));
           },
-          onSearch: _doSearch,
-          trailing: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: _accent,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => _showCreateDialog(context, ref),
-            icon: const Icon(LucideIcons.plus, size: 16),
-            label: const Text('Create function'),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: functionsAsync.when(
-            loading: () =>
-                const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(LucideIcons.alertCircle,
-                      size: 48, color: colors.textSubtle),
-                  const SizedBox(height: 16),
-                  Text('Failed to load functions: $e',
-                      style: TextStyle(color: colors.textSecondary)),
-                  const SizedBox(height: 8),
-                  FilledButton(
-                    onPressed: () => ref.invalidate(functionsProvider),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            ),
-            data: (data) {
-              final fns = List<Map<String, dynamic>>.from(
-                  data['functions'] ?? []);
-              if (fns.isEmpty) {
-                return _buildEmptyState();
-              }
-              return ListView.separated(
-                padding: EdgeInsets.zero,
-                itemCount: fns.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(height: 8),
-                itemBuilder: (context, i) => _FuncCard(
-                  fn: fns[i],
-                  onTap: () =>
-                      ref.read(_selectedFuncProvider.notifier).state =
-                          fns[i],
-                  onDelete: () => _delete(ref, fns[i]['\$id'] as String),
-                ),
-              );
-            },
-          ),
-        ),
-        SearchListFooter(
-          total: functionsAsync.whenOrNull(
-                  data: (d) => d['total'] as int? ?? 0) ??
-              0,
-          perPage: perPage,
-          currentPage: currentPage,
-          itemLabel: 'functions',
-          onPrev: () =>
-              ref.read(_funcPageProvider.notifier).update((s) => s - 1),
-          onNext: () =>
-              ref.read(_funcPageProvider.notifier).update((s) => s + 1),
           onPerPageChanged: (v) {
             ref.read(_funcPerPageProvider.notifier).state = v;
             ref.read(_funcPageProvider.notifier).state = 1;
           },
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState() {
-    final colors = consoleColors(context);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: _runtimes
-                .take(6)
-                .map((r) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: colors.surface,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: colors.border),
-                        ),
-                        child: Icon(r.icon, size: 20, color: colors.textSubtle),
-                      ),
-                    ))
-                .toList(),
-          ),
-          const SizedBox(height: 24),
-          Text('Create your first function',
-              style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 8),
-          Text(
-            'Write backend logic that runs on demand in any language.',
-            style: TextStyle(color: colors.textSecondary, fontSize: 13),
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: _accent,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => _showCreateDialog(context, ref),
-            icon: const Icon(LucideIcons.plus, size: 16),
-            label: const Text('Create function'),
-          ),
-        ],
-      ),
+          itemLabel: 'functions',
+          searchController: _searchCtrl,
+          onSearch: _doSearch,
+          emptyIcon: LucideIcons.plus,
+          emptyTitle: 'No functions yet',
+          emptySubtitle: 'Write backend logic that runs on demand in any language.',
+        );
+      },
     );
   }
 

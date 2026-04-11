@@ -30,3 +30,13 @@ int pageFromQuery(BuildContext context) =>
 /// Reads a named tab from `?tab=name`, returning [defaultTab] if absent.
 String tabFromQuery(BuildContext context, {String defaultTab = ''}) =>
     GoRouterState.of(context).uri.queryParameters['tab'] ?? defaultTab;
+
+/// Responsive horizontal page padding.
+/// Mobile (<650): 16px · Narrow (<1100): 32px · Normal (<1400): 48px · Wide: 64px
+double pageHPad(BuildContext context) {
+  final w = MediaQuery.sizeOf(context).width;
+  if (w < 650) return 16.0;
+  if (w > 1400) return 64.0;
+  if (w > 1100) return 48.0;
+  return 32.0;
+}

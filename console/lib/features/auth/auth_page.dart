@@ -10,16 +10,9 @@ import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/status_chip.dart';
 
-// ── Responsive padding ────────────────────────────────────────────────────────
-
-double _hPad(BuildContext context) {
-  final w = MediaQuery.sizeOf(context).width;
-  if (w > 1400) return 80.0;
-  if (w > 1100) return 60.0;
-  return 40.0;
-}
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
@@ -103,7 +96,7 @@ class _AuthPageState extends ConsumerState<AuthPage> {
     return Scaffold(
       backgroundColor: colors.background,
       body: Padding(
-        padding: EdgeInsets.symmetric(horizontal: _hPad(context)),
+        padding: EdgeInsets.symmetric(horizontal: pageHPad(context)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -113,7 +106,10 @@ class _AuthPageState extends ConsumerState<AuthPage> {
                     color: colors.textPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.w600)),
-            const SizedBox(height: 24),
+            const SizedBox(height: 4),
+            Text('Manage users, sessions, OAuth providers and access control',
+                style: TextStyle(color: colors.textSecondary, fontSize: 13)),
+            const SizedBox(height: 20),
             PageTabs(
               tabs: const [
                 'Users',
@@ -180,8 +176,7 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
 
     return usersAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) =>
-          _errorView(context, e.toString(), () => ref.invalidate(usersProvider)),
+      error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(usersProvider)),
       data: (data) {
         final users = List<Map<String, dynamic>>.from(data['users'] ?? []);
         final total = data['total'] as int? ?? 0;
@@ -355,8 +350,7 @@ class _TeamsTabState extends ConsumerState<_TeamsTab> {
 
     return teamsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) =>
-          _errorView(context, e.toString(), () => ref.invalidate(teamsProvider)),
+      error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(teamsProvider)),
       data: (data) {
         final teams = List<Map<String, dynamic>>.from(data['teams'] ?? []);
         final total = data['total'] as int? ?? 0;
@@ -454,8 +448,7 @@ class _SecurityTabState extends ConsumerState<_SecurityTab> {
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) =>
-          Center(child: Text('Failed to load: $e')),
+      error: (e, _) => AppErrorState(error: e),
       data: (data) {
         _sec ??= data;
         final sec = _sec!;
@@ -2175,46 +2168,6 @@ class _CopyIconButtonState extends State<_CopyIconButton> {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-Widget _errorView(BuildContext context, String message, VoidCallback onRetry) {
-  final colors = consoleColors(context);
-  return Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: colors.fill,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(LucideIcons.alertTriangle,
-              size: 22, color: colors.textSubtle),
-        ),
-        const SizedBox(height: 16),
-        Text('Error: $message',
-            style: TextStyle(
-                color: colors.textPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w500)),
-        const SizedBox(height: 16),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: _accent,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8)),
-          ),
-          onPressed: onRetry,
-          child: const Text('Retry', style: TextStyle(fontSize: 13)),
-        ),
-      ],
-    ),
-  );
-}
 
 Widget _emptyState(
     BuildContext context,

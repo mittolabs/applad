@@ -1,6 +1,9 @@
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../theme/console_colors.dart';
+import 'app_empty_state.dart';
 import 'id_text.dart';
 import 'search_list.dart';
 
@@ -121,6 +124,10 @@ class AppDataTable extends StatefulWidget {
   /// If supplied, the grid-view toggle button is shown.
   final Widget Function(Map<String, dynamic> row)? gridCardBuilder;
 
+  /// localStorage key used to persist the grid/table preference across sessions.
+  /// When null the preference is not persisted (resets on reload).
+  final String? persistKey;
+
   // ── Empty state ───────────────────────────────────────────────────────────
 
   final IconData emptyIcon;
@@ -153,6 +160,7 @@ class AppDataTable extends StatefulWidget {
     this.filters = const [],
     this.onFiltersChanged,
     this.gridCardBuilder,
+    this.persistKey,
     this.emptyIcon = LucideIcons.layoutList,
     this.emptyTitle = 'No items',
     this.emptySubtitle = 'Create one to get started',
@@ -169,6 +177,8 @@ class _AppDataTableState extends State<AppDataTable> {
   bool _sortAscending = true;
   final Map<String, String?> _activeFilters = {};
 
+  String get _storageKey => 'applad_view_${widget.persistKey}';
+
   @override
   void initState() {
     super.initState();
@@ -176,6 +186,18 @@ class _AppDataTableState extends State<AppDataTable> {
       for (final c in widget.columns)
         if (c.defaultVisible) c.key,
     };
+    // Restore persisted grid/table preference.
+    if (widget.persistKey != null && widget.gridCardBuilder != null) {
+      _isGridView =
+          html.window.localStorage[_storageKey] == 'grid';
+    }
+  }
+
+  void _setGridView(bool grid) {
+    setState(() => _isGridView = grid);
+    if (widget.persistKey != null) {
+      html.window.localStorage[_storageKey] = grid ? 'grid' : 'table';
+    }
   }
 
   // ── Derived data ────────────────────────────────────────────────────────────
@@ -266,8 +288,8 @@ class _AppDataTableState extends State<AppDataTable> {
           onToggleColumn: _toggleColumn,
           isGridView: _isGridView,
           hasGridView: widget.gridCardBuilder != null,
-          onSetListView: () => setState(() => _isGridView = false),
-          onSetGridView: () => setState(() => _isGridView = true),
+          onSetListView: () => _setGridView(false),
+          onSetGridView: () => _setGridView(true),
           createLabel: widget.createLabel,
           onCreateTap: widget.onCreateTap,
           createWidget: widget.createWidget,
@@ -275,7 +297,7 @@ class _AppDataTableState extends State<AppDataTable> {
         const SizedBox(height: 16),
         Expanded(
           child: rows.isEmpty
-              ? _EmptyState(
+              ? AppEmptyState(
                   icon: widget.emptyIcon,
                   title: widget.emptyTitle,
                   subtitle: widget.emptySubtitle,
@@ -1460,72 +1482,11 @@ class AppTableEmptyState extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => _EmptyState(
+  Widget build(BuildContext context) => AppEmptyState(
         icon: icon,
         title: title,
         subtitle: subtitle,
         actionLabel: actionLabel,
         onAction: onAction,
       );
-}
-
-class _EmptyState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final String actionLabel;
-  final VoidCallback? onAction;
-
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.actionLabel,
-    this.onAction,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = consoleColors(context);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: cs.fill,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, size: 22, color: cs.textSubtle),
-          ),
-          const SizedBox(height: 16),
-          Text(title,
-              style: TextStyle(
-                  color: cs.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 6),
-          Text(subtitle,
-              style: TextStyle(color: cs.textMuted, fontSize: 13)),
-          if (onAction != null) ...[
-            const SizedBox(height: 16),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: _kAccent,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 10),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: onAction,
-              child:
-                  Text(actionLabel, style: const TextStyle(fontSize: 13)),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }

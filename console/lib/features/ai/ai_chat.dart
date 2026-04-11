@@ -360,14 +360,10 @@ class _DraggableBubbleState extends State<_DraggableBubble>
               height: _bubbleSize,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [_aiAccent, _aiAccentDim],
-                ),
+                color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: _aiAccent.withValues(alpha: glow),
+                    color: Colors.black.withValues(alpha: glow * 0.4),
                     blurRadius: 20,
                     spreadRadius: 2,
                   ),
@@ -376,11 +372,16 @@ class _DraggableBubbleState extends State<_DraggableBubble>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  Icon(
-                    widget.open ? LucideIcons.x : LucideIcons.sparkles,
-                    color: Colors.white,
-                    size: 22,
-                  ),
+                  widget.open
+                      ? const Icon(LucideIcons.x, color: Color(0xFF1A1A1F), size: 22)
+                      : ClipOval(
+                          child: Image.asset(
+                            'assets/applad-mascot-head.png',
+                            width: 36,
+                            height: 36,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
                   if (widget.hasUnread)
                     Positioned(
                       top: 8,
@@ -516,19 +517,13 @@ class _FinHeader extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [_aiAccent, _aiAccentDim],
-              ),
+          ClipOval(
+            child: Image.asset(
+              'assets/applad-mascot-head.png',
+              width: 34,
+              height: 34,
+              fit: BoxFit.cover,
             ),
-            child: const Icon(LucideIcons.sparkles,
-                size: 15, color: Colors.white),
           ),
           const SizedBox(width: 12),
           const Expanded(
@@ -684,16 +679,13 @@ class _ExpandedSidebar extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
             child: Row(children: [
-              Container(
-                width: 26,
-                height: 26,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                      colors: [_aiAccent, _aiAccentDim]),
+              ClipOval(
+                child: Image.asset(
+                  'assets/applad-mascot-head.png',
+                  width: 26,
+                  height: 26,
+                  fit: BoxFit.cover,
                 ),
-                child: const Icon(LucideIcons.sparkles,
-                    size: 12, color: Colors.white),
               ),
               const SizedBox(width: 9),
               const Expanded(
@@ -929,17 +921,15 @@ class _ExpandedAiMsg extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Small avatar
-          Container(
-            width: 22,
-            height: 22,
-            margin: const EdgeInsets.only(top: 1, right: 12),
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(colors: [_aiAccent, _aiAccentDim]),
+          ClipOval(
+            child: Image.asset(
+              'assets/applad-mascot-head.png',
+              width: 22,
+              height: 22,
+              fit: BoxFit.cover,
             ),
-            child: const Icon(LucideIcons.sparkles,
-                size: 11, color: Colors.white),
           ),
+          const SizedBox(width: 12),
           Expanded(
             child: _AssistantBubble(text: msg.text, compact: false),
           ),
@@ -1014,17 +1004,15 @@ class _ExpandedThinkingState extends State<_ExpandedThinking>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            width: 22,
-            height: 22,
-            margin: const EdgeInsets.only(right: 12),
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(colors: [_aiAccent, _aiAccentDim]),
+          ClipOval(
+            child: Image.asset(
+              'assets/applad-mascot-head.png',
+              width: 22,
+              height: 22,
+              fit: BoxFit.cover,
             ),
-            child: const Icon(LucideIcons.sparkles,
-                size: 11, color: Colors.white),
           ),
+          const SizedBox(width: 12),
           AnimatedBuilder(
             animation: _ctrl,
             builder: (ctx, _) => Row(

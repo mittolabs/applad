@@ -8,6 +8,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
 import '../theme/console_colors.dart';
+import 'app_dialog.dart';
 
 // ── Shared overlay helper ────────────────────────────────────────────────────
 
@@ -83,6 +84,38 @@ class _NavGhostButtonState extends State<NavGhostButton> {
       ),
     );
   }
+}
+
+/// Opens the feedback panel from anywhere (e.g. the overflow nav menu).
+void showFeedbackPanel(BuildContext context) {
+  OverlayEntry? entry;
+  void close() {
+    entry?.remove();
+    entry = null;
+  }
+  entry = _buildOverlay(
+    top: 56,
+    right: 8,
+    onClose: close,
+    panel: _FeedbackPanel(onClose: close),
+  );
+  Overlay.of(context).insert(entry!);
+}
+
+/// Opens the support panel from anywhere (e.g. the overflow nav menu).
+void showSupportPanel(BuildContext context) {
+  OverlayEntry? entry;
+  void close() {
+    entry?.remove();
+    entry = null;
+  }
+  entry = _buildOverlay(
+    top: 56,
+    right: 8,
+    onClose: close,
+    panel: const _SupportPanel(),
+  );
+  Overlay.of(context).insert(entry!);
 }
 
 // ── Feedback button ───────────────────────────────────────────────────────────
@@ -776,7 +809,7 @@ class _UserMenuPanel extends ConsumerWidget {
     final isLight = ref.watch(themeModeProvider);
 
     return Container(
-      width: 280,
+      width: 230,
       decoration: BoxDecoration(
         color: cs.popupSurface,
         borderRadius: BorderRadius.circular(10),
@@ -795,67 +828,81 @@ class _UserMenuPanel extends ConsumerWidget {
         children: [
           // Email
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
             child: Text(
               user?.email ?? '',
               style: TextStyle(
-                color: cs.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+                color: cs.textMuted,
+                fontSize: 11,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
 
-          _divider(cs),
-
-          // Account
-          _MenuItemTrailing(
-            label: 'Account',
-            icon: LucideIcons.user,
-            onTap: () {
-              onClose();
-              context.go('/account');
-            },
+          // Items
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+            child: Column(
+              children: [
+                _MenuItemTrailing(
+                  label: 'Account',
+                  icon: LucideIcons.user,
+                  onTap: () {
+                    onClose();
+                    context.go('/account');
+                  },
+                ),
+                _MenuItemTrailing(
+                  label: 'Sign out',
+                  icon: LucideIcons.logOut,
+                  onTap: () async {
+                    onClose();
+                    final confirmed = await showAppDialog<bool>(
+                      context: context,
+                      title: 'Sign out',
+                      content: Text(
+                        'Are you sure you want to sign out?',
+                        style: TextStyle(color: consoleColors(context).textSecondary),
+                      ),
+                      actions: [
+                        const AppDialogCancel(),
+                        AppDialogAction(
+                          label: 'Sign out',
+                          destructive: true,
+                          onTap: () => Navigator.of(context, rootNavigator: true).pop(true),
+                        ),
+                      ],
+                    );
+                    if (confirmed == true && context.mounted) {
+                      ref.read(consoleAuthProvider.notifier).logout();
+                      context.go('/login');
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
 
-          _divider(cs),
-
-          // Sign out
-          _MenuItemTrailing(
-            label: 'Sign out',
-            icon: LucideIcons.logOut,
-            onTap: () {
-              onClose();
-              ref.read(consoleAuthProvider.notifier).logout();
-              context.go('/login');
-            },
-          ),
-
-          _divider(cs),
+          Container(height: 1, color: cs.border, margin: const EdgeInsets.symmetric(horizontal: 8)),
 
           // Theme row
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
             child: Row(
               children: [
                 Text(
                   'Theme',
-                  style: TextStyle(color: cs.textSecondary, fontSize: 14),
+                  style: TextStyle(color: cs.textMuted, fontSize: 11),
                 ),
                 const Spacer(),
                 _ThemeToggle(isLight: isLight),
               ],
             ),
           ),
-
-          const SizedBox(height: 2),
         ],
       ),
     );
   }
-
-  Widget _divider(ConsoleColors cs) => Container(height: 1, color: cs.border);
 }
 
 class _MenuItemTrailing extends StatefulWidget {
@@ -882,14 +929,17 @@ class _MenuItemTrailingState extends State<_MenuItemTrailing> {
         onTap: widget.onTap,
         child: Container(
           width: double.infinity,
-          color: _hovered ? cs.fillHover : Colors.transparent,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          decoration: BoxDecoration(
+            color: _hovered ? cs.fillHover : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
           child: Row(
             children: [
               Text(widget.label,
-                  style: TextStyle(color: cs.textSecondary, fontSize: 14)),
+                  style: TextStyle(color: cs.textSecondary, fontSize: 12)),
               const Spacer(),
-              Icon(widget.icon, size: 16, color: cs.textMuted),
+              Icon(widget.icon, size: 13, color: cs.textMuted),
             ],
           ),
         ),
@@ -987,30 +1037,3 @@ class _ThemeOptionState extends State<_ThemeOption> {
   }
 }
 
-// ── Theme toggle (standalone navbar button) ──────────────────────────────────
-
-class ThemeToggleButton extends ConsumerWidget {
-  const ThemeToggleButton({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cs = consoleColors(context);
-    final isLight = ref.watch(themeModeProvider);
-    return Tooltip(
-      message: isLight ? 'Switch to dark mode' : 'Switch to light mode',
-      child: InkWell(
-        onTap: () => ref.read(themeModeProvider.notifier).toggle(),
-        borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          width: 34,
-          height: 34,
-          child: Icon(
-            isLight ? LucideIcons.moon : LucideIcons.sun,
-            size: 17,
-            color: cs.textMuted,
-          ),
-        ),
-      ),
-    );
-  }
-}

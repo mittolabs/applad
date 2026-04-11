@@ -8,6 +8,7 @@ import '../../core/theme/console_colors.dart';
 import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // --- Local constants ---------------------------------------------------------
 
@@ -195,9 +196,7 @@ class _EnvList extends StatelessWidget {
     final colors = consoleColors(context);
     return envsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-          child: Text('Error: $e',
-              style: TextStyle(color: colors.textSecondary))),
+      error: (e, _) => AppErrorState(error: e),
       data: (envs) {
         if (envs.isEmpty) {
           return Center(
@@ -311,9 +310,7 @@ class _EnvDetail extends ConsumerWidget {
           child: envAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-                child: Text('Error: $e',
-                style: TextStyle(color: colors.textSecondary))),
+            error: (e, _) => AppErrorState(error: e),
             data: (env) {
               switch (tab) {
                 case 0:

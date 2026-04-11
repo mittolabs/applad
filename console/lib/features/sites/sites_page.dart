@@ -8,8 +8,9 @@ import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/deploy_create_entry.dart';
 import '../../core/widgets/id_text.dart';
+import '../../core/widgets/app_data_table.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/page_tabs.dart';
-import '../../core/widgets/search_list.dart';
 
 // --- Colors ------------------------------------------------------------------
 
@@ -237,7 +238,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
 
     return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
+        horizontal: pageHPad(context),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,24 +266,46 @@ class _SitesPageState extends ConsumerState<SitesPage> {
     );
   }
 
+  String _fmtDate(dynamic v) => v?.toString().split('T').first ?? '—';
+
   Widget _buildSitesTab(
     AsyncValue<Map<String, dynamic>> sitesAsync,
     int perPage,
     int currentPage,
   ) {
-    return Column(
-      children: [
-        SearchListHeader(
-          searchController: _searchCtrl,
-          total: sitesAsync.whenOrNull(
-                  data: (d) => d['total'] as int? ?? 0) ??
-              0,
+    return sitesAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
+      error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(sitesProvider)),
+      data: (data) {
+        final sites = List<Map<String, dynamic>>.from(data['targets'] ?? []);
+        final total = data['total'] as int? ?? sites.length;
+        return AppDataTable(
+          columns: const [
+            AppTableColumn(key: 'name',      label: 'Name',      flex: 4),
+            AppTableColumn(key: 'framework', label: 'Framework', flex: 2),
+            AppTableColumn(key: 'status',    label: 'Status',    flex: 2),
+            AppTableColumn(key: 'updatedAt', label: 'Updated',   flex: 2),
+          ],
+          rows: sites,
+          getCellValue: (row, key) => switch (key) {
+            'name'      => row['name'] as String? ?? '',
+            'framework' => row['framework'] as String? ?? '',
+            'status'    => row['status'] as String? ?? 'active',
+            'updatedAt' => _fmtDate(row['updatedAt'] ?? row[r'$updatedAt']),
+            _           => '',
+          },
+          getRowIcon: (_) => LucideIcons.globe,
+          onRowTap: (row) => ref.read(_selectedSiteProvider.notifier).state = row,
+          onDeleteRow: (row) async {
+            final id = row[r'$id'] as String? ?? row['id'] as String? ?? '';
+            await ref.read(apiClientProvider).delete('/deploy/targets/$id');
+            ref.invalidate(sitesProvider);
+          },
+          createLabel: 'Create site',
+          onCreateTap: () => _showCreateSiteDialog(context, ref),
+          total: total,
           perPage: perPage,
           currentPage: currentPage,
-          onPerPageChanged: (v) {
-            ref.read(_sitePerPageProvider.notifier).state = v;
-            ref.read(_sitePageProvider.notifier).state = 1;
-          },
           onPrev: () {
             final p = currentPage - 1;
             ref.read(_sitePageProvider.notifier).state = p;
@@ -293,129 +316,18 @@ class _SitesPageState extends ConsumerState<SitesPage> {
             ref.read(_sitePageProvider.notifier).state = p;
             context.go(withQuery(context, {'page': '$p'}));
           },
-          onSearch: _doSearch,
-          trailing: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: _accent,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => _showCreateSiteDialog(context, ref),
-            icon: const Icon(LucideIcons.plus, size: 16),
-            label: const Text('Create site'),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Grid
-        Expanded(
-          child: sitesAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(LucideIcons.alertCircle,
-                      size: 48, color: _cs.textSubtle),
-                  const SizedBox(height: 16),
-                  Text('Failed to load sites: $e',
-                      style: TextStyle(color: _cs.textMuted)),
-                  const SizedBox(height: 8),
-                  FilledButton(
-                    onPressed: () => ref.invalidate(sitesProvider),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            ),
-            data: (data) {
-              final sites =
-                  List<Map<String, dynamic>>.from(data['targets'] ?? []);
-              if (sites.isEmpty) return _buildEmptyState();
-              return _SiteGrid(
-                sites: sites,
-                onSelect: (s) =>
-                    ref.read(_selectedSiteProvider.notifier).state = s,
-              );
-            },
-          ),
-        ),
-        SearchListFooter(
-          total: sitesAsync.whenOrNull(
-                  data: (d) => d['total'] as int? ?? 0) ??
-              0,
-          perPage: perPage,
-          currentPage: currentPage,
+          onPerPageChanged: (v) {
+            ref.read(_sitePerPageProvider.notifier).state = v;
+            ref.read(_sitePageProvider.notifier).state = 1;
+          },
           itemLabel: 'sites',
-          onPrev: () {
-            final p = currentPage - 1;
-            ref.read(_sitePageProvider.notifier).state = p;
-            context.go(withQuery(context, {'page': '$p'}));
-          },
-          onNext: () {
-            final p = currentPage + 1;
-            ref.read(_sitePageProvider.notifier).state = p;
-            context.go(withQuery(context, {'page': '$p'}));
-          },
-          onPerPageChanged: (v) {
-            ref.read(_sitePerPageProvider.notifier).state = v;
-            ref.read(_sitePageProvider.notifier).state = 1;
-          },
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Framework icons row
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: _frameworks
-                .take(6)
-                .map((fw) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: _cs.surface,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: _cs.border),
-                        ),
-                        child: Icon(fw.icon, size: 22, color: _cs.textSubtle),
-                      ),
-                    ))
-                .toList(),
-          ),
-          const SizedBox(height: 24),
-          Text('Create your first site',
-              style: TextStyle(
-                  color: _cs.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 8),
-          Text(
-            'Deploy a web application from a Git repository or upload.',
-            style: TextStyle(color: _cs.textMuted, fontSize: 13),
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: _accent,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => _showCreateSiteDialog(context, ref),
-            icon: const Icon(LucideIcons.plus, size: 16),
-            label: const Text('Create site'),
-          ),
-        ],
-      ),
+          searchController: _searchCtrl,
+          onSearch: _doSearch,
+          emptyIcon: LucideIcons.plus,
+          emptyTitle: 'No sites yet',
+          emptySubtitle: 'Deploy a web application from a Git repository or upload.',
+        );
+      },
     );
   }
 
@@ -955,130 +867,6 @@ class _SourceTypeChipState extends State<_SourceTypeChip> {
                     fontSize: 13,
                     color: widget.selected ? _accent : _cs.textMuted,
                   )),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// --- Site grid ---------------------------------------------------------------
-
-class _SiteGrid extends StatelessWidget {
-  final List<Map<String, dynamic>> sites;
-  final ValueChanged<Map<String, dynamic>> onSelect;
-
-  const _SiteGrid({required this.sites, required this.onSelect});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: GridView.builder(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 2.2,
-        ),
-        itemCount: sites.length,
-        itemBuilder: (context, index) =>
-            _SiteCard(site: sites[index], onTap: () => onSelect(sites[index])),
-      ),
-    );
-  }
-}
-
-// --- Site card ----------------------------------------------------------------
-
-class _SiteCard extends StatefulWidget {
-  final Map<String, dynamic> site;
-  final VoidCallback onTap;
-
-  const _SiteCard({required this.site, required this.onTap});
-
-  @override
-  State<_SiteCard> createState() => _SiteCardState();
-}
-
-class _SiteCardState extends State<_SiteCard> {
-  bool _hovered = false;
-  late ConsoleColors _cs;
-
-  @override
-  Widget build(BuildContext context) {
-    _cs = consoleColors(context);
-    final site = widget.site;
-    final name = site['name'] ?? 'Untitled';
-    final framework = site['framework'] ?? 'static';
-    final fw = _frameworkById(framework);
-    final status = site['status'] ?? 'active';
-    final domain = site['domain'] ?? '';
-    final updatedAt = site['\$updatedAt'] ?? site['updatedAt'] ?? '';
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: _hovered
-                ? _cs.fillHover
-                : _cs.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: _hovered
-                  ? _cs.fieldBorder
-                  : _cs.border,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Top: name + status
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(name,
-                        style: TextStyle(
-                          color: _cs.textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                  _StatusDot(status: status),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // Framework badge
-              _FrameworkBadge(framework: fw),
-              const Spacer(),
-              // Bottom: domain + last deployed
-              Row(
-                children: [
-                  if (domain.isNotEmpty) ...[
-                    Icon(LucideIcons.globe, size: 12, color: _cs.textSubtle),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(domain,
-                          style: TextStyle(
-                              color: _cs.textMuted, fontSize: 11),
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ] else
-                    const Spacer(),
-                  if (updatedAt.isNotEmpty)
-                    Text(_timeAgo(updatedAt),
-                        style: TextStyle(
-                            color: _cs.textSubtle, fontSize: 11)),
-                ],
-              ),
             ],
           ),
         ),

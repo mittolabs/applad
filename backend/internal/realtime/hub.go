@@ -277,3 +277,20 @@ func (h *Hub) Stats() (clients int, channels int) {
 	defer h.mu.RUnlock()
 	return len(h.clients), len(h.channels)
 }
+
+// ChannelInfo holds stats for a single channel.
+type ChannelInfo struct {
+	Channel     string `json:"channel"`
+	Subscribers int    `json:"subscribers"`
+}
+
+// ChannelStats returns per-channel subscriber counts.
+func (h *Hub) ChannelStats() []ChannelInfo {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	result := make([]ChannelInfo, 0, len(h.channels))
+	for ch, subs := range h.channels {
+		result = append(result, ChannelInfo{Channel: ch, Subscribers: len(subs)})
+	}
+	return result
+}

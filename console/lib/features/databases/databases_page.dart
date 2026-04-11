@@ -14,6 +14,7 @@ import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // --- Constants ---------------------------------------------------------------
 
@@ -123,6 +124,7 @@ class DatabasesPage extends ConsumerStatefulWidget {
 class _DatabasesPageState extends ConsumerState<DatabasesPage> {
   late ConsoleColors _cs;
   final _searchCtrl = TextEditingController();
+  int _topTab = 0;
   String? _selectedDbId;
   String? _selectedDbName;
   String? _selectedTableId;
@@ -187,7 +189,7 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
       backgroundColor: _cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -198,13 +200,19 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
                     color: _cs.textPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.w600)),
-            const SizedBox(height: 24),
+            const SizedBox(height: 4),
+            Text('Create and query structured data with real-time sync and row-level security',
+                style: TextStyle(color: _cs.textSecondary, fontSize: 13)),
+            const SizedBox(height: 20),
             PageTabs(
               tabs: const ['Databases', 'Usage'],
-              selected: 0,
-              onChanged: (_) {},
+              selected: _topTab,
+              onChanged: (i) => setState(() => _topTab = i),
             ),
             const SizedBox(height: 20),
+            if (_topTab == 1) ...[
+              Expanded(child: _buildUsageTab()),
+            ] else ...[
             Row(
               children: [
                 _SearchBox(
@@ -227,9 +235,7 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
               child: dbAsync.when(
                 loading: () =>
                     const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(
-                    child: Text('Error: $e',
-                        style: const TextStyle(color: _red))),
+                error: (e, _) => AppErrorState(error: e),
                 data: (data) {
                   final dbs = List<Map<String, dynamic>>.from(
                       data['databases'] ?? []);
@@ -294,8 +300,67 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
               itemLabel: 'Databases',
             ),
             const SizedBox(height: 8),
+            ],  // end else
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildUsageTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Usage',
+              style: TextStyle(color: _cs.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text('Database activity for the past 30 days.',
+              style: TextStyle(color: _cs.textSecondary, fontSize: 13)),
+          const SizedBox(height: 24),
+          Row(children: [
+            _dbStatCard('Total databases', '—', LucideIcons.database),
+            const SizedBox(width: 12),
+            _dbStatCard('Total tables', '—', LucideIcons.table2),
+            const SizedBox(width: 12),
+            _dbStatCard('Total rows', '—', LucideIcons.rows),
+          ]),
+          const SizedBox(height: 24),
+          Container(
+            height: 200,
+            decoration: BoxDecoration(
+              color: _cs.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _cs.border),
+            ),
+            child: Center(
+              child: Text('Usage charts coming soon',
+                  style: TextStyle(color: _cs.textSubtle, fontSize: 13)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dbStatCard(String label, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: _cs.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _cs.border),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, size: 16, color: _cs.textSecondary),
+          const SizedBox(height: 12),
+          Text(value,
+              style: TextStyle(color: _cs.textPrimary, fontSize: 24, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(color: _cs.textSecondary, fontSize: 12)),
+        ]),
       ),
     );
   }
@@ -415,7 +480,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
       backgroundColor: _cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -469,9 +534,7 @@ class _DatabaseDetailViewState extends ConsumerState<_DatabaseDetailView> {
           child: tablesAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-                child: Text('Error: $e',
-                    style: const TextStyle(color: _red))),
+            error: (e, _) => AppErrorState(error: e),
             data: (data) {
               final tables = List<Map<String, dynamic>>.from(
                   data['tables'] ?? []);
@@ -1521,7 +1584,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
       backgroundColor: _cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1621,9 +1684,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
           child: rowsAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-                child: Text('Error: $e',
-                    style: const TextStyle(color: _red))),
+            error: (e, _) => AppErrorState(error: e),
             data: (data) {
               final rows = List<Map<String, dynamic>>.from(
                   data['documents'] ?? data['rows'] ?? []);
@@ -1695,7 +1756,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
           child: columnsAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
+            error: (e, _) => AppErrorState(error: e),
             data: (columns) {
               if (columns.isEmpty) {
                 return _EmptyState(
@@ -1808,7 +1869,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
           child: indexesAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
+            error: (e, _) => AppErrorState(error: e),
             data: (indexes) {
               if (indexes.isEmpty) {
                 return _EmptyState(
@@ -1876,7 +1937,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
           child: relsAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
+            error: (e, _) => AppErrorState(error: e),
             data: (rels) {
               if (rels.isEmpty) {
                 return _EmptyState(
@@ -1933,8 +1994,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
 
     return tableAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-          child: Text('Error: $e', style: const TextStyle(color: _red))),
+      error: (e, _) => AppErrorState(error: e),
       data: (table) {
         final apiEnabled = table['enabled'] as bool? ?? true;
         final apiRowSecurity = table['rowSecurity'] as bool? ?? false;
@@ -2014,8 +2074,7 @@ class _TableDetailViewState extends ConsumerState<_TableDetailView> {
                   permsAsync.when(
                     loading: () => const Center(
                         child: CircularProgressIndicator()),
-                    error: (e, _) => Text('Error: $e',
-                        style: const TextStyle(color: _red)),
+                    error: (e, _) => AppErrorState(error: e),
                     data: (perms) => _buildPermissionsPanel(perms),
                   ),
                 ],

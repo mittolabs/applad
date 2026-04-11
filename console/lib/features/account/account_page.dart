@@ -5,9 +5,11 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_navbar.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 
 const _accent = Color(0xFF3472A4);
 const _red = Color(0xFFEF4444);
@@ -142,9 +144,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
       body: authAsync.when(
         loading: () => Center(
             child: CircularProgressIndicator(color: colors.textSubtle)),
-        error: (e, _) => Center(
-            child: Text('Error: $e',
-                style: TextStyle(color: colors.textSecondary))),
+        error: (e, _) => AppErrorState(error: e),
         data: (user) {
           if (user == null) {
             return Center(
@@ -158,7 +158,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                 child: Padding(
             padding: EdgeInsets.symmetric(
               horizontal:
-                  MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+                  pageHPad(context),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -176,13 +176,31 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                     ),
                     const Spacer(),
                     TextButton(
-                      onPressed: () {
-                        ref.read(consoleAuthProvider.notifier).logout();
-                        context.go('/login');
+                      onPressed: () async {
+                        final confirmed = await showAppDialog<bool>(
+                          context: context,
+                          title: 'Sign out',
+                          content: Text(
+                            'Are you sure you want to sign out?',
+                            style: TextStyle(color: colors.textSecondary),
+                          ),
+                          actions: [
+                            const AppDialogCancel(),
+                            AppDialogAction(
+                              label: 'Sign out',
+                              destructive: true,
+                              onTap: () => Navigator.of(context, rootNavigator: true).pop(true),
+                            ),
+                          ],
+                        );
+                        if (confirmed == true && mounted) {
+                          ref.read(consoleAuthProvider.notifier).logout();
+                          context.go('/login');
+                        }
                       },
                       style: TextButton.styleFrom(
                           foregroundColor: colors.textSecondary),
-                      child: const Text('Logout',
+                      child: const Text('Sign out',
                           style: TextStyle(fontSize: 13)),
                     ),
                   ],

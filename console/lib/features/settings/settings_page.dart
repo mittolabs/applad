@@ -8,6 +8,7 @@ import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../core/utils/url_utils.dart';
 
 // --- Constants ---------------------------------------------------------------
@@ -82,7 +83,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   static const _tabNames = [
-    'general', 'api-keys', 'platforms', 'webhooks', 'audit-log',
+    'general', 'api-keys', 'webhooks', 'audit-log',
   ];
 
   @override
@@ -103,7 +104,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       backgroundColor: colors.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -126,7 +127,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               tabs: const [
                 'General',
                 'API Keys',
-                'Platforms',
                 'Webhooks',
                 'Audit Log',
               ],
@@ -156,10 +156,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       case 1:
         return _buildApiKeysTab(projectId);
       case 2:
-        return _buildPlatformsTab(projectId);
-      case 3:
         return _buildWebhooksTab(projectId);
-      case 4:
+      case 3:
         return _buildAuditLogTab(projectId);
       default:
         return const SizedBox();
@@ -175,9 +173,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     return projectAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-          child: Text('Error loading project: $e',
-              style: const TextStyle(color: _red))),
+      error: (e, _) => AppErrorState(error: e),
       data: (project) {
         // Sync controllers on first load
         if (!_generalDirty) {
@@ -482,8 +478,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     return keysAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-          child: Text('Error: $e', style: const TextStyle(color: _red))),
+      error: (e, _) => AppErrorState(error: e),
       data: (keys) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -600,8 +595,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     return platformsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-          child: Text('Error: $e', style: const TextStyle(color: _red))),
+      error: (e, _) => AppErrorState(error: e),
       data: (platforms) {
         final query = _platformSearchCtrl.text.toLowerCase();
         final filtered = query.isEmpty
@@ -834,8 +828,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     return webhooksAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-          child: Text('Error: $e', style: const TextStyle(color: _red))),
+      error: (e, _) => AppErrorState(error: e),
       data: (webhooks) {
         final query = _webhookSearchCtrl.text.toLowerCase();
         final filtered = query.isEmpty
@@ -1070,9 +1063,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     return logsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-          child: Text('Error loading audit logs: $e',
-              style: const TextStyle(color: _red))),
+      error: (e, _) => AppErrorState(error: e),
       data: (data) {
         final logs = List<Map<String, dynamic>>.from(data['logs'] ?? []);
         final total = (data['total'] as num?)?.toInt() ?? logs.length;

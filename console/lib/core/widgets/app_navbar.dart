@@ -126,7 +126,6 @@ class AppNavBar extends ConsumerWidget {
           const SizedBox(width: 2),
           const SupportButton(),
           const SizedBox(width: 2),
-          const ThemeToggleButton(),
           const SizedBox(width: 4),
 
           // Search

@@ -9,6 +9,7 @@ import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // --- Constants ---------------------------------------------------------------
 
@@ -103,7 +104,7 @@ class _DeployPageState extends ConsumerState<DeployPage> {
       backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -125,11 +126,7 @@ class _DeployPageState extends ConsumerState<DeployPage> {
               const Expanded(
                   child: Center(child: CircularProgressIndicator()))
             else if (deploymentsAsync.hasError)
-              Expanded(
-                child: Center(
-                    child: Text('Error: ${deploymentsAsync.error}',
-                        style: const TextStyle(color: _red))),
-              )
+              Expanded(child: AppErrorState(error: deploymentsAsync.error!))
             else
               Expanded(
                 child: AppDataTable(
@@ -518,7 +515,7 @@ class _DeployDetailViewState extends ConsumerState<_DeployDetailView> {
       backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -7,8 +7,10 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // --- Constants ---------------------------------------------------------------
 
@@ -100,7 +102,7 @@ class _OverviewPageState extends ConsumerState<OverviewPage> {
       backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -168,12 +170,7 @@ class _OverviewTab extends ConsumerWidget {
         padding: EdgeInsets.only(top: 80),
         child: Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) => Padding(
-        padding: const EdgeInsets.only(top: 80),
-        child: Center(
-            child: Text('Error: $e',
-                style: const TextStyle(color: Colors.red))),
-      ),
+      error: (e, _) => AppErrorState(error: e),
       data: (stats) {
         final usage = stats['usage'] as Map<String, dynamic>? ?? {};
         final releases = stats['releases'] as List? ?? [];

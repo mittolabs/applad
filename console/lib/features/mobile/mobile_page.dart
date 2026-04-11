@@ -7,6 +7,9 @@ import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/deploy_create_entry.dart';
 import '../../core/widgets/id_text.dart';
+import '../../core/utils/url_utils.dart';
+import '../../core/widgets/app_data_table.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/page_tabs.dart';
 
 const _accent = Color(0xFF3472A4);
@@ -30,6 +33,17 @@ class MobilePage extends ConsumerStatefulWidget {
 class _MobilePageState extends ConsumerState<MobilePage> {
   String? _selectedId;
   int _detailTab = 0;
+  final _searchCtrl = TextEditingController();
+  int _page = 1;
+  int _perPage = 12;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  String _fmtDate(dynamic v) => v?.toString().split('T').first ?? '—';
 
   @override
   Widget build(BuildContext context) {
@@ -40,119 +54,59 @@ class _MobilePageState extends ConsumerState<MobilePage> {
     return Scaffold(
       backgroundColor: colors.background,
       body: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
-        ),
+        padding: EdgeInsets.symmetric(horizontal: pageHPad(context)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 32),
-            Row(
-              children: [
-                Expanded(
-                  child: Text('Mobile Apps',
-                      style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600)),
-                ),
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                      backgroundColor: _accent,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 12)),
-                  icon: const Icon(LucideIcons.plus, size: 16),
-                  label: const Text('Create app', style: TextStyle(fontSize: 13)),
-                  onPressed: _create,
-                ),
-              ],
-            ),
+            Text('Mobile Apps', style: TextStyle(color: colors.textPrimary, fontSize: 22, fontWeight: FontWeight.w600)),
             const SizedBox(height: 24),
-            Divider(height: 1, color: colors.border),
-            const SizedBox(height: 20),
             Expanded(
               child: dataAsync.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator(color: _accent)),
-                error: (e, _) =>
-                    Center(child: Text('$e', style: TextStyle(color: colors.textSecondary))),
+                loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
+                error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(_mobileProvider)),
                 data: (data) {
-                  final targets = List<Map<String, dynamic>>.from(
-                      data['targets'] ?? []);
-                  if (targets.isEmpty) return _emptyState();
-                  return _list(targets);
+                  final targets = List<Map<String, dynamic>>.from(data['targets'] ?? []);
+                  final search = _searchCtrl.text.toLowerCase();
+                  final filtered = search.isEmpty ? targets : targets.where((t) => (t['name'] as String? ?? '').toLowerCase().contains(search)).toList();
+                  return AppDataTable(
+                    columns: const [
+                      AppTableColumn(key: 'name',      label: 'Name',    flex: 4),
+                      AppTableColumn(key: 'buildType', label: 'Type',    flex: 2),
+                      AppTableColumn(key: 'status',    label: 'Status',  flex: 2),
+                      AppTableColumn(key: 'updatedAt', label: 'Updated', flex: 2),
+                    ],
+                    rows: filtered,
+                    getCellValue: (row, key) => switch (key) {
+                      'name'      => row['name'] as String? ?? '',
+                      'buildType' => row['buildType'] as String? ?? '',
+                      'status'    => row['status'] as String? ?? 'active',
+                      'updatedAt' => _fmtDate(row['updatedAt'] ?? row[r'$updatedAt']),
+                      _           => '',
+                    },
+                    getRowIcon: (row) => (row['buildType'] as String? ?? '') == 'ipa' ? LucideIcons.tablet : LucideIcons.smartphone,
+                    onRowTap: (row) => setState(() => _selectedId = row[r'$id'] as String? ?? row['id'] as String?),
+                    createLabel: 'Create app',
+                    onCreateTap: _create,
+                    total: filtered.length,
+                    perPage: _perPage,
+                    currentPage: _page,
+                    onPrev: () => setState(() => _page--),
+                    onNext: () => setState(() => _page++),
+                    onPerPageChanged: (v) => setState(() { _perPage = v; _page = 1; }),
+                    itemLabel: 'apps',
+                    searchController: _searchCtrl,
+                    onSearch: () => setState(() {}),
+                    emptyIcon: LucideIcons.plus,
+                    emptyTitle: 'No mobile apps yet',
+                    emptySubtitle: 'Build Android APK/AAB and iOS IPA from source.',
+                  );
                 },
               ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _emptyState() {
-    final colors = consoleColors(context);
-    return Center(
-    child: Column(mainAxisSize: MainAxisSize.min, children: [
-      Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 56, height: 56, decoration: BoxDecoration(color: _green.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-          child: const Icon(LucideIcons.smartphone, size: 24, color: _green)),
-        const SizedBox(width: 16),
-        Container(width: 56, height: 56, decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-          child: const Icon(LucideIcons.tablet, size: 24, color: _accent)),
-      ]),
-      const SizedBox(height: 24),
-      Text('No mobile apps yet', style: TextStyle(color: colors.textPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
-      const SizedBox(height: 8),
-      Text('Build Android APK/AAB and iOS IPA from source', style: TextStyle(color: colors.textSecondary, fontSize: 14)),
-      const SizedBox(height: 24),
-      FilledButton.icon(
-        style: FilledButton.styleFrom(backgroundColor: _accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-        icon: const Icon(LucideIcons.plus, size: 16),
-        label: const Text('Create app'),
-        onPressed: _create,
-      ),
-    ]),
-  );
-  }
-
-  Widget _list(List<Map<String, dynamic>> targets) {
-    final colors = consoleColors(context);
-    return ListView.separated(
-      padding: EdgeInsets.zero,
-      itemCount: targets.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (ctx, i) {
-        final t = targets[i];
-        final platform = t['buildType'] == 'ipa' ? 'iOS' : 'Android';
-        final icon = platform == 'iOS' ? LucideIcons.apple : LucideIcons.smartphone;
-        return GestureDetector(
-          onTap: () => setState(() => _selectedId = t['\$id'] as String),
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: colors.border)),
-              child: Row(children: [
-                Container(width: 40, height: 40, decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                  child: Icon(icon, size: 20, color: _accent)),
-                const SizedBox(width: 14),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t['name'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
-                  Text(platform, style: TextStyle(color: colors.textSubtle, fontSize: 12)),
-                ])),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: (platform == 'iOS' ? colors.textSubtle : _green).withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                  child: Text(platform, style: TextStyle(color: platform == 'iOS' ? colors.textSubtle : _green, fontSize: 11)),
-                ),
-              ]),
-            ),
-          ),
-        );
-      },
     );
   }
 

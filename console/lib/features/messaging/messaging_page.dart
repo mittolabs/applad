@@ -9,6 +9,7 @@ import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const _accent = Color(0xFF3472A4);
@@ -109,7 +110,7 @@ class _MessagingPageState extends ConsumerState<MessagingPage> {
       backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -123,7 +124,10 @@ class _MessagingPageState extends ConsumerState<MessagingPage> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 4),
+            Text('Send email, SMS and push notifications to your users',
+                style: TextStyle(color: cs.textSecondary, fontSize: 13)),
+            const SizedBox(height: 20),
             PageTabs(
               tabs: const ['Messages', 'Topics', 'Templates', 'Providers'],
               selected: tab,
@@ -189,8 +193,7 @@ class _MessagesTabState extends ConsumerState<_MessagesTab> {
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      error: (e, _) => Center(
-          child: Text('Error: $e', style: const TextStyle(color: Color(0xFFEF4444)))),
+      error: (e, _) => AppErrorState(error: e),
       data: (data) {
         final rows = List<Map<String, dynamic>>.from(data['messages'] ?? []);
         final total = data['total'] as int? ?? rows.length;
@@ -432,7 +435,7 @@ class _CreateMsgDialogState extends ConsumerState<_CreateMsgDialog> {
       backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1429,6 +1432,7 @@ class _TopicsTab extends ConsumerStatefulWidget {
 class _TopicsTabState extends ConsumerState<_TopicsTab> {
   final _searchCtrl = TextEditingController();
   List<Map<String, dynamic>>? _topics;
+  Object? _error;
   bool _loading = true;
 
   @override
@@ -1444,7 +1448,7 @@ class _TopicsTabState extends ConsumerState<_TopicsTab> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() { _loading = true; _error = null; });
     try {
       final api = ref.read(apiClientProvider);
       final res = await api.get('/messaging/topics');
@@ -1455,8 +1459,8 @@ class _TopicsTabState extends ConsumerState<_TopicsTab> {
                 .toList() ??
             [];
       });
-    } catch (_) {
-      setState(() => _topics = []);
+    } catch (e) {
+      setState(() => _error = e);
     } finally {
       setState(() => _loading = false);
     }
@@ -1471,147 +1475,146 @@ class _TopicsTabState extends ConsumerState<_TopicsTab> {
         ? topics
         : topics
             .where((t) =>
-                (t['name'] as String? ?? '')
-                    .toLowerCase()
-                    .contains(search))
+                (t['name'] as String? ?? '').toLowerCase().contains(search))
             .toList();
 
     return Column(
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 280,
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (_) => setState(() {}),
-                  style: TextStyle(fontSize: 13, color: cs.textPrimary),
-                  decoration: InputDecoration(
-                    hintText: 'Search topics',
-                    hintStyle: TextStyle(color: cs.textSubtle, fontSize: 13),
-                    prefixIcon: Padding(
-                      padding: const EdgeInsets.only(left: 10, right: 6),
-                      child: Icon(Icons.search, size: 16, color: cs.textSubtle),
-                    ),
-                    prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 0),
-                    filled: true,
-                    fillColor: cs.fieldFill,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: cs.fieldBorder),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: cs.fieldBorder),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: _accent),
-                    ),
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 280,
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (_) => setState(() {}),
+                style: TextStyle(fontSize: 13, color: cs.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Search topics',
+                  hintStyle: TextStyle(color: cs.textSubtle, fontSize: 13),
+                  prefixIcon: Padding(
+                    padding: const EdgeInsets.only(left: 10, right: 6),
+                    child: Icon(LucideIcons.search, size: 15, color: cs.textSubtle),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 0),
+                  filled: true,
+                  fillColor: cs.fieldFill,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: cs.fieldBorder),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: cs.fieldBorder),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: _accent),
                   ),
                 ),
               ),
-              const Spacer(),
-              FilledButton.icon(
-                onPressed: () => _createTopicDialog(context),
-                style: FilledButton.styleFrom(
-                  backgroundColor: _accent,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Create topic',
-                    style: TextStyle(fontSize: 13)),
+            ),
+            const Spacer(),
+            FilledButton.icon(
+              onPressed: () => _createTopicDialog(context),
+              style: FilledButton.styleFrom(
+                backgroundColor: _accent,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : filtered.isEmpty
-                    ? Container(
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: cs.surface,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: cs.border),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Create your first topic',
-                              style: TextStyle(
-                                  color: cs.textPrimary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Group targets and broadcast messages to all of them at once.',
-                              style: TextStyle(color: cs.textSecondary, fontSize: 13),
-                            ),
-                            const SizedBox(height: 20),
-                            OutlinedButton(
-                              onPressed: () => _createTopicDialog(context),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: cs.textSecondary,
-                                side: BorderSide(color: cs.border),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 10),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8)),
+              icon: const Icon(LucideIcons.plus, size: 15),
+              label: const Text('Create topic', style: TextStyle(fontSize: 13)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              : _error != null
+                  ? AppErrorState(error: _error, onRetry: _load)
+                  : topics.isEmpty
+                      ? Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: cs.surface,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: cs.border),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Create your first topic',
+                                style: TextStyle(
+                                    color: cs.textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500),
                               ),
-                              child: const Text('Create topic',
-                                  style: TextStyle(fontSize: 13)),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: filtered.length,
-                        itemBuilder: (_, i) {
-                          final t = filtered[i];
-                          final subs =
-                              (t['subscribers'] as List<dynamic>?)?.length ??
-                                  0;
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: cs.surface,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: cs.border),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(LucideIcons.hash,
-                                    size: 14,
-                                    color: cs.textSubtle),
-                                const SizedBox(width: 8),
-                                Text(t['name'] ?? '',
-                                    style: TextStyle(
-                                        color: cs.textPrimary, fontSize: 14)),
-                                const Spacer(),
-                                Text(
-                                  '$subs subscriber${subs == 1 ? '' : 's'}',
-                                  style: TextStyle(
-                                      color: cs.textSubtle,
-                                      fontSize: 12),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Group targets and broadcast messages to all of them at once.',
+                                style: TextStyle(color: cs.textSecondary, fontSize: 13),
+                              ),
+                              const SizedBox(height: 20),
+                              OutlinedButton(
+                                onPressed: () => _createTopicDialog(context),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: cs.textSecondary,
+                                  side: BorderSide(color: cs.border),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 10),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8)),
+                                  textStyle: const TextStyle(fontSize: 13),
                                 ),
-                              ],
+                                child: const Text('Create topic'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : filtered.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No topics match "$search"',
+                                style: TextStyle(color: cs.textMuted, fontSize: 13),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (_, i) {
+                                final t = filtered[i];
+                                final subs =
+                                    (t['subscribers'] as List<dynamic>?)?.length ?? 0;
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: cs.surface,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: cs.border),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(LucideIcons.hash, size: 14, color: cs.textSubtle),
+                                      const SizedBox(width: 8),
+                                      Text(t['name'] ?? '',
+                                          style: TextStyle(
+                                              color: cs.textPrimary, fontSize: 14)),
+                                      const Spacer(),
+                                      Text(
+                                        '$subs subscriber${subs == 1 ? '' : 's'}',
+                                        style: TextStyle(color: cs.textSubtle, fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
-          ),
-        ],
+        ),
+      ],
     );
   }
 
@@ -1873,9 +1876,7 @@ class _TemplatesTabState extends ConsumerState<_TemplatesTab> {
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-          child: Text('Error: $e',
-              style: TextStyle(color: cs.textSecondary))),
+      error: (e, _) => AppErrorState(error: e),
       data: (data) {
         final templates = (data['templates'] as List<dynamic>? ?? [])
             .map((t) => Map<String, dynamic>.from(t as Map))

@@ -23,9 +23,10 @@ import '../../features/mobile/mobile_page.dart';
 import '../../features/desktop/desktop_page.dart';
 import '../../features/account/account_page.dart';
 import '../../features/projects/projects_page.dart';
-import '../../features/environments/environments_page.dart';
 import '../../features/get_started/get_started_page.dart';
 import '../../features/vault/vault_page.dart';
+import '../../features/realtime/realtime_page.dart';
+import '../../features/platforms/platforms_page.dart';
 
 Page<void> _noTransition(GoRouterState state, Widget child) {
   return NoTransitionPage(key: state.pageKey, child: child);
@@ -126,6 +127,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 _noTransition(state, const FlagsPage()),
           ),
           GoRoute(
+            path: '/project/:projectId/realtime',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const RealtimePage()),
+          ),
+          GoRoute(
             path: '/project/:projectId/experiments',
             pageBuilder: (_, state) =>
                 _noTransition(state, const ExperimentsPage()),
@@ -161,9 +167,9 @@ final routerProvider = Provider<GoRouter>((ref) {
                 _noTransition(state, const SettingsPage()),
           ),
           GoRoute(
-            path: '/project/:projectId/environments',
+            path: '/project/:projectId/platforms',
             pageBuilder: (_, state) =>
-                _noTransition(state, const EnvironmentsPage()),
+                _noTransition(state, const PlatformsPage()),
           ),
           GoRoute(
             path: '/project/:projectId/get-started',

@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // --- Colors ----------------------------------------------------------------
 
@@ -100,7 +102,7 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
 
     return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+        horizontal: pageHPad(context),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,15 +116,15 @@ class _FlagsPageState extends ConsumerState<FlagsPage> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 4),
+          Text('Toggle features at runtime without redeploying your app',
+              style: TextStyle(color: _cs.textSecondary, fontSize: 13)),
+          const SizedBox(height: 20),
           Expanded(
             child: flagsAsync.when(
               loading: () =>
                   const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-              error: (e, _) => Center(
-                child: Text('Error: $e',
-                    style: const TextStyle(color: Color(0xFFEF4444))),
-              ),
+              error: (e, _) => AppErrorState(error: e),
               data: (data) {
                 final flags =
                     List<Map<String, dynamic>>.from(data['flags'] ?? []);

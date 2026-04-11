@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 
@@ -31,7 +32,19 @@ func NewHandler(hub *Hub) *Handler {
 func Routes(h *Handler) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", h.handleWebSocket)
+	r.Get("/stats", h.stats)
 	return r
+}
+
+func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
+	clients, channels := h.hub.Stats()
+	channelList := h.hub.ChannelStats()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"connections": clients,
+		"channels":    channels,
+		"channelList": channelList,
+	})
 }
 
 func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,7 @@ import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // --- Constants ---------------------------------------------------------------
 
@@ -62,6 +63,7 @@ class StoragePage extends ConsumerStatefulWidget {
 
 class _StoragePageState extends ConsumerState<StoragePage> {
   final _searchCtrl = TextEditingController();
+  int _topTab = 0;
   String? _selectedBucketId;
   String? _selectedFileId;
 
@@ -124,7 +126,7 @@ class _StoragePageState extends ConsumerState<StoragePage> {
       backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,22 +137,23 @@ class _StoragePageState extends ConsumerState<StoragePage> {
                     color: cs.textPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.w600)),
-            const SizedBox(height: 24),
+            const SizedBox(height: 4),
+            Text('Store and serve files with buckets, image transforms and access policies',
+                style: TextStyle(color: cs.textSecondary, fontSize: 13)),
+            const SizedBox(height: 20),
             PageTabs(
               tabs: const ['Buckets', 'Usage'],
-              selected: 0,
-              onChanged: (_) {},
+              selected: _topTab,
+              onChanged: (i) => setState(() => _topTab = i),
             ),
             const SizedBox(height: 20),
-            if (bucketsAsync.isLoading)
+            if (_topTab == 1) ...[
+              Expanded(child: _buildUsageTab()),
+            ] else if (bucketsAsync.isLoading)
               const Expanded(
                   child: Center(child: CircularProgressIndicator()))
             else if (bucketsAsync.hasError)
-              Expanded(
-                child: Center(
-                    child: Text('Error: ${bucketsAsync.error}',
-                        style: const TextStyle(color: _red))),
-              )
+              Expanded(child: AppErrorState(error: bucketsAsync.error!))
             else
               Expanded(
                 child: AppDataTable(
@@ -206,6 +209,65 @@ class _StoragePageState extends ConsumerState<StoragePage> {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildUsageTab() {
+    final cs = consoleColors(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Usage',
+              style: TextStyle(color: cs.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text('Storage activity for the past 30 days.',
+              style: TextStyle(color: cs.textSecondary, fontSize: 13)),
+          const SizedBox(height: 24),
+          Row(children: [
+            _storageStatCard(cs, 'Total buckets', '—', LucideIcons.folderClosed),
+            const SizedBox(width: 12),
+            _storageStatCard(cs, 'Total files', '—', LucideIcons.file),
+            const SizedBox(width: 12),
+            _storageStatCard(cs, 'Storage used', '—', LucideIcons.hardDrive),
+          ]),
+          const SizedBox(height: 24),
+          Container(
+            height: 200,
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: cs.border),
+            ),
+            child: Center(
+              child: Text('Usage charts coming soon',
+                  style: TextStyle(color: cs.textSubtle, fontSize: 13)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _storageStatCard(ConsoleColors cs, String label, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: cs.border),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, size: 16, color: cs.textSecondary),
+          const SizedBox(height: 12),
+          Text(value,
+              style: TextStyle(color: cs.textPrimary, fontSize: 24, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(color: cs.textSecondary, fontSize: 12)),
+        ]),
       ),
     );
   }
@@ -390,7 +452,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
       backgroundColor: cs.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -509,9 +571,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
           child: filesAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-                child: Text('Error: $e',
-                    style: const TextStyle(color: _red))),
+            error: (e, _) => AppErrorState(error: e),
             data: (data) {
               final files = List<Map<String, dynamic>>.from(
                   data['files'] ?? []);
@@ -563,7 +623,7 @@ class _BucketDetailViewState extends ConsumerState<_BucketDetailView> {
 
     return bucketAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) => AppErrorState(error: e),
       data: (bucket) {
         final name = bucket['name'] as String? ?? '';
         final enabled = bucket['enabled'] as bool? ?? true;
@@ -1158,7 +1218,7 @@ class _FileDetailView extends ConsumerWidget {
       backgroundColor: cs.background,
       body: SingleChildScrollView(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
           vertical: 32,
         ),
         child: Column(
@@ -1835,6 +1895,7 @@ class _SettingsDropdown extends StatelessWidget {
             child: DropdownButton<String>(
               value: options.containsKey(value) ? value : options.keys.first,
               isExpanded: true,
+              isDense: true,
               dropdownColor: cs.popupSurface,
               style: TextStyle(
                   color: cs.textPrimary, fontSize: 13),

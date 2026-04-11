@@ -12,6 +12,7 @@ import '../widgets/navbar_popovers.dart';
 import '../widgets/console_footer.dart';
 import '../providers/experiments_provider.dart';
 import '../providers/environment_provider.dart';
+import '../providers/get_started_provider.dart';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Constants
@@ -72,6 +73,8 @@ Color _inputFillColor(BuildContext context) => _isLight(context)
 Color _popupSurface(BuildContext context) => Theme.of(context).popupMenuTheme.color ??
   (_isLight(context) ? Colors.white : const Color(0xFF1A1A22));
 
+bool _isMobile(BuildContext context) => MediaQuery.sizeOf(context).width < 650;
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Navigation group model
 // ═════════════════════════════════════════════════════════════════════════════
@@ -121,9 +124,12 @@ List<_NavGroup> _buildGroups() => [
       _NavGroup('build', 'Build', LucideIcons.box, [
         _NavChild('Auth', 'auth', LucideIcons.users),
         _NavChild('Databases', 'databases', LucideIcons.database),
+        _NavChild('Functions', 'functions', LucideIcons.zap),
         _NavChild('Storage', 'storage', LucideIcons.folderClosed),
         _NavChild('Messaging', 'messaging', LucideIcons.messageSquare),
+        _NavChild('Realtime', 'realtime', LucideIcons.radio),
         _NavChild('Workflows', 'workflows', LucideIcons.gitBranch),
+        _NavChild('Feature Flags', 'flags', LucideIcons.toggleRight),
       ]),
       _NavGroup('test', 'Test', LucideIcons.flaskConical, [
         _NavChild('Test recorder', 'test', LucideIcons.video,
@@ -137,14 +143,7 @@ List<_NavGroup> _buildGroups() => [
         _NavChild('Coverage', 'test/coverage', LucideIcons.pieChart,
             placeholder: true),
       ]),
-      _NavGroup('deploy', 'Deploy', LucideIcons.rocket, [
-        _NavChild('Functions', 'functions', LucideIcons.zap),
-        _NavChild('Sites', 'sites', LucideIcons.globe),
-        _NavChild('Mobile', 'mobile', LucideIcons.smartphone),
-        _NavChild('Desktop', 'desktop', LucideIcons.monitor),
-        _NavChild('Containers', 'containers', LucideIcons.box),
-        _NavChild('Feature Flags', 'flags', LucideIcons.toggleRight),
-      ]),
+      _NavGroup('platforms', 'Platforms', LucideIcons.layers, []),
       _NavGroup('observe', 'Observe', LucideIcons.activity, [
         _NavChild('Analytics', 'analytics', LucideIcons.barChart3,
             placeholder: true),
@@ -156,7 +155,6 @@ List<_NavGroup> _buildGroups() => [
       ]),
 _NavGroup('settings', 'Settings', LucideIcons.settings, [
         _NavChild('General', 'settings', LucideIcons.settings),
-        _NavChild('Platforms', 'settings', LucideIcons.smartphone),
         _NavChild('Team', 'settings', LucideIcons.users),
         _NavChild('Vault', 'vault', LucideIcons.shieldCheck),
         _NavChild('Experiments', 'experiments', LucideIcons.flaskConical),
@@ -226,6 +224,25 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
   }
 
+  void _showGroupSheet(BuildContext context, _NavGroup group, String? projectId, String currentPath) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _panelSurface(context),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _GroupBottomSheet(
+        group: group,
+        projectId: projectId ?? '',
+        currentPath: currentPath,
+        onNavigate: (path) {
+          Navigator.pop(ctx);
+          context.go(path);
+        },
+      ),
+    );
+  }
+
   void _showCreateOrgDialog(BuildContext context) {
     final nameCtrl = TextEditingController();
     showAppDialog(
@@ -264,16 +281,18 @@ class _AppShellState extends ConsumerState<AppShell> {
       'auth': 'build',
       'databases': 'build',
       'storage': 'build',
-      'functions': 'deploy',
+      'functions': 'build',
       'messaging': 'build',
       'workflows': 'build',
-      'deploy': 'deploy',
-      'sites': 'deploy',
-      'containers': 'deploy',
-      'mobile': 'deploy',
-      'desktop': 'deploy',
-      'flags': 'deploy',
-      'environments': 'deploy',
+      'flags': 'build',
+      'deploy': 'platforms',
+      'sites': 'platforms',
+      'containers': 'platforms',
+      'mobile': 'platforms',
+      'desktop': 'platforms',
+      'platforms': 'platforms',
+      'api-platforms': 'platforms',
+      'environments': 'platforms',
       'vault': 'settings',
       'settings': 'settings',
       'specify': 'specify',
@@ -305,6 +324,86 @@ class _AppShellState extends ConsumerState<AppShell> {
     }).toList();
     final activeGroup = _activeGroup(currentPath, projectId ?? '');
 
+    final isMobile = _isMobile(context);
+
+    void handleGroupTap(String id) {
+      const directRoutes = {'overview': 'overview', 'platforms': 'platforms', 'settings': 'settings'};
+      if (isMobile) {
+        if (directRoutes.containsKey(id)) {
+          if (projectId != null) context.go('/project/$projectId/${directRoutes[id]}');
+          return;
+        }
+        final group = groups.firstWhere((g) => g.id == id, orElse: () => groups.first);
+        if (group.children.isEmpty) {
+          if (projectId != null) context.go('/project/$projectId/${group.id}');
+          return;
+        }
+        _showGroupSheet(context, group, projectId, currentPath);
+        return;
+      }
+      // Desktop behaviour
+      if (directRoutes.containsKey(id)) {
+        setState(() => _expandedGroup = null);
+        if (projectId != null) context.go('/project/$projectId/${directRoutes[id]}');
+        return;
+      }
+      setState(() {
+        if (id == 'ai') { _aiChatOpen = !_aiChatOpen; return; }
+        if (_expandedGroup == id) {
+          _expandedGroup = null;
+        } else {
+          _expandedGroup = id;
+          if (projectId != null) {
+            final group = groups.firstWhere((g) => g.id == id, orElse: () => groups.first);
+            final firstChild = group.children.cast<_NavChild?>().firstWhere(
+                (c) => c != null && !c.placeholder, orElse: () => null);
+            if (firstChild != null) context.go('/project/$projectId/${firstChild.route}');
+          }
+        }
+      });
+    }
+
+    // ── Mobile layout ──────────────────────────────────────────────────────────
+    if (isMobile) {
+      return Shortcuts(
+        shortcuts: <LogicalKeySet, Intent>{
+          LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.keyK): const _OpenSearchIntent(),
+          LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyK): const _OpenSearchIntent(),
+        },
+        child: Actions(
+          actions: <Type, Action<Intent>>{
+            _OpenSearchIntent: CallbackAction<_OpenSearchIntent>(
+              onInvoke: (_) { _openSearch(context, projectId); return null; },
+            ),
+          },
+          child: Focus(
+            autofocus: true,
+            child: Scaffold(
+              backgroundColor: _shellBg(context),
+              bottomNavigationBar: _BottomNav(
+                groups: groups,
+                activeGroup: activeGroup,
+                projectId: projectId,
+                onGroupTap: handleGroupTap,
+              ),
+              body: Column(
+                children: [
+                  _TopNavBar(
+                    projectId: projectId,
+                    currentPath: currentPath,
+                    onSearchTap: () => _openSearch(context, projectId),
+                    compact: true,
+                  ),
+                  Expanded(child: widget.child),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── Desktop layout ─────────────────────────────────────────────────────────
     return Shortcuts(
       shortcuts: <LogicalKeySet, Intent>{
         LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.keyK):
@@ -340,46 +439,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                         groups: groups,
                         activeGroup: activeGroup,
                         expandedGroup: _expandedGroup,
-                        onGroupTap: (id) {
-                          // Direct-navigate groups (tabs are on the page)
-                          const directGroups = {
-                            'overview': 'overview',
-                            'settings': 'settings',
-                          };
-                          if (directGroups.containsKey(id)) {
-                            setState(() => _expandedGroup = null);
-                            if (projectId != null) {
-                              context.go(
-                                  '/project/$projectId/${directGroups[id]}');
-                            }
-                            return;
-                          }
-                          setState(() {
-                            if (id == 'ai') {
-                              _aiChatOpen = !_aiChatOpen;
-                              return;
-                            }
-                            if (_expandedGroup == id) {
-                              _expandedGroup = null;
-                            } else {
-                              _expandedGroup = id;
-                              // Auto-navigate to first non-placeholder child
-                              if (projectId != null) {
-                                final group = groups.firstWhere(
-                                    (g) => g.id == id,
-                                    orElse: () => groups.first);
-                                final firstChild =
-                                    group.children.cast<_NavChild?>().firstWhere(
-                                        (c) => c != null && !c.placeholder,
-                                        orElse: () => null);
-                                if (firstChild != null) {
-                                  context.go(
-                                      '/project/$projectId/${firstChild.route}');
-                                }
-                              }
-                            }
-                          });
-                        },
+                        onGroupTap: handleGroupTap,
                         aiChatOpen: _aiChatOpen,
                         showAiButton: experiments.aiChat,
                         projectId: projectId,
@@ -393,8 +453,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                               orElse: () => groups.first),
                           projectId: projectId ?? '',
                           currentPath: currentPath,
-                          onClose: () =>
-                              setState(() => _expandedGroup = null),
+                          onClose: () => setState(() => _expandedGroup = null),
                         ),
                       // Main content
                       Expanded(
@@ -408,8 +467,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                       // AI chat panel (right overlay)
                       if (_aiChatOpen && experiments.aiChat)
                         _AIChatPanel(
-                          onClose: () =>
-                              setState(() => _aiChatOpen = false),
+                          onClose: () => setState(() => _aiChatOpen = false),
                         ),
                     ],
                   ),
@@ -494,6 +552,14 @@ class _IconRail extends StatelessWidget {
               isExpanded: false,
               onTap: () => onGroupTap('ai'),
               accentColor: const Color(0xFF8B5CF6),
+              customIcon: ClipOval(
+                child: Image.asset(
+                  'assets/applad-mascot-head.png',
+                  width: 22,
+                  height: 22,
+                  fit: BoxFit.cover,
+                ),
+              ),
             ),
 
           const SizedBox(height: 4),
@@ -521,6 +587,7 @@ class _RailIcon extends StatefulWidget {
   final bool isExpanded;
   final VoidCallback onTap;
   final Color? accentColor;
+  final Widget? customIcon;
 
   const _RailIcon({
     required this.icon,
@@ -529,6 +596,7 @@ class _RailIcon extends StatefulWidget {
     required this.isExpanded,
     required this.onTap,
     this.accentColor,
+    this.customIcon,
   });
 
   @override
@@ -599,15 +667,17 @@ class _RailIconState extends State<_RailIcon> {
                               : Colors.transparent,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(
-                      widget.icon,
-                      size: 18,
-                      color: active
-                          ? activeIconColor
-                          : _hovered
-                              ? hoverIconColor
-                              : idleIconColor,
-                    ),
+                    child: widget.customIcon != null
+                        ? widget.customIcon!
+                        : Icon(
+                            widget.icon,
+                            size: 18,
+                            color: active
+                                ? activeIconColor
+                                : _hovered
+                                    ? hoverIconColor
+                                    : idleIconColor,
+                          ),
                   ),
                 ],
               ),
@@ -636,6 +706,10 @@ class _GetStartedRailItem extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Permanently dismissed via localStorage → hide the ring entirely.
+    final done = ref.watch(getStartedDoneProvider(projectId));
+    if (done) return const SizedBox.shrink();
+
     // Reuse the stats provider from overview to compute completion
     final statsAsync = ref.watch(_getStartedProgressProvider(projectId));
     final progress = statsAsync.valueOrNull ?? 0.0;
@@ -759,6 +833,204 @@ final _getStartedProgressProvider =
 
   return done / total;
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Bottom Navigation (mobile, <650px)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _BottomNav extends StatelessWidget {
+  final List<_NavGroup> groups;
+  final String activeGroup;
+  final String? projectId;
+  final ValueChanged<String> onGroupTap;
+
+  const _BottomNav({
+    required this.groups,
+    required this.activeGroup,
+    required this.projectId,
+    required this.onGroupTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Keep only groups meaningful for bottom nav (non-experimental visible ones)
+    // Pin-bottom groups (settings) go last; rest in order; cap at 5
+    final regular = groups.where((g) => !g.pinBottom).toList();
+    final pinned = groups.where((g) => g.pinBottom).toList();
+    final all = [...regular, ...pinned];
+    final visible = all.length > 5 ? all.sublist(0, 4) + [all.last] : all;
+
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _railSurface(context),
+        border: Border(top: BorderSide(color: _dividerColor(context))),
+      ),
+      padding: EdgeInsets.only(bottom: bottomPad),
+      height: 56 + bottomPad,
+      child: Row(
+        children: visible
+            .map((g) => _BottomNavItem(
+                  icon: g.icon,
+                  label: g.label,
+                  isActive: activeGroup == g.id,
+                  onTap: () => onGroupTap(g.id),
+                ))
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _BottomNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _BottomNavItem({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = isActive;
+    final iconColor = active
+        ? (_isLight(context) ? _accent : Colors.white)
+        : (_isLight(context)
+            ? Colors.black.withOpacity(0.4)
+            : Colors.white.withOpacity(0.35));
+    final labelColor = active
+        ? (_isLight(context) ? _accent : Colors.white)
+        : (_isLight(context)
+            ? Colors.black.withOpacity(0.4)
+            : Colors.white.withOpacity(0.35));
+
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 20, color: iconColor),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: labelColor,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Group bottom sheet (mobile) ───────────────────────────────────────────────
+
+class _GroupBottomSheet extends StatelessWidget {
+  final _NavGroup group;
+  final String projectId;
+  final String currentPath;
+  final ValueChanged<String> onNavigate;
+
+  const _GroupBottomSheet({
+    required this.group,
+    required this.projectId,
+    required this.currentPath,
+    required this.onNavigate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: _dividerColor(context),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          // Title
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Text(
+              group.label,
+              style: TextStyle(
+                color: _primaryTextColor(context),
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // Items
+          ...group.children.map((child) {
+            final path = '/project/$projectId/${child.route}';
+            final active = currentPath.startsWith(path);
+            return ListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
+              leading: Icon(
+                child.icon,
+                size: 18,
+                color: child.placeholder
+                    ? _mutedTextColor(context)
+                    : active
+                        ? (_isLight(context) ? _accent : Colors.white)
+                        : _secondaryTextColor(context),
+              ),
+              title: Text(
+                child.label,
+                style: TextStyle(
+                  color: child.placeholder
+                      ? _mutedTextColor(context)
+                      : active
+                          ? _primaryTextColor(context)
+                          : _secondaryTextColor(context),
+                  fontSize: 14,
+                  fontWeight: active ? FontWeight.w500 : FontWeight.w400,
+                ),
+              ),
+              trailing: child.placeholder
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _hoverFillColor(context),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text('Soon',
+                          style: TextStyle(color: _mutedTextColor(context), fontSize: 10)),
+                    )
+                  : null,
+              onTap: child.placeholder ? null : () => onNavigate(path),
+              tileColor: active ? _activeFillColor(context) : null,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            );
+          }),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Detail Panel (expandable, 220px)
@@ -1013,8 +1285,14 @@ class _AIChatPanelState extends State<_AIChatPanel> {
             padding: const EdgeInsets.fromLTRB(16, 16, 8, 12),
             child: Row(
               children: [
-                Icon(LucideIcons.sparkles,
-                    size: 18, color: const Color(0xFF8B5CF6)),
+                ClipOval(
+                  child: Image.asset(
+                    'assets/applad-mascot-head.png',
+                    width: 22,
+                    height: 22,
+                    fit: BoxFit.cover,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 Text('AI Assistant',
                   style: TextStyle(
@@ -1077,15 +1355,16 @@ class _AIChatPanelState extends State<_AIChatPanel> {
                                         .withOpacity(0.15),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: Icon(
-                                isUser
-                                    ? LucideIcons.user
-                                    : LucideIcons.sparkles,
-                                size: 12,
-                                color: isUser
-                                    ? _accent
-                                    : const Color(0xFF8B5CF6),
-                              ),
+                              child: isUser
+                                  ? Icon(LucideIcons.user, size: 12, color: _accent)
+                                  : ClipOval(
+                                      child: Image.asset(
+                                        'assets/applad-mascot-head.png',
+                                        width: 24,
+                                        height: 24,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -1179,15 +1458,14 @@ class _AIChatPanelState extends State<_AIChatPanel> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: const Color(0xFF8B5CF6).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Image.asset(
+                'assets/applad-mascot-head.png',
+                width: 56,
+                height: 56,
+                fit: BoxFit.cover,
               ),
-              child: const Icon(LucideIcons.sparkles,
-                  size: 24, color: Color(0xFF8B5CF6)),
             ),
             const SizedBox(height: 20),
             Text('AI Assistant',
@@ -1253,11 +1531,13 @@ class _TopNavBar extends ConsumerWidget {
   final String? projectId;
   final String currentPath;
   final VoidCallback onSearchTap;
+  final bool compact;
 
   const _TopNavBar({
     required this.projectId,
     required this.currentPath,
     required this.onSearchTap,
+    this.compact = false,
   });
 
   @override
@@ -1329,11 +1609,23 @@ class _TopNavBar extends ConsumerWidget {
 
           const Spacer(),
 
-          const FeedbackButton(),
-          const SizedBox(width: 2),
-          const SupportButton(),
-          const SizedBox(width: 2),
-          const ThemeToggleButton(),
+          LayoutBuilder(
+            builder: (ctx, constraints) {
+              // constraints.maxWidth is the remaining space after the Spacer,
+              // but since we're inside a Row we need the full nav width instead.
+              final navWidth = MediaQuery.of(ctx).size.width;
+              // Collapse Feedback + Support below 780 px
+              if (navWidth < 780) {
+                return _NavOverflowMenu();
+              }
+              return Row(mainAxisSize: MainAxisSize.min, children: const [
+                FeedbackButton(),
+                SizedBox(width: 2),
+                SupportButton(),
+                SizedBox(width: 2),
+              ]);
+            },
+          ),
           const SizedBox(width: 4),
 
           Tooltip(
@@ -1374,6 +1666,178 @@ class _TopNavBar extends ConsumerWidget {
 
   String _short(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
+}
+
+// ── Overflow menu (collapses Feedback + Support on narrow screens) ─────────────
+
+class _NavOverflowMenu extends StatefulWidget {
+  @override
+  State<_NavOverflowMenu> createState() => _NavOverflowMenuState();
+}
+
+class _NavOverflowMenuState extends State<_NavOverflowMenu> {
+  final _link = LayerLink();
+  OverlayEntry? _overlay;
+
+  void _toggle(BuildContext context) {
+    if (_overlay != null) {
+      _close();
+      return;
+    }
+
+    final box = context.findRenderObject() as RenderBox;
+    final offset = box.localToGlobal(Offset.zero);
+    final size = box.size;
+
+    _overlay = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _close,
+            ),
+          ),
+          Positioned(
+            top: offset.dy + size.height + 4,
+            right: MediaQuery.of(context).size.width - offset.dx - size.width,
+            child: CompositedTransformFollower(
+              link: _link,
+              showWhenUnlinked: false,
+              offset: Offset(0, size.height + 4),
+              child: _OverflowMenuPopup(onClose: _close),
+            ),
+          ),
+        ],
+      ),
+    );
+    Overlay.of(context).insert(_overlay!);
+    setState(() {});
+  }
+
+  void _close() {
+    _overlay?.remove();
+    _overlay = null;
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _link,
+      child: Tooltip(
+        message: 'More',
+        child: InkWell(
+          onTap: () => _toggle(context),
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: 34,
+            height: 34,
+            child: Icon(
+              LucideIcons.moreHorizontal,
+              size: 17,
+              color: _iconColor(context),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OverflowMenuPopup extends StatelessWidget {
+  final VoidCallback onClose;
+  const _OverflowMenuPopup({required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = _isLight(context) ? Colors.white : const Color(0xFF1C1D22);
+    final border = _isLight(context)
+        ? const Color(0xFFE4E4E7)
+        : const Color(0xFF2A2B31);
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 160,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: border),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _OverflowMenuItem(
+              icon: LucideIcons.messageSquare,
+              label: 'Feedback',
+              onTap: () {
+                onClose();
+                showFeedbackPanel(context);
+              },
+            ),
+            _OverflowMenuItem(
+              icon: LucideIcons.lifeBuoy,
+              label: 'Support',
+              onTap: () {
+                onClose();
+                showSupportPanel(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OverflowMenuItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _OverflowMenuItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = _isLight(context)
+        ? const Color(0xFF3F3F46)
+        : const Color(0xFFA1A1AA);
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        child: Row(children: [
+          Icon(icon, size: 14, color: textColor),
+          const SizedBox(width: 10),
+          Text(label,
+              style: TextStyle(
+                  color: textColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w400)),
+        ]),
+      ),
+    );
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

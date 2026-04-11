@@ -81,7 +81,10 @@ class StatusChip extends StatelessWidget {
     final isLight = consoleIsLight(context);
     final colors = _variantColors(variant, isLight);
 
-    return Container(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: colors.bg,
@@ -106,6 +109,8 @@ class StatusChip extends StatelessWidget {
           ),
         ],
       ),
+        ),
+      ],
     );
   }
 }

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -8,7 +7,9 @@ import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/deploy_create_entry.dart';
-import '../../core/widgets/search_list.dart';
+import '../../core/widgets/app_data_table.dart';
+import '../../core/widgets/app_error_state.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/page_tabs.dart';
 
 const _accent = Color(0xFF3472A4);
@@ -48,50 +49,53 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
     return Scaffold(
       backgroundColor: _cs.background,
       body: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
-        ),
+        padding: EdgeInsets.symmetric(horizontal: pageHPad(context)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 32),
-            Row(
-              children: [
-                Expanded(
-                  child: Text('Desktop Apps',
-                      style: TextStyle(
-                          color: _cs.textPrimary,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600)),
-                ),
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _accent,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
-                  ),
-                  icon: const Icon(LucideIcons.plus, size: 16),
-                  label: const Text('Create app', style: TextStyle(fontSize: 13)),
-                  onPressed: _create,
-                ),
-              ],
-            ),
+            Text('Desktop Apps', style: TextStyle(color: _cs.textPrimary, fontSize: 22, fontWeight: FontWeight.w600)),
             const SizedBox(height: 24),
-            Divider(height: 1, color: _cs.border),
-            const SizedBox(height: 20),
             Expanded(
               child: dataAsync.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator(color: _accent)),
-                error: (e, _) =>
-                    Center(child: Text('$e', style: TextStyle(color: _cs.textMuted))),
+                loading: () => const Center(child: CircularProgressIndicator(color: _accent)),
+                error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(_desktopProvider)),
                 data: (data) {
-                  final targets = List<Map<String, dynamic>>.from(
-                      data['targets'] ?? []);
-                  if (targets.isEmpty) return _emptyState();
-                  return _list(targets);
+                  final targets = List<Map<String, dynamic>>.from(data['targets'] ?? []);
+                  final search = _searchCtrl.text.toLowerCase();
+                  final filtered = search.isEmpty ? targets : targets.where((t) => (t['name'] as String? ?? '').toLowerCase().contains(search)).toList();
+                  return AppDataTable(
+                    columns: const [
+                      AppTableColumn(key: 'name',      label: 'Name',      flex: 4),
+                      AppTableColumn(key: 'platforms', label: 'Platforms', flex: 2),
+                      AppTableColumn(key: 'status',    label: 'Status',    flex: 2),
+                      AppTableColumn(key: 'updatedAt', label: 'Updated',   flex: 2),
+                    ],
+                    rows: filtered,
+                    getCellValue: (row, key) => switch (key) {
+                      'name'      => row['name'] as String? ?? '',
+                      'platforms' => _platformsLabel(row),
+                      'status'    => row['status'] as String? ?? 'active',
+                      'updatedAt' => _fmtDate(row['updatedAt'] ?? row[r'$updatedAt']),
+                      _           => '',
+                    },
+                    getRowIcon: (_) => LucideIcons.monitor,
+                    onRowTap: (row) => setState(() => _selectedId = row[r'$id'] as String? ?? row['id'] as String?),
+                    createLabel: 'Create app',
+                    onCreateTap: _create,
+                    total: filtered.length,
+                    perPage: _perPage,
+                    currentPage: _page,
+                    onPrev: () => setState(() => _page--),
+                    onNext: () => setState(() => _page++),
+                    onPerPageChanged: (v) => setState(() { _perPage = v; _page = 1; }),
+                    itemLabel: 'apps',
+                    searchController: _searchCtrl,
+                    onSearch: () => setState(() {}),
+                    emptyIcon: LucideIcons.plus,
+                    emptyTitle: 'No desktop apps yet',
+                    emptySubtitle: 'Build for macOS, Windows, and Linux from source.',
+                  );
                 },
               ),
             ),
@@ -101,128 +105,6 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
     );
   }
 
-  Widget _emptyState() => Center(
-    child: Column(mainAxisSize: MainAxisSize.min, children: [
-      Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 56, height: 56, decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-          child: const Icon(LucideIcons.monitor, size: 24, color: _accent)),
-        const SizedBox(width: 16),
-        Container(width: 56, height: 56, decoration: BoxDecoration(color: _green.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-          child: const Icon(LucideIcons.laptop, size: 24, color: _green)),
-      ]),
-      const SizedBox(height: 24),
-      Text('No desktop apps yet', style: TextStyle(color: _cs.textPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
-      const SizedBox(height: 8),
-      Text('Build for macOS, Windows, and Linux from source', style: TextStyle(color: _cs.textMuted, fontSize: 14)),
-      const SizedBox(height: 24),
-      FilledButton.icon(
-        style: FilledButton.styleFrom(backgroundColor: _accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-        icon: const Icon(LucideIcons.plus, size: 16),
-        label: const Text('Create app'),
-        onPressed: _create,
-      ),
-    ]),
-  );
-
-  Widget _list(List<Map<String, dynamic>> targets) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SearchListHeader(
-          searchController: _searchCtrl,
-          total: targets.length,
-          perPage: _perPage,
-          currentPage: _page,
-          onPerPageChanged: (v) => setState(() { _perPage = v; _page = 1; }),
-          onPrev: () => setState(() => _page--),
-          onNext: () => setState(() => _page++),
-          onSearch: () => setState(() => _page = 1),
-          trailing: const SizedBox.shrink(),
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: ListView.separated(
-            padding: EdgeInsets.zero,
-            itemCount: targets.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (ctx, i) {
-              final t = targets[i];
-              final platform = (t['platform'] ?? 'cross-platform') as String;
-              final icon = _platformIcon(platform);
-              final badgeColor = _platformColor(platform);
-              return GestureDetector(
-                onTap: () => setState(() { _selectedId = t['\$id'] as String; _detailTab = 0; }),
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: _cs.surface, borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _cs.border),
-                    ),
-                    child: Row(children: [
-                      Container(
-                        width: 40, height: 40,
-                        decoration: BoxDecoration(color: _accent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                        child: Icon(icon, size: 20, color: _accent),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(t['name'] ?? '', style: TextStyle(color: _cs.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
-                        Text(t['framework'] ?? 'No framework', style: TextStyle(color: _cs.textSubtle, fontSize: 12)),
-                      ])),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(color: badgeColor.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                        child: Text(_platformLabel(platform), style: TextStyle(color: badgeColor, fontSize: 11)),
-                      ),
-                      const SizedBox(width: 10),
-                      _buildStatusBadge(t['lastBuildStatus'] as String?),
-                    ]),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatusBadge(String? status) {
-    if (status == null || status.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(color: _cs.textSubtle.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-        child: Text('No builds', style: TextStyle(color: _cs.textSubtle, fontSize: 11)),
-      );
-    }
-    final color = status == 'completed' ? _green : status == 'failed' ? _red : _orange;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-      child: Text(status, style: TextStyle(color: color, fontSize: 11)),
-    );
-  }
-
-  IconData _platformIcon(String platform) {
-    switch (platform) {
-      case 'macos': return LucideIcons.apple;
-      case 'windows': return LucideIcons.monitor;
-      case 'linux': return LucideIcons.terminal;
-      default: return LucideIcons.laptop;
-    }
-  }
-
-  Color _platformColor(String platform) {
-    switch (platform) {
-      case 'macos': return const Color(0xFF9CA3AF);
-      case 'windows': return const Color(0xFF3B82F6);
-      case 'linux': return const Color(0xFFF59E0B);
-      default: return _green;
-    }
-  }
-
   String _platformLabel(String platform) {
     switch (platform) {
       case 'macos': return 'macOS';
@@ -230,6 +112,16 @@ class _DesktopPageState extends ConsumerState<DesktopPage> {
       case 'linux': return 'Linux';
       default: return 'Cross-platform';
     }
+  }
+
+  String _fmtDate(dynamic v) => v?.toString().split('T').first ?? '—';
+
+  String _platformsLabel(Map<String, dynamic> row) {
+    final parts = <String>[];
+    if (row['macEnabled'] == true) parts.add('macOS');
+    if (row['windowsEnabled'] == true) parts.add('Windows');
+    if (row['linuxEnabled'] == true) parts.add('Linux');
+    return parts.isEmpty ? '—' : parts.join(', ');
   }
 
   // ── Detail view ─────────────────────────────────────────────────────────────

@@ -12,10 +12,13 @@ import '../../core/theme/console_colors.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/widgets/search_list.dart';
 import '../../core/widgets/search_modal.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/navbar_popovers.dart';
 import '../../core/widgets/console_footer.dart';
+import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_error_state.dart';
 
 // --- Constants ---------------------------------------------------------------
 
@@ -220,6 +223,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                     child: DropdownButton<String>(
                       value: selectedRole,
                       isExpanded: true,
+                      isDense: true,
                       dropdownColor: _cs.popupSurface,
                       style: TextStyle(
                           color: _cs.textPrimary, fontSize: 13),
@@ -457,8 +461,8 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 1200),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 40, vertical: 32),
+                    padding: EdgeInsets.symmetric(
+                        horizontal: pageHPad(context), vertical: 32),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -664,7 +668,6 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
           const SizedBox(width: 2),
           const SupportButton(),
           const SizedBox(width: 2),
-          const ThemeToggleButton(),
           const SizedBox(width: 4),
           Tooltip(
             message: '⌘K',
@@ -752,11 +755,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
           child: Padding(
               padding: EdgeInsets.all(64),
               child: CircularProgressIndicator(color: _accent))),
-      error: (e, _) => Center(
-          child: Padding(
-              padding: const EdgeInsets.all(64),
-              child: Text('Error: $e',
-                  style: TextStyle(color: _cs.textSecondary)))),
+      error: (e, _) => AppErrorState(error: e),
       data: (allProjects) {
         final query = _searchCtrl.text.trim().toLowerCase();
         final filtered = query.isEmpty
@@ -891,8 +890,11 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
       ]),
       const SizedBox(height: 16),
       if (_members.isEmpty)
-        _emptyState(LucideIcons.users, 'No members yet',
-            'Invite someone to collaborate on this organization.'),
+        AppEmptyState(
+          icon: LucideIcons.users,
+          title: 'No members yet',
+          subtitle: 'Invite someone to collaborate on this organization.',
+        ),
       ..._members.map((m) {
         final memberId = m['\$id'] as String? ?? '';
         final role = m['role'] as String? ?? 'member';
@@ -1081,8 +1083,10 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
 
   Widget _buildUsageTab(String orgId) {
     if (orgId.isEmpty) {
-      return _emptyState(
-          LucideIcons.barChart3, 'No organization selected', '');
+      return const AppEmptyState(
+        icon: LucideIcons.barChart3,
+        title: 'No organization selected',
+      );
     }
     final statsAsync = ref.watch(_orgStatsProvider(orgId));
     return statsAsync.when(
@@ -1090,8 +1094,8 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
           child: Padding(
               padding: EdgeInsets.all(48),
               child: CircularProgressIndicator(color: _accent))),
-      error: (e, _) => _emptyState(LucideIcons.alertCircle,
-          'Could not load usage', e.toString()),
+      error: (e, _) => AppErrorState(
+          error: e, onRetry: () => ref.invalidate(_orgStatsProvider(orgId))),
       data: (stats) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1170,8 +1174,10 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
 
   Widget _buildActivityTab(String orgId) {
     if (orgId.isEmpty) {
-      return _emptyState(
-          LucideIcons.activity, 'No organization selected', '');
+      return const AppEmptyState(
+        icon: LucideIcons.activity,
+        title: 'No organization selected',
+      );
     }
     final activityAsync = ref.watch(_orgActivityProvider(orgId));
     return activityAsync.when(
@@ -1179,8 +1185,8 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
           child: Padding(
               padding: EdgeInsets.all(48),
               child: CircularProgressIndicator(color: _accent))),
-      error: (e, _) => _emptyState(
-          LucideIcons.alertCircle, 'Could not load activity', e.toString()),
+      error: (e, _) => AppErrorState(
+          error: e, onRetry: () => ref.invalidate(_orgActivityProvider(orgId))),
       data: (data) {
         final entries = List<Map<String, dynamic>>.from(
             data['activity'] ?? []);
@@ -1211,8 +1217,11 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
               ]),
               const SizedBox(height: 16),
               if (entries.isEmpty)
-                _emptyState(LucideIcons.scrollText, 'No activity yet',
-                    'Actions taken across all projects will appear here.')
+                const AppEmptyState(
+                  icon: LucideIcons.scrollText,
+                  title: 'No activity yet',
+                  subtitle: 'Actions taken across all projects will appear here.',
+                )
               else
                 Container(
                   decoration: BoxDecoration(
@@ -1466,29 +1475,6 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Shared helpers
-  // ---------------------------------------------------------------------------
-
-  Widget _emptyState(IconData icon, String title, String subtitle) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(48),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 36, color: _cs.textSubtle),
-          const SizedBox(height: 12),
-          Text(title,
-              style: TextStyle(color: _cs.textMuted, fontSize: 14)),
-          if (subtitle.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(subtitle,
-                style: TextStyle(color: _cs.textSubtle, fontSize: 12),
-                textAlign: TextAlign.center),
-          ],
-        ]),
-      ),
-    );
-  }
 }
 
 // =============================================================================

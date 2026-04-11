@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 
 const _green = Color(0xFF10B981);
 const _red = Color(0xFFEF4444);
@@ -63,7 +64,7 @@ class HealthPage extends ConsumerWidget {
       backgroundColor: colors.background,
       body: Padding(
         padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80 : 40,
+          horizontal: pageHPad(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

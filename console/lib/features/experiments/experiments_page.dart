@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/providers/experiments_provider.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 
 const _green = Color(0xFF10B981);
 const _orange = Color(0xFFF59E0B);
@@ -68,7 +69,7 @@ class ExperimentsPage extends ConsumerWidget {
         children: [
           // Header
           Padding(
-            padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
+            padding: EdgeInsets.fromLTRB(pageHPad(context), 28, pageHPad(context), 0),
             child: Row(
               children: [
                 Expanded(
@@ -127,7 +128,7 @@ class ExperimentsPage extends ConsumerWidget {
 
           // Warning banner
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
+            padding: EdgeInsets.symmetric(horizontal: pageHPad(context), vertical: 8),
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -159,7 +160,7 @@ class ExperimentsPage extends ConsumerWidget {
           // Experiment list
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
+              padding: EdgeInsets.symmetric(horizontal: pageHPad(context)),
               children: [
                 ..._buildCategory(context, 'Console Sections', map, ref),
                 const SizedBox(height: 16),

@@ -8,6 +8,7 @@ import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/deploy_create_entry.dart';
 import '../../core/widgets/search_list.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/page_tabs.dart';
 import '../../core/theme/console_colors.dart';
 
@@ -48,9 +49,7 @@ class _ContainersPageState extends ConsumerState<ContainersPage> {
     return Scaffold(
       backgroundColor: _cs.background,
       body: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width > 1400 ? 80.0 : 40.0,
-        ),
+        padding: EdgeInsets.symmetric(horizontal: pageHPad(context)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
