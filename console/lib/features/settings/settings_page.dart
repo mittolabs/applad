@@ -8,6 +8,7 @@ import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/utils/url_utils.dart';
 
 // --- Constants ---------------------------------------------------------------
 
@@ -59,8 +60,6 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  int _tabIndex = 0;
-
   // General tab
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
@@ -82,11 +81,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     super.dispose();
   }
 
+  static const _tabNames = [
+    'general', 'api-keys', 'platforms', 'webhooks', 'audit-log',
+  ];
+
   @override
   Widget build(BuildContext context) {
     final colors = consoleColors(context);
     final routerState = GoRouterState.of(context);
     final projectId = routerState.pathParameters['projectId'];
+    final _tabIndex = _tabNames.indexOf(
+      routerState.uri.queryParameters['tab'] ?? 'general',
+    ).clamp(0, _tabNames.length - 1);
     if (projectId == null) {
       return Center(
           child: Text('No project selected',
@@ -125,14 +131,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 'Audit Log',
               ],
               selected: _tabIndex,
-              onChanged: (i) => setState(() => _tabIndex = i),
+              onChanged: (i) => context.go(
+                withQuery(context, {'tab': _tabNames[i]}),
+              ),
             ),
             const SizedBox(height: 24),
 
             // Tab body
             Expanded(
               child: SingleChildScrollView(
-                child: _buildTabBody(projectId),
+                child: _buildTabBody(projectId, _tabIndex),
               ),
             ),
           ],
@@ -141,7 +149,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _buildTabBody(String projectId) {
+  Widget _buildTabBody(String projectId, int _tabIndex) {
     switch (_tabIndex) {
       case 0:
         return _buildGeneralTab(projectId);
@@ -928,13 +936,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     const events = [
       'databases.*',
-      'collections.*',
-      'documents.*',
       'storage.*',
       'users.*',
       'teams.*',
       'functions.*',
-      'deployments.*',
+      'messaging.*',
+      'deploy.*',
+      'workflows.*',
+      'credentials.*',
     ];
 
     showAppDialog(

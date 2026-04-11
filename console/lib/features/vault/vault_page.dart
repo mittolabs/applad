@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
@@ -78,6 +80,18 @@ class VaultPage extends ConsumerStatefulWidget {
 class _VaultPageState extends ConsumerState<VaultPage> {
   final _searchCtrl = TextEditingController();
   late ConsoleColors _cs;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final urlPage = pageFromQuery(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(_vaultPageProvider) != urlPage) {
+        ref.read(_vaultPageProvider.notifier).state = urlPage;
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -232,10 +246,16 @@ class _VaultPageState extends ConsumerState<VaultPage> {
                     total: total,
                     perPage: limit,
                     currentPage: page,
-                    onPrev: () =>
-                        ref.read(_vaultPageProvider.notifier).update((s) => s - 1),
-                    onNext: () =>
-                        ref.read(_vaultPageProvider.notifier).update((s) => s + 1),
+                    onPrev: () {
+                      final p = page - 1;
+                      ref.read(_vaultPageProvider.notifier).state = p;
+                      context.go(withQuery(context, {'page': '$p'}));
+                    },
+                    onNext: () {
+                      final p = page + 1;
+                      ref.read(_vaultPageProvider.notifier).state = p;
+                      context.go(withQuery(context, {'page': '$p'}));
+                    },
                     onPerPageChanged: (pp) {
                       ref.read(_vaultPerPageProvider.notifier).state = pp;
                       ref.read(_vaultPageProvider.notifier).state = 1;

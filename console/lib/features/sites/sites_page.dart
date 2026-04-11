@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/deploy_create_entry.dart';
 import '../../core/widgets/id_text.dart';
@@ -113,7 +115,7 @@ final _sitePerPageProvider = StateProvider<int>((ref) => 12);
 final _sitePageProvider = StateProvider<int>((ref) => 1);
 final _selectedSiteProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
-final _listTabProvider = StateProvider<int>((ref) => 0);
+// _listTabProvider removed — tab state now lives in ?tab= URL param
 final _detailTabProvider = StateProvider<int>((ref) => 0);
 
 final sitesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
@@ -178,8 +180,21 @@ class SitesPage extends ConsumerStatefulWidget {
 }
 
 class _SitesPageState extends ConsumerState<SitesPage> {
+  static const _listTabNames = ['sites', 'usage'];
   final _searchCtrl = TextEditingController();
   late ConsoleColors _cs;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final urlPage = pageFromQuery(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(_sitePageProvider) != urlPage) {
+        ref.read(_sitePageProvider.notifier).state = urlPage;
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -217,7 +232,8 @@ class _SitesPageState extends ConsumerState<SitesPage> {
     final sitesAsync = ref.watch(sitesProvider);
     final perPage = ref.watch(_sitePerPageProvider);
     final currentPage = ref.watch(_sitePageProvider);
-    final listTab = ref.watch(_listTabProvider);
+    final tabName = tabFromQuery(context, defaultTab: 'sites');
+    final listTab = _listTabNames.indexOf(tabName).clamp(0, _listTabNames.length - 1);
 
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -236,8 +252,7 @@ class _SitesPageState extends ConsumerState<SitesPage> {
           PageTabs(
             tabs: const ['Sites', 'Usage'],
             selected: listTab,
-            onChanged: (i) =>
-                ref.read(_listTabProvider.notifier).state = i,
+            onChanged: (i) => context.go(withQuery(context, {'tab': _listTabNames[i], 'page': null})),
           ),
           const SizedBox(height: 20),
           Expanded(
@@ -268,10 +283,16 @@ class _SitesPageState extends ConsumerState<SitesPage> {
             ref.read(_sitePerPageProvider.notifier).state = v;
             ref.read(_sitePageProvider.notifier).state = 1;
           },
-          onPrev: () =>
-              ref.read(_sitePageProvider.notifier).update((s) => s - 1),
-          onNext: () =>
-              ref.read(_sitePageProvider.notifier).update((s) => s + 1),
+          onPrev: () {
+            final p = currentPage - 1;
+            ref.read(_sitePageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
+          onNext: () {
+            final p = currentPage + 1;
+            ref.read(_sitePageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
           onSearch: _doSearch,
           trailing: FilledButton.icon(
             style: FilledButton.styleFrom(
@@ -325,10 +346,16 @@ class _SitesPageState extends ConsumerState<SitesPage> {
           perPage: perPage,
           currentPage: currentPage,
           itemLabel: 'sites',
-          onPrev: () =>
-              ref.read(_sitePageProvider.notifier).update((s) => s - 1),
-          onNext: () =>
-              ref.read(_sitePageProvider.notifier).update((s) => s + 1),
+          onPrev: () {
+            final p = currentPage - 1;
+            ref.read(_sitePageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
+          onNext: () {
+            final p = currentPage + 1;
+            ref.read(_sitePageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
           onPerPageChanged: (v) {
             ref.read(_sitePerPageProvider.notifier).state = v;
             ref.read(_sitePageProvider.notifier).state = 1;

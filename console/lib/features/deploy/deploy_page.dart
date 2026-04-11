@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
@@ -50,6 +52,18 @@ class DeployPage extends ConsumerStatefulWidget {
 class _DeployPageState extends ConsumerState<DeployPage> {
   final _searchCtrl = TextEditingController();
   String? _selectedDeployId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final urlPage = pageFromQuery(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(_deployPageProvider) != urlPage) {
+        ref.read(_deployPageProvider.notifier).state = urlPage;
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -168,10 +182,16 @@ class _DeployPageState extends ConsumerState<DeployPage> {
                   total: total,
                   perPage: perPage,
                   currentPage: currentPage,
-                  onPrev: () =>
-                      ref.read(_deployPageProvider.notifier).update((s) => s - 1),
-                  onNext: () =>
-                      ref.read(_deployPageProvider.notifier).update((s) => s + 1),
+                  onPrev: () {
+                    final p = currentPage - 1;
+                    ref.read(_deployPageProvider.notifier).state = p;
+                    context.go(withQuery(context, {'page': '$p'}));
+                  },
+                  onNext: () {
+                    final p = currentPage + 1;
+                    ref.read(_deployPageProvider.notifier).state = p;
+                    context.go(withQuery(context, {'page': '$p'}));
+                  },
                   onPerPageChanged: (v) {
                     ref.read(_deployPerPageProvider.notifier).state = v;
                     ref.read(_deployPageProvider.notifier).state = 1;

@@ -6,7 +6,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -18,9 +21,10 @@ type ExecRequest struct {
 	Runtime    string
 	Entrypoint string
 	Source     string // inline source code
+	SourceDir  string // path to a cloned git repo directory (takes priority over Source)
 	Dockerfile string // custom Dockerfile (takes priority over Source+Runtime)
 	EnvVars    map[string]string
-	Timeout    int // seconds
+	Timeout    int    // seconds
 	Payload    string // JSON payload to send to the function
 }
 
@@ -64,7 +68,16 @@ func (e *Executor) Build(ctx context.Context, req ExecRequest) (string, error) {
 	}
 
 	// Create tar archive with Dockerfile + source
-	tarBuf := buildTarContext(dockerfile, req.Source, req.Runtime, req.Entrypoint)
+	var tarBuf *bytes.Buffer
+	if req.SourceDir != "" {
+		var err error
+		tarBuf, err = buildTarContextFromDir(dockerfile, req.SourceDir)
+		if err != nil {
+			return "", fmt.Errorf("runtime: tar from directory: %w", err)
+		}
+	} else {
+		tarBuf = buildTarContext(dockerfile, req.Source, req.Runtime, req.Entrypoint)
+	}
 
 	if err := e.docker.BuildImage(ctx, imageName, tarBuf); err != nil {
 		return "", err
@@ -181,6 +194,47 @@ func buildTarContext(dockerfile, source, runtime, entrypoint string) *bytes.Buff
 
 	tw.Close()
 	return buf
+}
+
+// buildTarContextFromDir creates a tar archive from a directory (git clone output).
+// The Dockerfile is prepended; all files in the directory are included at their
+// relative paths so the Dockerfile's COPY . . picks them up.
+func buildTarContextFromDir(dockerfile, srcDir string) (*bytes.Buffer, error) {
+	buf := new(bytes.Buffer)
+	tw := tar.NewWriter(buf)
+
+	addToTar(tw, "Dockerfile", []byte(dockerfile))
+
+	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		// Skip .git directory
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(srcDir, path)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		info, _ := d.Info()
+		tw.WriteHeader(&tar.Header{
+			Name: rel,
+			Size: int64(len(data)),
+			Mode: int64(info.Mode()),
+		})
+		tw.Write(data)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	tw.Close()
+	return buf, nil
 }
 
 func addToTar(tw *tar.Writer, name string, data []byte) {

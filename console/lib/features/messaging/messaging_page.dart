@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
@@ -46,7 +48,6 @@ class _Msg {
 }
 
 // ── Providers ──────────────────────────────────────────────────────────────────
-final _msgTabProvider = StateProvider<int>((ref) => 0);
 final _msgSearchProvider = StateProvider<String>((ref) => '');
 final _msgPerPageProvider = StateProvider<int>((ref) => 12);
 final _msgPageProvider = StateProvider<int>((ref) => 1);
@@ -76,13 +77,33 @@ final _templatesApiProvider =
 });
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-class MessagingPage extends ConsumerWidget {
+class MessagingPage extends ConsumerStatefulWidget {
   const MessagingPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MessagingPage> createState() => _MessagingPageState();
+}
+
+class _MessagingPageState extends ConsumerState<MessagingPage> {
+  static const _tabNames = ['messages', 'topics', 'templates', 'providers'];
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final urlPage = pageFromQuery(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(_msgPageProvider) != urlPage) {
+        ref.read(_msgPageProvider.notifier).state = urlPage;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final cs = consoleColors(context);
-    final tab = ref.watch(_msgTabProvider);
+    final tabName = tabFromQuery(context, defaultTab: 'messages');
+    final tab = _tabNames.indexOf(tabName).clamp(0, _tabNames.length - 1);
 
     return Scaffold(
       backgroundColor: cs.background,
@@ -106,7 +127,7 @@ class MessagingPage extends ConsumerWidget {
             PageTabs(
               tabs: const ['Messages', 'Topics', 'Templates', 'Providers'],
               selected: tab,
-              onChanged: (i) => ref.read(_msgTabProvider.notifier).state = i,
+              onChanged: (i) => context.go(withQuery(context, {'tab': _tabNames[i], 'page': null})),
             ),
             const SizedBox(height: 20),
             Expanded(
@@ -202,8 +223,16 @@ class _MessagesTabState extends ConsumerState<_MessagesTab> {
           total: total,
           perPage: perPage,
           currentPage: currentPage,
-          onPrev: () => ref.read(_msgPageProvider.notifier).update((s) => s - 1),
-          onNext: () => ref.read(_msgPageProvider.notifier).update((s) => s + 1),
+          onPrev: () {
+            final p = currentPage - 1;
+            ref.read(_msgPageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
+          onNext: () {
+            final p = currentPage + 1;
+            ref.read(_msgPageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
           onPerPageChanged: (v) {
             ref.read(_msgPerPageProvider.notifier).state = v;
             ref.read(_msgPageProvider.notifier).state = 1;

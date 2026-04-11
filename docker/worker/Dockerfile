@@ -9,7 +9,7 @@ COPY . .
 RUN GOMAXPROCS=1 CGO_ENABLED=0 GOOS=linux go build -p=1 -o /worker ./cmd/workers/${WORKER_TYPE}
 
 FROM alpine:3.19
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add ca-certificates tzdata git
 WORKDIR /app
 COPY --from=builder /worker .
 ENTRYPOINT ["/app/worker"]

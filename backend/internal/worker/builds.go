@@ -3,7 +3,9 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
@@ -87,18 +89,34 @@ func (w *Builds) processFunctionExecution(ctx context.Context, job *queue.Job) e
 	projectID, _ := job.Payload["projectId"].(string)
 	runtimeName, _ := job.Payload["runtime"].(string)
 	entrypoint, _ := job.Payload["entrypoint"].(string)
+	sourceType, _ := job.Payload["sourceType"].(string)
 	source, _ := job.Payload["source"].(string)
+	repository, _ := job.Payload["repository"].(string)
+	branch, _ := job.Payload["branch"].(string)
 	timeoutF, _ := job.Payload["timeout"].(float64)
 	timeout := int(timeoutF)
 	if timeout <= 0 {
 		timeout = 15
 	}
 
+	var sourceDir string
+	// For git source, clone the repo to a temp directory
+	if sourceType == "git" && repository != "" {
+		cloned, err := cloneToSource(ctx, repository, branch)
+		if err != nil {
+			w.updateExecution(ctx, executionID, "failed", "", err.Error(), 0)
+			return err
+		}
+		sourceDir = cloned
+		defer os.RemoveAll(sourceDir)
+	}
+
 	w.updateExecution(ctx, executionID, "processing", "", "", 0)
 
 	req := runtime.ExecRequest{
 		FunctionID: functionID, ProjectID: projectID,
-		Runtime: runtimeName, Entrypoint: entrypoint, Source: source, Timeout: timeout,
+		Runtime: runtimeName, Entrypoint: entrypoint, Source: source,
+		SourceDir: sourceDir, Timeout: timeout,
 	}
 	if _, err := w.executor.Build(ctx, req); err != nil {
 		w.updateExecution(ctx, executionID, "failed", "", err.Error(), 0)
@@ -123,23 +141,53 @@ func (w *Builds) processFunctionBuild(ctx context.Context, job *queue.Job) error
 	functionID, _ := job.Payload["functionId"].(string)
 	runtimeName, _ := job.Payload["runtime"].(string)
 	entrypoint, _ := job.Payload["entrypoint"].(string)
+	sourceType, _ := job.Payload["sourceType"].(string)
 	source, _ := job.Payload["source"].(string)
+	repository, _ := job.Payload["repository"].(string)
+	branch, _ := job.Payload["branch"].(string)
 	dockerfile, _ := job.Payload["dockerfile"].(string)
 
+	var sourceDir string
+	// For git source, clone the repo to a temp directory
+	if sourceType == "git" && repository != "" {
+		cloned, err := cloneToSource(ctx, repository, branch)
+		if err != nil {
+			w.db.ExecContext(ctx, "UPDATE functions SET status = 'failed' WHERE id = ?", functionID) //nolint:errcheck
+			return err
+		}
+		sourceDir = cloned
+		defer os.RemoveAll(sourceDir)
+	}
+
 	req := runtime.ExecRequest{FunctionID: functionID, Runtime: runtimeName,
-		Entrypoint: entrypoint, Source: source, Dockerfile: dockerfile}
+		Entrypoint: entrypoint, Source: source, SourceDir: sourceDir, Dockerfile: dockerfile}
 	if _, err := w.executor.Build(ctx, req); err != nil {
 		w.db.ExecContext(ctx, "UPDATE functions SET status = 'failed' WHERE id = ?", functionID) //nolint:errcheck
 		return err
 	}
 	warmReq := runtime.ExecRequest{FunctionID: functionID, Runtime: runtimeName,
-		Entrypoint: entrypoint, Source: source, Timeout: 30}
+		Entrypoint: entrypoint, Source: source, SourceDir: sourceDir, Timeout: 30}
 	if _, err := w.executor.Execute(ctx, warmReq); err != nil {
 		slog.Warn("builds worker: pre-warm failed (non-fatal)", "function_id", functionID, "error", err)
 	}
 	w.db.ExecContext(ctx, "UPDATE functions SET status = 'active' WHERE id = ?", functionID) //nolint:errcheck
 	slog.Info("builds worker: function ready", "function_id", functionID)
 	return nil
+}
+
+// cloneToSource shallow-clones a git repository and returns the cloned directory path.
+// The caller is responsible for reading files from it; the directory is left on disk
+// so the executor can tar it up. A temp dir is created under /tmp/applad-git-*.
+func cloneToSource(ctx context.Context, repository, branch string) (string, error) {
+	dir, err := os.MkdirTemp("", "applad-git-*")
+	if err != nil {
+		return "", fmt.Errorf("git clone: mktemp: %w", err)
+	}
+	if err := runtime.CloneRepo(ctx, repository, branch, dir); err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
 }
 
 func (w *Builds) updateExecution(ctx context.Context, id, status, output, errors string, duration float64) {

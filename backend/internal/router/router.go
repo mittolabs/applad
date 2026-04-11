@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/mittolabs/applad/internal/aichat"
 	"github.com/mittolabs/applad/internal/analytics"
 	"github.com/mittolabs/applad/internal/appcache"
 	"github.com/mittolabs/applad/internal/audit"
@@ -159,6 +160,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 
 		// Projects — no project header needed (these manage projects)
 		r.Mount("/projects", projects.Routes(projects.NewHandler(projectSvc)))
+
+		// AI chat — console JWT required, no project header needed
+		aiSvc := aichat.NewService(cfg.AnthropicAPIKey)
+		r.Mount("/ai", aichat.Routes(aichat.NewHandler(aiSvc, consoleSvc)))
 
 		// Locale — no auth required
 		r.Mount("/locale", locale.Routes(locale.NewHandler()))

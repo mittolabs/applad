@@ -58,7 +58,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		Entrypoint string            `json:"entrypoint"`
 		Timeout    int               `json:"timeout"`
 		EnvVars    map[string]string `json:"envVars"`
+		SourceType string            `json:"sourceType"`
 		Source     string            `json:"source"`
+		Repository string            `json:"repository"`
+		Branch     string            `json:"branch"`
 		Cron       string            `json:"cron"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
@@ -78,7 +81,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if body.EnvVars == nil {
 		body.EnvVars = map[string]string{}
 	}
-	f, err := h.svc.Create(r.Context(), projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.Source, body.Cron)
+	if body.SourceType == "" {
+		body.SourceType = "inline"
+	}
+	f, err := h.svc.Create(r.Context(), projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.SourceType, body.Source, body.Repository, body.Branch, body.Cron)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -130,7 +136,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		Entrypoint string            `json:"entrypoint"`
 		Timeout    int               `json:"timeout"`
 		EnvVars    map[string]string `json:"envVars"`
+		SourceType string            `json:"sourceType"`
 		Source     string            `json:"source"`
+		Repository string            `json:"repository"`
+		Branch     string            `json:"branch"`
 		Cron       *string           `json:"cron"` // pointer so explicit "" is preserved
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -154,15 +163,24 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if body.EnvVars == nil {
 		body.EnvVars = existing.EnvVars
 	}
+	if body.SourceType == "" {
+		body.SourceType = existing.SourceType
+	}
 	if body.Source == "" {
 		body.Source = existing.Source
+	}
+	if body.Repository == "" {
+		body.Repository = existing.Repository
+	}
+	if body.Branch == "" {
+		body.Branch = existing.Branch
 	}
 	cron := existing.Cron
 	if body.Cron != nil {
 		cron = *body.Cron
 	}
 
-	f, err := h.svc.Update(r.Context(), id, projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.Source, cron)
+	f, err := h.svc.Update(r.Context(), id, projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.SourceType, body.Source, body.Repository, body.Branch, cron)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
@@ -125,6 +127,18 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
   String? _selectedDbName;
   String? _selectedTableId;
   String? _selectedTableName;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final urlPage = pageFromQuery(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(_dbPageProvider) != urlPage) {
+        ref.read(_dbPageProvider.notifier).state = urlPage;
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -263,10 +277,16 @@ class _DatabasesPageState extends ConsumerState<DatabasesPage> {
               total: total,
               perPage: perPage,
               currentPage: currentPage,
-              onPrev: () =>
-                  ref.read(_dbPageProvider.notifier).update((s) => s - 1),
-              onNext: () =>
-                  ref.read(_dbPageProvider.notifier).update((s) => s + 1),
+              onPrev: () {
+                final p = currentPage - 1;
+                ref.read(_dbPageProvider.notifier).state = p;
+                context.go(withQuery(context, {'page': '$p'}));
+              },
+              onNext: () {
+                final p = currentPage + 1;
+                ref.read(_dbPageProvider.notifier).state = p;
+                context.go(withQuery(context, {'page': '$p'}));
+              },
               onPerPageChanged: (v) {
                 ref.read(_dbPerPageProvider.notifier).state = v;
                 ref.read(_dbPageProvider.notifier).state = 1;

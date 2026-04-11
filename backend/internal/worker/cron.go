@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/queue"
+	"github.com/mittolabs/applad/internal/workflows"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -97,6 +99,32 @@ func (w *Cron) tick(ctx context.Context) {
 		if w.shouldRun(cronExpr, now) {
 			slog.Info("cron worker: firing function", "id", id, "expr", cronExpr)
 			w.fireFunction(ctx, id, projectID)
+		}
+	}
+
+	wfRows, err := w.db.QueryContext(ctx,
+		`SELECT id, project_id, trigger_config FROM workflows WHERE trigger_type = 'cron' AND status = 'active'`)
+	if err != nil {
+		slog.Error("cron worker: workflows query error", "error", err)
+		return
+	}
+	defer wfRows.Close()
+	svc := workflows.NewService(w.db, w.queue)
+	for wfRows.Next() {
+		var id, projectID string
+		var tcJSON []byte
+		if err := wfRows.Scan(&id, &projectID, &tcJSON); err != nil {
+			continue
+		}
+		var tc map[string]interface{}
+		json.Unmarshal(tcJSON, &tc)
+		cronExpr, _ := tc["cron"].(string)
+		if cronExpr == "" || !w.shouldRun(cronExpr, now) {
+			continue
+		}
+		slog.Info("cron worker: firing workflow", "id", id, "expr", cronExpr)
+		if _, err := svc.Execute(ctx, id, projectID, map[string]interface{}{"trigger": "cron"}); err != nil {
+			slog.Error("cron worker: fire workflow failed", "workflow_id", id, "error", err)
 		}
 	}
 }

@@ -283,136 +283,100 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
     return _ListPage(
       onSelect: (wf) => setState(() => _editing = wf),
       onCreate: _create,
+      onBrowseTemplates: _browseTemplates,
     );
   }
 
   void _create() {
     final colors = consoleColors(context);
     final nameCtrl = TextEditingController();
-    String trigger = 'manual';
-    final cronCtrl = TextEditingController();
 
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 440,
-              decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: colors.border),
-                boxShadow: [
-                  BoxShadow(
-                    color: colors.shadow,
-                    blurRadius: 32,
-                    offset: const Offset(0, 8),
+      builder: (ctx) => Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 400,
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.border),
+              boxShadow: [
+                BoxShadow(
+                  color: colors.shadow,
+                  blurRadius: 32,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text('New Workflow',
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            )),
+                      ),
+                      GestureDetector(
+                        onTap: () => Navigator.of(ctx).pop(),
+                        child: Icon(LucideIcons.x,
+                            size: 16, color: colors.textSubtle),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text('New Workflow',
-                              style: TextStyle(
-                                color: colors.textPrimary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              )),
-                        ),
-                        GestureDetector(
-                          onTap: () => Navigator.of(ctx).pop(),
-                          child: Icon(LucideIcons.x,
-                              size: 16, color: colors.textSubtle),
-                        ),
-                      ],
-                    ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(height: 1, color: colors.border),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _dField(nameCtrl, 'Workflow name'),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      const AppDialogCancel(),
+                      AppDialogAction(
+                        label: 'Create',
+                        onTap: () async {
+                          if (nameCtrl.text.trim().isEmpty) return;
+                          try {
+                            final api = ref.read(apiClientProvider);
+                            final res = await api.post('/workflows', data: {
+                              'name': nameCtrl.text.trim(),
+                              'description': '',
+                              'triggerType': 'manual',
+                              'nodes': <Map<String, dynamic>>[],
+                              'edges': <Map<String, dynamic>>[],
+                            });
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            ref.invalidate(workflowsProvider);
+                            setState(() => _editing = res.data as Map<String, dynamic>);
+                          } catch (_) {
+                            if (ctx.mounted) Navigator.pop(ctx);
+                          }
+                        },
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(height: 1, color: colors.border),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      _dField(nameCtrl, 'Workflow name'),
-                      const SizedBox(height: 16),
-                      Row(children: [
-                        _trigChip('manual', 'Manual', LucideIcons.play, trigger,
-                            (v) => setD(() => trigger = v)),
-                        const SizedBox(width: 8),
-                        _trigChip('webhook', 'Webhook', LucideIcons.webhook,
-                            trigger, (v) => setD(() => trigger = v)),
-                        const SizedBox(width: 8),
-                        _trigChip('cron', 'Schedule', LucideIcons.clock, trigger,
-                            (v) => setD(() => trigger = v)),
-                      ]),
-                      if (trigger == 'cron') ...[
-                        const SizedBox(height: 12),
-                        _dField(cronCtrl, 'Cron (e.g. */5 * * * *)'),
-                      ],
-                    ]),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        const AppDialogCancel(),
-                        AppDialogAction(
-                          label: 'Create',
-                          onTap: () async {
-                            if (nameCtrl.text.trim().isEmpty) return;
-                            try {
-                              final api = ref.read(apiClientProvider);
-                              final trigLabel = trigger == 'webhook'
-                                  ? 'Webhook Trigger'
-                                  : trigger == 'cron'
-                                      ? 'Schedule Trigger'
-                                      : 'Manual Trigger';
-                              final res = await api.post('/workflows', data: {
-                                'name': nameCtrl.text.trim(),
-                                'description': '',
-                                'triggerType': trigger,
-                                if (trigger == 'cron')
-                                  'triggerConfig': {'cron': cronCtrl.text.trim()},
-                                'nodes': [
-                                  {
-                                    'id': 'trigger_0',
-                                    'type': 'trigger',
-                                    'label': trigLabel,
-                                    'config': <String, dynamic>{},
-                                    'position': {'x': 300.0, 'y': 300.0},
-                                  }
-                                ],
-                                'edges': <Map<String, dynamic>>[],
-                              });
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              ref.invalidate(workflowsProvider);
-                              setState(
-                                  () => _editing = res.data as Map<String, dynamic>);
-                            } catch (_) {
-                              if (ctx.mounted) Navigator.pop(ctx);
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -420,29 +384,225 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
     );
   }
 
-  Widget _trigChip(String val, String label, IconData icon, String cur,
-      ValueChanged<String> onTap) {
+  void _browseTemplates() {
     final colors = consoleColors(context);
-    final on = val == cur;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => onTap(val),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: on ? _accent.withOpacity(0.15) : colors.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: on ? _accent : colors.border),
+
+    final templates = [
+      {
+        'name': 'Welcome Email',
+        'description': 'Send a welcome email when a webhook fires',
+        'icon': LucideIcons.mail,
+        'nodes': <Map<String, dynamic>>[
+          {'id': 'n1', 'type': 'trigger', 'label': 'Trigger', 'config': {}, 'position': {'x': 100.0, 'y': 200.0}, 'disabled': false},
+          {'id': 'n2', 'type': 'applad_messaging', 'label': 'Send Email', 'config': {'action': 'send_email', 'to': '{{.trigger.body.email}}', 'subject': 'Welcome!', 'body': 'Hi {{.trigger.body.name}}, welcome!'}, 'position': {'x': 380.0, 'y': 200.0}, 'disabled': false},
+        ],
+        'edges': <Map<String, dynamic>>[
+          {'id': 'e1', 'source': 'n1', 'target': 'n2'},
+        ],
+        'triggerType': 'webhook',
+      },
+      {
+        'name': 'Daily Digest',
+        'description': 'Cron-triggered digest with AI summarization',
+        'icon': LucideIcons.barChart3,
+        'nodes': <Map<String, dynamic>>[
+          {'id': 'n1', 'type': 'trigger', 'label': 'Trigger', 'config': {}, 'position': {'x': 100.0, 'y': 200.0}, 'disabled': false},
+          {'id': 'n2', 'type': 'http_request', 'label': 'Fetch Data', 'config': {'url': 'https://api.example.com/data', 'method': 'GET'}, 'position': {'x': 380.0, 'y': 200.0}, 'disabled': false},
+          {'id': 'n3', 'type': 'ai_summarize', 'label': 'AI Summarize', 'config': {'model': 'claude-sonnet-4-20250514', 'text': '{{.fetch_data.output.body}}'}, 'position': {'x': 660.0, 'y': 200.0}, 'disabled': false},
+          {'id': 'n4', 'type': 'applad_messaging', 'label': 'Send Digest', 'config': {'action': 'send_email', 'to': 'team@example.com', 'subject': 'Daily Digest', 'body': '{{.ai_summarize.output.summary}}'}, 'position': {'x': 940.0, 'y': 200.0}, 'disabled': false},
+        ],
+        'edges': <Map<String, dynamic>>[
+          {'id': 'e1', 'source': 'n1', 'target': 'n2'},
+          {'id': 'e2', 'source': 'n2', 'target': 'n3'},
+          {'id': 'e3', 'source': 'n3', 'target': 'n4'},
+        ],
+        'triggerType': 'cron',
+      },
+      {
+        'name': 'Webhook to DB',
+        'description': 'Store incoming webhook data in a database',
+        'icon': LucideIcons.database,
+        'nodes': <Map<String, dynamic>>[
+          {'id': 'n1', 'type': 'trigger', 'label': 'Trigger', 'config': {}, 'position': {'x': 100.0, 'y': 200.0}, 'disabled': false},
+          {'id': 'n2', 'type': 'edit_fields', 'label': 'Map Fields', 'config': {'fields': '{"email": "{{.trigger.body.email}}", "name": "{{.trigger.body.name}}"}'}, 'position': {'x': 380.0, 'y': 200.0}, 'disabled': false},
+          {'id': 'n3', 'type': 'applad_database', 'label': 'Save to DB', 'config': {'action': 'create_document', 'data': '{{.map_fields.output}}'}, 'position': {'x': 660.0, 'y': 200.0}, 'disabled': false},
+        ],
+        'edges': <Map<String, dynamic>>[
+          {'id': 'e1', 'source': 'n1', 'target': 'n2'},
+          {'id': 'e2', 'source': 'n2', 'target': 'n3'},
+        ],
+        'triggerType': 'webhook',
+      },
+      {
+        'name': 'Error Alert',
+        'description': 'Catch errors and send a Slack notification',
+        'icon': LucideIcons.alertTriangle,
+        'nodes': <Map<String, dynamic>>[
+          {'id': 'n1', 'type': 'trigger', 'label': 'Trigger', 'config': {}, 'position': {'x': 100.0, 'y': 200.0}, 'disabled': false},
+          {'id': 'n2', 'type': 'try_catch', 'label': 'Try / Catch', 'config': {'tryNodes': '', 'catchTarget': 'n3'}, 'position': {'x': 380.0, 'y': 200.0}, 'disabled': false},
+          {'id': 'n3', 'type': 'slack', 'label': 'Slack Alert', 'config': {'message': 'Error: {{.trigger.body.error}}'}, 'position': {'x': 660.0, 'y': 300.0}, 'disabled': false},
+        ],
+        'edges': <Map<String, dynamic>>[
+          {'id': 'e1', 'source': 'n1', 'target': 'n2'},
+          {'id': 'e2', 'source': 'n2', 'target': 'n3'},
+        ],
+        'triggerType': 'webhook',
+      },
+    ];
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (ctx) => Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 600,
+            constraints: const BoxConstraints(maxHeight: 520),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.border),
+              boxShadow: [
+                BoxShadow(
+                  color: colors.shadow,
+                  blurRadius: 32,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                  child: Row(
+                    children: [
+                      const Icon(LucideIcons.layoutTemplate, size: 16, color: _accent),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text('Workflow Templates',
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            )),
+                      ),
+                      GestureDetector(
+                        onTap: () => Navigator.of(ctx).pop(),
+                        child: Icon(LucideIcons.x, size: 16, color: colors.textSubtle),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+                  child: Text('Start with a pre-built workflow',
+                      style: TextStyle(color: colors.textSecondary, fontSize: 13)),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(height: 1, color: colors.border),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: templates.map((t) {
+                      final nodeCount = (t['nodes'] as List).length;
+                      return SizedBox(
+                        width: 262,
+                        child: StatefulBuilder(
+                          builder: (ctx2, setSt) {
+                            bool hov = false;
+                            return StatefulBuilder(
+                              builder: (ctx3, setSt2) => MouseRegion(
+                                onEnter: (_) => setSt2(() => hov = true),
+                                onExit: (_) => setSt2(() => hov = false),
+                                child: GestureDetector(
+                                  onTap: () async {
+                                    final name = t['name'] as String;
+                                    try {
+                                      final api = ref.read(apiClientProvider);
+                                      final res = await api.post('/workflows', data: {
+                                        'name': name,
+                                        'description': t['description'] ?? '',
+                                        'triggerType': t['triggerType'] ?? 'webhook',
+                                        'nodes': t['nodes'],
+                                        'edges': t['edges'],
+                                      });
+                                      if (ctx.mounted) Navigator.of(ctx, rootNavigator: true).pop();
+                                      ref.invalidate(workflowsProvider);
+                                      setState(() => _editing = res.data as Map<String, dynamic>);
+                                    } catch (_) {
+                                      if (ctx.mounted) Navigator.of(ctx, rootNavigator: true).pop();
+                                    }
+                                  },
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 120),
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: hov ? colors.fillHover : colors.fill,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: hov ? _accent.withOpacity(0.4) : colors.border),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(children: [
+                                          Container(
+                                            width: 32,
+                                            height: 32,
+                                            decoration: BoxDecoration(
+                                              color: _accent.withOpacity(0.12),
+                                              borderRadius: BorderRadius.circular(7),
+                                            ),
+                                            child: Icon(t['icon'] as IconData, size: 15, color: _accent),
+                                          ),
+                                          const Spacer(),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: colors.surface,
+                                              borderRadius: BorderRadius.circular(10),
+                                              border: Border.all(color: colors.border),
+                                            ),
+                                            child: Text('$nodeCount nodes',
+                                                style: TextStyle(color: colors.textSubtle, fontSize: 10)),
+                                          ),
+                                        ]),
+                                        const SizedBox(height: 10),
+                                        Text(t['name'] as String,
+                                            style: TextStyle(
+                                              color: colors.textPrimary,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            )),
+                                        const SizedBox(height: 4),
+                                        Text(t['description'] as String,
+                                            style: TextStyle(color: colors.textSecondary, fontSize: 11),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
-          child: Column(children: [
-            Icon(icon, size: 18, color: on ? _accent : colors.textSecondary),
-            const SizedBox(height: 6),
-            Text(label,
-                style: TextStyle(
-                    color: on ? colors.textPrimary : colors.textSecondary,
-                    fontSize: 12,
-                    fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
-          ]),
         ),
       ),
     );
@@ -476,7 +636,8 @@ class _WorkflowsPageState extends ConsumerState<WorkflowsPage> {
 class _ListPage extends ConsumerWidget {
   final ValueChanged<Map<String, dynamic>> onSelect;
   final VoidCallback onCreate;
-  const _ListPage({required this.onSelect, required this.onCreate});
+  final VoidCallback onBrowseTemplates;
+  const _ListPage({required this.onSelect, required this.onCreate, required this.onBrowseTemplates});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -502,6 +663,18 @@ class _ListPage extends ConsumerWidget {
                         style: TextStyle(color: colors.textSecondary, fontSize: 14)),
                   ]),
             ),
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                  foregroundColor: colors.textSecondary,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12)),
+              icon: const Icon(LucideIcons.layoutTemplate, size: 15),
+              label: const Text('Templates', style: TextStyle(fontSize: 13)),
+              onPressed: onBrowseTemplates,
+            ),
+            const SizedBox(width: 8),
             FilledButton.icon(
               style: FilledButton.styleFrom(
                   backgroundColor: _accent,
@@ -742,7 +915,6 @@ class _EditorState extends ConsumerState<_Editor> {
   Map<String, int>? _execCounts; // edgeId → item count
 
   // ── Tags, logs, minimap, sticky notes ──
-  List<String> _tags = [];
   bool _showLogs = false;
   bool _showMinimap = true;
   List<Map<String, dynamic>> _stickyNotes = [];
@@ -750,9 +922,17 @@ class _EditorState extends ConsumerState<_Editor> {
   Map<String, dynamic>? _lastExecData; // nodeId → {input, output}
   Map<String, dynamic>? _pinnedData; // nodeId → pinned output
 
+  // ── Double-click detection on empty canvas ──
+  DateTime? _lastEmptyTapTime;
+  Offset? _lastEmptyTapPos;
+
+  // ── Single-node test ──
+  bool _testingNode = false;
+
   @override
   void initState() {
     super.initState();
+    BrowserContextMenu.disableContextMenu();
     final wf = widget.workflow;
     _name = wf['name'] ?? 'Unnamed';
     _status = wf['status'] ?? 'draft';
@@ -764,6 +944,13 @@ class _EditorState extends ConsumerState<_Editor> {
       _nodes[i]['position'] ??= {'x': 300.0 + i * 280.0, 'y': 300.0};
       _nodes[i]['disabled'] ??= false;
     }
+  }
+
+  @override
+  void dispose() {
+    BrowserContextMenu.enableContextMenu();
+    _palSearchCtrl.dispose();
+    super.dispose();
   }
 
   List<Map<String, dynamic>> _cloneList(List src) =>
@@ -997,6 +1184,30 @@ class _EditorState extends ConsumerState<_Editor> {
     }
   }
 
+  Future<void> _testNode(String nodeId) async {
+    setState(() {
+      _testingNode = true;
+      _configTab = 2; // switch to Output tab
+    });
+    try {
+      final api = ref.read(apiClientProvider);
+      final inputData = _pinnedData?[nodeId] ?? _lastExecData?[nodeId]?['input'] ?? {};
+      final res = await api.post('/workflows/$_wfId/nodes/$nodeId/test',
+          data: {'input': inputData});
+      final output = (res.data as Map<String, dynamic>?)?['output'];
+      setState(() {
+        _lastExecData ??= {};
+        _lastExecData![nodeId] = {'input': inputData, 'output': output ?? res.data};
+      });
+    } catch (e) {
+      setState(() {
+        _lastExecData ??= {};
+        _lastExecData![nodeId] = {'input': {}, 'output': {'error': e.toString()}};
+      });
+    }
+    if (mounted) setState(() => _testingNode = false);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Build
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1101,8 +1312,6 @@ class _EditorState extends ConsumerState<_Editor> {
             backgroundColor: colors.background,
             body: Column(children: [
               _toolbar(),
-              // Editor / Executions tabs
-              _topTabs(),
               Expanded(
                 child: Stack(children: [
                         Column(children: [
@@ -1501,6 +1710,27 @@ class _EditorState extends ConsumerState<_Editor> {
         }
         _rectStart = null;
         _rectEnd = null;
+      case _Mode.panCanvas:
+        // Double-click on empty canvas → open node picker
+        final canvasPos = _toCanvas(e.localPosition);
+        final now = DateTime.now();
+        if (_lastEmptyTapTime != null &&
+            now.difference(_lastEmptyTapTime!).inMilliseconds < 400 &&
+            _lastEmptyTapPos != null &&
+            (canvasPos - _lastEmptyTapPos!).distance < 12) {
+          _lastEmptyTapTime = null;
+          _lastEmptyTapPos = null;
+          setState(() {
+            _showPalette = true;
+            _palettePos = canvasPos;
+            _paletteConnFrom = null;
+            _mode = _Mode.idle;
+          });
+          return;
+        } else {
+          _lastEmptyTapTime = now;
+          _lastEmptyTapPos = canvasPos;
+        }
       default:
         break;
     }
@@ -2100,6 +2330,16 @@ class _EditorState extends ConsumerState<_Editor> {
                       size: 15, color: Colors.redAccent),
                   tooltip: 'Delete',
                 ),
+                IconButton(
+                  onPressed: _testingNode ? null : () => _testNode(node['id'] as String),
+                  icon: _testingNode
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: _green))
+                      : const Icon(LucideIcons.play, size: 14, color: _green),
+                  tooltip: 'Test this step',
+                ),
               ],
               IconButton(
                   onPressed: () => setState(() => _configNodeId = null),
@@ -2132,7 +2372,16 @@ class _EditorState extends ConsumerState<_Editor> {
                       }),
                     ),
                     const SizedBox(height: 16),
+                    if (isTrigger) ..._triggerSettings(colors),
                     if (!isTrigger) ..._typeFields(node, config),
+                    if (!isTrigger) ...[
+                      Container(height: 1, color: colors.border),
+                      const SizedBox(height: 16),
+                      _cfgLabel('On error'),
+                      const SizedBox(height: 8),
+                      _buildErrorBranchRow(node),
+                      const SizedBox(height: 20),
+                    ],
                     const SizedBox(height: 20),
                     _cfgLabel('Connections'),
                     const SizedBox(height: 8),
@@ -2145,6 +2394,180 @@ class _EditorState extends ConsumerState<_Editor> {
         ]),
       ),
     );
+  }
+
+  // ── Trigger node settings ──────────────────────────────────────────────────
+
+  List<Widget> _triggerSettings(dynamic colors) {
+    return [
+      Container(height: 1, color: colors.border),
+      const SizedBox(height: 16),
+      _cfgLabel('Trigger type'),
+      const SizedBox(height: 8),
+      Row(children: [
+        _trigTypeChip('manual', 'Manual', LucideIcons.play, colors),
+        const SizedBox(width: 8),
+        _trigTypeChip('webhook', 'Webhook', LucideIcons.webhook, colors),
+        const SizedBox(width: 8),
+        _trigTypeChip('cron', 'Schedule', LucideIcons.clock, colors),
+      ]),
+      const SizedBox(height: 16),
+      if (_triggerType == 'manual') ...[
+        Text('Run this workflow manually from the dashboard or via the API.',
+            style: TextStyle(fontSize: 12, color: colors.textSecondary)),
+        const SizedBox(height: 8),
+      ],
+      if (_triggerType == 'webhook') ..._webhookSettings(colors),
+      if (_triggerType == 'cron') ..._cronSettings(colors),
+    ];
+  }
+
+  Widget _trigTypeChip(String type, String label, IconData icon, dynamic colors) {
+    final active = _triggerType == type;
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: () => setState(() {
+        _triggerType = type;
+        if (type == 'webhook' && widget.workflow['webhookSecret'] == null) {
+          // no secret yet — will be generated on save via backend
+        }
+        _dirty = true;
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFF6C47FF).withOpacity(0.15) : colors.surface,
+          border: Border.all(color: active ? const Color(0xFF6C47FF) : colors.border),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 12, color: active ? const Color(0xFF6C47FF) : colors.textSecondary),
+          const SizedBox(width: 5),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11,
+                  color: active ? const Color(0xFF6C47FF) : colors.textSecondary,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.normal)),
+        ]),
+      ),
+    );
+  }
+
+  List<Widget> _webhookSettings(dynamic colors) {
+    final origin = Uri.base.origin;
+    final url = '$origin/v1/workflows/webhooks/$_wfId';
+    final secret = (widget.workflow['webhookSecret'] as String?) ?? '';
+    return [
+      _cfgLabel('Webhook URL'),
+      const SizedBox(height: 6),
+      _copyRow(url, colors),
+      const SizedBox(height: 4),
+      Text('Send POST requests to this URL to trigger the workflow.',
+          style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+      const SizedBox(height: 16),
+      Row(children: [
+        Expanded(child: _cfgLabel('Signing secret')),
+        TextButton.icon(
+          onPressed: _regenerateSecret,
+          icon: const Icon(LucideIcons.refreshCw, size: 11),
+          label: const Text('Regenerate', style: TextStyle(fontSize: 11)),
+          style: TextButton.styleFrom(
+              foregroundColor: colors.textSecondary,
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+        ),
+      ]),
+      const SizedBox(height: 6),
+      if (secret.isEmpty)
+        Text('Save the workflow once to generate a signing secret.',
+            style: TextStyle(fontSize: 11, color: colors.textSecondary))
+      else
+        _copyRow(secret, colors),
+      const SizedBox(height: 4),
+      Text('Verify requests with X-Applad-Signature: hex(hmac-sha256(secret, body)).',
+          style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+      const SizedBox(height: 8),
+    ];
+  }
+
+  List<Widget> _cronSettings(dynamic colors) {
+    final expr = (_triggerConfig['cron'] as String?) ?? '';
+    return [
+      _cfgLabel('Cron expression'),
+      const SizedBox(height: 6),
+      _cfgField(
+        value: expr,
+        hint: '*/5 * * * *',
+        onChanged: (v) => setState(() {
+          _triggerConfig['cron'] = v;
+          _dirty = true;
+        }),
+      ),
+      const SizedBox(height: 6),
+      Text(_describeCron(expr),
+          style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+      const SizedBox(height: 8),
+      Text('Format: minute hour day month weekday (UTC)',
+          style: TextStyle(fontSize: 11, color: colors.border)),
+      const SizedBox(height: 8),
+    ];
+  }
+
+  Widget _copyRow(String text, dynamic colors) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: colors.bg,
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(children: [
+        Expanded(
+          child: Text(text,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  color: colors.textPrimary),
+              overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () => Clipboard.setData(ClipboardData(text: text)),
+          child: Icon(LucideIcons.copy, size: 13, color: colors.textSecondary),
+        ),
+      ]),
+    );
+  }
+
+  Future<void> _regenerateSecret() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final res = await api.post('/workflows/$_wfId/webhook-secret');
+      final newSecret = (res.data as Map<String, dynamic>?)?['webhookSecret'] as String?;
+      if (newSecret != null && mounted) {
+        setState(() => widget.workflow['webhookSecret'] = newSecret);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  String _describeCron(String expr) {
+    final parts = expr.trim().split(RegExp(r'\s+'));
+    if (parts.length != 5) return expr.isEmpty ? 'Enter a cron expression above.' : 'Invalid expression (need 5 fields).';
+    final min = parts[0], hr = parts[1], dom = parts[2], mon = parts[3], dow = parts[4];
+    if (min == '*' && hr == '*' && dom == '*' && mon == '*' && dow == '*') return 'Every minute';
+    if (min.startsWith('*/') && hr == '*' && dom == '*' && mon == '*' && dow == '*') {
+      return 'Every ${min.substring(2)} minutes';
+    }
+    if (min == '0' && hr.startsWith('*/') && dom == '*' && mon == '*' && dow == '*') {
+      return 'Every ${hr.substring(2)} hours';
+    }
+    if (min == '0' && hr == '0' && dom == '*' && mon == '*' && dow == '*') return 'Daily at midnight UTC';
+    if (min == '0' && dom == '*' && mon == '*' && dow == '*') return 'Daily at $hr:00 UTC';
+    if (min == '0' && hr == '0' && dom == '1' && mon == '*' && dow == '*') return 'Monthly on the 1st at midnight UTC';
+    return expr;
   }
 
   Widget _cfgTabBtn(String label, int idx) {
@@ -2274,31 +2697,31 @@ class _EditorState extends ConsumerState<_Editor> {
     switch (t) {
       case 'http_request':
         return [
-          _tf(i, config, 'url', 'URL', hint: 'https://api.example.com'),
+          _tf(i, config, 'url', 'URL', hint: 'https://api.example.com', expr: true),
           _tf(i, config, 'method', 'Method', hint: 'GET'),
-          _tf(i, config, 'body', 'Body (JSON)', hint: '{}', lines: 3),
+          _tf(i, config, 'body', 'Body (JSON)', hint: '{}', lines: 3, expr: true),
         ];
       case 'send_email':
         return [
-          _tf(i, config, 'to', 'To'),
-          _tf(i, config, 'subject', 'Subject'),
-          _tf(i, config, 'body', 'Body', lines: 3),
+          _tf(i, config, 'to', 'To', expr: true),
+          _tf(i, config, 'subject', 'Subject', expr: true),
+          _tf(i, config, 'body', 'Body', lines: 3, expr: true),
         ];
       case 'set_variable':
         return [
           _tf(i, config, 'key', 'Key'),
-          _tf(i, config, 'value', 'Value'),
+          _tf(i, config, 'value', 'Value', expr: true),
         ];
       case 'code':
         return [
           _tf(i, config, 'expression', 'Expression',
-              hint: '{{.trigger.name}}', lines: 4),
+              hint: '{{.trigger.name}}', lines: 4, expr: true),
         ];
       case 'if_condition':
         return [
-          _tf(i, config, 'field', 'Field', hint: 'trigger.status'),
+          _tf(i, config, 'field', 'Field', hint: 'trigger.status', expr: true),
           _tf(i, config, 'operator', 'Operator', hint: 'eq, neq, contains'),
-          _tf(i, config, 'value', 'Value'),
+          _tf(i, config, 'value', 'Value', expr: true),
         ];
       case 'delay':
         return [
@@ -2337,7 +2760,7 @@ class _EditorState extends ConsumerState<_Editor> {
       case 'edit_fields':
         return [
           _tf(i, config, 'fields', 'Fields (JSON)',
-              hint: '{"key": "value"}', lines: 4),
+              hint: '{"key": "value"}', lines: 4, expr: true),
         ];
       case 'aggregate':
         return [
@@ -2418,7 +2841,7 @@ class _EditorState extends ConsumerState<_Editor> {
       case 'javascript':
         return [
           _tf(i, config, 'code', 'Code',
-              hint: '{{json_stringify .trigger}}', lines: 8),
+              hint: '{{json_stringify .trigger}}', lines: 8, expr: true),
         ];
       // ── Error handling ──
       case 'try_catch':
@@ -2434,14 +2857,15 @@ class _EditorState extends ConsumerState<_Editor> {
       case 'ai_transform':
         return [
           _tf(i, config, 'model', 'Model', hint: 'claude-sonnet-4-20250514'),
-          _tf(i, config, 'prompt', 'Prompt', hint: 'Transform this data...', lines: 4),
+          _tf(i, config, 'prompt', 'Prompt', hint: 'Transform this data...', lines: 4, expr: true),
+          _tf(i, config, 'userMessage', 'User message', hint: '{{.trigger.body.message}}', expr: true),
           _tf(i, config, 'apiKey', 'API Key'),
         ];
       case 'ai_agent':
         return [
           _tf(i, config, 'model', 'Model', hint: 'claude-sonnet-4-20250514'),
           _tf(i, config, 'systemPrompt', 'System prompt', lines: 3),
-          _tf(i, config, 'userMessage', 'User message', hint: '{{.trigger.body.message}}'),
+          _tf(i, config, 'userMessage', 'User message', hint: '{{.trigger.body.message}}', expr: true),
           _tf(i, config, 'tools', 'Tools (JSON)', hint: '[]', lines: 3),
           _tf(i, config, 'apiKey', 'API Key'),
           _tf(i, config, 'maxSteps', 'Max steps', hint: '5'),
@@ -2527,18 +2951,18 @@ class _EditorState extends ConsumerState<_Editor> {
       case 'applad_auth':
         return [
           _tf(i, config, 'action', 'Action', hint: 'create_user, get_user, list_users, update_user, delete_user'),
-          _tf(i, config, 'email', 'Email'),
+          _tf(i, config, 'email', 'Email', expr: true),
           _tf(i, config, 'password', 'Password'),
-          _tf(i, config, 'name', 'Name'),
-          _tf(i, config, 'userId', 'User ID'),
+          _tf(i, config, 'name', 'Name', expr: true),
+          _tf(i, config, 'userId', 'User ID', expr: true),
         ];
       case 'applad_database':
         return [
           _tf(i, config, 'action', 'Action', hint: 'create_document, get_document, list_documents, update_document, delete_document'),
           _tf(i, config, 'databaseId', 'Database ID'),
           _tf(i, config, 'collectionId', 'Collection ID'),
-          _tf(i, config, 'documentId', 'Document ID'),
-          _tf(i, config, 'data', 'Data (JSON)', hint: '{}', lines: 4),
+          _tf(i, config, 'documentId', 'Document ID', expr: true),
+          _tf(i, config, 'data', 'Data (JSON)', hint: '{}', lines: 4, expr: true),
         ];
       case 'applad_storage':
         return [
@@ -2555,10 +2979,10 @@ class _EditorState extends ConsumerState<_Editor> {
       case 'applad_messaging':
         return [
           _tf(i, config, 'action', 'Action', hint: 'send_email, send_sms, send_push'),
-          _tf(i, config, 'to', 'To'),
-          _tf(i, config, 'subject', 'Subject'),
-          _tf(i, config, 'body', 'Body', lines: 3),
-          _tf(i, config, 'title', 'Title (push only)'),
+          _tf(i, config, 'to', 'To', expr: true),
+          _tf(i, config, 'subject', 'Subject', expr: true),
+          _tf(i, config, 'body', 'Body', lines: 3, expr: true),
+          _tf(i, config, 'title', 'Title (push only)', expr: true),
         ];
       // ── Additional flow ──
       case 'sort':
@@ -2582,8 +3006,66 @@ class _EditorState extends ConsumerState<_Editor> {
     }
   }
 
+  List<String> _upstreamSuggestions(int nodeIdx) {
+    final result = <String>[];
+    final nodeId = _nodes[nodeIdx]['id'] as String;
+
+    // BFS/DFS backwards through edges
+    final visited = <String>{};
+    final queue = <String>[nodeId];
+    final upstreamIds = <String>[];
+    while (queue.isNotEmpty) {
+      final cur = queue.removeLast();
+      if (visited.contains(cur)) continue;
+      visited.add(cur);
+      for (final e in _edges) {
+        if (e['target'] == cur) {
+          final src = e['source'] as String;
+          if (!visited.contains(src)) {
+            upstreamIds.add(src);
+            queue.add(src);
+          }
+        }
+      }
+    }
+
+    // Static suggestions for trigger
+    if (upstreamIds.any((id) {
+      final n = _byId(id);
+      return n?['type'] == 'trigger';
+    })) {
+      result.addAll([
+        '{{.trigger.body}}',
+        '{{.trigger.body.email}}',
+        '{{.trigger.body.name}}',
+        '{{.trigger.headers}}',
+        '{{.trigger.params}}',
+      ]);
+    }
+
+    // Dynamic suggestions from last exec data
+    for (final id in upstreamIds) {
+      final n = _byId(id);
+      if (n == null) continue;
+      final label = (n['label'] as String? ?? id)
+          .toLowerCase()
+          .replaceAll(' ', '_');
+      final execOut = _lastExecData?[id]?['output'];
+      if (execOut is Map) {
+        for (final k in execOut.keys.take(5)) {
+          result.add('{{.$label.output.$k}}');
+        }
+      } else {
+        result.add('{{.$label.output}}');
+      }
+    }
+
+    return result.take(5).toList();
+  }
+
   Widget _tf(int ni, Map<String, dynamic> cfg, String key, String label,
-      {String? hint, int lines = 1}) {
+      {String? hint, int lines = 1, bool expr = false}) {
+    final suggestions = expr ? _upstreamSuggestions(ni) : <String>[];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _cfgLabel(label),
       const SizedBox(height: 6),
@@ -2598,6 +3080,38 @@ class _EditorState extends ConsumerState<_Editor> {
           _dirty = true;
         }),
       ),
+      if (expr && suggestions.isNotEmpty) ...[
+        const SizedBox(height: 4),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: suggestions.map((s) => Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: GestureDetector(
+                onTap: () => setState(() {
+                  final c = Map<String, dynamic>.from(_nodes[ni]['config'] ?? {});
+                  final existing = '${c[key] ?? ''}';
+                  c[key] = existing + s;
+                  _nodes[ni]['config'] = c;
+                  _dirty = true;
+                }),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: consoleColors(context).fill,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: consoleColors(context).border),
+                  ),
+                  child: Text(s,
+                      style: TextStyle(
+                          color: consoleColors(context).textSubtle,
+                          fontSize: 10)),
+                ),
+              ),
+            )).toList(),
+          ),
+        ),
+      ],
       const SizedBox(height: 16),
     ]);
   }
@@ -2690,79 +3204,52 @@ class _EditorState extends ConsumerState<_Editor> {
         ),
       );
 
+  Widget _buildErrorBranchRow(Map<String, dynamic> node) {
+    final colors = consoleColors(context);
+    final current = node['onError'] as String? ?? 'stop';
+    final labels = {
+      'stop': 'Stop workflow',
+      'continue': 'Continue (skip node)',
+      'error_output': 'Route to error output',
+    };
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 36),
+      color: colors.popupSurface,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: colors.border)),
+      onSelected: (v) => setState(() {
+        node['onError'] = v;
+        _dirty = true;
+      }),
+      itemBuilder: (_) => labels.entries
+          .map((e) => PopupMenuItem(
+                value: e.key,
+                child: Text(e.value,
+                    style: TextStyle(color: colors.textSecondary, fontSize: 13)),
+              ))
+          .toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: colors.fieldFill,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: colors.fieldBorder),
+        ),
+        child: Row(children: [
+          Expanded(
+            child: Text(labels[current] ?? current,
+                style: TextStyle(color: colors.textPrimary, fontSize: 13)),
+          ),
+          Icon(LucideIcons.chevronDown, size: 14, color: colors.textSubtle),
+        ]),
+      ),
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Top tabs (Editor / Executions)
   // ═══════════════════════════════════════════════════════════════════════════
-
-  Widget _topTabs() {
-    final colors = consoleColors(context);
-    return Container(
-      height: 40,
-      decoration: BoxDecoration(
-          color: colors.background,
-          border: Border(bottom: BorderSide(color: colors.border))),
-      child: Row(children: [
-        // Tags (left side)
-        const SizedBox(width: 16),
-        if (_tags.isNotEmpty)
-          ..._tags.map((t) => Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: _accent.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(4)),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Text(t,
-                        style:
-                            const TextStyle(color: _accent, fontSize: 11)),
-                    const SizedBox(width: 4),
-                    GestureDetector(
-                      onTap: () => setState(() => _tags.remove(t)),
-                      child: const Icon(LucideIcons.x,
-                          size: 10, color: _accent),
-                    ),
-                  ]),
-                ),
-              )),
-        GestureDetector(
-          onTap: _addTag,
-          child: Text('+ Add tag',
-              style: TextStyle(color: colors.textSubtle, fontSize: 11)),
-        ),
-        const Spacer(),
-        const SizedBox(width: 16),
-      ]),
-    );
-  }
-
-
-  void _addTag() {
-    final ctrl = TextEditingController();
-    showAppDialog(
-      context: context,
-      title: 'Add tag',
-      width: 340,
-      content: AppDialogField(
-        controller: ctrl,
-        hint: 'Tag name',
-        autofocus: true,
-      ),
-      actions: [
-        const AppDialogCancel(),
-        AppDialogAction(
-          label: 'Add',
-          onTap: () {
-            if (ctrl.text.trim().isNotEmpty) {
-              setState(() => _tags.add(ctrl.text.trim()));
-            }
-            Navigator.of(context, rootNavigator: true).pop();
-          },
-        ),
-      ],
-    );
-  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Logs panel (bottom)
@@ -2927,6 +3414,13 @@ class _EditorState extends ConsumerState<_Editor> {
                 title: IdText(id: idStr),
                 subtitle: Text('$st  •  ${dur}ms',
                   style: TextStyle(color: colors.textSubtle, fontSize: 11)),
+                trailing: TextButton(
+                  onPressed: () {
+                    _loadExecution(e);
+                    Navigator.of(context, rootNavigator: true).pop();
+                  },
+                  child: const Text('Load', style: TextStyle(fontSize: 12, color: _accent)),
+                ),
                 children: logs.map((l) {
                   return ListTile(
                     dense: true,
@@ -2957,6 +3451,23 @@ class _EditorState extends ConsumerState<_Editor> {
         );
       },
     );
+  }
+
+  void _loadExecution(Map<String, dynamic> exec) {
+    final logs = List<Map<String, dynamic>>.from(exec['logs'] ?? []);
+    final statuses = <String, String>{};
+    final execData = <String, dynamic>{};
+    for (final log in logs) {
+      final nid = log['nodeId'] as String? ?? '';
+      statuses[nid] = log['status'] as String? ?? 'completed';
+      if (log['output'] != null || log['input'] != null) {
+        execData[nid] = {'input': log['input'], 'output': log['output']};
+      }
+    }
+    setState(() {
+      _execStatus = statuses;
+      if (execData.isNotEmpty) _lastExecData = execData;
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

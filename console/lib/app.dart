@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'core/router/router.dart';
 import 'core/providers/theme_provider.dart';
+import 'features/ai/ai_chat.dart';
 
 const _accent = Color(0xFF3472A4);
 const _bg = Color(0xFF0B0B0F);
@@ -29,6 +30,8 @@ class ApplAdApp extends ConsumerWidget {
       scrollBehavior: const MaterialScrollBehavior().copyWith(
         physics: const ClampingScrollPhysics(),
       ),
+      // Inject the AI chat overlay globally — persists across all route changes.
+      builder: (context, child) => AiChatOverlay(child: child ?? const SizedBox()),
     );
   }
 

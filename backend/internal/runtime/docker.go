@@ -79,7 +79,7 @@ func NewClient() *Client {
 // Returns the image ID.
 func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io.Reader) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.43/build?t=%s&rm=true&forcerm=true", imageName),
+		fmt.Sprintf(c.baseURL + "/v1.44/build?t=%s&rm=true&forcerm=true", imageName),
 		tarContext)
 	if err != nil {
 		return err
@@ -110,7 +110,7 @@ func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io
 // RemoveImage removes a Docker image.
 func (c *Client) RemoveImage(ctx context.Context, imageName string) error {
 	req, err := http.NewRequestWithContext(ctx, "DELETE",
-		fmt.Sprintf(c.baseURL + "/v1.43/images/%s?force=true", imageName), nil)
+		fmt.Sprintf(c.baseURL + "/v1.44/images/%s?force=true", imageName), nil)
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.43/containers/create?name=%s", name),
+		fmt.Sprintf(c.baseURL + "/v1.44/containers/create?name=%s", name),
 		bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -190,7 +190,7 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 // StartContainer starts an existing container.
 func (c *Client) StartContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/start", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/start", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func (c *Client) StartContainer(ctx context.Context, containerID string) error {
 // StopContainer stops a running container.
 func (c *Client) StopContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/stop?t=5", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/stop?t=5", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (c *Client) StopContainer(ctx context.Context, containerID string) error {
 // RemoveContainer removes a container.
 func (c *Client) RemoveContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "DELETE",
-		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s?force=true&v=true", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s?force=true&v=true", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func (c *Client) RemoveContainer(ctx context.Context, containerID string) error 
 // GetContainerPort returns the host-mapped port for a container's internal port.
 func (c *Client) GetContainerPort(ctx context.Context, containerID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/json", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/json", containerID), nil)
 	if err != nil {
 		return "", err
 	}
@@ -279,7 +279,7 @@ func (c *Client) GetContainerPort(ctx context.Context, containerID string) (stri
 // ContainerLogs returns the combined stdout/stderr logs of a container.
 func (c *Client) ContainerLogs(ctx context.Context, containerID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/logs?stdout=true&stderr=true", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/logs?stdout=true&stderr=true", containerID), nil)
 	if err != nil {
 		return "", err
 	}
@@ -297,7 +297,7 @@ func (c *Client) ContainerLogs(ctx context.Context, containerID string) (string,
 // WaitContainer waits for a container to be in a "not-running" state.
 func (c *Client) WaitContainer(ctx context.Context, containerID string) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.43/containers/%s/wait", containerID), nil)
+		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/wait", containerID), nil)
 	if err != nil {
 		return -1, err
 	}

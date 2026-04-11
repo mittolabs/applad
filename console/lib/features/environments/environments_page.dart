@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/environment_provider.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
 
@@ -16,8 +18,7 @@ const _purple = Color(0xFF8B5CF6);
 
 // --- Providers ---------------------------------------------------------------
 
-final _selectedEnvProvider = StateProvider<String?>((ref) => null);
-final _envDetailTabProvider = StateProvider<int>((ref) => 0);
+// _selectedEnvProvider and _envDetailTabProvider removed — state now lives in URL (?envId=, ?tab=)
 
 // --- Page --------------------------------------------------------------------
 
@@ -28,7 +29,7 @@ class EnvironmentsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = consoleColors(context);
     final envsAsync = ref.watch(environmentsProvider);
-    final selectedId = ref.watch(_selectedEnvProvider);
+    final selectedId = GoRouterState.of(context).uri.queryParameters['envId'];
 
     return Scaffold(
       backgroundColor: colors.background,
@@ -72,10 +73,7 @@ class EnvironmentsPage extends ConsumerWidget {
                   child: _EnvList(
                     envsAsync: envsAsync,
                     selectedId: selectedId,
-                    onSelect: (id) {
-                      ref.read(_selectedEnvProvider.notifier).state = id;
-                      ref.read(_envDetailTabProvider.notifier).state = 0;
-                    },
+                    onSelect: (id) => context.go(withQuery(context, {'envId': id, 'tab': null})),
                     onDelete: (id) => _deleteEnv(context, ref, id),
                   ),
                 ),
@@ -172,7 +170,7 @@ class EnvironmentsPage extends ConsumerWidget {
     if (confirmed != true || !context.mounted) return;
     final api = ref.read(apiClientProvider);
     await api.delete('/deploy/environments/$id');
-    ref.read(_selectedEnvProvider.notifier).state = null;
+    if (context.mounted) context.go(withQuery(context, {'envId': null, 'tab': null}));
     ref.invalidate(environmentsProvider);
   }
 }
@@ -282,9 +280,12 @@ class _EnvDetail extends ConsumerWidget {
   const _EnvDetail({required this.envId});
 
   @override
+  static const _tabNames = ['overview', 'variables', 'settings'];
+
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = consoleColors(context);
-    final tab = ref.watch(_envDetailTabProvider);
+    final tabName = tabFromQuery(context, defaultTab: 'overview');
+    final tab = _tabNames.indexOf(tabName).clamp(0, _tabNames.length - 1);
     final envAsync = ref.watch(_envDetailProvider(envId));
 
     final name = envAsync.valueOrNull?['name'] as String? ?? '…';
@@ -303,8 +304,7 @@ class _EnvDetail extends ConsumerWidget {
         PageTabs(
           tabs: const ['Overview', 'Variables', 'Settings'],
           selected: tab,
-          onChanged: (i) =>
-              ref.read(_envDetailTabProvider.notifier).state = i,
+          onChanged: (i) => context.go(withQuery(context, {'tab': _tabNames[i]})),
         ),
         Container(height: 1, color: colors.border),
         Expanded(

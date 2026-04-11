@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
@@ -48,7 +50,6 @@ _Runtime _runtimeById(String id) =>
 final _funcSearchProvider   = StateProvider<String>((ref) => '');
 final _funcPerPageProvider  = StateProvider<int>((ref) => 12);
 final _funcPageProvider     = StateProvider<int>((ref) => 1);
-final _funcListTabProvider  = StateProvider<int>((ref) => 0);
 final _funcDetailTabProvider = StateProvider<int>((ref) => 0);
 final _selectedFuncProvider = StateProvider<Map<String, dynamic>?>((ref) => null);
 
@@ -85,7 +86,20 @@ class FunctionsPage extends ConsumerStatefulWidget {
 }
 
 class _FunctionsPageState extends ConsumerState<FunctionsPage> {
+  static const _listTabNames = ['functions', 'usage'];
   final _searchCtrl = TextEditingController();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final urlPage = pageFromQuery(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(_funcPageProvider) != urlPage) {
+        ref.read(_funcPageProvider.notifier).state = urlPage;
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -124,7 +138,8 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
     final functionsAsync = ref.watch(functionsProvider);
     final perPage      = ref.watch(_funcPerPageProvider);
     final currentPage  = ref.watch(_funcPageProvider);
-    final listTab      = ref.watch(_funcListTabProvider);
+    final tabName      = tabFromQuery(context, defaultTab: 'functions');
+    final listTab      = _listTabNames.indexOf(tabName).clamp(0, _listTabNames.length - 1);
 
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -143,8 +158,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
           PageTabs(
             tabs: const ['Functions', 'Usage'],
             selected: listTab,
-            onChanged: (i) =>
-                ref.read(_funcListTabProvider.notifier).state = i,
+            onChanged: (i) => context.go(withQuery(context, {'tab': _listTabNames[i], 'page': null})),
           ),
           const SizedBox(height: 20),
           Expanded(
@@ -176,10 +190,16 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
             ref.read(_funcPerPageProvider.notifier).state = v;
             ref.read(_funcPageProvider.notifier).state = 1;
           },
-          onPrev: () =>
-              ref.read(_funcPageProvider.notifier).update((s) => s - 1),
-          onNext: () =>
-              ref.read(_funcPageProvider.notifier).update((s) => s + 1),
+          onPrev: () {
+            final p = currentPage - 1;
+            ref.read(_funcPageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
+          onNext: () {
+            final p = currentPage + 1;
+            ref.read(_funcPageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
           onSearch: _doSearch,
           trailing: FilledButton.icon(
             style: FilledButton.styleFrom(
@@ -316,7 +336,10 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
     final entryCtrl      = TextEditingController(text: 'index.js');
     final timeoutCtrl    = TextEditingController(text: '15');
     final sourceCtrl     = TextEditingController();
+    final repoCtrl       = TextEditingController();
+    final branchCtrl     = TextEditingController(text: 'main');
     String runtime       = 'node-20';
+    String sourceType    = 'inline';
 
     showAppDialog(
       context: context,
@@ -348,12 +371,41 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
                 label: 'Timeout (seconds)',
                 hint: '15',
                 keyboardType: TextInputType.number),
+            const SizedBox(height: 16),
+            // Source type toggle
+            Row(children: [
+              _SourceTypeBtn(
+                label: 'Inline code',
+                icon: LucideIcons.code2,
+                selected: sourceType == 'inline',
+                onTap: () => setState(() => sourceType = 'inline'),
+              ),
+              const SizedBox(width: 8),
+              _SourceTypeBtn(
+                label: 'GitHub',
+                icon: LucideIcons.github,
+                selected: sourceType == 'git',
+                onTap: () => setState(() => sourceType = 'git'),
+              ),
+            ]),
             const SizedBox(height: 12),
-            AppDialogField(
-                controller: sourceCtrl,
-                label: 'Source code',
-                hint: '// your code here',
-                maxLines: 6),
+            if (sourceType == 'inline')
+              AppDialogField(
+                  controller: sourceCtrl,
+                  label: 'Source code',
+                  hint: '// your code here',
+                  maxLines: 6)
+            else ...[
+              AppDialogField(
+                  controller: repoCtrl,
+                  label: 'Repository URL',
+                  hint: 'https://github.com/user/repo'),
+              const SizedBox(height: 12),
+              AppDialogField(
+                  controller: branchCtrl,
+                  label: 'Branch',
+                  hint: 'main'),
+            ],
           ],
         ),
       ),
@@ -368,7 +420,10 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
               'runtime':    runtime,
               'entrypoint': entryCtrl.text.trim(),
               'timeout':    int.tryParse(timeoutCtrl.text) ?? 15,
-              'source':     sourceCtrl.text,
+              'sourceType': sourceType,
+              'source':     sourceType == 'inline' ? sourceCtrl.text : '',
+              'repository': sourceType == 'git' ? repoCtrl.text.trim() : '',
+              'branch':     sourceType == 'git' ? branchCtrl.text.trim() : '',
             });
             if (context.mounted) {
               Navigator.of(context, rootNavigator: true).pop();
@@ -1067,8 +1122,11 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
   late TextEditingController _entryCtrl;
   late TextEditingController _timeoutCtrl;
   late TextEditingController _sourceCtrl;
+  late TextEditingController _repoCtrl;
+  late TextEditingController _branchCtrl;
   late TextEditingController _cronCtrl;
   late String _runtime;
+  late String _sourceType;
   bool _saving = false;
 
   @override
@@ -1079,8 +1137,11 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
     _entryCtrl   = TextEditingController(text: fn['entrypoint'] ?? '');
     _timeoutCtrl = TextEditingController(text: '${fn['timeout'] ?? 15}');
     _sourceCtrl  = TextEditingController(text: fn['source'] ?? '');
+    _repoCtrl    = TextEditingController(text: fn['repository'] ?? '');
+    _branchCtrl  = TextEditingController(text: fn['branch'] ?? 'main');
     _cronCtrl    = TextEditingController(text: fn['cron'] ?? '');
     _runtime     = fn['runtime'] ?? 'node-20';
+    _sourceType  = fn['sourceType'] ?? 'inline';
   }
 
   @override
@@ -1089,6 +1150,8 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
     _entryCtrl.dispose();
     _timeoutCtrl.dispose();
     _sourceCtrl.dispose();
+    _repoCtrl.dispose();
+    _branchCtrl.dispose();
     _cronCtrl.dispose();
     super.dispose();
   }
@@ -1133,33 +1196,60 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
           ),
           const SizedBox(height: 12),
           _sectionCard(
-            title: 'Source code',
-            description: 'Inline source for simple functions.',
-            child: TextField(
-              controller: _sourceCtrl,
-              maxLines: null,
-              minLines: 8,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 13,
-                  fontFamily: 'monospace'),
-              decoration: InputDecoration(
-                hintText: '// your function code',
-                hintStyle: TextStyle(color: colors.textSubtle),
-                filled: true,
-                fillColor: colors.surfaceAlt,
-                isDense: true,
-                contentPadding: const EdgeInsets.all(12),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: colors.fieldBorder)),
-                enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: colors.fieldBorder)),
-                focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: _accent)),
-              ),
+            title: 'Source',
+            description: 'Deploy from inline code or a GitHub repository.',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  _SourceTypeBtn(
+                    label: 'Inline code',
+                    icon: LucideIcons.code2,
+                    selected: _sourceType == 'inline',
+                    onTap: () => setState(() => _sourceType = 'inline'),
+                  ),
+                  const SizedBox(width: 8),
+                  _SourceTypeBtn(
+                    label: 'GitHub',
+                    icon: LucideIcons.github,
+                    selected: _sourceType == 'git',
+                    onTap: () => setState(() => _sourceType = 'git'),
+                  ),
+                ]),
+                const SizedBox(height: 16),
+                if (_sourceType == 'inline')
+                  TextField(
+                    controller: _sourceCtrl,
+                    maxLines: null,
+                    minLines: 8,
+                    style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 13,
+                        fontFamily: 'monospace'),
+                    decoration: InputDecoration(
+                      hintText: '// your function code',
+                      hintStyle: TextStyle(color: colors.textSubtle),
+                      filled: true,
+                      fillColor: colors.surfaceAlt,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.all(12),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: colors.fieldBorder)),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: colors.fieldBorder)),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: _accent)),
+                    ),
+                  )
+                else ...[
+                  _field('Repository URL', _repoCtrl, 'https://github.com/user/repo'),
+                  const SizedBox(height: 12),
+                  _field('Branch', _branchCtrl, 'main'),
+                ],
+              ],
             ),
           ),
           const SizedBox(height: 20),
@@ -1313,7 +1403,10 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
         'runtime':    _runtime,
         'entrypoint': _entryCtrl.text.trim(),
         'timeout':    int.tryParse(_timeoutCtrl.text) ?? 15,
-        'source':     _sourceCtrl.text,
+        'sourceType': _sourceType,
+        'source':     _sourceType == 'inline' ? _sourceCtrl.text : '',
+        'repository': _sourceType == 'git' ? _repoCtrl.text.trim() : '',
+        'branch':     _sourceType == 'git' ? _branchCtrl.text.trim() : '',
         'cron':       _cronCtrl.text.trim(),
       });
       final updated = res.data as Map<String, dynamic>;
@@ -1433,6 +1526,53 @@ class _FuncUsageTab extends StatelessWidget {
           const SizedBox(height: 4),
           Text(label,
               style: TextStyle(color: colors.textSecondary, fontSize: 12)),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Runtime picker ────────────────────────────────────────────────────────────
+
+// ── Source type toggle button ─────────────────────────────────────────────────
+
+class _SourceTypeBtn extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SourceTypeBtn({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = consoleColors(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? _accent.withValues(alpha: 0.15) : colors.fieldFill,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? _accent : colors.fieldBorder,
+          ),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 14,
+              color: selected ? _accent : colors.textSecondary),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: selected ? _accent : colors.textSecondary,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
         ]),
       ),
     );

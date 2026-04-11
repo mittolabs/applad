@@ -39,6 +39,7 @@ func Routes(h *Handler) http.Handler {
 	r.Put("/{workflowId}", h.update)
 	r.Delete("/{workflowId}", h.delete)
 	r.Post("/{workflowId}/execute", h.execute)
+	r.Post("/{workflowId}/webhook-secret", h.regenerateWebhookSecret)
 	r.Get("/{workflowId}/executions", h.listExecutions)
 	r.Get("/{workflowId}/executions/{executionId}", h.getExecution)
 	// Versioning
@@ -155,6 +156,17 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) regenerateWebhookSecret(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	id := chi.URLParam(r, "workflowId")
+	secret, err := h.svc.RegenerateWebhookSecret(r.Context(), id, projectID)
+	if err != nil {
+		apperr.NotFound(w, "workflow")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"webhookSecret": secret})
 }
 
 func (h *Handler) execute(w http.ResponseWriter, r *http.Request) {

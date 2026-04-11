@@ -39,6 +39,7 @@ final _projectStatsProvider =
     safeFetch('/projects/$projectId/usage'),
     safeFetch('/projects/$projectId/platforms'),
     safeFetch('/projects/$projectId/keys'),
+    safeFetch('/deploy/releases?limit=5'),
   ]);
 
   int count(dynamic data, String key) {
@@ -58,6 +59,7 @@ final _projectStatsProvider =
     'usage': futures[6] ?? {},
     'platforms': count(futures[7], 'platforms'),
     'apiKeys': count(futures[8], 'keys'),
+    'releases': (futures[9] as Map?)?['releases'] as List? ?? <dynamic>[],
   };
 });
 
@@ -174,6 +176,7 @@ class _OverviewTab extends ConsumerWidget {
       ),
       data: (stats) {
         final usage = stats['usage'] as Map<String, dynamic>? ?? {};
+        final releases = stats['releases'] as List? ?? [];
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -269,8 +272,19 @@ class _OverviewTab extends ConsumerWidget {
             ),
             const SizedBox(height: 32),
 
-            // Project info + SDK quickstart
-            _ProjectInfoSection(projectId: projectId),
+            // Project ID + API Endpoint info cards
+            _InfoCardsRow(projectId: projectId),
+            const SizedBox(height: 16),
+
+            // Recent Deployments
+            _RecentDeployments(
+              releases: releases,
+              projectId: projectId,
+            ),
+            const SizedBox(height: 16),
+
+            // Services overview grid
+            _ServicesGrid(stats: stats, projectId: projectId),
 
             const SizedBox(height: 40),
           ],
@@ -535,263 +549,31 @@ class _StatCardState extends State<_StatCard> {
 }
 
 // =============================================================================
-// Project Info + SDK Quickstart
+// Info Cards Row (Project ID + API Endpoint)
 // =============================================================================
 
-class _ProjectInfoSection extends StatefulWidget {
+class _InfoCardsRow extends StatelessWidget {
   final String projectId;
-  const _ProjectInfoSection({required this.projectId});
-
-  @override
-  State<_ProjectInfoSection> createState() => _ProjectInfoSectionState();
-}
-
-class _ProjectInfoSectionState extends State<_ProjectInfoSection> {
-  int _sdkTab = 0;
-
-  static const _sdks = [
-    _SdkInfo('Flutter', 'dart', 'applad: ^1.0.0',
-        'dependencies:', LucideIcons.smartphone),
-    _SdkInfo('JavaScript', 'bash', 'npm install applad',
-        'Terminal', LucideIcons.terminal),
-    _SdkInfo('Node.js', 'bash', 'npm install applad-node',
-        'Terminal', LucideIcons.server),
-    _SdkInfo('Python', 'bash', 'pip install applad',
-        'Terminal', LucideIcons.terminal),
-    _SdkInfo('Go', 'bash', 'go get github.com/mittolabs/applad-go',
-        'Terminal', LucideIcons.terminal),
-  ];
+  const _InfoCardsRow({required this.projectId});
 
   @override
   Widget build(BuildContext context) {
-    final cs = consoleColors(context);
     final endpoint = '${Uri.base.origin}/v1';
-    final sdk = _sdks[_sdkTab];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Project info row
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final wide = constraints.maxWidth > 700;
-            final infoWidth = wide
-                ? (constraints.maxWidth - 16) / 2
-                : constraints.maxWidth;
-
-            return Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              children: [
-                _InfoCard(
-                  width: infoWidth,
-                  label: 'Project ID',
-                  value: widget.projectId,
-                  icon: LucideIcons.folder,
-                ),
-                _InfoCard(
-                  width: infoWidth,
-                  label: 'API Endpoint',
-                  value: endpoint,
-                  icon: LucideIcons.link,
-                ),
-              ],
-            );
-          },
-        ),
-        const SizedBox(height: 16),
-
-        // SDK quickstart
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: cs.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: cs.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Quick start',
-                  style: TextStyle(
-                      color: cs.textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              Text('Install an SDK to start building with Applad',
-                  style: TextStyle(
-                      color: cs.textSubtle,
-                      fontSize: 13)),
-              const SizedBox(height: 16),
-              // SDK tabs
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: List.generate(_sdks.length, (i) {
-                    final s = _sdks[i];
-                    final active = _sdkTab == i;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: GestureDetector(
-                        onTap: () => setState(() => _sdkTab = i),
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: active
-                                  ? cs.border
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: cs.border),
-                            ),
-                            child: Text(s.name,
-                                style: TextStyle(
-                                    color: active
-                                        ? cs.textPrimary
-                                        : cs.textSecondary,
-                                    fontSize: 12,
-                                    fontWeight: active
-                                        ? FontWeight.w500
-                                        : FontWeight.w400)),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-              const SizedBox(height: 14),
-              // Install command
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: cs.fill,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: cs.border),
-                ),
-                child: Row(
-                  children: [
-                    Text(sdk.contextLabel,
-                        style: TextStyle(
-                            color: cs.textSubtle,
-                            fontSize: 12)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SelectableText(sdk.installCmd,
-                          style: TextStyle(
-                              color: cs.textPrimary,
-                              fontSize: 13,
-                              fontFamily: 'monospace')),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        Clipboard.setData(
-                            ClipboardData(text: sdk.installCmd));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Copied to clipboard')),
-                        );
-                      },
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: Icon(LucideIcons.copy,
-                            size: 14,
-                            color: cs.textSubtle),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              // Init snippet
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: cs.fill,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: cs.border),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SelectableText(
-                            _initSnippet(sdk.name, endpoint,
-                                widget.projectId),
-                            style: TextStyle(
-                                color: cs.textPrimary,
-                                fontSize: 13,
-                                fontFamily: 'monospace',
-                                height: 1.5),
-                          ),
-                        ),
-                        Align(
-                          alignment: Alignment.topRight,
-                          child: GestureDetector(
-                            onTap: () {
-                              Clipboard.setData(ClipboardData(
-                                  text: _initSnippet(sdk.name,
-                                      endpoint, widget.projectId)));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content:
-                                        Text('Copied to clipboard')),
-                              );
-                            },
-                            child: MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: Icon(LucideIcons.copy,
-                                  size: 14,
-                                  color: cs.textSubtle),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth > 700;
+        final w = wide ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            _InfoCard(width: w, label: 'Project ID', value: projectId, icon: LucideIcons.folder),
+            _InfoCard(width: w, label: 'API Endpoint', value: endpoint, icon: LucideIcons.link),
+          ],
+        );
+      },
     );
   }
-
-  String _initSnippet(String sdk, String endpoint, String projectId) {
-    switch (sdk) {
-      case 'Flutter':
-        return "import 'package:applad/applad.dart';\n\nfinal client = AppladClient()\n  .setEndpoint('$endpoint')\n  .setProject('$projectId');";
-      case 'JavaScript':
-        return "import { Client } from 'applad';\n\nconst client = new Client()\n  .setEndpoint('$endpoint')\n  .setProject('$projectId');";
-      case 'Node.js':
-        return "const { Client } = require('applad-node');\n\nconst client = new Client()\n  .setEndpoint('$endpoint')\n  .setProject('$projectId')\n  .setKey('YOUR_API_KEY');";
-      case 'Python':
-        return "from applad import Client\n\nclient = Client()\nclient.set_endpoint('$endpoint')\nclient.set_project('$projectId')\nclient.set_key('YOUR_API_KEY')";
-      case 'Go':
-        return 'import "github.com/mittolabs/applad-go"\n\nclient := applad.NewClient()\nclient.SetEndpoint("$endpoint")\nclient.SetProject("$projectId")\nclient.SetKey("YOUR_API_KEY")';
-      default:
-        return '';
-    }
-  }
-}
-
-class _SdkInfo {
-  final String name;
-  final String lang;
-  final String installCmd;
-  final String contextLabel;
-  final IconData icon;
-
-  const _SdkInfo(
-      this.name, this.lang, this.installCmd, this.contextLabel, this.icon);
 }
 
 class _InfoCard extends StatelessWidget {
@@ -822,23 +604,24 @@ class _InfoCard extends StatelessWidget {
         children: [
           Icon(icon, size: 14, color: cs.textSecondary),
           const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: TextStyle(
-                      color: cs.textSubtle,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500)),
-              const SizedBox(height: 2),
-              SelectableText(value,
-                  style: TextStyle(
-                      color: cs.textPrimary,
-                      fontSize: 13,
-                      fontFamily: 'monospace')),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                        color: cs.textSubtle,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 2),
+                SelectableText(value,
+                    style: TextStyle(
+                        color: cs.textPrimary,
+                        fontSize: 13,
+                        fontFamily: 'monospace')),
+              ],
+            ),
           ),
-          const Spacer(),
           GestureDetector(
             onTap: () {
               Clipboard.setData(ClipboardData(text: value));
@@ -848,11 +631,384 @@ class _InfoCard extends StatelessWidget {
             },
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
-              child: Icon(LucideIcons.copy,
-                  size: 14, color: cs.textSubtle),
+              child: Icon(LucideIcons.copy, size: 14, color: cs.textSubtle),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Recent Deployments
+// =============================================================================
+
+class _RecentDeployments extends StatelessWidget {
+  final List<dynamic> releases;
+  final String projectId;
+
+  const _RecentDeployments({
+    required this.releases,
+    required this.projectId,
+  });
+
+  static Color _statusColor(String status) {
+    switch (status) {
+      case 'success':
+        return const Color(0xFF22C55E);
+      case 'failed':
+        return const Color(0xFFEF4444);
+      case 'building':
+      case 'deploying':
+        return const Color(0xFFF59E0B);
+      case 'rolled_back':
+        return const Color(0xFF8B5CF6);
+      default:
+        return const Color(0xFF6B7280);
+    }
+  }
+
+  static String _statusLabel(String status) {
+    switch (status) {
+      case 'rolled_back':
+        return 'Rolled back';
+      default:
+        return '${status[0].toUpperCase()}${status.substring(1)}';
+    }
+  }
+
+  static String _timeAgo(String? iso) {
+    if (iso == null) return '';
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 1) return 'just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
+      return '${(diff.inDays / 7).floor()}w ago';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: cs.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Recent Deployments',
+                  style: TextStyle(
+                      color: cs.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600)),
+              const Spacer(),
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () => context.go('/project/$projectId/deploy'),
+                  child: Text('View all',
+                      style: TextStyle(
+                          color: _accent,
+                          fontSize: 13,
+                          decoration: TextDecoration.none)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (releases.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.rocket, size: 16, color: cs.textMuted),
+                  const SizedBox(width: 10),
+                  Text('No deployments yet',
+                      style: TextStyle(color: cs.textMuted, fontSize: 13)),
+                ],
+              ),
+            )
+          else
+            ...releases.map<Widget>((r) {
+              final rel = r as Map<String, dynamic>? ?? {};
+              final status = rel['status'] as String? ?? 'pending';
+              final color = _statusColor(status);
+              final name = rel['name'] as String? ??
+                  rel['\$id'] as String? ??
+                  'Release';
+              final time = _timeAgo(rel['createdAt'] as String?);
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  children: [
+                    // Status dot
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Name
+                    Expanded(
+                      child: Text(name,
+                          style: TextStyle(
+                              color: cs.textPrimary,
+                              fontSize: 13),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    const SizedBox(width: 12),
+                    // Status pill
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(_statusLabel(status),
+                          style: TextStyle(
+                              color: color,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              decoration: TextDecoration.none)),
+                    ),
+                    if (time.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      Text(time,
+                          style: TextStyle(
+                              color: cs.textMuted, fontSize: 12)),
+                    ],
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Services Overview Grid
+// =============================================================================
+
+class _ServicesGrid extends StatelessWidget {
+  final Map<String, dynamic> stats;
+  final String projectId;
+
+  const _ServicesGrid({
+    required this.stats,
+    required this.projectId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+
+    final services = [
+      _ServiceRow(
+        icon: LucideIcons.users,
+        label: 'Auth',
+        value: '${stats['users'] ?? 0}',
+        sublabel: 'users',
+        route: '/project/$projectId/auth',
+      ),
+      _ServiceRow(
+        icon: LucideIcons.database,
+        label: 'Databases',
+        value: '${stats['databases'] ?? 0}',
+        sublabel: 'databases',
+        route: '/project/$projectId/databases',
+      ),
+      _ServiceRow(
+        icon: LucideIcons.folderClosed,
+        label: 'Storage',
+        value: '${stats['buckets'] ?? 0}',
+        sublabel: 'buckets',
+        route: '/project/$projectId/storage',
+      ),
+      _ServiceRow(
+        icon: LucideIcons.zap,
+        label: 'Functions',
+        value: '${stats['functions'] ?? 0}',
+        sublabel: 'functions',
+        route: '/project/$projectId/functions',
+      ),
+      _ServiceRow(
+        icon: LucideIcons.rocket,
+        label: 'Deploy',
+        value: '${stats['deployments'] ?? 0}',
+        sublabel: 'targets',
+        route: '/project/$projectId/deploy',
+      ),
+      _ServiceRow(
+        icon: LucideIcons.gitBranch,
+        label: 'Workflows',
+        value: '${stats['workflows'] ?? 0}',
+        sublabel: 'workflows',
+        route: '/project/$projectId/workflows',
+      ),
+      _ServiceRow(
+        icon: LucideIcons.mail,
+        label: 'Messaging',
+        value: '—',
+        sublabel: 'email · sms · push',
+        route: '/project/$projectId/messaging',
+      ),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: cs.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Services',
+              style: TextStyle(
+                  color: cs.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final cols = constraints.maxWidth > 900
+                  ? 3
+                  : constraints.maxWidth > 600
+                      ? 2
+                      : 1;
+              final cellW = (constraints.maxWidth - 16.0 * (cols - 1)) / cols;
+              return Wrap(
+                spacing: 16,
+                runSpacing: 12,
+                children: services
+                    .map((s) => _ServiceCell(
+                          service: s,
+                          width: cellW,
+                          onTap: () => context.go(s.route),
+                        ))
+                    .toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServiceRow {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String sublabel;
+  final String route;
+
+  const _ServiceRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.sublabel,
+    required this.route,
+  });
+}
+
+class _ServiceCell extends StatefulWidget {
+  final _ServiceRow service;
+  final double width;
+  final VoidCallback onTap;
+
+  const _ServiceCell({
+    required this.service,
+    required this.width,
+    required this.onTap,
+  });
+
+  @override
+  State<_ServiceCell> createState() => _ServiceCellState();
+}
+
+class _ServiceCellState extends State<_ServiceCell> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+    final s = widget.service;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 130),
+          width: widget.width,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: _hovered ? cs.fillHover : cs.fill,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+                color: _hovered ? cs.fieldBorder : cs.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: _accent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Icon(s.icon, size: 15, color: _accent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(s.label,
+                        style: TextStyle(
+                            color: cs.textPrimary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 1),
+                    Text(s.sublabel,
+                        style: TextStyle(
+                            color: cs.textMuted, fontSize: 11)),
+                  ],
+                ),
+              ),
+              Text(s.value,
+                  style: TextStyle(
+                      color: cs.textSecondary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
       ),
     );
   }

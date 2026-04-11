@@ -168,14 +168,14 @@ func nullableString(s string) interface{} {
 func (s *Service) Get(ctx context.Context, id, projectID string) (*Workflow, error) {
 	var w Workflow
 	var tcJSON, nodesJSON, edgesJSON []byte
-	var desc, errorWfID sql.NullString
+	var desc, errorWfID, webhookSecretGet sql.NullString
 	var retryAttempts, retryDelayMs sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at,
+		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, COALESCE(webhook_secret,''), nodes, edges, created_at, updated_at,
 		        COALESCE(error_workflow_id, ''), COALESCE(retry_attempts, 0), COALESCE(retry_delay_ms, 0)
 		 FROM workflows WHERE id = ? AND project_id = ?`, id, projectID,
-	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
+	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &webhookSecretGet, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
 		&errorWfID, &retryAttempts, &retryDelayMs)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("workflow not found")
@@ -188,6 +188,7 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Workflow, err
 	w.ErrorWorkflowID = errorWfID.String
 	w.RetryAttempts = int(retryAttempts.Int64)
 	w.RetryDelayMs = int(retryDelayMs.Int64)
+	w.WebhookSecret = webhookSecretGet.String
 	json.Unmarshal(tcJSON, &w.TriggerConfig)
 	json.Unmarshal(nodesJSON, &w.Nodes)
 	json.Unmarshal(edgesJSON, &w.Edges)
@@ -201,6 +202,22 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Workflow, err
 		w.Edges = []Edge{}
 	}
 	return &w, nil
+}
+
+// RegenerateWebhookSecret generates a new HMAC secret for a webhook workflow and returns it.
+func (s *Service) RegenerateWebhookSecret(ctx context.Context, id, projectID string) (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("workflows: generate secret: %w", err)
+	}
+	secret := hex.EncodeToString(b)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE workflows SET webhook_secret=?, updated_at=? WHERE id=? AND project_id=?`,
+		secret, time.Now().UTC(), id, projectID)
+	if err != nil {
+		return "", fmt.Errorf("workflows: regenerate secret: %w", err)
+	}
+	return secret, nil
 }
 
 // GetByID returns a workflow by ID without project scoping (used by webhook trigger + worker).

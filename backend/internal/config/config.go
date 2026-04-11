@@ -142,6 +142,9 @@ type Config struct {
 	ConsoleSSOAuthURL      string
 	ConsoleSSOTokenURL     string
 	ConsoleSSOUserInfoURL  string
+
+	// AI chat
+	AnthropicAPIKey string
 }
 
 func Load() *Config {
@@ -265,6 +268,7 @@ func Load() *Config {
 		ConsoleSSOAuthURL:         getEnv("CONSOLE_SSO_AUTH_URL", ""),
 		ConsoleSSOTokenURL:        getEnv("CONSOLE_SSO_TOKEN_URL", ""),
 		ConsoleSSOUserInfoURL:     getEnv("CONSOLE_SSO_USERINFO_URL", ""),
+		AnthropicAPIKey:           getEnv("ANTHROPIC_API_KEY", ""),
 	}
 }
 

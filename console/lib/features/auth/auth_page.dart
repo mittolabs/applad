@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utils/url_utils.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
@@ -9,6 +10,7 @@ import '../../core/theme/console_colors.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/status_chip.dart';
 
 // ── Responsive padding ────────────────────────────────────────────────────────
 
@@ -25,7 +27,6 @@ const _accent = Color(0xFF3472A4);
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
-final _authTabProvider = StateProvider<int>((ref) => 0);
 final _userSearchProvider = StateProvider<String>((ref) => '');
 final _userPerPageProvider = StateProvider<int>((ref) => 12);
 final _userPageProvider = StateProvider<int>((ref) => 1);
@@ -73,10 +74,31 @@ class AuthPage extends ConsumerStatefulWidget {
 }
 
 class _AuthPageState extends ConsumerState<AuthPage> {
+  static const _tabNames = [
+    'users', 'teams', 'security', 'templates', 'usage', 'settings',
+  ];
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Sync ?page= from URL → StateProvider so FutureProviders refetch.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final tabName = tabFromQuery(context, defaultTab: 'users');
+      final page = pageFromQuery(context);
+      if (tabName == 'users' && ref.read(_userPageProvider) != page) {
+        ref.read(_userPageProvider.notifier).state = page;
+      } else if (tabName == 'teams' && ref.read(_teamPageProvider) != page) {
+        ref.read(_teamPageProvider.notifier).state = page;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = consoleColors(context);
-    final tab = ref.watch(_authTabProvider);
+    final tabName = tabFromQuery(context, defaultTab: 'users');
+    final tab = _tabNames.indexOf(tabName).clamp(0, _tabNames.length - 1);
 
     return Scaffold(
       backgroundColor: colors.background,
@@ -102,7 +124,9 @@ class _AuthPageState extends ConsumerState<AuthPage> {
                 'Settings',
               ],
               selected: tab,
-              onChanged: (i) => ref.read(_authTabProvider.notifier).state = i,
+              onChanged: (i) => context.go(
+                withQuery(context, {'tab': _tabNames[i], 'page': null}),
+              ),
             ),
             const SizedBox(height: 20),
             Expanded(child: _tabBody(tab)),
@@ -182,10 +206,10 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
           },
           cellBuilder: (row, key) {
             if (key == 'status') {
-              return _StatusBadge(
-                active: row['status'] as bool? ?? false,
-                verified: row['emailVerification'] as bool? ?? false,
-              );
+              final active = row['status'] as bool? ?? false;
+              final verified = row['emailVerification'] as bool? ?? false;
+              if (!active) return StatusChip.fromStatus('disabled');
+              return StatusChip.fromStatus(verified ? 'verified' : 'unverified');
             }
             return null;
           },
@@ -196,8 +220,16 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
           total: total,
           perPage: perPage,
           currentPage: currentPage,
-          onPrev: () => ref.read(_userPageProvider.notifier).update((s) => s - 1),
-          onNext: () => ref.read(_userPageProvider.notifier).update((s) => s + 1),
+          onPrev: () {
+            final p = ref.read(_userPageProvider) - 1;
+            ref.read(_userPageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': p == 1 ? null : '$p'}));
+          },
+          onNext: () {
+            final p = ref.read(_userPageProvider) + 1;
+            ref.read(_userPageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
           onPerPageChanged: (v) {
             ref.read(_userPerPageProvider.notifier).state = v;
             ref.read(_userPageProvider.notifier).state = 1;
@@ -292,55 +324,6 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
 }
 
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-
-class _StatusBadge extends StatelessWidget {
-  final bool active;
-  final bool verified;
-
-  const _StatusBadge({required this.active, required this.verified});
-
-  @override
-  Widget build(BuildContext context) {
-    if (!active) {
-      return _badge('Disabled', const Color(0xFF374151), const Color(0xFF6B7280));
-    }
-    if (verified) {
-      return _badge('Verified', const Color(0xFF064E3B), const Color(0xFF34D399));
-    }
-    return _badge('Unverified', const Color(0xFF1F2937), const Color(0xFF9CA3AF));
-  }
-
-  Widget _badge(String label, Color bg, Color fg) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(color: fg, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 5),
-              Text(label,
-                  style: TextStyle(
-                      color: fg, fontSize: 11, fontWeight: FontWeight.w500)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 // ── Teams tab ─────────────────────────────────────────────────────────────────
 
 class _TeamsTab extends ConsumerStatefulWidget {
@@ -397,8 +380,16 @@ class _TeamsTabState extends ConsumerState<_TeamsTab> {
           total: total,
           perPage: perPage,
           currentPage: currentPage,
-          onPrev: () => ref.read(_teamPageProvider.notifier).update((s) => s - 1),
-          onNext: () => ref.read(_teamPageProvider.notifier).update((s) => s + 1),
+          onPrev: () {
+            final p = ref.read(_teamPageProvider) - 1;
+            ref.read(_teamPageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': p == 1 ? null : '$p'}));
+          },
+          onNext: () {
+            final p = ref.read(_teamPageProvider) + 1;
+            ref.read(_teamPageProvider.notifier).state = p;
+            context.go(withQuery(context, {'page': '$p'}));
+          },
           onPerPageChanged: (v) {
             ref.read(_teamPerPageProvider.notifier).state = v;
             ref.read(_teamPageProvider.notifier).state = 1;
