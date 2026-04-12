@@ -56,6 +56,68 @@ jobs:
       - name: Test
         run: dart run melos test
 
+  # ── E2E / integration tests ───────────────────────────────────────────────────
+  e2e:
+    name: E2E tests (Go)
+    runs-on: ubuntu-24.04
+    if: |
+      github.event_name == 'pull_request' ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'backend/')
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: applad
+          POSTGRES_USER: applad
+          POSTGRES_PASSWORD: applad
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: backend/go.sum
+      - name: Build API
+        run: go build -o /tmp/applad-api ./cmd/api
+      - name: Start API
+        env:
+          DATABASE_DSN: postgres://applad:applad@localhost:5432/applad?sslmode=disable
+          REDIS_ADDR: localhost:6379
+          JWT_SECRET: ci-test-secret-not-for-production
+          PORT: "8080"
+          APP_ENV: development
+          CONSOLE_SIGNUP_ENABLED: "true"
+        run: /tmp/applad-api &
+      - name: Wait for API to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/v1/health && echo " healthy" && break
+            echo "  waiting ($i)…"
+            sleep 2
+          done
+      - name: Run integration tests
+        env:
+          APPLAD_API_URL: http://localhost:8080/v1
+        run: go test -tags=integration -v -count=1 ./tests/...
+
   # ── TypeScript client SDK ─────────────────────────────────────────────────────
   sdk-js:
     name: SDK (TypeScript / client)
