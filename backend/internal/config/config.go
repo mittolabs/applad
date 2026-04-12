@@ -131,6 +131,11 @@ type Config struct {
 	// If unset, falls back to JWT_SECRET (key_version=0, not recommended for production).
 	CredentialsEncryptionKey string
 
+	// API key pepper — HMAC-SHA256 key used when hashing API key secrets at rest.
+	// Generate: openssl rand -hex 32
+	// If unset, falls back to JWT_SECRET. Changing this value invalidates all existing API keys.
+	APIKeySecret string
+
 	// Console OAuth — for admin console login (separate from per-project OAuth)
 	ConsoleGitHubClientID     string
 	ConsoleGitHubClientSecret string
@@ -258,6 +263,7 @@ func Load() *Config {
 		APNSBundleID:         getEnv("APNS_BUNDLE_ID", ""),
 
 		CredentialsEncryptionKey: getEnv("CREDENTIALS_ENCRYPTION_KEY", ""),
+		APIKeySecret:             getEnv("API_KEY_SECRET", ""),
 
 		ConsoleGitHubClientID:     getEnv("CONSOLE_GITHUB_CLIENT_ID", ""),
 		ConsoleGitHubClientSecret: getEnv("CONSOLE_GITHUB_CLIENT_SECRET", ""),

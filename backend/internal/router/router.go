@@ -88,7 +88,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	// In Kubernetes, restrict access with a NetworkPolicy to allow only Prometheus pods.
 	r.Handle("/metrics", metrics.Default.Handler())
 
-	projectSvc := projects.NewService(database)
+	projectSvc := projects.NewService(database, cfg.APIKeySecret, cfg.JWTSecret)
 	authSvc := auth.NewService(database, cfg.JWTSecret)
 	dbSvc := databases.NewService(database)
 	storageSvc := storage.NewService(database, cfg.StoragePath, cfg.JWTSecret)

@@ -3,7 +3,8 @@ package projects
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto/hmac"
+	"crypto/sha256" // used by hmac.New
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -17,12 +18,26 @@ import (
 
 // Service handles project business logic.
 type Service struct {
-	db *db.DB
+	db        *db.DB
+	keySecret []byte // pepper for HMAC-SHA256 API key hashing
 }
 
 // NewService creates a new projects Service.
-func NewService(database *db.DB) *Service {
-	return &Service{db: database}
+// keySecret is the HMAC pepper for API key hashing (API_KEY_SECRET env var).
+// Falls back to jwtSecret so unset deployments continue to work.
+func NewService(database *db.DB, keySecret, jwtSecret string) *Service {
+	pepper := keySecret
+	if pepper == "" {
+		pepper = jwtSecret
+	}
+	return &Service{db: database, keySecret: []byte(pepper)}
+}
+
+// hashKey returns the HMAC-SHA256 hex digest of a raw API key secret.
+func (s *Service) hashKey(raw string) string {
+	mac := hmac.New(sha256.New, s.keySecret)
+	mac.Write([]byte(raw))
+	return fmt.Sprintf("%x", mac.Sum(nil))
 }
 
 // Create creates a new project.
@@ -66,7 +81,7 @@ func (s *Service) GetKeyBySecret(ctx context.Context, secret string) (*model.API
 		return nil, fmt.Errorf("projects: invalid key format")
 	}
 	prefix := secret[:16]
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(secret)))
+	hash := s.hashKey(secret)
 
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT id, project_id, name, scopes, expires_at, created_at FROM api_keys WHERE secret_prefix = ? AND secret_hash = ?",
@@ -129,9 +144,9 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 }
 
 // CreateKey creates a new API key for a project. Returns the key model and the raw secret.
-func (s *Service) CreateKey(ctx context.Context, projectID, name string, scopes []string) (*model.APIKey, string, error) {
+func (s *Service) CreateKey(ctx context.Context, projectID, name string, scopes []string, expiresAt *time.Time) (*model.APIKey, string, error) {
 	rawSecret := "applad_key_" + uid.RandomHex(32)
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(rawSecret)))
+	hash := s.hashKey(rawSecret)
 	prefix := rawSecret
 	if len(prefix) > 16 {
 		prefix = prefix[:16]
@@ -142,18 +157,20 @@ func (s *Service) CreateKey(ctx context.Context, projectID, name string, scopes 
 
 	scopesJSON, _ := json.Marshal(scopes)
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO api_keys (id, project_id, name, secret_hash, secret_prefix, scopes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		id, projectID, name, hash, prefix, scopesJSON, now)
+		"INSERT INTO api_keys (id, project_id, name, secret_hash, secret_prefix, scopes, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		id, projectID, name, hash, prefix, scopesJSON, expiresAt, now)
 	if err != nil {
 		return nil, "", fmt.Errorf("projects: create key: %w", err)
 	}
 	key := &model.APIKey{
-		ID:        id,
-		ProjectID: projectID,
-		Name:      name,
-		Secret:    rawSecret,
-		Scopes:    scopes,
-		CreatedAt: now,
+		ID:           id,
+		ProjectID:    projectID,
+		Name:         name,
+		Secret:       rawSecret,
+		SecretPrefix: prefix,
+		Scopes:       scopes,
+		ExpiresAt:    expiresAt,
+		CreatedAt:    now,
 	}
 	return key, rawSecret, nil
 }
@@ -161,7 +178,7 @@ func (s *Service) CreateKey(ctx context.Context, projectID, name string, scopes 
 // ListKeys returns all API keys for a project.
 func (s *Service) ListKeys(ctx context.Context, projectID string) ([]*model.APIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, scopes, expires_at, created_at FROM api_keys WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, project_id, name, scopes, expires_at, created_at, secret_prefix FROM api_keys WHERE project_id = ? ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, fmt.Errorf("projects: list keys: %w", err)
@@ -176,6 +193,52 @@ func (s *Service) ListKeys(ctx context.Context, projectID string) ([]*model.APIK
 		keys = append(keys, k)
 	}
 	return keys, nil
+}
+
+// GetKey returns a single API key by ID.
+func (s *Service) GetKey(ctx context.Context, projectID, keyID string) (*model.APIKey, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, project_id, name, scopes, expires_at, created_at, secret_prefix FROM api_keys WHERE id = ? AND project_id = ?",
+		keyID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("projects: get key: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, fmt.Errorf("key not found")
+	}
+	return scanAPIKey(rows)
+}
+
+// UpdateKey updates mutable fields of an API key.
+// setExpiry controls whether expiresAt is written (allows clearing it with nil).
+func (s *Service) UpdateKey(ctx context.Context, projectID, keyID string, name *string, scopes []string, setExpiry bool, expiresAt *time.Time) (*model.APIKey, error) {
+	sets := []string{}
+	args := []interface{}{}
+	if name != nil && strings.TrimSpace(*name) != "" {
+		sets = append(sets, "name = ?")
+		args = append(args, strings.TrimSpace(*name))
+	}
+	if scopes != nil {
+		scopesJSON, _ := json.Marshal(scopes)
+		sets = append(sets, "scopes = ?")
+		args = append(args, scopesJSON)
+	}
+	if setExpiry {
+		sets = append(sets, "expires_at = ?")
+		args = append(args, expiresAt)
+	}
+	if len(sets) == 0 {
+		return s.GetKey(ctx, projectID, keyID)
+	}
+	args = append(args, keyID, projectID)
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE api_keys SET "+strings.Join(sets, ", ")+" WHERE id = ? AND project_id = ?",
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("projects: update key: %w", err)
+	}
+	return s.GetKey(ctx, projectID, keyID)
 }
 
 // DeleteKey removes an API key.
@@ -226,13 +289,14 @@ func (s *Service) GetUsage(ctx context.Context, projectID string) (*UsageStats, 
 
 // Platform represents a registered platform for a project.
 type Platform struct {
-	ID        string    `json:"$id"`
-	ProjectID string    `json:"projectId"`
-	Type      string    `json:"type"` // web, flutter-ios, flutter-android, flutter-web, server
-	Name      string    `json:"name"`
-	Hostname  string    `json:"hostname,omitempty"`
-	StoreID   string    `json:"storeId,omitempty"`
-	CreatedAt time.Time `json:"$createdAt"`
+	ID             string    `json:"$id"`
+	ProjectID      string    `json:"projectId"`
+	Type           string    `json:"type"` // web, ios, android, desktop, server
+	Name           string    `json:"name"`
+	Hostname       string    `json:"hostname,omitempty"`
+	StoreID        string    `json:"storeId,omitempty"`
+	DeployTargetID string    `json:"deployTargetId,omitempty"`
+	CreatedAt      time.Time `json:"$createdAt"`
 }
 
 // CreatePlatform registers a new platform for a project.
@@ -254,7 +318,7 @@ func (s *Service) CreatePlatform(ctx context.Context, projectID, pType, name, ho
 // ListPlatforms returns all platforms for a project.
 func (s *Service) ListPlatforms(ctx context.Context, projectID string) ([]*Platform, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, type, name, hostname, store_id, created_at FROM platforms WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, created_at FROM platforms WHERE project_id = ? ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, fmt.Errorf("platforms: list: %w", err)
@@ -263,12 +327,13 @@ func (s *Service) ListPlatforms(ctx context.Context, projectID string) ([]*Platf
 	var platforms []*Platform
 	for rows.Next() {
 		var p Platform
-		var hostname, storeID sql.NullString
-		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Type, &p.Name, &hostname, &storeID, &p.CreatedAt); err != nil {
+		var hostname, storeID, deployTargetID sql.NullString
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Type, &p.Name, &hostname, &storeID, &deployTargetID, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		p.Hostname = hostname.String
 		p.StoreID = storeID.String
+		p.DeployTargetID = deployTargetID.String
 		platforms = append(platforms, &p)
 	}
 	if platforms == nil {
@@ -282,6 +347,58 @@ func (s *Service) DeletePlatform(ctx context.Context, projectID, platformID stri
 	_, err := s.db.ExecContext(ctx,
 		"DELETE FROM platforms WHERE id = ? AND project_id = ?", platformID, projectID)
 	return err
+}
+
+// GetPlatform fetches a single platform by ID.
+func (s *Service) GetPlatform(ctx context.Context, projectID, platformID string) (*Platform, error) {
+	row := s.db.QueryRowContext(ctx,
+		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, created_at FROM platforms WHERE id = ? AND project_id = ?",
+		platformID, projectID)
+	var p Platform
+	var hostname, storeID, deployTargetID sql.NullString
+	if err := row.Scan(&p.ID, &p.ProjectID, &p.Type, &p.Name, &hostname, &storeID, &deployTargetID, &p.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("platform not found")
+		}
+		return nil, fmt.Errorf("platforms: get: %w", err)
+	}
+	p.Hostname = hostname.String
+	p.StoreID = storeID.String
+	p.DeployTargetID = deployTargetID.String
+	return &p, nil
+}
+
+// UpdatePlatform updates mutable fields of a platform.
+func (s *Service) UpdatePlatform(ctx context.Context, projectID, platformID string, name, hostname, deployTargetID *string) (*Platform, error) {
+	sets := []string{}
+	args := []interface{}{}
+	if name != nil {
+		sets = append(sets, "name = ?")
+		args = append(args, *name)
+	}
+	if hostname != nil {
+		sets = append(sets, "hostname = ?")
+		args = append(args, *hostname)
+	}
+	if deployTargetID != nil {
+		sets = append(sets, "deploy_target_id = ?")
+		if *deployTargetID == "" {
+			args = append(args, nil) // store NULL when disconnecting
+		} else {
+			args = append(args, *deployTargetID)
+		}
+	}
+	if len(sets) == 0 {
+		return s.GetPlatform(ctx, projectID, platformID)
+	}
+	args = append(args, platformID, projectID)
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE platforms SET "+strings.Join(sets, ", ")+" WHERE id = ? AND project_id = ?",
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("platforms: update: %w", err)
+	}
+	return s.GetPlatform(ctx, projectID, platformID)
 }
 
 // AuthSecurity holds project-level auth security policy settings.
@@ -410,7 +527,7 @@ func scanAPIKey(rows *sql.Rows) (*model.APIKey, error) {
 	var k model.APIKey
 	var scopesJSON []byte
 	var expiresAt sql.NullTime
-	if err := rows.Scan(&k.ID, &k.ProjectID, &k.Name, &scopesJSON, &expiresAt, &k.CreatedAt); err != nil {
+	if err := rows.Scan(&k.ID, &k.ProjectID, &k.Name, &scopesJSON, &expiresAt, &k.CreatedAt, &k.SecretPrefix); err != nil {
 		return nil, err
 	}
 	if len(scopesJSON) > 0 {

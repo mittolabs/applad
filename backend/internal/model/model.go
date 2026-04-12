@@ -16,13 +16,14 @@ type Project struct {
 
 // APIKey represents a project API key.
 type APIKey struct {
-	ID        string     `json:"$id"`
-	ProjectID string     `json:"projectId"`
-	Name      string     `json:"name"`
-	Secret    string     `json:"secret,omitempty"` // only returned on creation
-	Scopes    []string   `json:"scopes"`
-	ExpiresAt *time.Time `json:"expire"`
-	CreatedAt time.Time  `json:"$createdAt"`
+	ID           string     `json:"$id"`
+	ProjectID    string     `json:"projectId"`
+	Name         string     `json:"name"`
+	Secret       string     `json:"secret,omitempty"`       // only returned on creation
+	SecretPrefix string     `json:"secretPrefix,omitempty"` // always returned as hint
+	Scopes       []string   `json:"scopes"`
+	ExpiresAt    *time.Time `json:"expire"`
+	CreatedAt    time.Time  `json:"$createdAt"`
 }
 
 // User represents an Applad account.

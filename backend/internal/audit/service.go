@@ -81,7 +81,7 @@ func (s *Service) Get(ctx context.Context, logID, projectID string) (*Log, error
 }
 
 // List returns audit logs for a project with optional filters.
-func (s *Service) List(ctx context.Context, projectID, action, resourceType, userID string, limit, offset int) ([]*Log, int, error) {
+func (s *Service) List(ctx context.Context, projectID, action, resourceType, userID, method string, limit, offset int) ([]*Log, int, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
@@ -98,6 +98,10 @@ func (s *Service) List(ctx context.Context, projectID, action, resourceType, use
 	if userID != "" {
 		where += " AND user_id = ?"
 		args = append(args, userID)
+	}
+	if method != "" {
+		where += " AND method = ?"
+		args = append(args, method)
 	}
 
 	var total int

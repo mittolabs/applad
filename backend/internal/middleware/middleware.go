@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -145,11 +144,7 @@ func Authenticate(jwtSecret string, provider interface{}) func(http.Handler) htt
 							return
 						}
 					}
-					hash := fmt.Sprintf("%x", sha256.Sum256([]byte(apiKey)))
-					ctx = context.WithValue(ctx, apiKeyKey, true)
-					ctx = context.WithValue(ctx, apiKeyScopesKey, []string{})
-					ctx = context.WithValue(ctx, userKey, "api:"+hash[:16])
-					next.ServeHTTP(w, r.WithContext(ctx))
+					apperr.Write(w, http.StatusUnauthorized, "general_unauthorized_scope", "Invalid API key.")
 					return
 				}
 			}

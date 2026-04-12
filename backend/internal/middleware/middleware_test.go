@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/mittolabs/applad/internal/model"
 )
+
+var errInvalidKey = errors.New("key not found")
 
 type testAPIKeyProvider struct {
 	key *model.APIKey
@@ -143,6 +146,7 @@ func TestAuthenticate_JWT(t *testing.T) {
 }
 
 func TestAuthenticate_APIKey(t *testing.T) {
+	provider := testAPIKeyProvider{key: &model.APIKey{ID: "key1", ProjectID: "", Scopes: []string{"databases"}}}
 	var gotUser string
 	var gotIsAPIKey bool
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,9 +155,9 @@ func TestAuthenticate_APIKey(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := Authenticate("secret", nil)(inner)
+	handler := Authenticate("secret", provider)(inner)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/databases", nil)
 	req.Header.Set("X-Applad-Key", "applad_key_abc123def456")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -163,6 +167,22 @@ func TestAuthenticate_APIKey(t *testing.T) {
 	}
 	if gotUser == "" {
 		t.Fatal("expected user to be set from API key")
+	}
+}
+
+func TestAuthenticate_APIKeyRejectsInvalidKey(t *testing.T) {
+	provider := testAPIKeyProvider{key: nil, err: errInvalidKey}
+	handler := Authenticate("secret", provider)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called for invalid API key")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Applad-Key", "applad_key_fakefakefake")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
 	}
 }
 
