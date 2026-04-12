@@ -202,7 +202,7 @@ if [ "$MODE" = upgrade ]; then
     fi
   fi
   info "Pulling images (version: ${NEW_VERSION})…"
-  APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" pull
+  APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" pull --ignore-pull-failures || true
   info "Restarting services…"
   APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
   log "Upgrade complete — running ${NEW_VERSION}"
