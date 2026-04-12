@@ -858,6 +858,10 @@ class _UserMenuPanel extends ConsumerWidget {
                   label: 'Sign out',
                   icon: LucideIcons.logOut,
                   onTap: () async {
+                    // Capture notifier before the dialog opens — the popover
+                    // widget may be disposed by the time the confirm button is
+                    // tapped, making ref invalid.
+                    final notifier = ref.read(consoleAuthProvider.notifier);
                     bool signingOut = false;
                     await showAppDialog<void>(
                       context: context,
@@ -883,16 +887,11 @@ class _UserMenuPanel extends ConsumerWidget {
                                     ? null
                                     : () async {
                                         ss(() => signingOut = true);
-                                        await ref
-                                            .read(consoleAuthProvider.notifier)
-                                            .logout();
+                                        await notifier.logout();
                                         if (ctx.mounted) {
                                           Navigator.of(ctx,
                                                   rootNavigator: true)
                                               .pop();
-                                        }
-                                        if (context.mounted) {
-                                          context.go('/login');
                                         }
                                       },
                               ),
