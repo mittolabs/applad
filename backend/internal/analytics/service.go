@@ -89,7 +89,7 @@ func (s *Service) Track(ctx context.Context, e Event) (*Event, error) {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO analytics_events
 		 (id, project_id, user_id, session_id, event, properties, url, referrer, device_type, browser, country, created_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 		e.ID, e.ProjectID, nullStr(e.UserID), nullStr(e.SessionID), e.Event,
 		nullBytes(propsJSON), nullStr(e.URL), nullStr(e.Referrer),
 		nullStr(e.DeviceType), nullStr(e.Browser), nullStr(e.Country), e.CreatedAt,
@@ -110,7 +110,7 @@ func (s *Service) TrackBatch(ctx context.Context, events []Event) (int, error) {
 	stmt, err := tx.PrepareContext(ctx,
 		`INSERT INTO analytics_events
 		 (id, project_id, user_id, session_id, event, properties, url, referrer, device_type, browser, country, created_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`)
 	if err != nil {
 		return 0, err
 	}
@@ -141,7 +141,7 @@ func (s *Service) QueryEvents(ctx context.Context, projectID, event, userID stri
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	where, args := eventsWhere(projectID, event, userID, from, to)
+	where, args, n := eventsWhere(projectID, event, userID, from, to)
 	var total int
 	countArgs := make([]interface{}, len(args))
 	copy(countArgs, args)
@@ -149,8 +149,8 @@ func (s *Service) QueryEvents(ctx context.Context, projectID, event, userID stri
 
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, COALESCE(user_id,''), COALESCE(session_id,''), event, properties, COALESCE(url,''), COALESCE(referrer,''), COALESCE(device_type,''), COALESCE(browser,''), COALESCE(country,''), created_at "+
-			"FROM analytics_events WHERE "+where+" ORDER BY created_at DESC LIMIT ? OFFSET ?", args...)
+		fmt.Sprintf("SELECT id, project_id, COALESCE(user_id,''), COALESCE(session_id,''), event, properties, COALESCE(url,''), COALESCE(referrer,''), COALESCE(device_type,''), COALESCE(browser,''), COALESCE(country,''), created_at "+
+			"FROM analytics_events WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d", where, n+1, n+2), args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -175,7 +175,7 @@ func (s *Service) QueryEvents(ctx context.Context, projectID, event, userID stri
 func (s *Service) EventCounts(ctx context.Context, projectID string, from, to time.Time) (map[string]int64, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT event, COUNT(*) as cnt FROM analytics_events
-		 WHERE project_id = ? AND created_at BETWEEN ? AND ?
+		 WHERE project_id = $1 AND created_at BETWEEN $2 AND $3
 		 GROUP BY event ORDER BY cnt DESC`,
 		projectID, from, to)
 	if err != nil {
@@ -199,7 +199,7 @@ func (s *Service) DAU(ctx context.Context, projectID string, from, to time.Time)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT DATE(created_at) as day, COUNT(DISTINCT user_id) as dau
 		 FROM analytics_events
-		 WHERE project_id = ? AND user_id IS NOT NULL AND created_at BETWEEN ? AND ?
+		 WHERE project_id = $1 AND user_id IS NOT NULL AND created_at BETWEEN $2 AND $3
 		 GROUP BY day ORDER BY day ASC`,
 		projectID, from, to)
 	if err != nil {
@@ -225,16 +225,16 @@ func (s *Service) RealtimeSummary(ctx context.Context, projectID string, since t
 	var eventsLast5m int64
 	s.db.QueryRowContext(ctx,
 		`SELECT COUNT(DISTINCT user_id) FROM analytics_events
-		 WHERE project_id = ? AND user_id IS NOT NULL AND created_at >= ?`,
+		 WHERE project_id = $1 AND user_id IS NOT NULL AND created_at >= $2`,
 		projectID, since,
 	).Scan(&activeUsers) //nolint:errcheck
 	s.db.QueryRowContext(ctx,
 		`SELECT COUNT(DISTINCT session_id) FROM analytics_events
-		 WHERE project_id = ? AND session_id IS NOT NULL AND created_at >= ?`,
+		 WHERE project_id = $1 AND session_id IS NOT NULL AND created_at >= $2`,
 		projectID, since,
 	).Scan(&activeSessions) //nolint:errcheck
 	s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM analytics_events WHERE project_id = ? AND created_at >= ?`,
+		`SELECT COUNT(*) FROM analytics_events WHERE project_id = $1 AND created_at >= $2`,
 		projectID, since,
 	).Scan(&eventsLast5m) //nolint:errcheck
 	return map[string]int64{
@@ -254,7 +254,7 @@ func (s *Service) CreateFunnel(ctx context.Context, projectID, name string, step
 	}
 	stepsJSON, _ := json.Marshal(steps)
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO analytics_funnels (id, project_id, name, steps, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+		"INSERT INTO analytics_funnels (id, project_id, name, steps, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)",
 		f.ID, f.ProjectID, f.Name, stepsJSON, f.CreatedAt, f.UpdatedAt,
 	)
 	if err != nil {
@@ -266,7 +266,7 @@ func (s *Service) CreateFunnel(ctx context.Context, projectID, name string, step
 // ListFunnels returns all funnels for a project.
 func (s *Service) ListFunnels(ctx context.Context, projectID string) ([]*Funnel, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, steps, created_at, updated_at FROM analytics_funnels WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, project_id, name, steps, created_at, updated_at FROM analytics_funnels WHERE project_id = $1 ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, err
@@ -287,14 +287,14 @@ func (s *Service) ListFunnels(ctx context.Context, projectID string) ([]*Funnel,
 
 // DeleteFunnel deletes a funnel by ID.
 func (s *Service) DeleteFunnel(ctx context.Context, funnelID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM analytics_funnels WHERE id = ? AND project_id = ?", funnelID, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM analytics_funnels WHERE id = $1 AND project_id = $2", funnelID, projectID)
 	return err
 }
 
 // AnalyzeFunnel computes step-by-step conversion for a funnel over a time window.
 func (s *Service) AnalyzeFunnel(ctx context.Context, projectID, funnelID string, from, to time.Time) (*FunnelResult, error) {
 	// Load funnel definition
-	row := s.db.QueryRowContext(ctx, "SELECT id, steps FROM analytics_funnels WHERE id = ? AND project_id = ?", funnelID, projectID)
+	row := s.db.QueryRowContext(ctx, "SELECT id, steps FROM analytics_funnels WHERE id = $1 AND project_id = $2", funnelID, projectID)
 	f := &Funnel{}
 	var stepsRaw []byte
 	if err := row.Scan(&f.ID, &stepsRaw); err != nil {
@@ -308,7 +308,7 @@ func (s *Service) AnalyzeFunnel(ctx context.Context, projectID, funnelID string,
 		var cnt int64
 		s.db.QueryRowContext(ctx,
 			`SELECT COUNT(DISTINCT user_id) FROM analytics_events
-			 WHERE project_id = ? AND event = ? AND created_at BETWEEN ? AND ?`,
+			 WHERE project_id = $1 AND event = $2 AND created_at BETWEEN $3 AND $4`,
 			projectID, step, from, to,
 		).Scan(&cnt) //nolint:errcheck
 
@@ -326,26 +326,31 @@ func (s *Service) AnalyzeFunnel(ctx context.Context, projectID, funnelID string,
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-func eventsWhere(projectID, event, userID string, from, to time.Time) (string, []interface{}) {
-	where := "project_id = ?"
+func eventsWhere(projectID, event, userID string, from, to time.Time) (string, []interface{}, int) {
+	n := 1
+	where := "project_id = $1"
 	args := []interface{}{projectID}
 	if event != "" {
-		where += " AND event = ?"
+		n++
+		where += fmt.Sprintf(" AND event = $%d", n)
 		args = append(args, event)
 	}
 	if userID != "" {
-		where += " AND user_id = ?"
+		n++
+		where += fmt.Sprintf(" AND user_id = $%d", n)
 		args = append(args, userID)
 	}
 	if !from.IsZero() {
-		where += " AND created_at >= ?"
+		n++
+		where += fmt.Sprintf(" AND created_at >= $%d", n)
 		args = append(args, from)
 	}
 	if !to.IsZero() {
-		where += " AND created_at <= ?"
+		n++
+		where += fmt.Sprintf(" AND created_at <= $%d", n)
 		args = append(args, to)
 	}
-	return where, args
+	return where, args, n
 }
 
 func nullStr(s string) interface{} {

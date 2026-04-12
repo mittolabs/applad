@@ -419,3 +419,299 @@ func TestDatabaseFlow(t *testing.T) {
 		t.Fatalf("list after delete: expected 0, got %v", body["total"])
 	}
 }
+
+// ── Storage ───────────────────────────────────────────────────────────────────
+
+func TestStorageFlow(t *testing.T) {
+	status, body := request(t, "POST", "/projects", map[string]string{"name": "storage-test"}, nil)
+	if status != 201 {
+		t.Skipf("cannot create project: %d", status)
+	}
+	projectID := body["$id"].(string)
+	defer request(t, "DELETE", fmt.Sprintf("/projects/%s", projectID), nil, nil)
+
+	status, body = request(t, "POST", fmt.Sprintf("/projects/%s/keys", projectID),
+		map[string]interface{}{"name": "test", "scopes": []string{"*"}}, nil)
+	if status != 201 {
+		t.Skipf("cannot create key: %d", status)
+	}
+	apiKey := body["secret"].(string)
+	h := map[string]string{
+		"X-Applad-Project": projectID,
+		"X-Applad-Key":     apiKey,
+	}
+
+	// Create bucket
+	status, body = request(t, "POST", "/storage/buckets",
+		map[string]interface{}{"name": "my-bucket", "public": false}, h)
+	if status != 201 {
+		t.Fatalf("create bucket: expected 201, got %d: %v", status, body)
+	}
+	bucketID := body["$id"].(string)
+	t.Logf("created bucket: %s", bucketID)
+
+	// List buckets
+	status, body = request(t, "GET", "/storage/buckets", nil, h)
+	if status != 200 {
+		t.Fatalf("list buckets: expected 200, got %d", status)
+	}
+	if body["total"].(float64) < 1 {
+		t.Fatalf("list buckets: expected at least 1, got %v", body["total"])
+	}
+
+	// Get bucket
+	status, body = request(t, "GET", fmt.Sprintf("/storage/buckets/%s", bucketID), nil, h)
+	if status != 200 {
+		t.Fatalf("get bucket: expected 200, got %d", status)
+	}
+	if body["name"] != "my-bucket" {
+		t.Fatalf("get bucket: expected name 'my-bucket', got %v", body["name"])
+	}
+
+	// Update bucket
+	status, body = request(t, "PUT", fmt.Sprintf("/storage/buckets/%s", bucketID),
+		map[string]interface{}{"name": "renamed-bucket"}, h)
+	if status != 200 {
+		t.Fatalf("update bucket: expected 200, got %d: %v", status, body)
+	}
+	if body["name"] != "renamed-bucket" {
+		t.Fatalf("update bucket: expected 'renamed-bucket', got %v", body["name"])
+	}
+
+	// Delete bucket
+	status, _ = request(t, "DELETE", fmt.Sprintf("/storage/buckets/%s", bucketID), nil, h)
+	if status != 204 {
+		t.Fatalf("delete bucket: expected 204, got %d", status)
+	}
+}
+
+// ── Teams ─────────────────────────────────────────────────────────────────────
+
+func TestTeamsFlow(t *testing.T) {
+	status, body := request(t, "POST", "/projects", map[string]string{"name": "teams-test"}, nil)
+	if status != 201 {
+		t.Skipf("cannot create project: %d", status)
+	}
+	projectID := body["$id"].(string)
+	defer request(t, "DELETE", fmt.Sprintf("/projects/%s", projectID), nil, nil)
+
+	status, body = request(t, "POST", fmt.Sprintf("/projects/%s/keys", projectID),
+		map[string]interface{}{"name": "test", "scopes": []string{"*"}}, nil)
+	if status != 201 {
+		t.Skipf("cannot create key: %d", status)
+	}
+	apiKey := body["secret"].(string)
+	h := map[string]string{
+		"X-Applad-Project": projectID,
+		"X-Applad-Key":     apiKey,
+	}
+
+	// Create team
+	status, body = request(t, "POST", "/teams",
+		map[string]interface{}{"teamId": "unique()", "name": "Alpha Team"}, h)
+	if status != 201 {
+		t.Fatalf("create team: expected 201, got %d: %v", status, body)
+	}
+	teamID := body["$id"].(string)
+	defer request(t, "DELETE", fmt.Sprintf("/teams/%s", teamID), nil, h)
+	t.Logf("created team: %s", teamID)
+
+	// Get team
+	status, body = request(t, "GET", fmt.Sprintf("/teams/%s", teamID), nil, h)
+	if status != 200 {
+		t.Fatalf("get team: expected 200, got %d", status)
+	}
+	if body["name"] != "Alpha Team" {
+		t.Fatalf("get team: expected 'Alpha Team', got %v", body["name"])
+	}
+
+	// List teams
+	status, body = request(t, "GET", "/teams", nil, h)
+	if status != 200 {
+		t.Fatalf("list teams: expected 200, got %d", status)
+	}
+	if body["total"].(float64) < 1 {
+		t.Fatalf("list teams: expected at least 1, got %v", body["total"])
+	}
+
+	// Update team name
+	status, body = request(t, "PUT", fmt.Sprintf("/teams/%s", teamID),
+		map[string]interface{}{"name": "Beta Team"}, h)
+	if status != 200 {
+		t.Fatalf("update team: expected 200, got %d: %v", status, body)
+	}
+	if body["name"] != "Beta Team" {
+		t.Fatalf("update team: expected 'Beta Team', got %v", body["name"])
+	}
+}
+
+// ── Webhooks ──────────────────────────────────────────────────────────────────
+
+func TestWebhooksFlow(t *testing.T) {
+	status, body := request(t, "POST", "/projects", map[string]string{"name": "webhooks-test"}, nil)
+	if status != 201 {
+		t.Skipf("cannot create project: %d", status)
+	}
+	projectID := body["$id"].(string)
+	defer request(t, "DELETE", fmt.Sprintf("/projects/%s", projectID), nil, nil)
+
+	// Webhooks use the console session — reuse console project-level endpoints (no API key needed for management)
+	// Actually webhooks are project-scoped with API key auth — no API key needed for management endpoints
+	// Let's check: from router, webhooks are under /webhooks with project+auth middleware
+
+	status, body = request(t, "POST", fmt.Sprintf("/projects/%s/keys", projectID),
+		map[string]interface{}{"name": "test", "scopes": []string{"*"}}, nil)
+	if status != 201 {
+		t.Skipf("cannot create key: %d", status)
+	}
+	apiKey := body["secret"].(string)
+	h := map[string]string{
+		"X-Applad-Project": projectID,
+		"X-Applad-Key":     apiKey,
+	}
+
+	// Create webhook
+	status, body = request(t, "POST", "/webhooks",
+		map[string]interface{}{
+			"name":    "test-hook",
+			"url":     "https://example.com/hook",
+			"events":  []string{"databases.rows.create"},
+			"enabled": true,
+		}, h)
+	if status != 201 {
+		t.Fatalf("create webhook: expected 201, got %d: %v", status, body)
+	}
+	hookID := body["$id"].(string)
+	defer request(t, "DELETE", fmt.Sprintf("/webhooks/%s", hookID), nil, h)
+	t.Logf("created webhook: %s", hookID)
+
+	// List webhooks
+	status, body = request(t, "GET", "/webhooks", nil, h)
+	if status != 200 {
+		t.Fatalf("list webhooks: expected 200, got %d", status)
+	}
+	if body["total"].(float64) < 1 {
+		t.Fatalf("list webhooks: expected at least 1, got %v", body["total"])
+	}
+
+	// Get webhook
+	status, body = request(t, "GET", fmt.Sprintf("/webhooks/%s", hookID), nil, h)
+	if status != 200 {
+		t.Fatalf("get webhook: expected 200, got %d", status)
+	}
+	if body["name"] != "test-hook" {
+		t.Fatalf("get webhook: expected 'test-hook', got %v", body["name"])
+	}
+
+	// Update webhook
+	status, body = request(t, "PUT", fmt.Sprintf("/webhooks/%s", hookID),
+		map[string]interface{}{"name": "updated-hook", "url": "https://example.com/hook", "events": []string{"databases.rows.create"}, "enabled": true}, h)
+	if status != 200 {
+		t.Fatalf("update webhook: expected 200, got %d: %v", status, body)
+	}
+	if body["name"] != "updated-hook" {
+		t.Fatalf("update webhook: expected 'updated-hook', got %v", body["name"])
+	}
+}
+
+// ── Workflows ─────────────────────────────────────────────────────────────────
+
+func TestWorkflowsFlow(t *testing.T) {
+	status, body := request(t, "POST", "/projects", map[string]string{"name": "workflows-test"}, nil)
+	if status != 201 {
+		t.Skipf("cannot create project: %d", status)
+	}
+	projectID := body["$id"].(string)
+	defer request(t, "DELETE", fmt.Sprintf("/projects/%s", projectID), nil, nil)
+
+	status, body = request(t, "POST", fmt.Sprintf("/projects/%s/keys", projectID),
+		map[string]interface{}{"name": "test", "scopes": []string{"*"}}, nil)
+	if status != 201 {
+		t.Skipf("cannot create key: %d", status)
+	}
+	apiKey := body["secret"].(string)
+	h := map[string]string{
+		"X-Applad-Project": projectID,
+		"X-Applad-Key":     apiKey,
+	}
+
+	// Create workflow
+	status, body = request(t, "POST", "/workflows",
+		map[string]interface{}{
+			"name": "test-workflow",
+			"nodes": []map[string]interface{}{
+				{
+					"id":   "start",
+					"type": "http",
+					"config": map[string]interface{}{
+						"method": "GET",
+						"url":    "https://httpbin.org/get",
+					},
+				},
+			},
+			"edges":   []interface{}{},
+			"trigger": "manual",
+		}, h)
+	if status != 201 {
+		t.Fatalf("create workflow: expected 201, got %d: %v", status, body)
+	}
+	wfID := body["$id"].(string)
+	defer request(t, "DELETE", fmt.Sprintf("/workflows/%s", wfID), nil, h)
+	t.Logf("created workflow: %s", wfID)
+
+	// List workflows
+	status, body = request(t, "GET", "/workflows", nil, h)
+	if status != 200 {
+		t.Fatalf("list workflows: expected 200, got %d", status)
+	}
+	if body["total"].(float64) < 1 {
+		t.Fatalf("list workflows: expected at least 1, got %v", body["total"])
+	}
+
+	// Get workflow
+	status, body = request(t, "GET", fmt.Sprintf("/workflows/%s", wfID), nil, h)
+	if status != 200 {
+		t.Fatalf("get workflow: expected 200, got %d", status)
+	}
+	if body["name"] != "test-workflow" {
+		t.Fatalf("get workflow: expected 'test-workflow', got %v", body["name"])
+	}
+}
+
+// ── Scope enforcement ─────────────────────────────────────────────────────────
+
+func TestScopeEnforcement(t *testing.T) {
+	status, body := request(t, "POST", "/projects", map[string]string{"name": "scope-test"}, nil)
+	if status != 201 {
+		t.Skipf("cannot create project: %d", status)
+	}
+	projectID := body["$id"].(string)
+	defer request(t, "DELETE", fmt.Sprintf("/projects/%s", projectID), nil, nil)
+
+	// Create a key restricted to databases only
+	status, body = request(t, "POST", fmt.Sprintf("/projects/%s/keys", projectID),
+		map[string]interface{}{"name": "db-only", "scopes": []string{"databases.read", "databases.write"}}, nil)
+	if status != 201 {
+		t.Fatalf("create scoped key: %d %v", status, body)
+	}
+	dbKey := body["secret"].(string)
+	dbH := map[string]string{
+		"X-Applad-Project": projectID,
+		"X-Applad-Key":     dbKey,
+	}
+
+	// Databases endpoint should be accessible
+	status, _ = request(t, "GET", "/databases", nil, dbH)
+	if status == 401 {
+		t.Fatalf("db-scoped key: expected access to /databases, got 401")
+	}
+
+	// Storage endpoint should be rejected (403 scope error, not 401 auth error)
+	status, _ = request(t, "GET", "/storage/buckets", nil, dbH)
+	if status == 200 {
+		t.Fatalf("db-scoped key: should NOT have access to /storage, got 200")
+	}
+	if status == 401 {
+		t.Fatalf("db-scoped key: should get scope error (403), not auth error (401)")
+	}
+}

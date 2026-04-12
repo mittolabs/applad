@@ -71,7 +71,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, url string, event
 
 	eventsJSON, _ := json.Marshal(events)
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO webhooks (id, project_id, name, url, events, secret, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO webhooks (id, project_id, name, url, events, secret, enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		id, projectID, name, url, eventsJSON, secret, enabled, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("webhooks: create: %w", err)
@@ -86,7 +86,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, url string, event
 // List returns all webhooks for a project.
 func (s *Service) List(ctx context.Context, projectID string) ([]*Webhook, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, url, events, secret, enabled, created_at, updated_at FROM webhooks WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, project_id, name, url, events, secret, enabled, created_at, updated_at FROM webhooks WHERE project_id = $1 ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, 0, err
@@ -110,7 +110,7 @@ func (s *Service) List(ctx context.Context, projectID string) ([]*Webhook, int, 
 // Get returns a webhook by ID.
 func (s *Service) Get(ctx context.Context, id, projectID string) (*Webhook, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, project_id, name, url, events, secret, enabled, created_at, updated_at FROM webhooks WHERE id = ? AND project_id = ?",
+		"SELECT id, project_id, name, url, events, secret, enabled, created_at, updated_at FROM webhooks WHERE id = $1 AND project_id = $2",
 		id, projectID)
 	var w Webhook
 	var eventsJSON []byte
@@ -133,7 +133,7 @@ func (s *Service) Update(ctx context.Context, id, projectID, name, url string, e
 	eventsJSON, _ := json.Marshal(events)
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE webhooks SET name = ?, url = ?, events = ?, secret = ?, enabled = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+		"UPDATE webhooks SET name = $1, url = $2, events = $3, secret = $4, enabled = $5, updated_at = $6 WHERE id = $7 AND project_id = $8",
 		name, url, eventsJSON, secret, enabled, now, id, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("webhooks: update: %w", err)
@@ -143,14 +143,14 @@ func (s *Service) Update(ctx context.Context, id, projectID, name, url string, e
 
 // Delete removes a webhook.
 func (s *Service) Delete(ctx context.Context, id, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM webhooks WHERE id = ? AND project_id = ?", id, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM webhooks WHERE id = $1 AND project_id = $2", id, projectID)
 	return err
 }
 
 // ListDeliveries returns delivery history for a webhook.
 func (s *Service) ListDeliveries(ctx context.Context, webhookID string) ([]*WebhookDelivery, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, webhook_id, event, payload, status_code, response, attempts, success, created_at FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC",
+		"SELECT id, webhook_id, event, payload, status_code, response, attempts, success, created_at FROM webhook_deliveries WHERE webhook_id = $1 ORDER BY created_at DESC",
 		webhookID)
 	if err != nil {
 		return nil, 0, err
@@ -174,7 +174,7 @@ func (s *Service) ListDeliveries(ctx context.Context, webhookID string) ([]*Webh
 // Deliver sends an event to all matching webhooks for a project.
 func (s *Service) Deliver(ctx context.Context, projectID, event string, payload map[string]interface{}) error {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, url, events, secret, enabled, created_at, updated_at FROM webhooks WHERE project_id = ? AND enabled = true",
+		"SELECT id, project_id, name, url, events, secret, enabled, created_at, updated_at FROM webhooks WHERE project_id = $1 AND enabled = true",
 		projectID)
 	if err != nil {
 		return err
@@ -203,7 +203,7 @@ func (s *Service) Deliver(ctx context.Context, projectID, event string, payload 
 func (s *Service) RetryDelivery(ctx context.Context, deliveryID string) (*WebhookDelivery, error) {
 	var d WebhookDelivery
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, webhook_id, event, payload, status_code, response, attempts, success, created_at FROM webhook_deliveries WHERE id = ?",
+		"SELECT id, webhook_id, event, payload, status_code, response, attempts, success, created_at FROM webhook_deliveries WHERE id = $1",
 		deliveryID).Scan(&d.ID, &d.WebhookID, &d.Event, &d.Payload, &d.StatusCode, &d.Response, &d.Attempts, &d.Success, &d.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("delivery not found")
@@ -222,7 +222,7 @@ func (s *Service) RetryDelivery(ctx context.Context, deliveryID string) (*Webhoo
 	var w Webhook
 	var eventsJSON []byte
 	err = s.db.QueryRowContext(ctx,
-		"SELECT id, project_id, name, url, events, secret, enabled, created_at, updated_at FROM webhooks WHERE id = ?",
+		"SELECT id, project_id, name, url, events, secret, enabled, created_at, updated_at FROM webhooks WHERE id = $1",
 		d.WebhookID).Scan(&w.ID, &w.ProjectID, &w.Name, &w.URL, &eventsJSON, &w.Secret, &w.Enabled, &w.CreatedAt, &w.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("webhook not found for delivery")
@@ -241,7 +241,7 @@ func (s *Service) RetryDelivery(ctx context.Context, deliveryID string) (*Webhoo
 	d.Success = success
 
 	s.db.ExecContext(ctx,
-		"UPDATE webhook_deliveries SET status_code = ?, response = ?, attempts = ?, success = ? WHERE id = ?",
+		"UPDATE webhook_deliveries SET status_code = $1, response = $2, attempts = $3, success = $4 WHERE id = $5",
 		statusCode, respBody, d.Attempts, success, d.ID) //nolint:errcheck
 
 	return &d, nil
@@ -256,7 +256,7 @@ func (s *Service) deliverOne(ctx context.Context, w *Webhook, event string, payl
 	id := uid.New("unique()")
 	now := time.Now().UTC()
 	s.db.ExecContext(ctx,
-		"INSERT INTO webhook_deliveries (id, webhook_id, event, payload, status_code, response, attempts, success, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO webhook_deliveries (id, webhook_id, event, payload, status_code, response, attempts, success, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		id, w.ID, event, string(payloadJSON), statusCode, respBody, 1, success, now) //nolint:errcheck
 }
 

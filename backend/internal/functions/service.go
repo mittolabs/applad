@@ -67,7 +67,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, runtime, entrypoi
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO functions (id, project_id, name, runtime, entrypoint, timeout, env_vars, source_type, source, repository, branch, cron, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'building', ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'building', $13, $14)`,
 		id, projectID, name, runtime, entrypoint, timeout, envJSON, sourceType, source, repository, branch, cron, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("functions: create: %w", err)
@@ -107,7 +107,7 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Function, err
 	var f Function
 	var envJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, project_id, name, runtime, entrypoint, timeout, env_vars, COALESCE(source_type,'inline'), COALESCE(source,''), COALESCE(repository,''), COALESCE(branch,''), COALESCE(cron,''), status, created_at, updated_at FROM functions WHERE id = ? AND project_id = ?",
+		"SELECT id, project_id, name, runtime, entrypoint, timeout, env_vars, COALESCE(source_type,'inline'), COALESCE(source,''), COALESCE(repository,''), COALESCE(branch,''), COALESCE(cron,''), status, created_at, updated_at FROM functions WHERE id = $1 AND project_id = $2",
 		id, projectID).Scan(&f.ID, &f.ProjectID, &f.Name, &f.Runtime, &f.Entrypoint, &f.Timeout, &envJSON, &f.SourceType, &f.Source, &f.Repository, &f.Branch, &f.Cron, &f.Status, &f.CreatedAt, &f.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("function not found")
@@ -125,7 +125,7 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Function, err
 // List returns all functions for a project.
 func (s *Service) List(ctx context.Context, projectID string) ([]*Function, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, runtime, entrypoint, timeout, env_vars, COALESCE(source_type,'inline'), COALESCE(source,''), COALESCE(repository,''), COALESCE(branch,''), COALESCE(cron,''), status, created_at, updated_at FROM functions WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, project_id, name, runtime, entrypoint, timeout, env_vars, COALESCE(source_type,'inline'), COALESCE(source,''), COALESCE(repository,''), COALESCE(branch,''), COALESCE(cron,''), status, created_at, updated_at FROM functions WHERE project_id = $1 ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, 0, err
@@ -156,8 +156,8 @@ func (s *Service) Update(ctx context.Context, id, projectID string, name, runtim
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE functions SET name = ?, runtime = ?, entrypoint = ?, timeout = ?, env_vars = ?, source_type = ?, source = ?, repository = ?, branch = ?, cron = ?, status = 'building', updated_at = ?
-		 WHERE id = ? AND project_id = ?`,
+		`UPDATE functions SET name = $1, runtime = $2, entrypoint = $3, timeout = $4, env_vars = $5, source_type = $6, source = $7, repository = $8, branch = $9, cron = $10, status = 'building', updated_at = $11
+		 WHERE id = $12 AND project_id = $13`,
 		name, runtime, entrypoint, timeout, envJSON, sourceType, source, repository, branch, cron, now, id, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("functions: update: %w", err)
@@ -188,11 +188,11 @@ func (s *Service) Update(ctx context.Context, id, projectID string, name, runtim
 
 // Delete removes a function and its executions.
 func (s *Service) Delete(ctx context.Context, id, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM function_executions WHERE function_id = ? AND project_id = ?", id, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM function_executions WHERE function_id = $1 AND project_id = $2", id, projectID)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, "DELETE FROM functions WHERE id = ? AND project_id = ?", id, projectID)
+	_, err = s.db.ExecContext(ctx, "DELETE FROM functions WHERE id = $1 AND project_id = $2", id, projectID)
 	return err
 }
 
@@ -209,7 +209,7 @@ func (s *Service) Execute(ctx context.Context, functionID, projectID string) (*F
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO function_executions (id, function_id, project_id, status, output, errors, duration, created_at)
-		 VALUES (?, ?, ?, 'pending', '', '', 0, ?)`,
+		 VALUES ($1, $2, $3, 'pending', '', '', 0, $4)`,
 		execID, functionID, projectID, now)
 	if err != nil {
 		return nil, fmt.Errorf("functions: execute: %w", err)
@@ -248,7 +248,7 @@ func (s *Service) Execute(ctx context.Context, functionID, projectID string) (*F
 func (s *Service) GetExecution(ctx context.Context, executionID, functionID, projectID string) (*FunctionExecution, error) {
 	var e FunctionExecution
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, function_id, project_id, status, output, errors, duration, created_at FROM function_executions WHERE id = ? AND function_id = ? AND project_id = ?",
+		"SELECT id, function_id, project_id, status, output, errors, duration, created_at FROM function_executions WHERE id = $1 AND function_id = $2 AND project_id = $3",
 		executionID, functionID, projectID).Scan(&e.ID, &e.FunctionID, &e.ProjectID, &e.Status, &e.Output, &e.Errors, &e.Duration, &e.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("execution not found")
@@ -262,7 +262,7 @@ func (s *Service) GetExecution(ctx context.Context, executionID, functionID, pro
 // ListExecutions returns all executions for a function.
 func (s *Service) ListExecutions(ctx context.Context, functionID, projectID string) ([]*FunctionExecution, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, function_id, project_id, status, output, errors, duration, created_at FROM function_executions WHERE function_id = ? AND project_id = ? ORDER BY created_at DESC",
+		"SELECT id, function_id, project_id, status, output, errors, duration, created_at FROM function_executions WHERE function_id = $1 AND project_id = $2 ORDER BY created_at DESC",
 		functionID, projectID)
 	if err != nil {
 		return nil, 0, err

@@ -4,6 +4,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/mittolabs/applad/internal/db"
@@ -53,7 +54,7 @@ func (s *Service) Record(ctx context.Context, entry Log) {
 	s.db.ExecContext(ctx, //nolint:errcheck
 		`INSERT INTO audit_logs
 		 (id, project_id, user_id, action, resource_type, resource_id, method, path, status_code, ip_address, user_agent, metadata, created_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		entry.ID, entry.ProjectID, nullStr(entry.UserID), entry.Action,
 		entry.ResourceType, nullStr(entry.ResourceID), entry.Method, entry.Path,
 		entry.StatusCode, nullStr(entry.IPAddress), nullStr(entry.UserAgent),
@@ -66,7 +67,7 @@ func (s *Service) Get(ctx context.Context, logID, projectID string) (*Log, error
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, COALESCE(user_id,''), action, resource_type, COALESCE(resource_id,''),
 		        method, path, status_code, COALESCE(ip_address,''), COALESCE(user_agent,''), metadata, created_at
-		 FROM audit_logs WHERE id = ? AND project_id = ?`, logID, projectID)
+		 FROM audit_logs WHERE id = $1 AND project_id = $2`, logID, projectID)
 	l := &Log{}
 	var metaRaw []byte
 	if err := row.Scan(&l.ID, &l.ProjectID, &l.UserID, &l.Action, &l.ResourceType,
@@ -86,21 +87,26 @@ func (s *Service) List(ctx context.Context, projectID, action, resourceType, use
 		limit = 50
 	}
 	args := []interface{}{projectID}
-	where := "WHERE project_id = ?"
+	n := 1
+	where := "WHERE project_id = $1"
 	if action != "" {
-		where += " AND action = ?"
+		n++
+		where += fmt.Sprintf(" AND action = $%d", n)
 		args = append(args, action)
 	}
 	if resourceType != "" {
-		where += " AND resource_type = ?"
+		n++
+		where += fmt.Sprintf(" AND resource_type = $%d", n)
 		args = append(args, resourceType)
 	}
 	if userID != "" {
-		where += " AND user_id = ?"
+		n++
+		where += fmt.Sprintf(" AND user_id = $%d", n)
 		args = append(args, userID)
 	}
 	if method != "" {
-		where += " AND method = ?"
+		n++
+		where += fmt.Sprintf(" AND method = $%d", n)
 		args = append(args, method)
 	}
 
@@ -112,7 +118,7 @@ func (s *Service) List(ctx context.Context, projectID, action, resourceType, use
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT id, project_id, COALESCE(user_id,''), action, resource_type, COALESCE(resource_id,''), method, path, status_code, COALESCE(ip_address,''), COALESCE(user_agent,''), metadata, created_at "+
-			"FROM audit_logs "+where+" ORDER BY created_at DESC LIMIT ? OFFSET ?", args...)
+			fmt.Sprintf("FROM audit_logs %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d", where, n+1, n+2), args...)
 	if err != nil {
 		return nil, 0, err
 	}

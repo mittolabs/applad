@@ -65,7 +65,7 @@ func (s *Service) loadSecurity(ctx context.Context, projectID string) authSecuri
 	}
 	var raw sql.NullString
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT auth_config FROM projects WHERE id = ?", projectID).Scan(&raw); err != nil {
+		"SELECT auth_config FROM projects WHERE id = $1", projectID).Scan(&raw); err != nil {
 		return sec
 	}
 	if !raw.Valid || raw.String == "" || raw.String == "null" {
@@ -94,7 +94,7 @@ func (s *Service) CreateAccount(ctx context.Context, projectID, userID, email, p
 	if sec.UsersLimit > 0 {
 		var count int
 		if err := s.db.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&count); err == nil {
+			"SELECT COUNT(*) FROM users WHERE project_id = $1", projectID).Scan(&count); err == nil {
 			if count >= sec.UsersLimit {
 				return nil, fmt.Errorf("users_limit_reached: project has reached its user limit of %d", sec.UsersLimit)
 			}
@@ -112,7 +112,7 @@ func (s *Service) CreateAccount(ctx context.Context, projectID, userID, email, p
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO users (id, project_id, email, name, password_hash, labels, prefs, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		id, projectID, email, name, string(hash), labelsJSON, prefsJSON, now, now)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") || strings.Contains(err.Error(), "duplicate") {
@@ -128,7 +128,7 @@ func (s *Service) CreateAccount(ctx context.Context, projectID, userID, email, p
 func (s *Service) GetAccount(ctx context.Context, userID, projectID string) (*model.User, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, email, phone, name, email_verified, phone_verified, status, labels, prefs, created_at, updated_at
-		 FROM users WHERE id = ? AND project_id = ?`, userID, projectID)
+		 FROM users WHERE id = $1 AND project_id = $2`, userID, projectID)
 	return scanUser(row)
 }
 
@@ -140,7 +140,7 @@ func (s *Service) GetUser(ctx context.Context, userID, projectID string) (*model
 // UpdateName updates a user's display name.
 func (s *Service) UpdateName(ctx context.Context, userID, projectID, name string) (*model.User, error) {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE users SET name = ? WHERE id = ? AND project_id = ?", name, userID, projectID)
+		"UPDATE users SET name = $1 WHERE id = $2 AND project_id = $3", name, userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: update name: %w", err)
 	}
@@ -151,7 +151,7 @@ func (s *Service) UpdateName(ctx context.Context, userID, projectID, name string
 func (s *Service) UpdateEmail(ctx context.Context, userID, projectID, email, password string) (*model.User, error) {
 	var hash string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT password_hash FROM users WHERE id = ? AND project_id = ?", userID, projectID).Scan(&hash)
+		"SELECT password_hash FROM users WHERE id = $1 AND project_id = $2", userID, projectID).Scan(&hash)
 	if err != nil {
 		return nil, fmt.Errorf("auth: user not found")
 	}
@@ -159,7 +159,7 @@ func (s *Service) UpdateEmail(ctx context.Context, userID, projectID, email, pas
 		return nil, fmt.Errorf("auth: invalid password")
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET email = ? WHERE id = ? AND project_id = ?", email, userID, projectID)
+		"UPDATE users SET email = $1 WHERE id = $2 AND project_id = $3", email, userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: update email: %w", err)
 	}
@@ -176,7 +176,7 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, passwor
 
 	var hash string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT password_hash FROM users WHERE id = ? AND project_id = ?", userID, projectID).Scan(&hash)
+		"SELECT password_hash FROM users WHERE id = $1 AND project_id = $2", userID, projectID).Scan(&hash)
 	if err != nil {
 		return nil, fmt.Errorf("auth: user not found")
 	}
@@ -190,14 +190,14 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, passwor
 		return nil, err
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET password_hash = ? WHERE id = ? AND project_id = ?", string(newHash), userID, projectID)
+		"UPDATE users SET password_hash = $1 WHERE id = $2 AND project_id = $3", string(newHash), userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: update password: %w", err)
 	}
 	// Invalidate all sessions when password changes if configured.
 	if sec.InvalidateOnPasswordChange {
 		s.db.ExecContext(ctx,
-			"DELETE FROM sessions WHERE user_id = ? AND project_id = ?", userID, projectID)
+			"DELETE FROM sessions WHERE user_id = $1 AND project_id = $2", userID, projectID)
 	}
 	s.logUserEvent(ctx, projectID, userID, "user.password_change", "", "")
 	return s.GetAccount(ctx, userID, projectID)
@@ -210,7 +210,7 @@ func (s *Service) UpdatePrefs(ctx context.Context, userID, projectID string, pre
 		return nil, err
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET prefs = ? WHERE id = ? AND project_id = ?", prefsJSON, userID, projectID)
+		"UPDATE users SET prefs = $1 WHERE id = $2 AND project_id = $3", prefsJSON, userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: update prefs: %w", err)
 	}
@@ -221,7 +221,7 @@ func (s *Service) UpdatePrefs(ctx context.Context, userID, projectID string, pre
 func (s *Service) DeleteAccount(ctx context.Context, userID, projectID string) error {
 	s.logUserEvent(ctx, projectID, userID, "user.delete", "", "")
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM users WHERE id = ? AND project_id = ?", userID, projectID)
+		"DELETE FROM users WHERE id = $1 AND project_id = $2", userID, projectID)
 	return err
 }
 
@@ -229,7 +229,7 @@ func (s *Service) DeleteAccount(ctx context.Context, userID, projectID string) e
 func (s *Service) CreateEmailSession(ctx context.Context, projectID, email, password, ip, ua string) (*model.Session, string, error) {
 	var userID, hash string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, password_hash FROM users WHERE email = ? AND project_id = ? AND status = 1",
+		"SELECT id, password_hash FROM users WHERE email = $1 AND project_id = $2 AND status = 1",
 		email, projectID).Scan(&userID, &hash)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: invalid credentials")
@@ -251,7 +251,7 @@ func (s *Service) CreateAnonymousSession(ctx context.Context, projectID, ip, ua 
 	prefsJSON, _ := json.Marshal(map[string]interface{}{})
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO users (id, project_id, email, name, labels, prefs, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8)`,
 		userID, projectID, anonEmail, "Anonymous User", labelsJSON, prefsJSON, now, now)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: create anon user: %w", err)
@@ -272,7 +272,7 @@ func (s *Service) SendPhoneOTP(ctx context.Context, projectID, phone string) (st
 	expires := time.Now().UTC().Add(10 * time.Minute)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO auth_tokens (id, user_id, project_id, type, token, expires_at, created_at)
-		 VALUES (?, ?, ?, 'phone_otp', ?, ?, ?)`,
+		 VALUES ($1, $2, $3, 'phone_otp', $4, $5, $6)`,
 		tokenID, phone, projectID, code, expires, time.Now().UTC())
 	if err != nil {
 		return "", fmt.Errorf("auth: store phone OTP: %w", err)
@@ -284,18 +284,18 @@ func (s *Service) SendPhoneOTP(ctx context.Context, projectID, phone string) (st
 func (s *Service) VerifyPhoneOTP(ctx context.Context, projectID, phone, code, ip, ua string) (*model.Session, string, error) {
 	var tokenID string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM auth_tokens WHERE user_id=? AND project_id=? AND type='phone_otp' AND token=? AND expires_at > ?`,
+		`SELECT id FROM auth_tokens WHERE user_id=$1 AND project_id=$2 AND type='phone_otp' AND token=$3 AND expires_at > $4`,
 		phone, projectID, code, time.Now().UTC()).Scan(&tokenID)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: invalid or expired OTP")
 	}
 	// Delete used token
-	s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id=?", tokenID)
+	s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id=$1", tokenID)
 
 	// Find or create user by phone
 	var userID string
 	err = s.db.QueryRowContext(ctx,
-		"SELECT id FROM users WHERE phone=? AND project_id=?", phone, projectID).Scan(&userID)
+		"SELECT id FROM users WHERE phone=$1 AND project_id=$2", phone, projectID).Scan(&userID)
 	if err != nil {
 		// Create new user
 		userID = uid.New("unique()")
@@ -303,7 +303,7 @@ func (s *Service) VerifyPhoneOTP(ctx context.Context, projectID, phone, code, ip
 		prefsJSON, _ := json.Marshal(map[string]interface{}{})
 		_, err = s.db.ExecContext(ctx,
 			`INSERT INTO users (id, project_id, phone, name, prefs, status, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+			 VALUES ($1, $2, $3, $4, $5, 1, $6, $7)`,
 			userID, projectID, phone, "Phone User", prefsJSON, now, now)
 		if err != nil {
 			return nil, "", fmt.Errorf("auth: create phone user: %w", err)
@@ -316,7 +316,7 @@ func (s *Service) VerifyPhoneOTP(ctx context.Context, projectID, phone, code, ip
 func (s *Service) logUserEvent(ctx context.Context, projectID, userID, event, ip, ua string) {
 	s.db.ExecContext(ctx,
 		`INSERT INTO user_logs (id, project_id, user_id, event, ip, user_agent, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		uid.New("unique()"), projectID, userID, event, ip, ua, time.Now().UTC())
 }
 
@@ -327,12 +327,12 @@ func (s *Service) createSession(ctx context.Context, userID, projectID, provider
 	if sec.SessionsPerUser > 0 {
 		var count int
 		if err := s.db.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM sessions WHERE user_id = ? AND project_id = ? AND expires_at > NOW()",
+			"SELECT COUNT(*) FROM sessions WHERE user_id = $1 AND project_id = $2 AND expires_at > NOW()",
 			userID, projectID).Scan(&count); err == nil && count >= sec.SessionsPerUser {
 			// Evict the oldest session to stay within the limit.
 			s.db.ExecContext(ctx,
 				`DELETE FROM sessions WHERE id = (
-				   SELECT id FROM sessions WHERE user_id = ? AND project_id = ?
+				   SELECT id FROM sessions WHERE user_id = $1 AND project_id = $2
 				   ORDER BY created_at ASC LIMIT 1
 				 )`, userID, projectID)
 		}
@@ -347,7 +347,7 @@ func (s *Service) createSession(ctx context.Context, userID, projectID, provider
 	now := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO sessions (id, user_id, project_id, ip, user_agent, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO sessions (id, user_id, project_id, ip, user_agent, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
 		sessionID, userID, projectID, ip, ua, expires, now)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: create session: %w", err)
@@ -377,7 +377,7 @@ func (s *Service) createSession(ctx context.Context, userID, projectID, provider
 // GetSession returns a single session.
 func (s *Service) GetSession(ctx context.Context, sessionID, userID, projectID string) (*model.Session, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, user_id, ip, user_agent, expires_at, created_at FROM sessions WHERE id = ? AND user_id = ? AND project_id = ?",
+		"SELECT id, user_id, ip, user_agent, expires_at, created_at FROM sessions WHERE id = $1 AND user_id = $2 AND project_id = $3",
 		sessionID, userID, projectID)
 	return scanSession(row)
 }
@@ -385,7 +385,7 @@ func (s *Service) GetSession(ctx context.Context, sessionID, userID, projectID s
 // ListSessions returns all sessions for a user.
 func (s *Service) ListSessions(ctx context.Context, userID, projectID string) ([]*model.Session, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, user_id, ip, user_agent, expires_at, created_at FROM sessions WHERE user_id = ? AND project_id = ? ORDER BY created_at DESC",
+		"SELECT id, user_id, ip, user_agent, expires_at, created_at FROM sessions WHERE user_id = $1 AND project_id = $2 ORDER BY created_at DESC",
 		userID, projectID)
 	if err != nil {
 		return nil, err
@@ -397,14 +397,14 @@ func (s *Service) ListSessions(ctx context.Context, userID, projectID string) ([
 // DeleteSession deletes a single session.
 func (s *Service) DeleteSession(ctx context.Context, sessionID, userID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM sessions WHERE id = ? AND user_id = ? AND project_id = ?", sessionID, userID, projectID)
+		"DELETE FROM sessions WHERE id = $1 AND user_id = $2 AND project_id = $3", sessionID, userID, projectID)
 	return err
 }
 
 // DeleteSessions deletes all sessions for a user.
 func (s *Service) DeleteSessions(ctx context.Context, userID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM sessions WHERE user_id = ? AND project_id = ?", userID, projectID)
+		"DELETE FROM sessions WHERE user_id = $1 AND project_id = $2", userID, projectID)
 	return err
 }
 
@@ -432,7 +432,7 @@ func (s *Service) CreateUser(ctx context.Context, projectID, userID, email, phon
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO users (id, project_id, email, phone, name, password_hash, labels, prefs, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		id, projectID,
 		nullString(email), nullString(phone), nullString(name),
 		hashStr, labelsJSON, prefsJSON, now, now)
@@ -450,18 +450,20 @@ func (s *Service) ListUsers(ctx context.Context, projectID string, limit, offset
 	if limit <= 0 {
 		limit = 25
 	}
+	n := 1
 	var args []interface{}
 	query := `SELECT id, project_id, email, phone, name, email_verified, phone_verified, status, labels, prefs, created_at, updated_at
-	          FROM users WHERE project_id = ?`
+	          FROM users WHERE project_id = $1`
 	args = append(args, projectID)
 
 	if search != "" {
-		query += " AND (name LIKE ? OR email LIKE ?)"
 		pattern := "%" + search + "%"
 		args = append(args, pattern, pattern)
+		query += fmt.Sprintf(" AND (name LIKE $%d OR email LIKE $%d)", n+1, n+2)
+		n += 2
 	}
-	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n+1, n+2)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -479,12 +481,12 @@ func (s *Service) ListUsers(ctx context.Context, projectID string, limit, offset
 	}
 
 	var total int
-	countQ := "SELECT COUNT(*) FROM users WHERE project_id = ?"
+	countQ := "SELECT COUNT(*) FROM users WHERE project_id = $1"
 	countArgs := []interface{}{projectID}
 	if search != "" {
-		countQ += " AND (name LIKE ? OR email LIKE ?)"
 		pattern := "%" + search + "%"
 		countArgs = append(countArgs, pattern, pattern)
+		countQ += fmt.Sprintf(" AND (name LIKE $%d OR email LIKE $%d)", len(countArgs)-1, len(countArgs))
 	}
 	s.db.QueryRowContext(ctx, countQ, countArgs...).Scan(&total) //nolint:errcheck
 	return users, total, nil
@@ -497,7 +499,7 @@ func (s *Service) UpdateUserStatus(ctx context.Context, userID, projectID string
 		statusInt = 1
 	}
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE users SET status = ? WHERE id = ? AND project_id = ?", statusInt, userID, projectID)
+		"UPDATE users SET status = $1 WHERE id = $2 AND project_id = $3", statusInt, userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +509,7 @@ func (s *Service) UpdateUserStatus(ctx context.Context, userID, projectID string
 // DeleteUser deletes a user.
 func (s *Service) DeleteUser(ctx context.Context, userID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM users WHERE id = ? AND project_id = ?", userID, projectID)
+		"DELETE FROM users WHERE id = $1 AND project_id = $2", userID, projectID)
 	return err
 }
 
@@ -557,7 +559,7 @@ func (s *Service) EnableMFA(ctx context.Context, userID, projectID string) (stri
 	recoveryJSON, _ := json.Marshal(recovery)
 
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE users SET mfa_secret = ?, mfa_recovery = ? WHERE id = ? AND project_id = ?",
+		"UPDATE users SET mfa_secret = $1, mfa_recovery = $2 WHERE id = $3 AND project_id = $4",
 		secretB32, recoveryJSON, userID, projectID)
 	if err != nil {
 		return "", nil, err
@@ -570,7 +572,7 @@ func (s *Service) EnableMFA(ctx context.Context, userID, projectID string) (stri
 func (s *Service) VerifyMFA(ctx context.Context, userID, projectID, code string) error {
 	var secretB32 string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT mfa_secret FROM users WHERE id = ? AND project_id = ?",
+		"SELECT mfa_secret FROM users WHERE id = $1 AND project_id = $2",
 		userID, projectID).Scan(&secretB32)
 	if err != nil || secretB32 == "" {
 		return fmt.Errorf("auth: MFA not set up")
@@ -581,7 +583,7 @@ func (s *Service) VerifyMFA(ctx context.Context, userID, projectID, code string)
 	}
 
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET mfa_enabled = 1 WHERE id = ? AND project_id = ?",
+		"UPDATE users SET mfa_enabled = 1 WHERE id = $1 AND project_id = $2",
 		userID, projectID)
 	return err
 }
@@ -589,7 +591,7 @@ func (s *Service) VerifyMFA(ctx context.Context, userID, projectID, code string)
 // DisableMFA disables MFA for a user.
 func (s *Service) DisableMFA(ctx context.Context, userID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE users SET mfa_enabled = 0, mfa_secret = NULL, mfa_recovery = NULL WHERE id = ? AND project_id = ?",
+		"UPDATE users SET mfa_enabled = 0, mfa_secret = NULL, mfa_recovery = NULL WHERE id = $1 AND project_id = $2",
 		userID, projectID)
 	return err
 }
@@ -598,7 +600,7 @@ func (s *Service) DisableMFA(ctx context.Context, userID, projectID string) erro
 func (s *Service) CheckMFA(ctx context.Context, projectID, email string) (bool, error) {
 	var enabled bool
 	err := s.db.QueryRowContext(ctx,
-		"SELECT mfa_enabled FROM users WHERE email = ? AND project_id = ? AND status = 1",
+		"SELECT mfa_enabled FROM users WHERE email = $1 AND project_id = $2 AND status = 1",
 		email, projectID).Scan(&enabled)
 	if err != nil {
 		return false, err
@@ -611,7 +613,7 @@ func (s *Service) ValidateMFAForLogin(ctx context.Context, projectID, email, cod
 	var secretB32 string
 	var recoveryJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT mfa_secret, mfa_recovery FROM users WHERE email = ? AND project_id = ?",
+		"SELECT mfa_secret, mfa_recovery FROM users WHERE email = $1 AND project_id = $2",
 		email, projectID).Scan(&secretB32, &recoveryJSON)
 	if err != nil {
 		return fmt.Errorf("auth: user not found")
@@ -631,7 +633,7 @@ func (s *Service) ValidateMFAForLogin(ctx context.Context, projectID, email, cod
 			recovery = append(recovery[:i], recovery[i+1:]...)
 			newJSON, _ := json.Marshal(recovery)
 			s.db.ExecContext(ctx,
-				"UPDATE users SET mfa_recovery = ? WHERE email = ? AND project_id = ?",
+				"UPDATE users SET mfa_recovery = $1 WHERE email = $2 AND project_id = $3",
 				newJSON, email, projectID)
 			return nil
 		}
@@ -678,7 +680,7 @@ func (s *Service) CreateAuthToken(ctx context.Context, userID, projectID, tokenT
 	expires := time.Now().UTC().Add(ttl)
 
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO auth_tokens (id, user_id, project_id, type, secret, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO auth_tokens (id, user_id, project_id, type, secret, expires_at) VALUES ($1, $2, $3, $4, $5, $6)",
 		id, userID, projectID, tokenType, token, expires)
 	if err != nil {
 		return "", err
@@ -691,7 +693,7 @@ func (s *Service) ValidateAuthToken(ctx context.Context, projectID, tokenType, s
 	var id, userID string
 	var expiresAt time.Time
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, user_id, expires_at FROM auth_tokens WHERE project_id = ? AND type = ? AND secret = ?",
+		"SELECT id, user_id, expires_at FROM auth_tokens WHERE project_id = $1 AND type = $2 AND secret = $3",
 		projectID, tokenType, secret).Scan(&id, &userID, &expiresAt)
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("auth: invalid or expired token")
@@ -700,11 +702,11 @@ func (s *Service) ValidateAuthToken(ctx context.Context, projectID, tokenType, s
 		return "", err
 	}
 	if time.Now().After(expiresAt) {
-		s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id = ?", id)
+		s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id = $1", id)
 		return "", fmt.Errorf("auth: token expired")
 	}
 	// Consume token
-	s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id = ?", id)
+	s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id = $1", id)
 	return userID, nil
 }
 
@@ -712,7 +714,7 @@ func (s *Service) ValidateAuthToken(ctx context.Context, projectID, tokenType, s
 func (s *Service) CreateMagicLinkToken(ctx context.Context, projectID, email string) (string, error) {
 	var userID string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id FROM users WHERE email = ? AND project_id = ?",
+		"SELECT id FROM users WHERE email = $1 AND project_id = $2",
 		email, projectID).Scan(&userID)
 	if err == sql.ErrNoRows {
 		// Create user without password
@@ -721,7 +723,7 @@ func (s *Service) CreateMagicLinkToken(ctx context.Context, projectID, email str
 		labelsJSON, _ := json.Marshal([]string{})
 		prefsJSON, _ := json.Marshal(map[string]interface{}{})
 		_, err = s.db.ExecContext(ctx,
-			"INSERT INTO users (id, project_id, email, labels, prefs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO users (id, project_id, email, labels, prefs, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
 			userID, projectID, email, labelsJSON, prefsJSON, now, now)
 		if err != nil {
 			return "", err
@@ -739,7 +741,7 @@ func (s *Service) RedeemMagicLink(ctx context.Context, projectID, secret, ip, ua
 		return nil, "", err
 	}
 	// Mark email as verified
-	s.db.ExecContext(ctx, "UPDATE users SET email_verified = 1 WHERE id = ? AND project_id = ?", userID, projectID)
+	s.db.ExecContext(ctx, "UPDATE users SET email_verified = 1 WHERE id = $1 AND project_id = $2", userID, projectID)
 	return s.createSession(ctx, userID, projectID, "magic_link", ip, ua)
 }
 
@@ -755,7 +757,7 @@ func (s *Service) VerifyEmail(ctx context.Context, projectID, secret string) err
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET email_verified = 1 WHERE id = ? AND project_id = ?", userID, projectID)
+		"UPDATE users SET email_verified = 1 WHERE id = $1 AND project_id = $2", userID, projectID)
 	return err
 }
 
@@ -763,7 +765,7 @@ func (s *Service) VerifyEmail(ctx context.Context, projectID, secret string) err
 func (s *Service) CreatePasswordResetToken(ctx context.Context, projectID, email string) (string, error) {
 	var userID string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id FROM users WHERE email = ? AND project_id = ?",
+		"SELECT id FROM users WHERE email = $1 AND project_id = $2",
 		email, projectID).Scan(&userID)
 	if err != nil {
 		return "", fmt.Errorf("auth: user not found")
@@ -782,7 +784,7 @@ func (s *Service) ResetPassword(ctx context.Context, projectID, secret, newPassw
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET password_hash = ? WHERE id = ? AND project_id = ?",
+		"UPDATE users SET password_hash = $1 WHERE id = $2 AND project_id = $3",
 		string(hash), userID, projectID)
 	return err
 }
@@ -904,13 +906,13 @@ func (s *Service) CreateOAuthSession(ctx context.Context, projectID, provider, o
 	// Check if user exists with this OAuth identity
 	var userID string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id FROM users WHERE project_id = ? AND oauth_provider = ? AND oauth_id = ?",
+		"SELECT id FROM users WHERE project_id = $1 AND oauth_provider = $2 AND oauth_id = $3",
 		projectID, provider, oauthID).Scan(&userID)
 
 	if err == sql.ErrNoRows {
 		// Check if user exists with this email
 		err2 := s.db.QueryRowContext(ctx,
-			"SELECT id FROM users WHERE project_id = ? AND email = ?",
+			"SELECT id FROM users WHERE project_id = $1 AND email = $2",
 			projectID, email).Scan(&userID)
 
 		if err2 == sql.ErrNoRows {
@@ -921,7 +923,7 @@ func (s *Service) CreateOAuthSession(ctx context.Context, projectID, provider, o
 			prefsJSON, _ := json.Marshal(map[string]interface{}{})
 			_, err := s.db.ExecContext(ctx,
 				`INSERT INTO users (id, project_id, email, name, oauth_provider, oauth_id, email_verified, labels, prefs, created_at, updated_at)
-				 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+				 VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10)`,
 				userID, projectID, email, name, provider, oauthID, labelsJSON, prefsJSON, now, now)
 			if err != nil {
 				return nil, "", fmt.Errorf("auth: create oauth user: %w", err)
@@ -929,7 +931,7 @@ func (s *Service) CreateOAuthSession(ctx context.Context, projectID, provider, o
 		} else if err2 == nil {
 			// Link OAuth to existing email user
 			s.db.ExecContext(ctx,
-				"UPDATE users SET oauth_provider = ?, oauth_id = ?, email_verified = 1 WHERE id = ? AND project_id = ?",
+				"UPDATE users SET oauth_provider = $1, oauth_id = $2, email_verified = 1 WHERE id = $3 AND project_id = $4",
 				provider, oauthID, userID, projectID)
 		} else {
 			return nil, "", err2
@@ -956,7 +958,7 @@ func (s *Service) ListOAuthProviders(providers []string) []map[string]interface{
 // UpdateUserEmailAdmin updates a user's email server-side (no password required).
 func (s *Service) UpdateUserEmailAdmin(ctx context.Context, userID, projectID, email string) (*model.User, error) {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE users SET email = ? WHERE id = ? AND project_id = ?", email, userID, projectID)
+		"UPDATE users SET email = $1 WHERE id = $2 AND project_id = $3", email, userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: update email admin: %w", err)
 	}

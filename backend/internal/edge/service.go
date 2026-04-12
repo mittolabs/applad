@@ -66,7 +66,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, slug, code, runti
 	envJSON, _ := json.Marshal(envVars)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO edge_functions (id, project_id, name, slug, code, runtime, regions, env_vars, status, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		f.ID, f.ProjectID, f.Name, f.Slug, f.Code, f.Runtime,
 		nullBytes(regionsJSON), nullBytes(envJSON), f.Status,
 		f.CreatedAt, f.UpdatedAt,
@@ -84,7 +84,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, slug, code, runti
 func (s *Service) Get(ctx context.Context, functionID, projectID string) (*EdgeFunction, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, slug, code, runtime, COALESCE(regions,'[]'), COALESCE(env_vars,'{}'), status, created_at, updated_at
-		 FROM edge_functions WHERE id = ? AND project_id = ?`, functionID, projectID)
+		 FROM edge_functions WHERE id = $1 AND project_id = $2`, functionID, projectID)
 	return scanFunction(row)
 }
 
@@ -92,7 +92,7 @@ func (s *Service) Get(ctx context.Context, functionID, projectID string) (*EdgeF
 func (s *Service) List(ctx context.Context, projectID string) ([]*EdgeFunction, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, slug, code, runtime, COALESCE(regions,'[]'), COALESCE(env_vars,'{}'), status, created_at, updated_at
-		 FROM edge_functions WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM edge_functions WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (s *Service) Update(ctx context.Context, functionID, projectID, name, code 
 	regionsJSON, _ := json.Marshal(f.Regions)
 	envJSON, _ := json.Marshal(f.EnvVars)
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE edge_functions SET name=?, code=?, regions=?, env_vars=?, updated_at=? WHERE id=?",
+		"UPDATE edge_functions SET name=$1, code=$2, regions=$3, env_vars=$4, updated_at=$5 WHERE id=$6",
 		f.Name, f.Code, nullBytes(regionsJSON), nullBytes(envJSON), time.Now().UTC(), f.ID,
 	)
 	return f, err
@@ -137,7 +137,7 @@ func (s *Service) Update(ctx context.Context, functionID, projectID, name, code 
 
 // Delete removes an edge function.
 func (s *Service) Delete(ctx context.Context, functionID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM edge_functions WHERE id=? AND project_id=?", functionID, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM edge_functions WHERE id=$1 AND project_id=$2", functionID, projectID)
 	return err
 }
 
@@ -152,7 +152,7 @@ func (s *Service) Deploy(ctx context.Context, functionID, projectID string, regi
 
 	// Get current version number
 	var maxVer int
-	s.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version),0) FROM edge_deployments WHERE function_id=?", functionID).Scan(&maxVer) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version),0) FROM edge_deployments WHERE function_id=$1", functionID).Scan(&maxVer) //nolint:errcheck
 	newVer := maxVer + 1
 
 	if len(regions) == 0 {
@@ -167,7 +167,7 @@ func (s *Service) Deploy(ctx context.Context, functionID, projectID string, regi
 	regionsJSON, _ := json.Marshal(regions)
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO edge_deployments (id, function_id, project_id, version, status, regions, deployed_at, created_at)
-		 VALUES (?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		d.ID, d.FunctionID, d.ProjectID, d.Version, d.Status,
 		nullBytes(regionsJSON), d.DeployedAt, d.CreatedAt,
 	)
@@ -176,8 +176,8 @@ func (s *Service) Deploy(ctx context.Context, functionID, projectID string, regi
 	}
 
 	// Mark as deployed (in a real system this would be async)
-	s.db.ExecContext(ctx, "UPDATE edge_functions SET status='deployed', updated_at=? WHERE id=?", now, functionID)       //nolint:errcheck
-	s.db.ExecContext(ctx, "UPDATE edge_deployments SET status='active' WHERE id=?", d.ID) //nolint:errcheck
+	s.db.ExecContext(ctx, "UPDATE edge_functions SET status='deployed', updated_at=$1 WHERE id=$2", now, functionID)       //nolint:errcheck
+	s.db.ExecContext(ctx, "UPDATE edge_deployments SET status='active' WHERE id=$1", d.ID) //nolint:errcheck
 	d.Status = "active"
 	return d, nil
 }
@@ -186,7 +186,7 @@ func (s *Service) Deploy(ctx context.Context, functionID, projectID string, regi
 func (s *Service) ListDeployments(ctx context.Context, functionID, projectID string) ([]*Deployment, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, function_id, project_id, version, status, COALESCE(regions,'[]'), deployed_at, created_at
-		 FROM edge_deployments WHERE function_id=? AND project_id=? ORDER BY version DESC`, functionID, projectID)
+		 FROM edge_deployments WHERE function_id=$1 AND project_id=$2 ORDER BY version DESC`, functionID, projectID)
 	if err != nil {
 		return nil, err
 	}

@@ -121,7 +121,7 @@ func (s *Service) CreatePlan(ctx context.Context, name, slug string, priceMonthl
 	featuresJSON, _ := json.Marshal(features)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO billing_plans (id, name, slug, price_monthly, price_yearly, limits, features, active, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,TRUE,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE,$8,$9)`,
 		p.ID, p.Name, p.Slug, p.PriceMonthly, p.PriceYearly,
 		nullBytes(limitsJSON), featuresJSON, p.CreatedAt, p.UpdatedAt,
 	)
@@ -142,7 +142,7 @@ func (s *Service) GetSubscription(ctx context.Context, projectID string) (*Subsc
 		`SELECT id, project_id, plan_id, status,
 		        COALESCE(stripe_customer_id,''), COALESCE(stripe_subscription_id,''),
 		        current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at
-		 FROM billing_subscriptions WHERE project_id = ?`, projectID)
+		 FROM billing_subscriptions WHERE project_id = $1`, projectID)
 	return scanSubscription(row)
 }
 
@@ -159,7 +159,7 @@ func (s *Service) Subscribe(ctx context.Context, projectID, planID string) (*Sub
 	sub.CurrentPeriodEnd = &periodEnd
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO billing_subscriptions (id, project_id, plan_id, status, current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,FALSE,?,?)
+		 VALUES ($1,$2,$3,$4,$5,$6,FALSE,$7,$8)
 		 ON CONFLICT (project_id) DO UPDATE SET plan_id=EXCLUDED.plan_id, status='active', current_period_start=EXCLUDED.current_period_start, current_period_end=EXCLUDED.current_period_end, updated_at=EXCLUDED.updated_at`,
 		sub.ID, sub.ProjectID, sub.PlanID, sub.Status,
 		sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
@@ -174,7 +174,7 @@ func (s *Service) Subscribe(ctx context.Context, projectID, planID string) (*Sub
 // CancelSubscription schedules a subscription to cancel at period end.
 func (s *Service) CancelSubscription(ctx context.Context, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE billing_subscriptions SET cancel_at_period_end=TRUE, updated_at=? WHERE project_id=?",
+		"UPDATE billing_subscriptions SET cancel_at_period_end=TRUE, updated_at=$1 WHERE project_id=$2",
 		time.Now().UTC(), projectID)
 	return err
 }
@@ -191,7 +191,7 @@ func (s *Service) RecordEvent(ctx context.Context, projectID, eventType string, 
 	metaJSON, _ := json.Marshal(metadata)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO billing_events (id, project_id, event_type, quantity, unit, metadata, created_at)
-		 VALUES (?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 		e.ID, e.ProjectID, e.EventType, e.Quantity, e.Unit, nullBytes(metaJSON), e.CreatedAt,
 	)
 	if err != nil {
@@ -204,7 +204,7 @@ func (s *Service) RecordEvent(ctx context.Context, projectID, eventType string, 
 func (s *Service) GetUsageSummary(ctx context.Context, projectID string, from, to time.Time) (*UsageSummary, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT event_type, SUM(quantity) FROM billing_events
-		 WHERE project_id = ? AND created_at BETWEEN ? AND ?
+		 WHERE project_id = $1 AND created_at BETWEEN $2 AND $3
 		 GROUP BY event_type`, projectID, from, to)
 	if err != nil {
 		return nil, err
@@ -237,11 +237,11 @@ func (s *Service) ListInvoices(ctx context.Context, projectID string, limit, off
 		limit = 20
 	}
 	var total int
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM invoices WHERE project_id=?", projectID).Scan(&total) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM invoices WHERE project_id=$1", projectID).Scan(&total) //nolint:errcheck
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, COALESCE(subscription_id,''), amount_cents, currency, status,
 		        COALESCE(stripe_invoice_id,''), period_start, period_end, paid_at, created_at
-		 FROM invoices WHERE project_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		 FROM invoices WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		projectID, limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -263,7 +263,7 @@ func (s *Service) GetInvoice(ctx context.Context, projectID, invoiceID string) (
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, COALESCE(subscription_id,''), amount_cents, currency, status,
 		        COALESCE(stripe_invoice_id,''), period_start, period_end, paid_at, created_at
-		 FROM invoices WHERE project_id=? AND id=?`,
+		 FROM invoices WHERE project_id=$1 AND id=$2`,
 		projectID, invoiceID)
 	return scanInvoice(row)
 }

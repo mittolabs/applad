@@ -63,7 +63,7 @@ func (s *Service) Signup(ctx context.Context, email, password, name string) (*Co
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO console_users (id, email, name, password_hash, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
 		id, email, name, string(hash), now, now)
 	if err != nil {
 		return nil, "", fmt.Errorf("console: signup: %w", err)
@@ -87,7 +87,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (*ConsoleUs
 	var name sql.NullString
 
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, email, name, password_hash, created_at, updated_at FROM console_users WHERE email = ?",
+		"SELECT id, email, name, password_hash, created_at, updated_at FROM console_users WHERE email = $1",
 		email).Scan(&u.ID, &u.Email, &name, &hash, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, "", fmt.Errorf("console: invalid credentials")
@@ -114,7 +114,7 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*ConsoleUser, error
 	var u ConsoleUser
 	var name sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, email, name, created_at, updated_at FROM console_users WHERE id = ?",
+		"SELECT id, email, name, created_at, updated_at FROM console_users WHERE id = $1",
 		userID).Scan(&u.ID, &u.Email, &name, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("console: user not found")
@@ -128,20 +128,20 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*ConsoleUser, error
 
 // UpdateName updates a console user's name.
 func (s *Service) UpdateName(ctx context.Context, userID, name string) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE console_users SET name = ? WHERE id = ?", name, userID)
+	_, err := s.db.ExecContext(ctx, "UPDATE console_users SET name = $1 WHERE id = $2", name, userID)
 	return err
 }
 
 // UpdateEmail updates a console user's email.
 func (s *Service) UpdateEmail(ctx context.Context, userID, email string) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE console_users SET email = ? WHERE id = ?", email, userID)
+	_, err := s.db.ExecContext(ctx, "UPDATE console_users SET email = $1 WHERE id = $2", email, userID)
 	return err
 }
 
 // UpdatePassword updates a console user's password after verifying the old one.
 func (s *Service) UpdatePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
 	var hash string
-	err := s.db.QueryRowContext(ctx, "SELECT password_hash FROM console_users WHERE id = ?", userID).Scan(&hash)
+	err := s.db.QueryRowContext(ctx, "SELECT password_hash FROM console_users WHERE id = $1", userID).Scan(&hash)
 	if err != nil {
 		return fmt.Errorf("console: user not found")
 	}
@@ -152,13 +152,13 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, oldPassword, newPa
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, "UPDATE console_users SET password_hash = ? WHERE id = ?", string(newHash), userID)
+	_, err = s.db.ExecContext(ctx, "UPDATE console_users SET password_hash = $1 WHERE id = $2", string(newHash), userID)
 	return err
 }
 
 // DeleteUser removes a console user.
 func (s *Service) DeleteUser(ctx context.Context, userID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM console_users WHERE id = ?", userID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM console_users WHERE id = $1", userID)
 	return err
 }
 
@@ -194,7 +194,7 @@ func (s *Service) LoginOrCreateByOAuth(ctx context.Context, email, name, provide
 	var nameNull sql.NullString
 
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, email, name, created_at, updated_at FROM console_users WHERE email = ?",
+		"SELECT id, email, name, created_at, updated_at FROM console_users WHERE email = $1",
 		email).Scan(&u.ID, &u.Email, &nameNull, &u.CreatedAt, &u.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -213,7 +213,7 @@ func (s *Service) LoginOrCreateByOAuth(ctx context.Context, email, name, provide
 		}
 		_, err2 = s.db.ExecContext(ctx,
 			`INSERT INTO console_users (id, email, name, password_hash, created_at, updated_at)
-			 VALUES (?, ?, ?, '', ?, ?)`,
+			 VALUES ($1, $2, $3, '', $4, $5)`,
 			id, email, name, now, now)
 		if err2 != nil {
 			return nil, "", fmt.Errorf("console: create oauth user: %w", err2)

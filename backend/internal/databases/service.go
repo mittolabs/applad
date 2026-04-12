@@ -203,7 +203,7 @@ func (s *Service) CreateDatabase(ctx context.Context, projectID, databaseID, nam
 	))
 
 	if _, err := s.db.ExecContext(ctx,
-		"INSERT INTO databases (id, project_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO databases (id, project_id, name, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
 		id, projectID, name, now, now,
 	); err != nil {
 		return nil, fmt.Errorf("create database metadata: %w", err)
@@ -215,7 +215,7 @@ func (s *Service) CreateDatabase(ctx context.Context, projectID, databaseID, nam
 func (s *Service) GetDatabase(ctx context.Context, databaseID, projectID string) (*model.Database, error) {
 	var database model.Database
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT id, name, created_at, updated_at FROM databases WHERE id = ? AND project_id = ?",
+		"SELECT id, name, created_at, updated_at FROM databases WHERE id = $1 AND project_id = $2",
 		databaseID, projectID,
 	).Scan(&database.ID, &database.Name, &database.CreatedAt, &database.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
@@ -229,7 +229,7 @@ func (s *Service) GetDatabase(ctx context.Context, databaseID, projectID string)
 
 func (s *Service) ListDatabases(ctx context.Context, projectID string) ([]*model.Database, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, created_at, updated_at FROM databases WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, name, created_at, updated_at FROM databases WHERE project_id = $1 ORDER BY created_at DESC",
 		projectID,
 	)
 	if err != nil {
@@ -254,7 +254,7 @@ func (s *Service) ListDatabases(ctx context.Context, projectID string) ([]*model
 
 func (s *Service) UpdateDatabase(ctx context.Context, databaseID, projectID, name string) (*model.Database, error) {
 	if _, err := s.db.ExecContext(ctx,
-		"UPDATE databases SET name = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+		"UPDATE databases SET name = $1, updated_at = $2 WHERE id = $3 AND project_id = $4",
 		name, time.Now().UTC(), databaseID, projectID,
 	); err != nil {
 		return nil, err
@@ -272,7 +272,7 @@ func (s *Service) DeleteDatabase(ctx context.Context, databaseID, projectID stri
 		return fmt.Errorf("drop schema: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx,
-		"DELETE FROM databases WHERE id = ? AND project_id = ?",
+		"DELETE FROM databases WHERE id = $1 AND project_id = $2",
 		databaseID, projectID,
 	); err != nil {
 		return err
@@ -320,7 +320,7 @@ func (s *Service) CreateTable(ctx context.Context, projectID, databaseID, tableI
 
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO tables (id, database_id, project_id, name, enabled, row_security, permissions, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, TRUE, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, TRUE, $5, $6, $7, $8)`,
 		id, databaseID, projectID, name, rowSecurity, permissionsJSON, now, now,
 	); err != nil {
 		return nil, fmt.Errorf("insert table metadata: %w", err)
@@ -347,7 +347,7 @@ func (s *Service) GetTable(ctx context.Context, tableID, databaseID, projectID s
 	var permissionsJSON []byte
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT id, database_id, name, enabled, row_security, COALESCE(permissions, '[]'), created_at, updated_at
-		 FROM tables WHERE id = ? AND database_id = ? AND project_id = ?`,
+		 FROM tables WHERE id = $1 AND database_id = $2 AND project_id = $3`,
 		tableID, databaseID, projectID,
 	).Scan(&table.ID, &table.DatabaseID, &table.Name, &table.Enabled, &table.RowSecurity, &permissionsJSON, &table.CreatedAt, &table.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
@@ -364,7 +364,7 @@ func (s *Service) GetTable(ctx context.Context, tableID, databaseID, projectID s
 func (s *Service) ListTables(ctx context.Context, databaseID, projectID string) ([]*model.Table, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, database_id, name, enabled, row_security, COALESCE(permissions, '[]'), created_at, updated_at
-		 FROM tables WHERE database_id = ? AND project_id = ? ORDER BY created_at DESC`,
+		 FROM tables WHERE database_id = $1 AND project_id = $2 ORDER BY created_at DESC`,
 		databaseID, projectID,
 	)
 	if err != nil {
@@ -411,7 +411,7 @@ func (s *Service) UpdateTable(ctx context.Context, tableID, databaseID, projectI
 	}
 	permissionsJSON, _ := json.Marshal(permissions)
 	if _, err := s.db.ExecContext(ctx,
-		"UPDATE tables SET name = ?, enabled = ?, row_security = ?, permissions = ?, updated_at = ? WHERE id = ? AND database_id = ? AND project_id = ?",
+		"UPDATE tables SET name = $1, enabled = $2, row_security = $3, permissions = $4, updated_at = $5 WHERE id = $6 AND database_id = $7 AND project_id = $8",
 		newName, newEnabled, newRowSecurity, permissionsJSON, time.Now().UTC(), tableID, databaseID, projectID,
 	); err != nil {
 		return nil, err
@@ -441,7 +441,7 @@ func (s *Service) DeleteTable(ctx context.Context, tableID, databaseID, projectI
 	); err != nil {
 		return fmt.Errorf("drop table: %w", err)
 	}
-	if _, err := s.db.ExecContext(ctx, "DELETE FROM tables WHERE id = ? AND project_id = ?", tableID, projectID); err != nil {
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM tables WHERE id = $1 AND project_id = $2", tableID, projectID); err != nil {
 		return err
 	}
 	return nil
@@ -478,7 +478,7 @@ func (s *Service) CreateColumn(ctx context.Context, tableID, key, columnType str
 	}
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO columns (id, table_id, key_name, type, required, "array", default_value, options, validation, permissions, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '["read","write"]', 'available', ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '["read","write"]', 'available', $10)`,
 		uid.New("unique()"), tableID, key, columnType, required, array, defaultJSON, optionsJSON, validationJSON, time.Now().UTC(),
 	); err != nil {
 		return nil, fmt.Errorf("insert column metadata: %w", err)
@@ -493,7 +493,7 @@ func (s *Service) CreateColumn(ctx context.Context, tableID, key, columnType str
 func (s *Service) ListColumns(ctx context.Context, tableID string) ([]model.Column, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT key_name, type, status, required, "array", default_value, COALESCE(options, '{}'), COALESCE(validation, '{}'), COALESCE(permissions, '["read","write"]')
-		 FROM columns WHERE table_id = ? ORDER BY created_at ASC`,
+		 FROM columns WHERE table_id = $1 ORDER BY created_at ASC`,
 		tableID,
 	)
 	if err != nil {
@@ -541,7 +541,7 @@ func (s *Service) ListColumns(ctx context.Context, tableID string) ([]model.Colu
 func (s *Service) GetColumnPermissions(ctx context.Context, tableID, key string) ([]string, error) {
 	var permsJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = ? AND key_name = ?`,
+		`SELECT COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = $1 AND key_name = $2`,
 		tableID, key,
 	).Scan(&permsJSON)
 	if err == sql.ErrNoRows {
@@ -562,7 +562,7 @@ func (s *Service) GetColumnPermissions(ctx context.Context, tableID, key string)
 func (s *Service) SetColumnPermissions(ctx context.Context, tableID, key string, permissions []string) error {
 	permsJSON, _ := json.Marshal(permissions)
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE columns SET permissions = ? WHERE table_id = ? AND key_name = ?`,
+		`UPDATE columns SET permissions = $1 WHERE table_id = $2 AND key_name = $3`,
 		permsJSON, tableID, key,
 	)
 	if err != nil {
@@ -579,7 +579,7 @@ func (s *Service) SetColumnPermissions(ctx context.Context, tableID, key string,
 // Columns with no explicit permissions default to allowing read.
 func (s *Service) readableColumns(ctx context.Context, tableID string) (map[string]bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key_name, COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = ?`,
+		`SELECT key_name, COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = $1`,
 		tableID,
 	)
 	if err != nil {
@@ -611,7 +611,7 @@ func (s *Service) readableColumns(ctx context.Context, tableID string) (map[stri
 // writableColumns returns a set of column keys that have "write" permission.
 func (s *Service) writableColumns(ctx context.Context, tableID string) (map[string]bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key_name, COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = ?`,
+		`SELECT key_name, COALESCE(permissions, '["read","write"]') FROM columns WHERE table_id = $1`,
 		tableID,
 	)
 	if err != nil {
@@ -683,7 +683,7 @@ func (s *Service) DeleteColumn(ctx context.Context, tableID, key string) error {
 	); err != nil {
 		return fmt.Errorf("drop column: %w", err)
 	}
-	s.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id = ? AND key_name = ?", tableID, key) //nolint:errcheck
+	s.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id = $1 AND key_name = $2", tableID, key) //nolint:errcheck
 	if err := s.syncRLSPolicies(ctx, tableContext); err != nil {
 		return err
 	}
@@ -722,7 +722,7 @@ func (s *Service) CreateIndex(ctx context.Context, tableID, key, indexType strin
 	ordersJSON, _ := json.Marshal(orders)
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO indexes (id, table_id, key_name, type, columns, orders, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'available', ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, 'available', $7)`,
 		uid.New("unique()"), tableID, key, indexType, columnsJSON, ordersJSON, time.Now().UTC(),
 	); err != nil {
 		return nil, fmt.Errorf("insert index metadata: %w", err)
@@ -733,7 +733,7 @@ func (s *Service) CreateIndex(ctx context.Context, tableID, key, indexType strin
 
 func (s *Service) ListIndexes(ctx context.Context, tableID string) ([]model.Index, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT key_name, type, status, columns, orders FROM indexes WHERE table_id = ? ORDER BY created_at ASC",
+		"SELECT key_name, type, status, columns, orders FROM indexes WHERE table_id = $1 ORDER BY created_at ASC",
 		tableID,
 	)
 	if err != nil {
@@ -765,7 +765,7 @@ func (s *Service) DeleteIndex(ctx context.Context, tableID, key string) error {
 		return err
 	}
 	s.db.ExecContext(ctx, fmt.Sprintf("DROP INDEX IF EXISTS %s.%s", pgIdent(tableContext.Schema), pgIdent(key))) //nolint:errcheck
-	s.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id = ? AND key_name = ?", tableID, key)               //nolint:errcheck
+	s.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id = $1 AND key_name = $2", tableID, key)               //nolint:errcheck
 	return nil
 }
 
@@ -813,7 +813,7 @@ func (s *Service) CreateRelationship(ctx context.Context, tableID, relatedTableI
 
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO table_relationships (id, table_id, related_table, relationship_type, two_way, key_name, two_way_key, on_delete)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, tableID, relatedTableID, relationType, twoWay, key, twoWayKey, onDelete,
 	); err != nil {
 		return nil, fmt.Errorf("create relationship metadata: %w", err)
@@ -825,7 +825,7 @@ func (s *Service) CreateRelationship(ctx context.Context, tableID, relatedTableI
 func (s *Service) ListRelationships(ctx context.Context, tableID string) ([]Relationship, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, table_id, related_table, relationship_type, two_way, key_name, two_way_key, on_delete
-		 FROM table_relationships WHERE table_id = ?`,
+		 FROM table_relationships WHERE table_id = $1`,
 		tableID,
 	)
 	if err != nil {
@@ -859,7 +859,7 @@ func (s *Service) DeleteRelationship(ctx context.Context, tableID, relationshipI
 		pgIdent(leftTable.Schema), pgIdent(leftTable.Name), pgIdent(fkName))
 	s.db.ExecContext(ctx, ddl) //nolint:errcheck
 
-	_, err = s.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE id = ? AND table_id = ?", relationshipID, tableID)
+	_, err = s.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE id = $1 AND table_id = $2", relationshipID, tableID)
 	return err
 }
 
@@ -1000,7 +1000,7 @@ func (s *Service) enforcePermission(ctx context.Context, projectID, tableID, use
 
 	var rowSecurity bool
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT row_security FROM tables WHERE id = ? AND project_id = ?",
+		"SELECT row_security FROM tables WHERE id = $1 AND project_id = $2",
 		tableID, projectID,
 	).Scan(&rowSecurity); err != nil {
 		return fmt.Errorf("permission denied")
@@ -1040,7 +1040,7 @@ type tableContext struct {
 func (s *Service) lookupTableContext(ctx context.Context, tableID string) (*tableContext, error) {
 	var table tableContext
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT id, database_id, project_id, name FROM tables WHERE id = ?",
+		"SELECT id, database_id, project_id, name FROM tables WHERE id = $1",
 		tableID,
 	).Scan(&table.ID, &table.DatabaseID, &table.ProjectID, &table.Name); err != nil {
 		if err == sql.ErrNoRows {
@@ -1054,7 +1054,7 @@ func (s *Service) lookupTableContext(ctx context.Context, tableID string) (*tabl
 
 func (s *Service) ownerColumn(ctx context.Context, tableID string) (string, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT key_name FROM columns WHERE table_id = ? AND key_name IN (?, ?) ORDER BY CASE key_name WHEN 'owner_id' THEN 0 ELSE 1 END LIMIT 1",
+		"SELECT key_name FROM columns WHERE table_id = $1 AND key_name IN ($2, $3) ORDER BY CASE key_name WHEN 'owner_id' THEN 0 ELSE 1 END LIMIT 1",
 		tableID, "owner_id", "user_id",
 	)
 	if err != nil {
@@ -1074,7 +1074,7 @@ func (s *Service) ownerColumn(ctx context.Context, tableID string) (string, erro
 func (s *Service) syncRLSPolicies(ctx context.Context, table *tableContext) error {
 	var rowSecurity bool
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT row_security FROM tables WHERE id = ? AND project_id = ?",
+		"SELECT row_security FROM tables WHERE id = $1 AND project_id = $2",
 		table.ID, table.ProjectID,
 	).Scan(&rowSecurity); err != nil {
 		return fmt.Errorf("load row security: %w", err)
@@ -1191,16 +1191,16 @@ func (s *Service) applySessionContext(ctx context.Context, exec sqlContextExecut
 	if err != nil {
 		return err
 	}
-	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.project_id', ?, true)", projectID); err != nil {
+	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.project_id', $1, true)", projectID); err != nil {
 		return err
 	}
-	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.database_id', ?, true)", databaseID); err != nil {
+	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.database_id', $1, true)", databaseID); err != nil {
 		return err
 	}
-	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.user_id', ?, true)", userID); err != nil {
+	if _, err := exec.ExecContext(ctx, "SELECT set_config('applad.user_id', $1, true)", userID); err != nil {
 		return err
 	}
-	if _, err := exec.ExecContext(ctx, "SELECT set_config('request.jwt.claims', ?, true)", string(claims)); err != nil {
+	if _, err := exec.ExecContext(ctx, "SELECT set_config('request.jwt.claims', $1, true)", string(claims)); err != nil {
 		return err
 	}
 	// SET LOCAL ROLE enforces RLS policies via the per-database role.
@@ -1262,7 +1262,7 @@ func scanJSONMaps(rows *sql.Rows) ([]map[string]interface{}, []string, error) {
 
 func queryRowsAsJSON(ctx context.Context, exec sqlContextExecutor, tableName, rowID string, limit, offset int) ([]map[string]interface{}, error) {
 	if rowID != "" {
-		rows, err := exec.QueryContext(ctx, fmt.Sprintf("SELECT to_jsonb(t) FROM %s AS t WHERE id = ? LIMIT 1", pgIdent(tableName)), rowID)
+		rows, err := exec.QueryContext(ctx, fmt.Sprintf("SELECT to_jsonb(t) FROM %s AS t WHERE id = $1 LIMIT 1", pgIdent(tableName)), rowID)
 		if err != nil {
 			return nil, err
 		}
@@ -1281,7 +1281,7 @@ func queryRowsAsJSON(ctx context.Context, exec sqlContextExecutor, tableName, ro
 		}
 		return result, rows.Err()
 	}
-	rows, err := exec.QueryContext(ctx, fmt.Sprintf("SELECT to_jsonb(t) FROM %s AS t ORDER BY created_at DESC LIMIT ? OFFSET ?", pgIdent(tableName)), limit, offset)
+	rows, err := exec.QueryContext(ctx, fmt.Sprintf("SELECT to_jsonb(t) FROM %s AS t ORDER BY created_at DESC LIMIT $1 OFFSET $2", pgIdent(tableName)), limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1818,13 +1818,13 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID 
 			sort.Strings(keys)
 			assignments := make([]string, 0, len(keys)+1)
 			args := make([]interface{}, 0, len(keys)+1)
-			for _, key := range keys {
-				assignments = append(assignments, fmt.Sprintf("%s = ?", pgIdent(key)))
+			for i, key := range keys {
+				assignments = append(assignments, fmt.Sprintf("%s = $%d", pgIdent(key), i+1))
 				args = append(args, operation.Data[key])
 			}
 			assignments = append(assignments, "updated_at = NOW()")
 			args = append(args, operation.RowID)
-			query := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?", pgIdent(table.Name), strings.Join(assignments, ", "))
+			query := fmt.Sprintf("UPDATE %s SET %s WHERE id = $%d", pgIdent(table.Name), strings.Join(assignments, ", "), len(keys)+1)
 			if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 				return nil, err
 			}
@@ -1835,7 +1835,7 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID 
 			result.Status = http.StatusOK
 			result.Body = mapToRow(rows[0], operation.TableID, databaseID)
 		case "DELETE":
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = ?", pgIdent(table.Name)), operation.RowID); err != nil {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = $1", pgIdent(table.Name)), operation.RowID); err != nil {
 				return nil, err
 			}
 			result.Status = http.StatusNoContent

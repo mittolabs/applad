@@ -107,7 +107,7 @@ func (s *Service) CreateFlag(ctx context.Context, projectID, key, name, descript
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO feature_flags (id, project_id, key_name, name, description, type, default_value, tags, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		id, projectID, key, name, description, flagType, defaultJSON, tagsJSON, now, now)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
@@ -124,7 +124,7 @@ func (s *Service) GetFlag(ctx context.Context, flagID, projectID string) (*Flag,
 	var defaultJSON, tagsJSON []byte
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, key_name, name, description, type, default_value, enabled, tags, created_at, updated_at
-		 FROM feature_flags WHERE id=? AND project_id=?`, flagID, projectID).
+		 FROM feature_flags WHERE id=$1 AND project_id=$2`, flagID, projectID).
 		Scan(&f.ID, &f.ProjectID, &f.Key, &f.Name, &f.Description, &f.Type, &defaultJSON, &f.Enabled, &tagsJSON, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("flags: not found")
@@ -140,7 +140,7 @@ func (s *Service) GetFlag(ctx context.Context, flagID, projectID string) (*Flag,
 func (s *Service) GetFlagByKey(ctx context.Context, key, projectID string) (*Flag, error) {
 	var flagID string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM feature_flags WHERE key_name=? AND project_id=?`, key, projectID).Scan(&flagID)
+		`SELECT id FROM feature_flags WHERE key_name=$1 AND project_id=$2`, key, projectID).Scan(&flagID)
 	if err != nil {
 		return nil, fmt.Errorf("flags: key '%s' not found", key)
 	}
@@ -150,7 +150,7 @@ func (s *Service) GetFlagByKey(ctx context.Context, key, projectID string) (*Fla
 func (s *Service) ListFlags(ctx context.Context, projectID string) ([]*Flag, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, key_name, name, description, type, default_value, enabled, tags, created_at, updated_at
-		 FROM feature_flags WHERE project_id=? ORDER BY key_name`, projectID)
+		 FROM feature_flags WHERE project_id=$1 ORDER BY key_name`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +174,8 @@ func (s *Service) UpdateFlag(ctx context.Context, flagID, projectID, name, descr
 	defaultJSON, _ := json.Marshal(defaultValue)
 	tagsJSON, _ := json.Marshal(tags)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE feature_flags SET name=?, description=?, default_value=?, enabled=?, tags=?, updated_at=?
-		 WHERE id=? AND project_id=?`,
+		`UPDATE feature_flags SET name=$1, description=$2, default_value=$3, enabled=$4, tags=$5, updated_at=$6
+		 WHERE id=$7 AND project_id=$8`,
 		name, description, defaultJSON, enabled, tagsJSON, time.Now().UTC(), flagID, projectID)
 	if err != nil {
 		return nil, err
@@ -185,13 +185,13 @@ func (s *Service) UpdateFlag(ctx context.Context, flagID, projectID, name, descr
 
 func (s *Service) ToggleFlag(ctx context.Context, flagID, projectID string, enabled bool) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE feature_flags SET enabled=?, updated_at=? WHERE id=? AND project_id=?`,
+		`UPDATE feature_flags SET enabled=$1, updated_at=$2 WHERE id=$3 AND project_id=$4`,
 		enabled, time.Now().UTC(), flagID, projectID)
 	return err
 }
 
 func (s *Service) DeleteFlag(ctx context.Context, flagID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM feature_flags WHERE id=? AND project_id=?`, flagID, projectID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM feature_flags WHERE id=$1 AND project_id=$2`, flagID, projectID)
 	return err
 }
 
@@ -204,11 +204,11 @@ func (s *Service) CreateRule(ctx context.Context, flagID, ruleType string, condi
 
 	// Get next priority
 	var maxPriority int
-	s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(priority), 0) FROM flag_rules WHERE flag_id=?`, flagID).Scan(&maxPriority)
+	s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(priority), 0) FROM flag_rules WHERE flag_id=$1`, flagID).Scan(&maxPriority)
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO flag_rules (id, flag_id, priority, type, conditions, value, rollout_pct, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, flagID, maxPriority+1, ruleType, condJSON, valueJSON, rolloutPct, time.Now().UTC())
 	if err != nil {
 		return nil, err
@@ -223,7 +223,7 @@ func (s *Service) CreateRule(ctx context.Context, flagID, ruleType string, condi
 func (s *Service) ListRules(ctx context.Context, flagID string) ([]Rule, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, flag_id, priority, type, conditions, value, rollout_pct, enabled, created_at
-		 FROM flag_rules WHERE flag_id=? ORDER BY priority`, flagID)
+		 FROM flag_rules WHERE flag_id=$1 ORDER BY priority`, flagID)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +244,7 @@ func (s *Service) ListRules(ctx context.Context, flagID string) ([]Rule, error) 
 }
 
 func (s *Service) DeleteRule(ctx context.Context, ruleID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM flag_rules WHERE id=?`, ruleID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM flag_rules WHERE id=$1`, ruleID)
 	return err
 }
 
@@ -255,7 +255,7 @@ func (s *Service) SetOverride(ctx context.Context, flagID, targetType, targetID 
 	valueJSON, _ := json.Marshal(value)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO flag_overrides (id, flag_id, target_type, target_id, value, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (flag_id, target_type, target_id) DO UPDATE SET value=EXCLUDED.value`,
 		id, flagID, targetType, targetID, valueJSON, time.Now().UTC())
 	return err
@@ -263,7 +263,7 @@ func (s *Service) SetOverride(ctx context.Context, flagID, targetType, targetID 
 
 func (s *Service) ListOverrides(ctx context.Context, flagID string) ([]Override, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, flag_id, target_type, target_id, value, created_at FROM flag_overrides WHERE flag_id=?`, flagID)
+		`SELECT id, flag_id, target_type, target_id, value, created_at FROM flag_overrides WHERE flag_id=$1`, flagID)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +282,7 @@ func (s *Service) ListOverrides(ctx context.Context, flagID string) ([]Override,
 
 func (s *Service) DeleteOverride(ctx context.Context, flagID, targetType, targetID string) error {
 	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM flag_overrides WHERE flag_id=? AND target_type=? AND target_id=?`,
+		`DELETE FROM flag_overrides WHERE flag_id=$1 AND target_type=$2 AND target_id=$3`,
 		flagID, targetType, targetID)
 	return err
 }
@@ -304,7 +304,7 @@ func (s *Service) Evaluate(ctx context.Context, projectID, key string, evalCtx *
 	if evalCtx != nil && evalCtx.UserID != "" {
 		var valueJSON []byte
 		err := s.db.QueryRowContext(ctx,
-			`SELECT value FROM flag_overrides WHERE flag_id=? AND target_type='user' AND target_id=?`,
+			`SELECT value FROM flag_overrides WHERE flag_id=$1 AND target_type='user' AND target_id=$2`,
 			flag.ID, evalCtx.UserID).Scan(&valueJSON)
 		if err == nil {
 			var val interface{}
@@ -319,7 +319,7 @@ func (s *Service) Evaluate(ctx context.Context, projectID, key string, evalCtx *
 		for _, teamID := range evalCtx.TeamIDs {
 			var valueJSON []byte
 			err := s.db.QueryRowContext(ctx,
-				`SELECT value FROM flag_overrides WHERE flag_id=? AND target_type='team' AND target_id=?`,
+				`SELECT value FROM flag_overrides WHERE flag_id=$1 AND target_type='team' AND target_id=$2`,
 				flag.ID, teamID).Scan(&valueJSON)
 			if err == nil {
 				var val interface{}
@@ -378,7 +378,7 @@ func (s *Service) evaluateFlag(ctx context.Context, flag *Flag, evalCtx *EvalCon
 	if evalCtx != nil && evalCtx.UserID != "" {
 		var valueJSON []byte
 		err := s.db.QueryRowContext(ctx,
-			`SELECT value FROM flag_overrides WHERE flag_id=? AND target_type='user' AND target_id=?`,
+			`SELECT value FROM flag_overrides WHERE flag_id=$1 AND target_type='user' AND target_id=$2`,
 			flag.ID, evalCtx.UserID).Scan(&valueJSON)
 		if err == nil {
 			var val interface{}
@@ -551,7 +551,7 @@ func (s *Service) recordEvaluation(ctx context.Context, flagID, projectID, userI
 	}
 	s.db.ExecContext(ctx,
 		`INSERT INTO flag_evaluations (id, flag_id, project_id, user_id, value, rule_id, timestamp)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		uid.New("unique()"), flagID, projectID, userID, valueJSON, ruleVal, time.Now().UTC())
 }
 
@@ -559,15 +559,15 @@ func (s *Service) recordEvaluation(ctx context.Context, flagID, projectID, userI
 func (s *Service) GetFlagStats(ctx context.Context, flagID string) (map[string]interface{}, error) {
 	var total int
 	s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM flag_evaluations WHERE flag_id=?`, flagID).Scan(&total)
+		`SELECT COUNT(*) FROM flag_evaluations WHERE flag_id=$1`, flagID).Scan(&total)
 
 	var uniqueUsers int
 	s.db.QueryRowContext(ctx,
-		`SELECT COUNT(DISTINCT user_id) FROM flag_evaluations WHERE flag_id=? AND user_id != ''`, flagID).Scan(&uniqueUsers)
+		`SELECT COUNT(DISTINCT user_id) FROM flag_evaluations WHERE flag_id=$1 AND user_id != ''`, flagID).Scan(&uniqueUsers)
 
 	// Value distribution
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT value, COUNT(*) as cnt FROM flag_evaluations WHERE flag_id=? GROUP BY value ORDER BY cnt DESC LIMIT 10`, flagID)
+		`SELECT value, COUNT(*) as cnt FROM flag_evaluations WHERE flag_id=$1 GROUP BY value ORDER BY cnt DESC LIMIT 10`, flagID)
 	if err != nil {
 		return nil, err
 	}

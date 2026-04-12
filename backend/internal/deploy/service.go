@@ -134,7 +134,7 @@ func (s *Service) CreateTarget(ctx context.Context, projectID, name, targetType,
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO deploy_targets (id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		id, projectID, name, targetType, runtime, entrypoint, timeoutMs, memoryMB, envJSON, permissions, cron, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: create target: %w", err)
@@ -154,7 +154,7 @@ func (s *Service) GetTarget(ctx context.Context, id, projectID string) (*Target,
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, created_at, updated_at
-		 FROM deploy_targets WHERE id = ? AND project_id = ?`, id, projectID,
+		 FROM deploy_targets WHERE id = $1 AND project_id = $2`, id, projectID,
 	).Scan(&t.ID, &t.ProjectID, &t.Name, &t.Type, &t.Runtime, &t.Entrypoint,
 		&t.TimeoutMs, &t.MemoryMB, &envJSON, &t.Permissions, &t.Cron, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -177,7 +177,7 @@ func (s *Service) GetTarget(ctx context.Context, id, projectID string) (*Target,
 func (s *Service) ListTargets(ctx context.Context, projectID string) ([]*Target, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, created_at, updated_at
-		 FROM deploy_targets WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM deploy_targets WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -214,8 +214,8 @@ func (s *Service) UpdateTarget(ctx context.Context, id, projectID, name, targetT
 	envJSON, _ := json.Marshal(envVars)
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE deploy_targets SET name=?, type=?, runtime=?, entrypoint=?, timeout_ms=?, memory_mb=?, env_vars=?, permissions=?, cron=?, updated_at=?
-		 WHERE id=? AND project_id=?`,
+		`UPDATE deploy_targets SET name=$1, type=$2, runtime=$3, entrypoint=$4, timeout_ms=$5, memory_mb=$6, env_vars=$7, permissions=$8, cron=$9, updated_at=$10
+		 WHERE id=$11 AND project_id=$12`,
 		name, targetType, runtime, entrypoint, timeoutMs, memoryMB, envJSON, permissions, cron, time.Now().UTC(), id, projectID)
 	if err != nil {
 		return nil, err
@@ -225,7 +225,7 @@ func (s *Service) UpdateTarget(ctx context.Context, id, projectID, name, targetT
 
 // DeleteTarget removes a target and its related pipelines, releases, and executions.
 func (s *Service) DeleteTarget(ctx context.Context, id, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM deploy_targets WHERE id = ? AND project_id = ?", id, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM deploy_targets WHERE id = $1 AND project_id = $2", id, projectID)
 	return err
 }
 
@@ -250,7 +250,7 @@ func (s *Service) CreatePipeline(ctx context.Context, projectID, targetID, name,
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO deploy_pipelines (id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		id, projectID, targetID, name, sourceType, sourceURL, branch, buildCmd, outputDir, envJSON, triggerOn, cacheDirs, timeoutMs, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: create pipeline: %w", err)
@@ -271,7 +271,7 @@ func (s *Service) GetPipeline(ctx context.Context, id, projectID string) (*Pipel
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
-		 FROM deploy_pipelines WHERE id = ? AND project_id = ?`, id, projectID,
+		 FROM deploy_pipelines WHERE id = $1 AND project_id = $2`, id, projectID,
 	).Scan(&p.ID, &p.ProjectID, &p.TargetID, &p.Name, &p.SourceType, &p.SourceURL,
 		&p.Branch, &p.BuildCmd, &p.OutputDir, &envJSON, &p.TriggerOn, &p.CacheDirs,
 		&p.TimeoutMs, &p.CreatedAt, &p.UpdatedAt)
@@ -298,7 +298,7 @@ func (s *Service) GetPipeline(ctx context.Context, id, projectID string) (*Pipel
 func (s *Service) ListPipelines(ctx context.Context, projectID string) ([]*Pipeline, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
-		 FROM deploy_pipelines WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM deploy_pipelines WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -342,8 +342,8 @@ func (s *Service) UpdatePipeline(ctx context.Context, id, projectID, targetID, n
 	envJSON, _ := json.Marshal(envVars)
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE deploy_pipelines SET target_id=?, name=?, source_type=?, source_url=?, branch=?, build_cmd=?, output_dir=?, env_vars=?, trigger_on=?, cache_dirs=?, timeout_ms=?, updated_at=?
-		 WHERE id=? AND project_id=?`,
+		`UPDATE deploy_pipelines SET target_id=$1, name=$2, source_type=$3, source_url=$4, branch=$5, build_cmd=$6, output_dir=$7, env_vars=$8, trigger_on=$9, cache_dirs=$10, timeout_ms=$11, updated_at=$12
+		 WHERE id=$13 AND project_id=$14`,
 		targetID, name, sourceType, sourceURL, branch, buildCmd, outputDir, envJSON, triggerOn, cacheDirs, timeoutMs, time.Now().UTC(), id, projectID)
 	if err != nil {
 		return nil, err
@@ -353,7 +353,7 @@ func (s *Service) UpdatePipeline(ctx context.Context, id, projectID, targetID, n
 
 // DeletePipeline removes a pipeline.
 func (s *Service) DeletePipeline(ctx context.Context, id, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM deploy_pipelines WHERE id = ? AND project_id = ?", id, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM deploy_pipelines WHERE id = $1 AND project_id = $2", id, projectID)
 	return err
 }
 
@@ -371,7 +371,7 @@ func (s *Service) TriggerPipeline(ctx context.Context, pipelineID, projectID, tr
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO deploy_releases (id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor, commit_sha, is_preview, started_at, created_at)
-		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, FALSE, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, FALSE, $8, $9)`,
 		id, projectID, p.ID, p.TargetID, triggerType, actor, commitSHA, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: trigger pipeline: %w", err)
@@ -413,7 +413,7 @@ func (s *Service) TriggerPipelineFromWebhook(ctx context.Context, pipelineID, pr
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO deploy_releases (id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor, commit_sha, is_preview, preview_url, pr_number, pr_branch, started_at, created_at)
-		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		id, projectID, p.ID, p.TargetID, triggerType, actor, commitSHA,
 		isPreview, nullString(previewURL), nullInt(prNumber), nullString(prBranch), now, now)
 	if err != nil {
@@ -458,7 +458,7 @@ func (s *Service) GetRelease(ctx context.Context, id, projectID string) (*Releas
 		        commit_sha, build_log, deploy_log, artifact_path, duration_ms, error,
 		        started_at, completed_at, created_at,
 		        is_preview, preview_url, pr_number, pr_branch
-		 FROM deploy_releases WHERE id = ? AND project_id = ?`, id, projectID,
+		 FROM deploy_releases WHERE id = $1 AND project_id = $2`, id, projectID,
 	).Scan(&r.ID, &r.ProjectID, &r.PipelineID, &r.TargetID, &r.Status,
 		&r.TriggerType, &r.TriggerActor, &commitSHA, &buildLog, &deployLog,
 		&artifactPath, &r.DurationMs, &errStr, &startedAt, &completedAt, &r.CreatedAt,
@@ -490,23 +490,27 @@ func (s *Service) GetRelease(ctx context.Context, id, projectID string) (*Releas
 
 // ListReleases returns releases for a project, optionally filtered by pipeline, target, status, or preview flag.
 func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targetID, status string, previewOnly ...bool) ([]*Release, int, error) {
+	n := 1
 	query := `SELECT id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor,
 	                 commit_sha, build_log, deploy_log, artifact_path, duration_ms, error,
 	                 started_at, completed_at, created_at,
 	                 is_preview, preview_url, pr_number, pr_branch
-	          FROM deploy_releases WHERE project_id = ?`
+	          FROM deploy_releases WHERE project_id = $1`
 	args := []interface{}{projectID}
 
 	if pipelineID != "" {
-		query += " AND pipeline_id = ?"
+		n++
+		query += fmt.Sprintf(" AND pipeline_id = $%d", n)
 		args = append(args, pipelineID)
 	}
 	if targetID != "" {
-		query += " AND target_id = ?"
+		n++
+		query += fmt.Sprintf(" AND target_id = $%d", n)
 		args = append(args, targetID)
 	}
 	if status != "" {
-		query += " AND status = ?"
+		n++
+		query += fmt.Sprintf(" AND status = $%d", n)
 		args = append(args, status)
 	}
 	if len(previewOnly) > 0 && previewOnly[0] {
@@ -556,8 +560,8 @@ func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targe
 // UpdateRelease updates the status, logs, and timing of a release.
 func (s *Service) UpdateRelease(ctx context.Context, id string, status string, buildLog, deployLog, artifactPath, releaseErr string, startedAt, completedAt *time.Time, durationMs int64) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE deploy_releases SET status=?, build_log=?, deploy_log=?, artifact_path=?, error=?, started_at=?, completed_at=?, duration_ms=?
-		 WHERE id=?`,
+		`UPDATE deploy_releases SET status=$1, build_log=$2, deploy_log=$3, artifact_path=$4, error=$5, started_at=$6, completed_at=$7, duration_ms=$8
+		 WHERE id=$9`,
 		status, buildLog, deployLog, artifactPath, releaseErr, startedAt, completedAt, durationMs, id)
 	return err
 }
@@ -577,7 +581,7 @@ func (s *Service) RollbackRelease(ctx context.Context, releaseID, projectID, act
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO deploy_releases (id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor, commit_sha, artifact_path, started_at, created_at)
-		 VALUES (?, ?, ?, ?, 'pending', 'rollback', ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, 'pending', 'rollback', $5, $6, $7, $8, $9)`,
 		id, projectID, orig.PipelineID, orig.TargetID, actor, orig.CommitSHA, orig.ArtifactPath, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: rollback: %w", err)
@@ -626,7 +630,7 @@ func (s *Service) InvokeTarget(ctx context.Context, targetID, projectID, request
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO deploy_executions (id, project_id, target_id, status, request, trigger_source, created_at)
-		 VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
+		 VALUES ($1, $2, $3, 'pending', $4, $5, $6)`,
 		id, projectID, targetID, request, trigger, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: invoke target: %w", err)
@@ -663,7 +667,7 @@ func (s *Service) GetExecution(ctx context.Context, id, targetID, projectID stri
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, target_id, status, status_code, request, response, stdout, stderr, duration_ms, trigger_source, created_at
-		 FROM deploy_executions WHERE id = ? AND target_id = ? AND project_id = ?`,
+		 FROM deploy_executions WHERE id = $1 AND target_id = $2 AND project_id = $3`,
 		id, targetID, projectID,
 	).Scan(&e.ID, &e.ProjectID, &e.TargetID, &e.Status, &statusCode,
 		&e.Request, &resp, &stdout, &stderr, &e.DurationMs, &errTrigger, &e.CreatedAt)
@@ -685,7 +689,7 @@ func (s *Service) GetExecution(ctx context.Context, id, targetID, projectID stri
 func (s *Service) ListExecutions(ctx context.Context, targetID, projectID string) ([]*Execution, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, target_id, status, status_code, request, response, stdout, stderr, duration_ms, trigger_source, created_at
-		 FROM deploy_executions WHERE target_id = ? AND project_id = ? ORDER BY created_at DESC`,
+		 FROM deploy_executions WHERE target_id = $1 AND project_id = $2 ORDER BY created_at DESC`,
 		targetID, projectID)
 	if err != nil {
 		return nil, 0, err
@@ -714,8 +718,8 @@ func (s *Service) ListExecutions(ctx context.Context, targetID, projectID string
 // UpdateExecution updates the status and output of an execution.
 func (s *Service) UpdateExecution(ctx context.Context, id string, status string, statusCode int, response, stdout, stderr string, durationMs int64) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE deploy_executions SET status=?, status_code=?, response=?, stdout=?, stderr=?, duration_ms=?
-		 WHERE id=?`,
+		`UPDATE deploy_executions SET status=$1, status_code=$2, response=$3, stdout=$4, stderr=$5, duration_ms=$6
+		 WHERE id=$7`,
 		status, statusCode, response, stdout, stderr, durationMs, id)
 	return err
 }
@@ -743,7 +747,7 @@ func (s *Service) CreateCustomDomain(ctx context.Context, projectID, targetID, d
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO custom_domains (id, project_id, target_id, domain, verification, verified, ssl_status, created_at)
-		 VALUES (?, ?, ?, ?, ?, FALSE, 'pending', ?)`,
+		 VALUES ($1, $2, $3, $4, $5, FALSE, 'pending', $6)`,
 		id, projectID, targetID, domain, verification, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: create custom domain: %w", err)
@@ -759,7 +763,7 @@ func (s *Service) CreateCustomDomain(ctx context.Context, projectID, targetID, d
 func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*CustomDomain, error) {
 	var domain, verification string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT domain, verification FROM custom_domains WHERE id = ?`, domainID).Scan(&domain, &verification)
+		`SELECT domain, verification FROM custom_domains WHERE id = $1`, domainID).Scan(&domain, &verification)
 	if err != nil {
 		return nil, fmt.Errorf("domain not found")
 	}
@@ -790,7 +794,7 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*CustomDom
 	}
 
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE custom_domains SET verified = TRUE, ssl_status = 'active' WHERE id = ?`, domainID)
+		`UPDATE custom_domains SET verified = TRUE, ssl_status = 'active' WHERE id = $1`, domainID)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: verify domain: %w", err)
 	}
@@ -799,7 +803,7 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*CustomDom
 	var sslExpires sql.NullTime
 	err = s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, target_id, domain, verification, verified, ssl_status, ssl_expires_at, created_at
-		 FROM custom_domains WHERE id = ?`, domainID,
+		 FROM custom_domains WHERE id = $1`, domainID,
 	).Scan(&d.ID, &d.ProjectID, &d.TargetID, &d.Domain, &d.Verification, &d.Verified,
 		&d.SSLStatus, &sslExpires, &d.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -818,7 +822,7 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*CustomDom
 func (s *Service) ListDomains(ctx context.Context, projectID, targetID string) ([]*CustomDomain, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, target_id, domain, verification, verified, ssl_status, ssl_expires_at, created_at
-		 FROM custom_domains WHERE project_id = ? AND target_id = ? ORDER BY created_at DESC`,
+		 FROM custom_domains WHERE project_id = $1 AND target_id = $2 ORDER BY created_at DESC`,
 		projectID, targetID)
 	if err != nil {
 		return nil, 0, err
@@ -843,7 +847,7 @@ func (s *Service) ListDomains(ctx context.Context, projectID, targetID string) (
 
 // DeleteDomain removes a custom domain.
 func (s *Service) DeleteDomain(ctx context.Context, domainID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM custom_domains WHERE id = ?", domainID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM custom_domains WHERE id = $1", domainID)
 	return err
 }
 
@@ -853,7 +857,7 @@ func (s *Service) ServeStaticFile(ctx context.Context, targetID, filePath string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT p.output_dir FROM deploy_pipelines p
 		 JOIN deploy_targets t ON t.id = p.target_id
-		 WHERE p.target_id = ? ORDER BY p.created_at DESC LIMIT 1`, targetID,
+		 WHERE p.target_id = $1 ORDER BY p.created_at DESC LIMIT 1`, targetID,
 	).Scan(&outputDir)
 	if err == sql.ErrNoRows {
 		return nil, "", fmt.Errorf("no pipeline found for target")
@@ -951,7 +955,7 @@ func (s *Service) PushImage(ctx context.Context, targetID, projectID, repository
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO registry_images (id, project_id, target_id, repository, tag, digest, size_bytes, platform, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		id, projectID, targetID, repository, tag, digest, sizeBytes, platform, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: push image: %w", err)
@@ -967,7 +971,7 @@ func (s *Service) PushImage(ctx context.Context, targetID, projectID, repository
 func (s *Service) ListImages(ctx context.Context, targetID, projectID string) ([]*RegistryImage, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, target_id, repository, tag, digest, size_bytes, platform, created_at
-		 FROM registry_images WHERE target_id = ? AND project_id = ? ORDER BY created_at DESC`,
+		 FROM registry_images WHERE target_id = $1 AND project_id = $2 ORDER BY created_at DESC`,
 		targetID, projectID)
 	if err != nil {
 		return nil, 0, err
@@ -988,7 +992,7 @@ func (s *Service) ListImages(ctx context.Context, targetID, projectID string) ([
 
 // DeleteImage removes a registry image record.
 func (s *Service) DeleteImage(ctx context.Context, imageID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM registry_images WHERE id = ?", imageID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM registry_images WHERE id = $1", imageID)
 	return err
 }
 
@@ -1022,7 +1026,7 @@ func (s *Service) RegisterAgent(ctx context.Context, projectID, name string, lab
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO build_agents (id, project_id, name, token, labels, status, os, arch, created_at)
-		 VALUES (?, ?, ?, ?, ?, 'offline', ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, 'offline', $6, $7, $8)`,
 		id, projectID, name, token, labelsJSON, os, arch, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: register agent: %w", err)
@@ -1038,7 +1042,7 @@ func (s *Service) RegisterAgent(ctx context.Context, projectID, name string, lab
 func (s *Service) ListAgents(ctx context.Context, projectID string) ([]*Agent, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, labels, status, last_heartbeat, current_job_id, os, arch, created_at
-		 FROM build_agents WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM build_agents WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1071,14 +1075,14 @@ func (s *Service) ListAgents(ctx context.Context, projectID string) ([]*Agent, i
 func (s *Service) HeartbeatAgent(ctx context.Context, agentID string) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE build_agents SET last_heartbeat = ?, status = 'online' WHERE id = ?`,
+		`UPDATE build_agents SET last_heartbeat = $1, status = 'online' WHERE id = $2`,
 		now, agentID)
 	return err
 }
 
 // DeleteAgent removes a build agent.
 func (s *Service) DeleteAgent(ctx context.Context, agentID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM build_agents WHERE id = ?", agentID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM build_agents WHERE id = $1", agentID)
 	return err
 }
 
@@ -1116,7 +1120,7 @@ func (s *Service) AssignJob(ctx context.Context, agentLabel, jobID string) (*Age
 			if l == agentLabel {
 				// Assign the job.
 				_, err := s.db.ExecContext(ctx,
-					`UPDATE build_agents SET current_job_id = ? WHERE id = ?`, jobID, a.ID)
+					`UPDATE build_agents SET current_job_id = $1 WHERE id = $2`, jobID, a.ID)
 				if err != nil {
 					return nil, fmt.Errorf("deploy: assign job: %w", err)
 				}
@@ -1151,12 +1155,12 @@ func (s *Service) GetTargetStats(ctx context.Context, targetID, projectID string
 	s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0),
 		        COALESCE(SUM(duration_ms),0)/60000.0
-		 FROM deploy_releases WHERE target_id = ? AND project_id = ?`, targetID, projectID,
+		 FROM deploy_releases WHERE target_id = $1 AND project_id = $2`, targetID, projectID,
 	).Scan(&stats.TotalReleases, &stats.SuccessReleases, &stats.FailedReleases, &stats.BuildMinutes)
 
 	s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*), COALESCE(AVG(duration_ms),0)
-		 FROM deploy_executions WHERE target_id = ? AND project_id = ?`, targetID, projectID,
+		 FROM deploy_executions WHERE target_id = $1 AND project_id = $2`, targetID, projectID,
 	).Scan(&stats.TotalExecutions, &stats.AvgDurationMs)
 
 	stats.Requests = stats.TotalExecutions
@@ -1169,7 +1173,7 @@ func (s *Service) GetTargetLogs(ctx context.Context, targetID, projectID string)
 	var releaseID, buildLog, deployLog string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, COALESCE(build_log,''), COALESCE(deploy_log,'')
-		 FROM deploy_releases WHERE target_id = ? AND project_id = ?
+		 FROM deploy_releases WHERE target_id = $1 AND project_id = $2
 		 ORDER BY created_at DESC LIMIT 1`, targetID, projectID,
 	).Scan(&releaseID, &buildLog, &deployLog)
 
@@ -1269,7 +1273,7 @@ func (s *Service) GetTargetDetailedStats(ctx context.Context, targetID, projectI
 		        COALESCE(SUM(CASE WHEN duration_ms > 0 AND duration_ms > 1000 THEN 1 ELSE 0 END), 0) AS cold_start_count,
 		        COALESCE(AVG(CASE WHEN duration_ms > 0 THEN duration_ms END), 0) AS avg_duration_ms
 		 FROM deploy_executions
-		 WHERE target_id = ? AND project_id = ? AND created_at >= ?
+		 WHERE target_id = $1 AND project_id = $2 AND created_at >= $3
 		 GROUP BY bucket
 		 ORDER BY bucket ASC`, dateFmt)
 
@@ -1311,20 +1315,20 @@ func (s *Service) GetAggregateStats(ctx context.Context, projectID string) (*Agg
 	stats := &AggregateStats{}
 
 	s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM deploy_targets WHERE project_id = ?`, projectID,
+		`SELECT COUNT(*) FROM deploy_targets WHERE project_id = $1`, projectID,
 	).Scan(&stats.TotalTargets)
 
 	s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM deploy_pipelines WHERE project_id = ?`, projectID,
+		`SELECT COUNT(*) FROM deploy_pipelines WHERE project_id = $1`, projectID,
 	).Scan(&stats.TotalPipelines)
 
 	s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0), COALESCE(AVG(duration_ms),0)
-		 FROM deploy_releases WHERE project_id = ?`, projectID,
+		 FROM deploy_releases WHERE project_id = $1`, projectID,
 	).Scan(&stats.TotalReleases, &stats.SuccessReleases, &stats.FailedReleases, &stats.AvgBuildMs)
 
 	s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM deploy_executions WHERE project_id = ?`, projectID,
+		`SELECT COUNT(*) FROM deploy_executions WHERE project_id = $1`, projectID,
 	).Scan(&stats.TotalExecutions)
 
 	return stats, nil
@@ -1353,16 +1357,19 @@ type DeployTemplate struct {
 
 // ListDeployTemplates returns templates filtered by category and optionally by framework.
 func (s *Service) ListDeployTemplates(ctx context.Context, category, framework string) ([]*DeployTemplate, int, error) {
+	n := 0
 	query := `SELECT id, name, description, category, framework, use_case, repo_url, branch, build_cmd, output_dir, install_cmd, env_vars, icon, popularity, created_at
 	          FROM deploy_templates WHERE 1=1`
 	args := []interface{}{}
 
 	if category != "" {
-		query += " AND category = ?"
+		n++
+		query += fmt.Sprintf(" AND category = $%d", n)
 		args = append(args, category)
 	}
 	if framework != "" {
-		query += " AND framework = ?"
+		n++
+		query += fmt.Sprintf(" AND framework = $%d", n)
 		args = append(args, framework)
 	}
 	query += " ORDER BY popularity DESC, created_at DESC"
@@ -1398,7 +1405,7 @@ func (s *Service) GetDeployTemplate(ctx context.Context, templateID string) (*De
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, name, description, category, framework, use_case, repo_url, branch, build_cmd, output_dir, install_cmd, env_vars, icon, popularity, created_at
-		 FROM deploy_templates WHERE id = ?`, templateID,
+		 FROM deploy_templates WHERE id = $1`, templateID,
 	).Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.Framework,
 		&t.UseCase, &t.RepoURL, &t.Branch, &t.BuildCmd, &t.OutputDir, &t.InstallCmd,
 		&envJSON, &t.Icon, &t.Popularity, &t.CreatedAt)
@@ -1456,7 +1463,7 @@ func (s *Service) CreateGitConnection(ctx context.Context, projectID, provider, 
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO git_connections (id, project_id, provider, installation_id, access_token, refresh_token, account_name, account_type, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		id, projectID, provider, installationID, accessToken, refreshToken, accountName, accountType, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: create git connection: %w", err)
@@ -1473,7 +1480,7 @@ func (s *Service) CreateGitConnection(ctx context.Context, projectID, provider, 
 func (s *Service) ListGitConnections(ctx context.Context, projectID string) ([]*GitConnection, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, provider, installation_id, access_token, refresh_token, account_name, account_type, expires_at, webhook_secret, created_at, updated_at
-		 FROM git_connections WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM git_connections WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1506,7 +1513,7 @@ func (s *Service) GetGitConnectionByID(ctx context.Context, connectionID string)
 	var webhookSecret sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, provider, installation_id, access_token, refresh_token, account_name, account_type, expires_at, webhook_secret, created_at, updated_at
-		 FROM git_connections WHERE id = ?`, connectionID,
+		 FROM git_connections WHERE id = $1`, connectionID,
 	).Scan(&c.ID, &c.ProjectID, &c.Provider, &c.InstallationID,
 		&c.AccessToken, &c.RefreshToken, &c.AccountName, &c.AccountType,
 		&expiresAt, &webhookSecret, &c.CreatedAt, &c.UpdatedAt)
@@ -1528,7 +1535,7 @@ func (s *Service) GetGitConnectionByID(ctx context.Context, connectionID string)
 func (s *Service) GenerateWebhookSecret(ctx context.Context, connectionID, projectID string) (string, error) {
 	secret := uid.RandomHex(32)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE git_connections SET webhook_secret = ?, updated_at = NOW() WHERE id = ? AND project_id = ?`,
+		`UPDATE git_connections SET webhook_secret = $1, updated_at = NOW() WHERE id = $2 AND project_id = $3`,
 		secret, connectionID, projectID)
 	if err != nil {
 		return "", fmt.Errorf("deploy: generate webhook secret: %w", err)
@@ -1538,7 +1545,7 @@ func (s *Service) GenerateWebhookSecret(ctx context.Context, connectionID, proje
 
 // DeleteGitConnection removes a git connection.
 func (s *Service) DeleteGitConnection(ctx context.Context, connectionID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM git_connections WHERE id = ?", connectionID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM git_connections WHERE id = $1", connectionID)
 	return err
 }
 
@@ -1546,7 +1553,7 @@ func (s *Service) DeleteGitConnection(ctx context.Context, connectionID string) 
 func (s *Service) ListRepositories(ctx context.Context, connectionID string) ([]*GitRepository, error) {
 	var accessToken, provider string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT access_token, provider FROM git_connections WHERE id = ?`, connectionID,
+		`SELECT access_token, provider FROM git_connections WHERE id = $1`, connectionID,
 	).Scan(&accessToken, &provider)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("git connection not found")
@@ -1636,7 +1643,7 @@ func (s *Service) CreateEnvironment(ctx context.Context, projectID, name, slug, 
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO environments (id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, $9)`,
 		id, projectID, name, slug, branch, domain, envJSON, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: create environment: %w", err)
@@ -1652,7 +1659,7 @@ func (s *Service) CreateEnvironment(ctx context.Context, projectID, name, slug, 
 func (s *Service) ListEnvironments(ctx context.Context, projectID string) ([]*Environment, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at
-		 FROM environments WHERE project_id = ? ORDER BY is_default DESC, created_at ASC`, projectID)
+		 FROM environments WHERE project_id = $1 ORDER BY is_default DESC, created_at ASC`, projectID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1682,7 +1689,7 @@ func (s *Service) GetEnvironment(ctx context.Context, environmentID, projectID s
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at
-		 FROM environments WHERE id = ? AND project_id = ?`, environmentID, projectID,
+		 FROM environments WHERE id = $1 AND project_id = $2`, environmentID, projectID,
 	).Scan(&e.ID, &e.ProjectID, &e.Name, &e.Slug, &e.Branch,
 		&e.Domain, &envJSON, &e.IsDefault, &e.CreatedAt, &e.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -1706,8 +1713,8 @@ func (s *Service) UpdateEnvironment(ctx context.Context, environmentID, name, br
 	envJSON, _ := json.Marshal(envVars)
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE environments SET name=?, branch=?, domain=?, env_vars=?, updated_at=?
-		 WHERE id=?`,
+		`UPDATE environments SET name=$1, branch=$2, domain=$3, env_vars=$4, updated_at=$5
+		 WHERE id=$6`,
 		name, branch, domain, envJSON, time.Now().UTC(), environmentID)
 	if err != nil {
 		return nil, err
@@ -1718,7 +1725,7 @@ func (s *Service) UpdateEnvironment(ctx context.Context, environmentID, name, br
 	var envJSONOut []byte
 	err = s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at
-		 FROM environments WHERE id = ?`, environmentID,
+		 FROM environments WHERE id = $1`, environmentID,
 	).Scan(&e.ID, &e.ProjectID, &e.Name, &e.Slug, &e.Branch,
 		&e.Domain, &envJSONOut, &e.IsDefault, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
@@ -1735,7 +1742,7 @@ func (s *Service) UpdateEnvironment(ctx context.Context, environmentID, name, br
 func (s *Service) DeleteEnvironment(ctx context.Context, environmentID string) error {
 	var isDefault bool
 	err := s.db.QueryRowContext(ctx,
-		`SELECT is_default FROM environments WHERE id = ?`, environmentID,
+		`SELECT is_default FROM environments WHERE id = $1`, environmentID,
 	).Scan(&isDefault)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("environment not found")
@@ -1746,7 +1753,7 @@ func (s *Service) DeleteEnvironment(ctx context.Context, environmentID string) e
 	if isDefault {
 		return fmt.Errorf("cannot delete the default environment")
 	}
-	_, err = s.db.ExecContext(ctx, "DELETE FROM environments WHERE id = ?", environmentID)
+	_, err = s.db.ExecContext(ctx, "DELETE FROM environments WHERE id = $1", environmentID)
 	return err
 }
 
@@ -1770,7 +1777,7 @@ func (s *Service) CreateDefaultEnvironments(ctx context.Context, projectID strin
 		id := uid.New("unique()")
 		_, err := s.db.ExecContext(ctx,
 			`INSERT INTO environments (id, project_id, name, slug, branch, domain, env_vars, is_default, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
+			 VALUES ($1, $2, $3, $4, $5, '', $6, $7, $8, $9)`,
 			id, projectID, d.name, d.slug, d.branch, emptyEnv, d.isDefault, now, now)
 		if err != nil {
 			return fmt.Errorf("deploy: create default environment %s: %w", d.name, err)
@@ -1960,7 +1967,7 @@ func (s *Service) handlePREvent(ctx context.Context, conn *GitConnection, payloa
 		// Destroy open preview releases for this PR.
 		_, err := s.db.ExecContext(ctx,
 			`UPDATE deploy_releases SET status = 'destroyed', completed_at = NOW()
-			 WHERE project_id = ? AND pr_number = ? AND is_preview = TRUE AND status NOT IN ('destroyed', 'failed')`,
+			 WHERE project_id = $1 AND pr_number = $2 AND is_preview = TRUE AND status NOT IN ('destroyed', 'failed')`,
 			conn.ProjectID, ev.Number)
 		return 0, err
 
@@ -1975,10 +1982,10 @@ func (s *Service) findMatchingPipelines(ctx context.Context, projectID, repoFull
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
 		 FROM deploy_pipelines
-		 WHERE project_id = ?
+		 WHERE project_id = $1
 		   AND source_type = 'git'
-		   AND branch = ?
-		   AND source_url LIKE ?`,
+		   AND branch = $2
+		   AND source_url LIKE $3`,
 		projectID, branch, "%"+repoFullName)
 	if err != nil {
 		return nil, err
@@ -2120,7 +2127,7 @@ func postCommitStatus(ctx context.Context, provider, accessToken, repoFullName, 
 func (s *Service) DestroyPreviewRelease(ctx context.Context, releaseID, projectID string) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE deploy_releases SET status = 'destroyed', completed_at = NOW()
-		 WHERE id = ? AND project_id = ? AND is_preview = TRUE`,
+		 WHERE id = $1 AND project_id = $2 AND is_preview = TRUE`,
 		releaseID, projectID)
 	if err != nil {
 		return err

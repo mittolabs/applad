@@ -72,7 +72,7 @@ func (s *Service) GetRegion(ctx context.Context, idOrCode string) (*Region, erro
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, name, code, location, endpoint,
 		        COALESCE(latitude,0), COALESCE(longitude,0), status, created_at
-		 FROM regions WHERE id = ? OR code = ?`, idOrCode, idOrCode)
+		 FROM regions WHERE id = $1 OR code = $2`, idOrCode, idOrCode)
 	return scanRegion(row)
 }
 
@@ -83,7 +83,7 @@ func (s *Service) AssignRegion(ctx context.Context, projectID, regionID string, 
 	// If primary, clear existing primary
 	if primary {
 		s.db.ExecContext(ctx, //nolint:errcheck
-			"UPDATE project_regions SET primary_region=FALSE WHERE project_id=?", projectID)
+			"UPDATE project_regions SET primary_region=FALSE WHERE project_id=$1", projectID)
 	}
 	pr := &ProjectRegion{
 		ID: uid.New(""), ProjectID: projectID, RegionID: regionID,
@@ -92,7 +92,7 @@ func (s *Service) AssignRegion(ctx context.Context, projectID, regionID string, 
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO project_regions (id, project_id, region_id, primary_region, gdpr, hipaa, created_at)
-		 VALUES (?,?,?,?,?,?,?)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)
 		 ON CONFLICT (project_id, region_id) DO UPDATE SET primary_region=EXCLUDED.primary_region, gdpr=EXCLUDED.gdpr, hipaa=EXCLUDED.hipaa`,
 		pr.ID, pr.ProjectID, pr.RegionID,
 		pr.PrimaryRegion, pr.GDPR, pr.HIPAA,
@@ -113,7 +113,7 @@ func (s *Service) ListProjectRegions(ctx context.Context, projectID string) ([]*
 		        COALESCE(r.latitude,0), COALESCE(r.longitude,0), r.status, r.created_at
 		 FROM project_regions pr
 		 JOIN regions r ON r.id = pr.region_id
-		 WHERE pr.project_id = ? ORDER BY pr.primary_region DESC, pr.created_at ASC`, projectID)
+		 WHERE pr.project_id = $1 ORDER BY pr.primary_region DESC, pr.created_at ASC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (s *Service) ListProjectRegions(ctx context.Context, projectID string) ([]*
 
 // RemoveRegion removes a region assignment from a project.
 func (s *Service) RemoveRegion(ctx context.Context, projectID, regionID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM project_regions WHERE project_id=? AND region_id=?", projectID, regionID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM project_regions WHERE project_id=$1 AND region_id=$2", projectID, regionID)
 	return err
 }
 
@@ -147,7 +147,7 @@ func (s *Service) GetPrimaryRegion(ctx context.Context, projectID string) (*Proj
 		        COALESCE(r.latitude,0), COALESCE(r.longitude,0), r.status, r.created_at
 		 FROM project_regions pr
 		 JOIN regions r ON r.id = pr.region_id
-		 WHERE pr.project_id = ? AND pr.primary_region = TRUE
+		 WHERE pr.project_id = $1 AND pr.primary_region = TRUE
 		 LIMIT 1`, projectID)
 	if err != nil {
 		return nil, err

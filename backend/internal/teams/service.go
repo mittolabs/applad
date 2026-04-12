@@ -27,7 +27,7 @@ func (s *Service) Create(ctx context.Context, projectID, teamID, name string, ro
 	now := time.Now().UTC()
 	prefsJSON, _ := json.Marshal(map[string]interface{}{})
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO teams (id, project_id, name, prefs, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO teams (id, project_id, name, prefs, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)",
 		id, projectID, name, prefsJSON, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("teams: create: %w", err)
@@ -39,7 +39,7 @@ func (s *Service) Get(ctx context.Context, teamID, projectID string) (*model.Tea
 	var t model.Team
 	var prefsJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, name, prefs, created_at, updated_at FROM teams WHERE id = ? AND project_id = ?",
+		"SELECT id, name, prefs, created_at, updated_at FROM teams WHERE id = $1 AND project_id = $2",
 		teamID, projectID).Scan(&t.ID, &t.Name, &prefsJSON, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("team not found")
@@ -52,7 +52,7 @@ func (s *Service) Get(ctx context.Context, teamID, projectID string) (*model.Tea
 		t.Prefs = map[string]interface{}{}
 	}
 	// count members
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM memberships WHERE team_id = ? AND joined = 1", teamID).Scan(&t.Total) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM memberships WHERE team_id = $1 AND joined = 1", teamID).Scan(&t.Total) //nolint:errcheck
 	return &t, nil
 }
 
@@ -60,14 +60,16 @@ func (s *Service) List(ctx context.Context, projectID string, limit, offset int,
 	if limit <= 0 {
 		limit = 25
 	}
-	query := "SELECT id, name, prefs, created_at, updated_at FROM teams WHERE project_id = ?"
+	n := 1
+	query := "SELECT id, name, prefs, created_at, updated_at FROM teams WHERE project_id = $1"
 	args := []interface{}{projectID}
 	if search != "" {
-		query += " AND name LIKE ?"
+		n++
+		query += fmt.Sprintf(" AND name LIKE $%d", n)
 		args = append(args, "%"+search+"%")
 	}
-	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n+1, n+2)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
@@ -87,13 +89,13 @@ func (s *Service) List(ctx context.Context, projectID string, limit, offset int,
 		teams = append(teams, &t)
 	}
 	var total int
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM teams WHERE project_id = ?", projectID).Scan(&total) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM teams WHERE project_id = $1", projectID).Scan(&total) //nolint:errcheck
 	return teams, total, nil
 }
 
 func (s *Service) Update(ctx context.Context, teamID, projectID, name string) (*model.Team, error) {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE teams SET name = ? WHERE id = ? AND project_id = ?", name, teamID, projectID)
+		"UPDATE teams SET name = $1 WHERE id = $2 AND project_id = $3", name, teamID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +103,7 @@ func (s *Service) Update(ctx context.Context, teamID, projectID, name string) (*
 }
 
 func (s *Service) Delete(ctx context.Context, teamID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM teams WHERE id = ? AND project_id = ?", teamID, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM teams WHERE id = $1 AND project_id = $2", teamID, projectID)
 	return err
 }
 
@@ -111,7 +113,7 @@ func (s *Service) CreateMembership(ctx context.Context, teamID, projectID, email
 	secret := uid.RandomHex(32)
 	rolesJSON, _ := json.Marshal(roles)
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO memberships (id, team_id, invited_email, roles, invited, joined, secret, created_at) VALUES (?, ?, ?, ?, 1, 0, ?, ?)",
+		"INSERT INTO memberships (id, team_id, invited_email, roles, invited, joined, secret, created_at) VALUES ($1, $2, $3, $4, 1, 0, $5, $6)",
 		id, teamID, email, rolesJSON, secret, now)
 	if err != nil {
 		return nil, fmt.Errorf("teams: create membership: %w", err)
@@ -134,7 +136,7 @@ func (s *Service) CreateMembership(ctx context.Context, teamID, projectID, email
 
 func (s *Service) ListMemberships(ctx context.Context, teamID, projectID string) ([]*model.Membership, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.team_id = ? ORDER BY m.created_at DESC",
+		"SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.team_id = $1 ORDER BY m.created_at DESC",
 		teamID)
 	if err != nil {
 		return nil, 0, err
@@ -162,6 +164,6 @@ func (s *Service) ListMemberships(ctx context.Context, teamID, projectID string)
 
 func (s *Service) DeleteMembership(ctx context.Context, membershipID, teamID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM memberships WHERE id = ? AND team_id = ?", membershipID, teamID)
+		"DELETE FROM memberships WHERE id = $1 AND team_id = $2", membershipID, teamID)
 	return err
 }

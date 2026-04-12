@@ -197,7 +197,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, credType, descrip
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO credentials (id, project_id, name, type, description, data, key_version, protected, expires_at, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		id, projectID, name, credType, description, encrypted, version, protected, expiresAt, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("credentials: create: %w", err)
@@ -219,7 +219,7 @@ func (s *Service) List(ctx context.Context, projectID string, limit, offset int)
 
 	var total int
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM credentials WHERE project_id = ? AND (expires_at IS NULL OR expires_at > NOW())",
+		"SELECT COUNT(*) FROM credentials WHERE project_id = $1 AND (expires_at IS NULL OR expires_at > NOW())",
 		projectID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -227,8 +227,8 @@ func (s *Service) List(ctx context.Context, projectID string, limit, offset int)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, type, COALESCE(description,''), key_version, protected, expires_at, created_at, updated_at
 		 FROM credentials
-		 WHERE project_id = ? AND (expires_at IS NULL OR expires_at > NOW())
-		 ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		 WHERE project_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
+		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		projectID, limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -266,7 +266,7 @@ func (s *Service) Get(ctx context.Context, id, projectID string, isAPIKey bool) 
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, type, COALESCE(description,''), data, key_version, protected, expires_at, created_at, updated_at
-		 FROM credentials WHERE id = ? AND project_id = ?`,
+		 FROM credentials WHERE id = $1 AND project_id = $2`,
 		id, projectID).Scan(
 		&c.ID, &c.ProjectID, &c.Name, &c.Type, &description,
 		&encrypted, &c.KeyVersion, &protected, &expiresAt, &c.CreatedAt, &c.UpdatedAt)
@@ -305,8 +305,8 @@ func (s *Service) Update(ctx context.Context, id, projectID, name, credType, des
 	}
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE credentials
-		 SET name=?, type=?, description=?, data=?, key_version=?, protected=?, expires_at=?, updated_at=?
-		 WHERE id=? AND project_id=?`,
+		 SET name=$1, type=$2, description=$3, data=$4, key_version=$5, protected=$6, expires_at=$7, updated_at=$8
+		 WHERE id=$9 AND project_id=$10`,
 		name, credType, description, encrypted, version, protected, expiresAt, time.Now().UTC(), id, projectID)
 	if err != nil {
 		return nil, err
@@ -317,7 +317,7 @@ func (s *Service) Update(ctx context.Context, id, projectID, name, credType, des
 // Delete removes a credential.
 func (s *Service) Delete(ctx context.Context, id, projectID string) error {
 	res, err := s.db.ExecContext(ctx,
-		"DELETE FROM credentials WHERE id = ? AND project_id = ?", id, projectID)
+		"DELETE FROM credentials WHERE id = $1 AND project_id = $2", id, projectID)
 	if err != nil {
 		return err
 	}
@@ -337,7 +337,7 @@ func (s *Service) RotateKeys(ctx context.Context, projectID string) (int, error)
 
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, data, key_version FROM credentials
-		 WHERE project_id = ? AND key_version != ?`,
+		 WHERE project_id = $1 AND key_version != $2`,
 		projectID, target)
 	if err != nil {
 		return 0, err
@@ -370,7 +370,7 @@ func (s *Service) RotateKeys(ctx context.Context, projectID string) (int, error)
 			return rotated, fmt.Errorf("credentials: rotate: re-encrypt %s: %w", r.id, err)
 		}
 		_, err = s.db.ExecContext(ctx,
-			"UPDATE credentials SET data=?, key_version=?, updated_at=? WHERE id=? AND project_id=?",
+			"UPDATE credentials SET data=$1, key_version=$2, updated_at=$3 WHERE id=$4 AND project_id=$5",
 			newCiphertext, target, time.Now().UTC(), r.id, projectID)
 		if err != nil {
 			return rotated, fmt.Errorf("credentials: rotate: update %s: %w", r.id, err)
@@ -387,7 +387,7 @@ func (s *Service) LogAccess(ctx context.Context, credID, projectID, action, acto
 	id := uid.New("unique()")
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO credential_accesses (id, credential_id, project_id, action, actor_id, actor_type, ip, user_agent)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, credID, projectID, action, actorID, actorType, ip, ua)
 	if err != nil {
 		slog.Warn("credentials: log access failed", "error", err)
@@ -401,7 +401,7 @@ func (s *Service) ListAccesses(ctx context.Context, credID, projectID string, li
 	}
 	var total int
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM credential_accesses WHERE credential_id = ? AND project_id = ?",
+		"SELECT COUNT(*) FROM credential_accesses WHERE credential_id = $1 AND project_id = $2",
 		credID, projectID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -410,8 +410,8 @@ func (s *Service) ListAccesses(ctx context.Context, credID, projectID string, li
 		        COALESCE(actor_id,''), COALESCE(actor_type,''),
 		        COALESCE(ip,''), COALESCE(user_agent,''), accessed_at
 		 FROM credential_accesses
-		 WHERE credential_id = ? AND project_id = ?
-		 ORDER BY accessed_at DESC LIMIT ? OFFSET ?`,
+		 WHERE credential_id = $1 AND project_id = $2
+		 ORDER BY accessed_at DESC LIMIT $3 OFFSET $4`,
 		credID, projectID, limit, offset)
 	if err != nil {
 		return nil, 0, err

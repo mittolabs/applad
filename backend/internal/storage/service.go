@@ -79,7 +79,7 @@ func (s *Service) CreateBucket(ctx context.Context, projectID, bucketID, name st
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO buckets (id, project_id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, file_security, image_transformations, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		id, projectID, name, permsJSON, fileSizeLimit, mimeJSON, compression, encryption, antivirus, fileSecurity, imageTransformations, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("storage: create bucket: %w", err)
@@ -98,7 +98,7 @@ func (s *Service) GetBucket(ctx context.Context, bucketID, projectID string) (*m
 	var b model.Bucket
 	var permsJSON, mimeJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, file_security, image_transformations, enabled, created_at, updated_at FROM buckets WHERE id = ? AND project_id = ?",
+		"SELECT id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, file_security, image_transformations, enabled, created_at, updated_at FROM buckets WHERE id = $1 AND project_id = $2",
 		bucketID, projectID).Scan(&b.ID, &b.Name, &permsJSON, &b.FileSizeLimit, &mimeJSON, &b.Compression, &b.Encryption, &b.Antivirus, &b.FileSecurity, &b.ImageTransformations, &b.Enabled, &b.CreatedAt, &b.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("bucket not found")
@@ -119,7 +119,7 @@ func (s *Service) GetBucket(ctx context.Context, bucketID, projectID string) (*m
 
 func (s *Service) ListBuckets(ctx context.Context, projectID string) ([]*model.Bucket, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, file_security, image_transformations, enabled, created_at, updated_at FROM buckets WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, name, permissions, file_size_limit, allowed_mime_types, compression, encryption, antivirus, file_security, image_transformations, enabled, created_at, updated_at FROM buckets WHERE project_id = $1 ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, 0, err
@@ -149,9 +149,9 @@ func (s *Service) UpdateBucket(ctx context.Context, bucketID, projectID, name st
 	permsJSON, _ := json.Marshal(permissions)
 	mimeJSON, _ := json.Marshal(allowedMimeTypes)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE buckets SET name = ?, permissions = ?, file_size_limit = ?, allowed_mime_types = ?,
-		 compression = ?, encryption = ?, antivirus = ?, file_security = ?, image_transformations = ?,
-		 enabled = ? WHERE id = ? AND project_id = ?`,
+		`UPDATE buckets SET name = $1, permissions = $2, file_size_limit = $3, allowed_mime_types = $4,
+		 compression = $5, encryption = $6, antivirus = $7, file_security = $8, image_transformations = $9,
+		 enabled = $10 WHERE id = $11 AND project_id = $12`,
 		name, permsJSON, fileSizeLimit, mimeJSON,
 		compression, encryption, antivirus, fileSecurity, imageTransformations,
 		enabled, bucketID, projectID)
@@ -163,7 +163,7 @@ func (s *Service) UpdateBucket(ctx context.Context, bucketID, projectID, name st
 
 func (s *Service) DeleteBucket(ctx context.Context, bucketID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM buckets WHERE id = ? AND project_id = ?", bucketID, projectID)
+		"DELETE FROM buckets WHERE id = $1 AND project_id = $2", bucketID, projectID)
 	return err
 }
 
@@ -228,7 +228,7 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO files (id, bucket_id, project_id, name, mime_type, size, permissions, path, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		id, bucketID, projectID, name, mimeType, int64(len(content)), permsJSON, storagePath, now, now)
 	if err != nil {
 		s.driver.Delete(ctx, storagePath) //nolint:errcheck
@@ -249,7 +249,7 @@ func (s *Service) GetFile(ctx context.Context, fileID, bucketID, projectID strin
 	var f model.File
 	var permsJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, bucket_id, name, mime_type, size, permissions, created_at, updated_at FROM files WHERE id = ? AND bucket_id = ? AND project_id = ?",
+		"SELECT id, bucket_id, name, mime_type, size, permissions, created_at, updated_at FROM files WHERE id = $1 AND bucket_id = $2 AND project_id = $3",
 		fileID, bucketID, projectID).Scan(&f.ID, &f.BucketID, &f.Name, &f.MimeType, &f.SizeOriginal, &permsJSON, &f.CreatedAt, &f.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("file not found")
@@ -267,7 +267,7 @@ func (s *Service) GetFile(ctx context.Context, fileID, bucketID, projectID strin
 func (s *Service) GetFileContent(ctx context.Context, fileID, bucketID, projectID string) ([]byte, string, error) {
 	var path, mimeType string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT path, mime_type FROM files WHERE id = ? AND bucket_id = ? AND project_id = ?",
+		"SELECT path, mime_type FROM files WHERE id = $1 AND bucket_id = $2 AND project_id = $3",
 		fileID, bucketID, projectID).Scan(&path, &mimeType)
 	if err == sql.ErrNoRows {
 		return nil, "", fmt.Errorf("file not found")
@@ -287,7 +287,7 @@ func (s *Service) ListFiles(ctx context.Context, projectID, bucketID string, lim
 		limit = 25
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, bucket_id, name, mime_type, size, permissions, created_at, updated_at FROM files WHERE bucket_id = ? AND project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+		"SELECT id, bucket_id, name, mime_type, size, permissions, created_at, updated_at FROM files WHERE bucket_id = $1 AND project_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4",
 		bucketID, projectID, limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -307,7 +307,7 @@ func (s *Service) ListFiles(ctx context.Context, projectID, bucketID string, lim
 		files = append(files, &f)
 	}
 	var total int
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE bucket_id = ? AND project_id = ?", bucketID, projectID).Scan(&total) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE bucket_id = $1 AND project_id = $2", bucketID, projectID).Scan(&total) //nolint:errcheck
 	return files, total, nil
 }
 
@@ -328,7 +328,7 @@ func (s *Service) InitChunkedUpload(ctx context.Context, projectID, bucketID, fi
 	permsJSON, _ := json.Marshal(permissions)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO files (id, bucket_id, project_id, name, mime_type, size, permissions, path, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		id, bucketID, projectID, name, mimeType, totalSize, permsJSON, chunkDir, now, now)
 	if err != nil {
 		return "", fmt.Errorf("storage: init chunked upload: %w", err)
@@ -377,7 +377,7 @@ func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID
 
 	// Update file record with final path and size
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE files SET path = ?, size = ? WHERE id = ? AND bucket_id = ? AND project_id = ?",
+		"UPDATE files SET path = $1, size = $2 WHERE id = $3 AND bucket_id = $4 AND project_id = $5",
 		finalPath, int64(len(assembled)), fileID, bucketID, projectID)
 	if err != nil {
 		return nil, err
@@ -805,13 +805,13 @@ func (s *Service) VerifySignedToken(token string) (bucketID, fileID string, ok b
 func (s *Service) DeleteFile(ctx context.Context, fileID, bucketID, projectID string) error {
 	var path string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT path FROM files WHERE id = ? AND bucket_id = ? AND project_id = ?",
+		"SELECT path FROM files WHERE id = $1 AND bucket_id = $2 AND project_id = $3",
 		fileID, bucketID, projectID).Scan(&path)
 	if err != nil {
 		return err
 	}
 	_, _ = s.db.ExecContext(ctx,
-		"DELETE FROM files WHERE id = ? AND bucket_id = ? AND project_id = ?", fileID, bucketID, projectID)
+		"DELETE FROM files WHERE id = $1 AND bucket_id = $2 AND project_id = $3", fileID, bucketID, projectID)
 	s.driver.Delete(ctx, path) //nolint:errcheck
 	realtime.PublishResourceEvent(s.events, "storage", "files", "delete", projectID, fileID, map[string]string{"$id": fileID})
 	return nil

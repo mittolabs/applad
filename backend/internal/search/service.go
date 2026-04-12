@@ -84,7 +84,7 @@ func (s *Service) CreateIndex(ctx context.Context, projectID, indexID, collectio
 	fieldsJSON, _ := json.Marshal(fields)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO search_indexes (id, project_id, collection_id, name, fields, typo_tolerance, status, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 		idx.ID, idx.ProjectID, nullStr(idx.CollectionID), idx.Name, fieldsJSON,
 		idx.TypoTolerance, idx.Status, idx.CreatedAt, idx.UpdatedAt,
 	)
@@ -101,7 +101,7 @@ func (s *Service) CreateIndex(ctx context.Context, projectID, indexID, collectio
 func (s *Service) GetIndex(ctx context.Context, indexID, projectID string) (*Index, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, COALESCE(collection_id,''), name, fields, COALESCE(synonyms,'[]'), COALESCE(ranking_rules,'[]'), typo_tolerance, status, created_at, updated_at
-		 FROM search_indexes WHERE id = ? AND project_id = ?`, indexID, projectID)
+		 FROM search_indexes WHERE id = $1 AND project_id = $2`, indexID, projectID)
 	return scanIndex(row)
 }
 
@@ -109,7 +109,7 @@ func (s *Service) GetIndex(ctx context.Context, indexID, projectID string) (*Ind
 func (s *Service) ListIndexes(ctx context.Context, projectID string) ([]*Index, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, COALESCE(collection_id,''), name, fields, COALESCE(synonyms,'[]'), COALESCE(ranking_rules,'[]'), typo_tolerance, status, created_at, updated_at
-		 FROM search_indexes WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM search_indexes WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *Service) ListIndexes(ctx context.Context, projectID string) ([]*Index, 
 
 // DeleteIndex deletes an index and all its documents.
 func (s *Service) DeleteIndex(ctx context.Context, indexID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM search_indexes WHERE id = ? AND project_id = ?", indexID, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM search_indexes WHERE id = $1 AND project_id = $2", indexID, projectID)
 	return err
 }
 
@@ -140,7 +140,7 @@ func (s *Service) Upsert(ctx context.Context, indexID, projectID, docID, content
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO search_documents (id, index_id, project_id, doc_id, content, metadata, indexed_at)
-		 VALUES (?,?,?,?,?,?,?)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)
 		 ON CONFLICT (index_id, doc_id) DO UPDATE SET content=EXCLUDED.content, metadata=EXCLUDED.metadata, indexed_at=EXCLUDED.indexed_at`,
 		doc.ID, indexID, projectID, docID, content, nullBytes(metaJSON), doc.IndexedAt,
 	)
@@ -152,7 +152,7 @@ func (s *Service) Upsert(ctx context.Context, indexID, projectID, docID, content
 
 // DeleteDocument removes a document from an index.
 func (s *Service) DeleteDocument(ctx context.Context, indexID, docID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM search_documents WHERE index_id = ? AND doc_id = ?", indexID, docID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM search_documents WHERE index_id = $1 AND doc_id = $2", indexID, docID)
 	return err
 }
 
@@ -169,12 +169,12 @@ func (s *Service) Query(ctx context.Context, indexID, projectID, q string, limit
 	// PostgreSQL full-text search using tsvector
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT doc_id, content, metadata,
-		        ts_rank(to_tsvector('english', content), plainto_tsquery('english', ?)) AS score
+		        ts_rank(to_tsvector('english', content), plainto_tsquery('english', $1)) AS score
 		 FROM search_documents
-		 WHERE index_id = ?
-		   AND to_tsvector('english', content) @@ plainto_tsquery('english', ?)
+		 WHERE index_id = $2
+		   AND to_tsvector('english', content) @@ plainto_tsquery('english', $3)
 		 ORDER BY score DESC
-		 LIMIT ? OFFSET ?`,
+		 LIMIT $4 OFFSET $5`,
 		q, indexID, q, limit, offset,
 	)
 	if err != nil {
@@ -182,8 +182,8 @@ func (s *Service) Query(ctx context.Context, indexID, projectID, q string, limit
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT doc_id, content, metadata, 1.0 as score
 			 FROM search_documents
-			 WHERE index_id = ? AND content LIKE ?
-			 LIMIT ? OFFSET ?`,
+			 WHERE index_id = $1 AND content LIKE $2
+			 LIMIT $3 OFFSET $4`,
 			indexID, "%"+q+"%", limit, offset,
 		)
 		if err != nil {
@@ -215,7 +215,7 @@ func (s *Service) AddSynonym(ctx context.Context, indexID string, synonyms []str
 	syn := &Synonym{ID: uid.New(""), IndexID: indexID, Synonyms: synonyms}
 	synJSON, _ := json.Marshal(synonyms)
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO search_synonyms (id, index_id, synonyms, created_at) VALUES (?,?,?,?)",
+		"INSERT INTO search_synonyms (id, index_id, synonyms, created_at) VALUES ($1,$2,$3,$4)",
 		syn.ID, indexID, synJSON, time.Now().UTC(),
 	)
 	if err != nil {
@@ -226,7 +226,7 @@ func (s *Service) AddSynonym(ctx context.Context, indexID string, synonyms []str
 
 // ListSynonyms returns all synonyms for an index.
 func (s *Service) ListSynonyms(ctx context.Context, indexID string) ([]*Synonym, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id, index_id, synonyms FROM search_synonyms WHERE index_id = ?", indexID)
+	rows, err := s.db.QueryContext(ctx, "SELECT id, index_id, synonyms FROM search_synonyms WHERE index_id = $1", indexID)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func (s *Service) ListSynonyms(ctx context.Context, indexID string) ([]*Synonym,
 
 // DeleteSynonym removes a synonym by ID.
 func (s *Service) DeleteSynonym(ctx context.Context, synID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM search_synonyms WHERE id = ?", synID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM search_synonyms WHERE id = $1", synID)
 	return err
 }
 

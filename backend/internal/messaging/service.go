@@ -112,7 +112,7 @@ func (s *Service) CreateMessage(ctx context.Context, projectID, msgType, subject
 		return nil, fmt.Errorf("messaging: marshal recipients: %w", err)
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO messages (id, project_id, type, subject, body, recipients, status) VALUES (?,?,?,?,?,?,?)`,
+		`INSERT INTO messages (id, project_id, type, subject, body, recipients, status) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 		id, projectID, msgType, subject, body, string(recipJSON), status,
 	)
 	if err != nil {
@@ -135,22 +135,24 @@ func (s *Service) UpdateMessageStatus(ctx context.Context, id, status string) er
 	var err error
 	if status == "sent" {
 		_, err = s.db.ExecContext(ctx,
-			`UPDATE messages SET status=?, delivered_at=NOW() WHERE id=?`, status, id)
+			`UPDATE messages SET status=$1, delivered_at=NOW() WHERE id=$2`, status, id)
 	} else {
 		_, err = s.db.ExecContext(ctx,
-			`UPDATE messages SET status=? WHERE id=?`, status, id)
+			`UPDATE messages SET status=$1 WHERE id=$2`, status, id)
 	}
 	return err
 }
 
 // ListMessages returns paginated messages for a project.
 func (s *Service) ListMessages(ctx context.Context, projectID string, limit, offset int, search string) ([]*Message, int, error) {
+	n := 1
 	args := []interface{}{projectID}
-	where := "project_id = ?"
+	where := "project_id = $1"
 	if search != "" {
-		where += " AND (id LIKE ? OR type LIKE ? OR status LIKE ? OR subject LIKE ?)"
 		like := "%" + search + "%"
 		args = append(args, like, like, like, like)
+		where += fmt.Sprintf(" AND (id LIKE $%d OR type LIKE $%d OR status LIKE $%d OR subject LIKE $%d)", n+1, n+2, n+3, n+4)
+		n += 4
 	}
 
 	var total int
@@ -161,11 +163,11 @@ func (s *Service) ListMessages(ctx context.Context, projectID string, limit, off
 
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, type, subject, body, recipients, status,
+		fmt.Sprintf(`SELECT id, project_id, type, subject, body, recipients, status,
 		        to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(delivered_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM messages WHERE `+where+` ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		 FROM messages WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, where, n+1, n+2),
 		args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("messaging: list messages: %w", err)
@@ -202,7 +204,7 @@ func (s *Service) GetMessage(ctx context.Context, projectID, id string) (*Messag
 		        to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(delivered_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM messages WHERE id=? AND project_id=?`, id, projectID).
+		 FROM messages WHERE id=$1 AND project_id=$2`, id, projectID).
 		Scan(&m.ID, &m.ProjectID, &m.Type, &m.Subject, &m.Body,
 			&recipJSON, &m.Status, &m.ScheduledAt, &m.DeliveredAt, &m.CreatedAt)
 	if err != nil {
@@ -218,7 +220,7 @@ func (s *Service) GetMessage(ctx context.Context, projectID, id string) (*Messag
 // DeleteMessage removes a message record.
 func (s *Service) DeleteMessage(ctx context.Context, projectID, id string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM messages WHERE id=? AND project_id=?", id, projectID)
+		"DELETE FROM messages WHERE id=$1 AND project_id=$2", id, projectID)
 	return err
 }
 
@@ -479,7 +481,7 @@ func (s *Service) CreateProvider(ctx context.Context, projectID, name, typ, prov
 		config = json.RawMessage("{}")
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO msg_providers (id, project_id, name, type, provider, config, enabled) VALUES (?,?,?,?,?,?,true)`,
+		`INSERT INTO msg_providers (id, project_id, name, type, provider, config, enabled) VALUES ($1,$2,$3,$4,$5,$6,true)`,
 		id, projectID, name, typ, provider, string(config))
 	if err != nil {
 		return nil, fmt.Errorf("messaging: create provider: %w", err)
@@ -498,7 +500,7 @@ func (s *Service) ListProviders(ctx context.Context, projectID string) ([]*Provi
 		`SELECT id, project_id, name, type, provider, config, enabled,
 		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM msg_providers WHERE project_id=? ORDER BY created_at ASC`, projectID)
+		 FROM msg_providers WHERE project_id=$1 ORDER BY created_at ASC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: list providers: %w", err)
 	}
@@ -528,7 +530,7 @@ func (s *Service) GetProvider(ctx context.Context, projectID, id string) (*Provi
 		`SELECT id, project_id, name, type, provider, config, enabled,
 		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM msg_providers WHERE id=? AND project_id=?`, id, projectID).
+		 FROM msg_providers WHERE id=$1 AND project_id=$2`, id, projectID).
 		Scan(&p.ID, &p.ProjectID, &p.Name, &p.Type, &p.Provider,
 			&cfgStr, &p.Enabled, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
@@ -544,7 +546,7 @@ func (s *Service) UpdateProvider(ctx context.Context, projectID, id, name string
 		config = json.RawMessage("{}")
 	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE msg_providers SET name=?, config=?, enabled=?, updated_at=NOW() WHERE id=? AND project_id=?`,
+		`UPDATE msg_providers SET name=$1, config=$2, enabled=$3, updated_at=NOW() WHERE id=$4 AND project_id=$5`,
 		name, string(config), enabled, id, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: update provider: %w", err)
@@ -555,7 +557,7 @@ func (s *Service) UpdateProvider(ctx context.Context, projectID, id, name string
 // DeleteProvider removes a provider.
 func (s *Service) DeleteProvider(ctx context.Context, projectID, id string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM msg_providers WHERE id=? AND project_id=?", id, projectID)
+		"DELETE FROM msg_providers WHERE id=$1 AND project_id=$2", id, projectID)
 	return err
 }
 
@@ -567,7 +569,7 @@ func (s *Service) getEnabledProvider(ctx context.Context, projectID, typ string)
 		`SELECT id, project_id, name, type, provider, config, enabled,
 		        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM msg_providers WHERE project_id=? AND type=? AND enabled=true
+		 FROM msg_providers WHERE project_id=$1 AND type=$2 AND enabled=true
 		 ORDER BY created_at ASC LIMIT 1`, projectID, typ).
 		Scan(&p.ID, &p.ProjectID, &p.Name, &p.Type, &p.Provider,
 			&cfgStr, &p.Enabled, &p.CreatedAt, &p.UpdatedAt)
@@ -848,7 +850,7 @@ func (s *Service) sendPushViaFCMConfig(ctx context.Context, token, title, body s
 func (s *Service) CreateTopic(ctx context.Context, projectID, name string) (*Topic, error) {
 	id := uid.New("msg")
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO msg_topics (id, project_id, name) VALUES (?,?,?)`,
+		`INSERT INTO msg_topics (id, project_id, name) VALUES ($1,$2,$3)`,
 		id, projectID, name)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: create topic: %w", err)
@@ -863,7 +865,7 @@ func (s *Service) ListTopics(ctx context.Context, projectID string) ([]*Topic, e
 		        string_agg(ts.target, ',' ORDER BY ts.id) AS subs
 		 FROM msg_topics t
 		 LEFT JOIN msg_topic_subscribers ts ON ts.topic_id = t.id
-		 WHERE t.project_id = ?
+		 WHERE t.project_id = $1
 		 GROUP BY t.id, t.name
 		 ORDER BY t.created_at DESC`, projectID)
 	if err != nil {
@@ -899,7 +901,7 @@ func (s *Service) GetTopic(ctx context.Context, projectID, topicID string) (*Top
 		        string_agg(ts.target, ',' ORDER BY ts.id) AS subs
 		 FROM msg_topics t
 		 LEFT JOIN msg_topic_subscribers ts ON ts.topic_id = t.id
-		 WHERE t.id=? AND t.project_id=?
+		 WHERE t.id=$1 AND t.project_id=$2
 		 GROUP BY t.id, t.name`, topicID, projectID).
 		Scan(&t.ID, &t.Name, &subsStr)
 	if err != nil {
@@ -918,12 +920,12 @@ func (s *Service) AddSubscriber(ctx context.Context, projectID, topicID, target 
 	// Verify topic belongs to project
 	var count int
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM msg_topics WHERE id=? AND project_id=?",
+		"SELECT COUNT(*) FROM msg_topics WHERE id=$1 AND project_id=$2",
 		topicID, projectID).Scan(&count); err != nil || count == 0 {
 		return nil, fmt.Errorf("messaging: topic not found")
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO msg_topic_subscribers (topic_id, target) VALUES (?,?) ON CONFLICT DO NOTHING`,
+		`INSERT INTO msg_topic_subscribers (topic_id, target) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
 		topicID, target)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: add subscriber: %w", err)
@@ -1013,7 +1015,7 @@ func (s *Service) CreateTemplate(ctx context.Context, projectID, templateID, nam
 	varJSON, _ := json.Marshal(variables)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO message_templates (id, project_id, name, type, subject, body, variables, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 		id, projectID, name, typ, subject, body, string(varJSON), now, now)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: create template: %w", err)
@@ -1031,7 +1033,7 @@ func (s *Service) GetTemplate(ctx context.Context, templateID, projectID string)
 	var varJSON string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, type, subject, body, variables, created_at, updated_at
-		 FROM message_templates WHERE id = ? AND project_id = ?`,
+		 FROM message_templates WHERE id = $1 AND project_id = $2`,
 		templateID, projectID).
 		Scan(&t.ID, &t.ProjectID, &t.Name, &t.Type, &t.Subject, &t.Body, &varJSON, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -1048,7 +1050,7 @@ func (s *Service) GetTemplate(ctx context.Context, templateID, projectID string)
 func (s *Service) ListTemplates(ctx context.Context, projectID string) ([]*Template, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, type, subject, body, variables, created_at, updated_at
-		 FROM message_templates WHERE project_id = ? ORDER BY created_at DESC`,
+		 FROM message_templates WHERE project_id = $1 ORDER BY created_at DESC`,
 		projectID)
 	if err != nil {
 		return nil, 0, err
@@ -1081,8 +1083,8 @@ func (s *Service) UpdateTemplate(ctx context.Context, templateID, projectID, nam
 	}
 	varJSON, _ := json.Marshal(variables)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE message_templates SET name=?, type=?, subject=?, body=?, variables=?, updated_at=?
-		 WHERE id=? AND project_id=?`,
+		`UPDATE message_templates SET name=$1, type=$2, subject=$3, body=$4, variables=$5, updated_at=$6
+		 WHERE id=$7 AND project_id=$8`,
 		name, typ, subject, body, string(varJSON), now, templateID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: update template: %w", err)
@@ -1093,7 +1095,7 @@ func (s *Service) UpdateTemplate(ctx context.Context, templateID, projectID, nam
 // DeleteTemplate removes a template.
 func (s *Service) DeleteTemplate(ctx context.Context, templateID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM message_templates WHERE id=? AND project_id=?",
+		"DELETE FROM message_templates WHERE id=$1 AND project_id=$2",
 		templateID, projectID)
 	return err
 }

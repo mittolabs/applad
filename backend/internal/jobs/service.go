@@ -88,7 +88,7 @@ func (s *Service) CreateQueue(ctx context.Context, projectID, name, workerURL st
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO job_queues (id, project_id, name, worker_url, concurrency, retry_limit, retry_delay_s, dead_letter_queue_id, paused, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,0,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,$10)`,
 		q.ID, q.ProjectID, q.Name, nullStr(q.WorkerURL), q.Concurrency,
 		q.RetryLimit, q.RetryDelayS, nullStr(q.DeadLetterQueueID),
 		q.CreatedAt, q.UpdatedAt,
@@ -107,7 +107,7 @@ func (s *Service) GetQueue(ctx context.Context, queueID, projectID string) (*Que
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, COALESCE(worker_url,''), concurrency, retry_limit, retry_delay_s,
 		        COALESCE(dead_letter_queue_id,''), paused, created_at, updated_at
-		 FROM job_queues WHERE id = ? AND project_id = ?`, queueID, projectID)
+		 FROM job_queues WHERE id = $1 AND project_id = $2`, queueID, projectID)
 	return scanQueue(row)
 }
 
@@ -116,7 +116,7 @@ func (s *Service) ListQueues(ctx context.Context, projectID string) ([]*Queue, e
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, COALESCE(worker_url,''), concurrency, retry_limit, retry_delay_s,
 		        COALESCE(dead_letter_queue_id,''), paused, created_at, updated_at
-		 FROM job_queues WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM job_queues WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -153,14 +153,14 @@ func (s *Service) UpdateQueue(ctx context.Context, queueID, projectID string, pa
 		q.WorkerURL = *workerURL
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE job_queues SET worker_url=?, concurrency=?, retry_limit=?, paused=?, updated_at=? WHERE id=?",
+		"UPDATE job_queues SET worker_url=$1, concurrency=$2, retry_limit=$3, paused=$4, updated_at=$5 WHERE id=$6",
 		nullStr(q.WorkerURL), q.Concurrency, q.RetryLimit, boolInt(q.Paused), time.Now().UTC(), q.ID)
 	return q, err
 }
 
 // DeleteQueue deletes a queue and all its jobs.
 func (s *Service) DeleteQueue(ctx context.Context, queueID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM job_queues WHERE id = ? AND project_id = ?", queueID, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM job_queues WHERE id = $1 AND project_id = $2", queueID, projectID)
 	return err
 }
 
@@ -185,7 +185,7 @@ func (s *Service) Enqueue(ctx context.Context, projectID, queueID, name string, 
 	depsJSON, _ := json.Marshal(dependsOn)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO jobs (id, queue_id, project_id, name, payload, status, priority, run_at, attempts, max_attempts, depends_on, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,$10,$11,$12)`,
 		j.ID, j.QueueID, j.ProjectID, j.Name, nullBytes(payloadJSON), j.Status,
 		j.Priority, j.RunAt, j.MaxAttempts, nullBytes(depsJSON),
 		j.CreatedAt, j.UpdatedAt,
@@ -201,7 +201,7 @@ func (s *Service) GetJob(ctx context.Context, jobID, projectID string) (*Job, er
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, queue_id, project_id, name, payload, status, priority, run_at, attempts, max_attempts,
 		        COALESCE(last_error,''), depends_on, completed_at, created_at, updated_at
-		 FROM jobs WHERE id = ? AND project_id = ?`, jobID, projectID)
+		 FROM jobs WHERE id = $1 AND project_id = $2`, jobID, projectID)
 	return scanJob(row)
 }
 
@@ -210,10 +210,12 @@ func (s *Service) ListJobs(ctx context.Context, queueID, projectID, status strin
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
-	where := "queue_id = ? AND project_id = ?"
+	n := 2
+	where := "queue_id = $1 AND project_id = $2"
 	args := []interface{}{queueID, projectID}
 	if status != "" {
-		where += " AND status = ?"
+		n++
+		where += fmt.Sprintf(" AND status = $%d", n)
 		args = append(args, status)
 	}
 	var total int
@@ -222,9 +224,9 @@ func (s *Service) ListJobs(ctx context.Context, queueID, projectID, status strin
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM jobs WHERE "+where, countArgs...).Scan(&total) //nolint:errcheck
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, queue_id, project_id, name, payload, status, priority, run_at, attempts, max_attempts,
+		fmt.Sprintf(`SELECT id, queue_id, project_id, name, payload, status, priority, run_at, attempts, max_attempts,
 		        COALESCE(last_error,''), depends_on, completed_at, created_at, updated_at
-		 FROM jobs WHERE `+where+` ORDER BY priority DESC, run_at ASC LIMIT ? OFFSET ?`, args...)
+		 FROM jobs WHERE %s ORDER BY priority DESC, run_at ASC LIMIT $%d OFFSET $%d`, where, n+1, n+2), args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -243,7 +245,7 @@ func (s *Service) ListJobs(ctx context.Context, queueID, projectID, status strin
 // CancelJob marks a pending job as cancelled.
 func (s *Service) CancelJob(ctx context.Context, jobID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE jobs SET status='cancelled', updated_at=? WHERE id=? AND project_id=? AND status='pending'",
+		"UPDATE jobs SET status='cancelled', updated_at=$1 WHERE id=$2 AND project_id=$3 AND status='pending'",
 		time.Now().UTC(), jobID, projectID)
 	return err
 }
@@ -260,7 +262,7 @@ func (s *Service) Dequeue(ctx context.Context, queueID string) (*Job, error) {
 
 	row := tx.QueryRowContext(ctx,
 		`SELECT id FROM jobs
-		 WHERE queue_id = ? AND status = 'pending' AND run_at <= ? AND attempts < max_attempts
+		 WHERE queue_id = $1 AND status = 'pending' AND run_at <= $2 AND attempts < max_attempts
 		 ORDER BY priority DESC, run_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
 		queueID, time.Now().UTC())
 	var jobID string
@@ -268,7 +270,7 @@ func (s *Service) Dequeue(ctx context.Context, queueID string) (*Job, error) {
 		return nil, nil // no jobs ready
 	}
 	_, err = tx.ExecContext(ctx,
-		"UPDATE jobs SET status='running', attempts=attempts+1, updated_at=? WHERE id=?",
+		"UPDATE jobs SET status='running', attempts=attempts+1, updated_at=$1 WHERE id=$2",
 		time.Now().UTC(), jobID)
 	if err != nil {
 		return nil, err
@@ -279,21 +281,21 @@ func (s *Service) Dequeue(ctx context.Context, queueID string) (*Job, error) {
 	row2 := s.db.QueryRowContext(ctx,
 		`SELECT id, queue_id, project_id, name, payload, status, priority, run_at, attempts, max_attempts,
 		        COALESCE(last_error,''), depends_on, completed_at, created_at, updated_at
-		 FROM jobs WHERE id = ?`, jobID)
+		 FROM jobs WHERE id = $1`, jobID)
 	return scanJob(row2)
 }
 
 // Ack marks a job as completed.
 func (s *Service) Ack(ctx context.Context, jobID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE jobs SET status='completed', completed_at=?, updated_at=? WHERE id=?",
+		"UPDATE jobs SET status='completed', completed_at=$1, updated_at=$2 WHERE id=$3",
 		time.Now().UTC(), time.Now().UTC(), jobID)
 	return err
 }
 
 // Nack records a failure and re-queues or moves to DLQ.
 func (s *Service) Nack(ctx context.Context, jobID, errMsg string) error {
-	row := s.db.QueryRowContext(ctx, "SELECT attempts, max_attempts, queue_id FROM jobs WHERE id=?", jobID)
+	row := s.db.QueryRowContext(ctx, "SELECT attempts, max_attempts, queue_id FROM jobs WHERE id=$1", jobID)
 	var attempts, maxAttempts int
 	var queueID string
 	if err := row.Scan(&attempts, &maxAttempts, &queueID); err != nil {
@@ -305,7 +307,7 @@ func (s *Service) Nack(ctx context.Context, jobID, errMsg string) error {
 		status = "failed"
 	}
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE jobs SET status=?, last_error=?, updated_at=? WHERE id=?",
+		"UPDATE jobs SET status=$1, last_error=$2, updated_at=$3 WHERE id=$4",
 		status, errMsg, time.Now().UTC(), jobID)
 	return err
 }
@@ -314,7 +316,7 @@ func (s *Service) Nack(ctx context.Context, jobID, errMsg string) error {
 
 func (s *Service) queueStats(ctx context.Context, queueID string) (*QStats, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT status, COUNT(*) FROM jobs WHERE queue_id = ? GROUP BY status", queueID)
+		"SELECT status, COUNT(*) FROM jobs WHERE queue_id = $1 GROUP BY status", queueID)
 	if err != nil {
 		return nil, err
 	}

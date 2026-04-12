@@ -81,7 +81,7 @@ func (s *Service) CreateIndex(ctx context.Context, projectID, indexID, name stri
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO vector_indexes (id, project_id, name, dimensions, metric, collection_id, embedding_field, model, status, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		idx.ID, idx.ProjectID, idx.Name, idx.Dimensions, idx.Metric,
 		nullStr(idx.CollectionID), nullStr(idx.EmbeddingField), idx.Model, idx.Status,
 		idx.CreatedAt, idx.UpdatedAt,
@@ -100,7 +100,7 @@ func (s *Service) GetIndex(ctx context.Context, indexID, projectID string) (*Vec
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, dimensions, metric,
 		        COALESCE(collection_id,''), COALESCE(embedding_field,''), model, status, created_at, updated_at
-		 FROM vector_indexes WHERE id = ? AND project_id = ?`, indexID, projectID)
+		 FROM vector_indexes WHERE id = $1 AND project_id = $2`, indexID, projectID)
 	return scanIndex(row)
 }
 
@@ -109,7 +109,7 @@ func (s *Service) ListIndexes(ctx context.Context, projectID string) ([]*VectorI
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, dimensions, metric,
 		        COALESCE(collection_id,''), COALESCE(embedding_field,''), model, status, created_at, updated_at
-		 FROM vector_indexes WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM vector_indexes WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *Service) ListIndexes(ctx context.Context, projectID string) ([]*VectorI
 
 // DeleteIndex deletes a vector index and all its embeddings.
 func (s *Service) DeleteIndex(ctx context.Context, indexID, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM vector_indexes WHERE id = ? AND project_id = ?", indexID, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM vector_indexes WHERE id = $1 AND project_id = $2", indexID, projectID)
 	return err
 }
 
@@ -143,7 +143,7 @@ func (s *Service) Upsert(ctx context.Context, indexID, projectID, docID string, 
 	metaJSON, _ := json.Marshal(metadata)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO vector_embeddings (id, index_id, project_id, doc_id, vector, metadata, created_at)
-		 VALUES (?,?,?,?,?,?,?)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)
 		 ON CONFLICT (index_id, doc_id) DO UPDATE SET vector=EXCLUDED.vector, metadata=EXCLUDED.metadata, created_at=EXCLUDED.created_at`,
 		emb.ID, indexID, projectID, docID, string(vecJSON), nullBytes(metaJSON), emb.CreatedAt,
 	)
@@ -155,7 +155,7 @@ func (s *Service) Upsert(ctx context.Context, indexID, projectID, docID string, 
 
 // Delete removes an embedding by document ID.
 func (s *Service) Delete(ctx context.Context, indexID, docID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM vector_embeddings WHERE index_id = ? AND doc_id = ?", indexID, docID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM vector_embeddings WHERE index_id = $1 AND doc_id = $2", indexID, docID)
 	return err
 }
 
@@ -169,10 +169,10 @@ func (s *Service) Query(ctx context.Context, indexID, projectID string, queryVec
 
 	// Load index metric
 	metric := "cosine"
-	s.db.QueryRowContext(ctx, "SELECT metric FROM vector_indexes WHERE id=?", indexID).Scan(&metric) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT metric FROM vector_indexes WHERE id=$1", indexID).Scan(&metric) //nolint:errcheck
 
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT doc_id, vector, metadata FROM vector_embeddings WHERE index_id = ? AND project_id = ?",
+		"SELECT doc_id, vector, metadata FROM vector_embeddings WHERE index_id = $1 AND project_id = $2",
 		indexID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("vectors: query: %w", err)

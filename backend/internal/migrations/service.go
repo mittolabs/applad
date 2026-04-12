@@ -65,7 +65,7 @@ func (s *Service) Create(ctx context.Context, projectID, source string, config m
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO migrations (id, project_id, source, status, config, resources, errors, progress, created_at)
-		 VALUES (?, ?, ?, 'pending', ?, ?, ?, 0, ?)`,
+		 VALUES ($1, $2, $3, 'pending', $4, $5, $6, 0, $7)`,
 		id, projectID, source, configJSON, resourcesJSON, errorsJSON, now)
 	if err != nil {
 		return nil, fmt.Errorf("migrations: create: %w", err)
@@ -103,7 +103,7 @@ func (s *Service) Get(ctx context.Context, migrationID, projectID string) (*Migr
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, source, status, resources, errors, progress, started_at, completed_at, created_at
-		 FROM migrations WHERE id = ? AND project_id = ?`, migrationID, projectID,
+		 FROM migrations WHERE id = $1 AND project_id = $2`, migrationID, projectID,
 	).Scan(&m.ID, &m.ProjectID, &m.Source, &m.Status, &resourcesJSON, &errorsJSON,
 		&m.Progress, &startedAt, &completedAt, &m.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -134,7 +134,7 @@ func (s *Service) Get(ctx context.Context, migrationID, projectID string) (*Migr
 func (s *Service) List(ctx context.Context, projectID string) ([]*Migration, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, source, status, resources, errors, progress, started_at, completed_at, created_at
-		 FROM migrations WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM migrations WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -182,7 +182,7 @@ func (s *Service) Retry(ctx context.Context, migrationID, projectID string) (*Mi
 	now := time.Now().UTC()
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE migrations SET status = 'pending', progress = 0, errors = '[]', started_at = NULL, completed_at = NULL
-		 WHERE id = ? AND project_id = ?`, migrationID, projectID)
+		 WHERE id = $1 AND project_id = $2`, migrationID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("migrations: retry: %w", err)
 	}
@@ -191,7 +191,7 @@ func (s *Service) Retry(ctx context.Context, migrationID, projectID string) (*Mi
 	if s.queue != nil {
 		// Retrieve config from DB
 		var configJSON []byte
-		s.db.QueryRowContext(ctx, `SELECT config FROM migrations WHERE id = ?`, migrationID).Scan(&configJSON)
+		s.db.QueryRowContext(ctx, `SELECT config FROM migrations WHERE id = $1`, migrationID).Scan(&configJSON)
 		var config map[string]interface{}
 		json.Unmarshal(configJSON, &config)
 
@@ -220,7 +220,7 @@ func (s *Service) Delete(ctx context.Context, migrationID, projectID string) err
 	if m.Status == "running" {
 		return fmt.Errorf("cannot delete a running migration")
 	}
-	_, err = s.db.ExecContext(ctx, "DELETE FROM migrations WHERE id = ? AND project_id = ?", migrationID, projectID)
+	_, err = s.db.ExecContext(ctx, "DELETE FROM migrations WHERE id = $1 AND project_id = $2", migrationID, projectID)
 	return err
 }
 
@@ -240,9 +240,9 @@ func (s *Service) UpdateProgress(ctx context.Context, migrationID string, progre
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE migrations SET progress = ?, status = ?, resources = ?, errors = ?,
-		 started_at = COALESCE(?, started_at), completed_at = COALESCE(?, completed_at)
-		 WHERE id = ?`,
+		`UPDATE migrations SET progress = $1, status = $2, resources = $3, errors = $4,
+		 started_at = COALESCE($5, started_at), completed_at = COALESCE($6, completed_at)
+		 WHERE id = $7`,
 		progress, status, resourcesJSON, errorsJSON, startedAt, completedAt, migrationID)
 	return err
 }

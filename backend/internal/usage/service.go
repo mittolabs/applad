@@ -51,7 +51,7 @@ func (s *Service) Record(ctx context.Context, projectID, metric string, value in
 	id := uid.New("unique()")
 	now := time.Now().UTC().Truncate(time.Hour)
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO usage_metrics (id, project_id, metric, value, period, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO usage_metrics (id, project_id, metric, value, period, timestamp) VALUES ($1, $2, $3, $4, $5, $6)",
 		id, projectID, metric, value, "1h", now)
 	if err != nil {
 		return fmt.Errorf("usage: record: %w", err)
@@ -82,7 +82,7 @@ func (s *Service) GetUsage(ctx context.Context, projectID, metric, rangeStr stri
 	}
 
 	query := fmt.Sprintf(
-		"SELECT to_char(timestamp AT TIME ZONE 'UTC', '%s') AS period, SUM(value) AS total FROM usage_metrics WHERE project_id = ? AND metric = ? AND timestamp >= ? GROUP BY period ORDER BY period ASC",
+		"SELECT to_char(timestamp AT TIME ZONE 'UTC', '%s') AS period, SUM(value) AS total FROM usage_metrics WHERE project_id = $1 AND metric = $2 AND timestamp >= $3 GROUP BY period ORDER BY period ASC",
 		groupFormat)
 
 	rows, err := s.db.QueryContext(ctx, query, projectID, metric, since)
@@ -111,26 +111,26 @@ func (s *Service) GetProjectStats(ctx context.Context, projectID string) (*Proje
 
 	// Total requests from usage_metrics
 	s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(SUM(value), 0) FROM usage_metrics WHERE project_id = ? AND metric = 'requests'",
+		"SELECT COALESCE(SUM(value), 0) FROM usage_metrics WHERE project_id = $1 AND metric = 'requests'",
 		projectID).Scan(&stats.TotalRequests) //nolint:errcheck
 
 	// Total users
 	row := s.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM users WHERE project_id = ?", projectID)
+		"SELECT COUNT(*) FROM users WHERE project_id = $1", projectID)
 	if err := row.Scan(&stats.TotalUsers); err != nil && err != sql.ErrNoRows {
 		stats.TotalUsers = 0
 	}
 
 	// Total storage bytes
 	row = s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = ?", projectID)
+		"SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = $1", projectID)
 	if err := row.Scan(&stats.TotalStorage); err != nil && err != sql.ErrNoRows {
 		stats.TotalStorage = 0
 	}
 
 	// Total function executions
 	row = s.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM function_executions WHERE project_id = ?", projectID)
+		"SELECT COUNT(*) FROM function_executions WHERE project_id = $1", projectID)
 	if err := row.Scan(&stats.TotalExecutions); err != nil && err != sql.ErrNoRows {
 		stats.TotalExecutions = 0
 	}

@@ -143,7 +143,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, description, trig
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO workflows (id, project_id, name, description, status, trigger_type, trigger_config, webhook_secret, nodes, edges, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, 'draft', $5, $6, $7, $8, $9, $10, $11)`,
 		id, projectID, name, description, triggerType, tcJSON, nullableString(webhookSecret), nodesJSON, edgesJSON, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("workflows: create: %w", err)
@@ -174,7 +174,7 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Workflow, err
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, COALESCE(webhook_secret,''), nodes, edges, created_at, updated_at,
 		        COALESCE(error_workflow_id, ''), COALESCE(retry_attempts, 0), COALESCE(retry_delay_ms, 0)
-		 FROM workflows WHERE id = ? AND project_id = ?`, id, projectID,
+		 FROM workflows WHERE id = $1 AND project_id = $2`, id, projectID,
 	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &webhookSecretGet, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
 		&errorWfID, &retryAttempts, &retryDelayMs)
 	if err == sql.ErrNoRows {
@@ -212,7 +212,7 @@ func (s *Service) RegenerateWebhookSecret(ctx context.Context, id, projectID str
 	}
 	secret := hex.EncodeToString(b)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE workflows SET webhook_secret=?, updated_at=? WHERE id=? AND project_id=?`,
+		`UPDATE workflows SET webhook_secret=$1, updated_at=$2 WHERE id=$3 AND project_id=$4`,
 		secret, time.Now().UTC(), id, projectID)
 	if err != nil {
 		return "", fmt.Errorf("workflows: regenerate secret: %w", err)
@@ -230,7 +230,7 @@ func (s *Service) GetByID(ctx context.Context, id string) (*Workflow, error) {
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, webhook_secret, nodes, edges, created_at, updated_at,
 		        COALESCE(error_workflow_id, ''), COALESCE(retry_attempts, 0), COALESCE(retry_delay_ms, 0)
-		 FROM workflows WHERE id = ?`, id,
+		 FROM workflows WHERE id = $1`, id,
 	).Scan(&w.ID, &w.ProjectID, &w.Name, &desc, &w.Status, &w.TriggerType, &tcJSON, &webhookSecret, &nodesJSON, &edgesJSON, &w.CreatedAt, &w.UpdatedAt,
 		&errorWfID, &retryAttempts, &retryDelayMs)
 	if err == sql.ErrNoRows {
@@ -265,7 +265,7 @@ func (s *Service) List(ctx context.Context, projectID string) ([]*Workflow, int,
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, description, status, trigger_type, trigger_config, nodes, edges, created_at, updated_at,
 		        COALESCE(error_workflow_id, ''), COALESCE(retry_attempts, 0), COALESCE(retry_delay_ms, 0)
-		 FROM workflows WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		 FROM workflows WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -309,8 +309,8 @@ func (s *Service) Update(ctx context.Context, id, projectID string, name, descri
 	edgesJSON, _ := json.Marshal(edges)
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE workflows SET name=?, description=?, status=?, trigger_type=?, trigger_config=?, nodes=?, edges=?, updated_at=?
-		 WHERE id=? AND project_id=?`,
+		`UPDATE workflows SET name=$1, description=$2, status=$3, trigger_type=$4, trigger_config=$5, nodes=$6, edges=$7, updated_at=$8
+		 WHERE id=$9 AND project_id=$10`,
 		name, description, status, triggerType, tcJSON, nodesJSON, edgesJSON, time.Now().UTC(), id, projectID)
 	if err != nil {
 		return nil, err
@@ -320,7 +320,7 @@ func (s *Service) Update(ctx context.Context, id, projectID string, name, descri
 
 // Delete removes a workflow and its executions (cascaded by FK).
 func (s *Service) Delete(ctx context.Context, id, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM workflows WHERE id = ? AND project_id = ?", id, projectID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM workflows WHERE id = $1 AND project_id = $2", id, projectID)
 	return err
 }
 
@@ -335,7 +335,7 @@ func (s *Service) Execute(ctx context.Context, workflowID, projectID string, tri
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO workflow_executions (id, workflow_id, project_id, status, trigger_data)
-		 VALUES (?, ?, ?, 'pending', ?)`,
+		 VALUES ($1, $2, $3, 'pending', $4)`,
 		execID, workflowID, projectID, tdJSON)
 	if err != nil {
 		return nil, fmt.Errorf("workflows: execute: %w", err)
@@ -371,7 +371,7 @@ func (s *Service) GetExecution(ctx context.Context, executionID, workflowID, pro
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, workflow_id, project_id, status, trigger_data, started_at, completed_at, duration_ms, error, logs
-		 FROM workflow_executions WHERE id = ? AND workflow_id = ? AND project_id = ?`,
+		 FROM workflow_executions WHERE id = $1 AND workflow_id = $2 AND project_id = $3`,
 		executionID, workflowID, projectID,
 	).Scan(&e.ID, &e.WorkflowID, &e.ProjectID, &e.Status, &tdJSON, &startedAt, &completedAt, &e.DurationMs, &errStr, &logsJSON)
 	if err == sql.ErrNoRows {
@@ -403,7 +403,7 @@ func (s *Service) GetExecution(ctx context.Context, executionID, workflowID, pro
 func (s *Service) ListExecutions(ctx context.Context, workflowID, projectID string) ([]*Execution, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, workflow_id, project_id, status, trigger_data, started_at, completed_at, duration_ms, error, logs
-		 FROM workflow_executions WHERE workflow_id = ? AND project_id = ? ORDER BY COALESCE(started_at, '9999-12-31') DESC`,
+		 FROM workflow_executions WHERE workflow_id = $1 AND project_id = $2 ORDER BY COALESCE(started_at, '9999-12-31') DESC`,
 		workflowID, projectID)
 	if err != nil {
 		return nil, 0, err
@@ -444,8 +444,8 @@ func (s *Service) ListExecutions(ctx context.Context, workflowID, projectID stri
 func (s *Service) UpdateExecution(ctx context.Context, executionID string, status string, startedAt *time.Time, completedAt *time.Time, durationMs int64, execErr string, logs []StepLog) error {
 	logsJSON, _ := json.Marshal(logs)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE workflow_executions SET status=?, started_at=?, completed_at=?, duration_ms=?, error=?, logs=?
-		 WHERE id=?`,
+		`UPDATE workflow_executions SET status=$1, started_at=$2, completed_at=$3, duration_ms=$4, error=$5, logs=$6
+		 WHERE id=$7`,
 		status, startedAt, completedAt, durationMs, execErr, logsJSON, executionID)
 	return err
 }
@@ -456,7 +456,7 @@ func (s *Service) UpdateExecution(ctx context.Context, executionID string, statu
 func (s *Service) SaveVersion(ctx context.Context, wf *Workflow, createdBy string) error {
 	// Count existing versions
 	var count int
-	s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_versions WHERE workflow_id=?`, wf.ID).Scan(&count)
+	s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_versions WHERE workflow_id=$1`, wf.ID).Scan(&count)
 
 	nodesJSON, _ := json.Marshal(wf.Nodes)
 	edgesJSON, _ := json.Marshal(wf.Edges)
@@ -464,7 +464,7 @@ func (s *Service) SaveVersion(ctx context.Context, wf *Workflow, createdBy strin
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO workflow_versions (id, workflow_id, version, name, description, nodes, edges, trigger_type, trigger_config, created_at, created_by)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		uid.New("unique()"), wf.ID, count+1, wf.Name, wf.Description,
 		nodesJSON, edgesJSON, wf.TriggerType, triggerJSON, time.Now().UTC(), createdBy)
 	return err
@@ -473,7 +473,7 @@ func (s *Service) SaveVersion(ctx context.Context, wf *Workflow, createdBy strin
 // ListVersions returns all versions of a workflow.
 func (s *Service) ListVersions(ctx context.Context, workflowID string) ([]map[string]interface{}, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, version, name, created_at, created_by FROM workflow_versions WHERE workflow_id=? ORDER BY version DESC`, workflowID)
+		`SELECT id, version, name, created_at, created_by FROM workflow_versions WHERE workflow_id=$1 ORDER BY version DESC`, workflowID)
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +499,7 @@ func (s *Service) ListVersions(ctx context.Context, workflowID string) ([]map[st
 // ShareWorkflow shares a workflow with a user.
 func (s *Service) ShareWorkflow(ctx context.Context, workflowID, userID, role string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO workflow_shares (id, workflow_id, user_id, role) VALUES (?, ?, ?, ?)
+		`INSERT INTO workflow_shares (id, workflow_id, user_id, role) VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (workflow_id, user_id) DO UPDATE SET role=EXCLUDED.role`,
 		uid.New("unique()"), workflowID, userID, role)
 	return err
@@ -507,14 +507,14 @@ func (s *Service) ShareWorkflow(ctx context.Context, workflowID, userID, role st
 
 // UnshareWorkflow removes a share.
 func (s *Service) UnshareWorkflow(ctx context.Context, workflowID, userID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_shares WHERE workflow_id=? AND user_id=?`, workflowID, userID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM workflow_shares WHERE workflow_id=$1 AND user_id=$2`, workflowID, userID)
 	return err
 }
 
 // ListShares returns shares for a workflow.
 func (s *Service) ListShares(ctx context.Context, workflowID string) ([]map[string]interface{}, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, user_id, role, created_at FROM workflow_shares WHERE workflow_id=?`, workflowID)
+		`SELECT id, user_id, role, created_at FROM workflow_shares WHERE workflow_id=$1`, workflowID)
 	if err != nil {
 		return nil, err
 	}
@@ -565,7 +565,7 @@ func (s *Service) GetTemplate(ctx context.Context, templateID string) (*Workflow
 	var nodesJSON, edgesJSON, triggerJSON []byte
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT name, description, trigger_type, trigger_config, nodes, edges FROM workflow_templates WHERE id=?`,
+		`SELECT name, description, trigger_type, trigger_config, nodes, edges FROM workflow_templates WHERE id=$1`,
 		templateID).Scan(&name, &description, &triggerType, &triggerJSON, &nodesJSON, &edgesJSON)
 	if err != nil {
 		return nil, err
@@ -590,7 +590,7 @@ func (s *Service) CreateFolder(ctx context.Context, projectID, name, parentID st
 		parent = parentID
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO workflow_folders (id, project_id, name, parent_id) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO workflow_folders (id, project_id, name, parent_id) VALUES ($1, $2, $3, $4)`,
 		id, projectID, name, parent)
 	return id, err
 }
@@ -598,7 +598,7 @@ func (s *Service) CreateFolder(ctx context.Context, projectID, name, parentID st
 // ListFolders returns all folders for a project.
 func (s *Service) ListFolders(ctx context.Context, projectID string) ([]map[string]interface{}, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, parent_id, created_at FROM workflow_folders WHERE project_id=? ORDER BY name`, projectID)
+		`SELECT id, name, parent_id, created_at FROM workflow_folders WHERE project_id=$1 ORDER BY name`, projectID)
 	if err != nil {
 		return nil, err
 	}
