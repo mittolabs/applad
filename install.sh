@@ -216,16 +216,14 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 section "Fetching release files"
 
-# docker-compose.yml — copied from docker-compose.release.yml in repo, or downloaded
+# docker-compose.yml — always refresh on install so image references stay current
 if [ -f "$SCRIPT_DIR/docker-compose.release.yml" ] && [ "$INSTALL_DIR" != "$SCRIPT_DIR" ]; then
   cp "$SCRIPT_DIR/docker-compose.release.yml" "$INSTALL_DIR/$COMPOSE_FILE"
   log "docker-compose.yml copied from repo"
-elif [ ! -f "$COMPOSE_FILE" ]; then
+else
   info "Downloading docker-compose.yml…"
   fetch "${RELEASE_BASE}/docker-compose.release.yml" "$COMPOSE_FILE"
   log "docker-compose.yml downloaded"
-else
-  log "docker-compose.yml already present"
 fi
 
 # postgres init.sql — runs once on first database init
@@ -357,6 +355,29 @@ if ask_yn "Enable ClamAV antivirus for file uploads? (~1 GB image)" "n"; then
   ENABLE_CLAMAV=true
 fi
 
+printf '\n'
+
+# AI chat
+AI_PROVIDER=''; AI_API_KEY=''; AI_MODEL=''; AI_BASE_URL=''
+if ask_yn "Enable Applad AI assistant?" "n"; then
+  printf '\n'
+  printf "  ${DIM}Providers: anthropic | openai | gemini | ollama${RESET}\n"
+  AI_PROVIDER="$(ask "AI provider:" "anthropic")"
+  case "$AI_PROVIDER" in
+    anthropic) printf "  ${DIM}Models: claude-sonnet-4-6 | claude-opus-4-6 | claude-haiku-4-5${RESET}\n" ;;
+    openai)    printf "  ${DIM}Models: gpt-4o | gpt-4o-mini | o3-mini${RESET}\n" ;;
+    gemini)    printf "  ${DIM}Models: gemini-2.0-flash | gemini-1.5-pro${RESET}\n" ;;
+    ollama)    printf "  ${DIM}Models: llama3.2 | mistral | phi3 (no API key required)${RESET}\n" ;;
+  esac
+  AI_MODEL="$(ask "Model:")"
+  if [ "$AI_PROVIDER" != "ollama" ]; then
+    AI_API_KEY="$(ask_secret "API key:")"
+  fi
+  if [ "$AI_PROVIDER" = "ollama" ]; then
+    AI_BASE_URL="$(ask "Ollama base URL:" "http://localhost:11434")"
+  fi
+fi
+
 # ═════════════════════════════════════════════════════════════════════════════
 # 6. Write .env
 # ═════════════════════════════════════════════════════════════════════════════
@@ -397,6 +418,16 @@ SMTP_PORT=${SMTP_PORT}
 SMTP_USER=${SMTP_USER}
 SMTP_PASS=${SMTP_PASS}
 SMTP_FROM=${SMTP_FROM}
+
+# AI chat assistant (optional)
+# anthropic  →  claude-sonnet-4-6 | claude-opus-4-6 | claude-haiku-4-5
+# openai     →  gpt-4o | gpt-4o-mini | o3-mini
+# gemini     →  gemini-2.0-flash | gemini-1.5-pro
+# ollama     →  llama3.2 | mistral | phi3  (AI_API_KEY not required)
+AI_PROVIDER=${AI_PROVIDER}
+AI_API_KEY=${AI_API_KEY}
+AI_MODEL=${AI_MODEL}
+AI_BASE_URL=${AI_BASE_URL}
 EOF
 
 log ".env written"
@@ -425,6 +456,9 @@ server {
         proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto \$scheme;
         proxy_read_timeout 120s;
+        # SSE / streaming — disable buffering so AI tokens reach the browser immediately
+        proxy_buffering    off;
+        proxy_cache        off;
     }
 
     location /realtime {
@@ -477,6 +511,9 @@ server {
         proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto https;
         proxy_read_timeout 120s;
+        # SSE / streaming — disable buffering so AI tokens reach the browser immediately
+        proxy_buffering    off;
+        proxy_cache        off;
     }
 
     location /realtime {
@@ -520,6 +557,9 @@ server {
         proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto \$scheme;
         proxy_read_timeout 120s;
+        # SSE / streaming — disable buffering so AI tokens reach the browser immediately
+        proxy_buffering    off;
+        proxy_cache        off;
     }
 
     location /realtime {
