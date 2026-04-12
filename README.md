@@ -5,9 +5,9 @@
 <h2 align="center">Build products, not infrastructure.</h2>
 
 <p align="center">
-  Applad is a self-hosted backend platform with everything your app needs —<br/>
-  auth, databases, storage, functions, realtime, messaging, and a workflow engine.<br/>
-  Your server, your data, your rules.
+  Applad gives your team every backend primitive — auth, databases, storage,<br/>
+  functions, realtime, messaging, and a visual workflow engine —<br/>
+  without handing your data to someone else's cloud.
 </p>
 
 <br/>
@@ -54,34 +54,35 @@ The installer will ask for your domain, TLS preference (none, Let's Encrypt, or 
 
 ## Contributing
 
-Pull requests are welcome. To get started locally:
+Pull requests are welcome.
 
-**Prerequisites**: Go 1.22+, Flutter 3.22+ / Dart 3.3+, Docker, Node.js 18+
+### Local dev stack
 
-### Backend (Go)
+The dev compose gives you the full stack with hot-reload — no build step needed:
 
 ```bash
-cd backend
-go build ./...    # compile
-go test ./...     # unit tests
-go vet ./...      # vet
-gofmt -w .        # format
+docker compose -f docker-compose.dev.yml up
 ```
 
-### Console (Flutter)
+- **API** reloads on every `.go` file save (via [Air](https://github.com/air-verse/air))
+- **Console** runs Flutter's web dev server with `--hot` on port 3000
+- **Workers** start with `go run` — restart a specific one after changes: `docker compose -f docker-compose.dev.yml restart worker-migrations`
+- **Postgres** (port 5432) and **Redis** (port 6379) are exposed for direct access
+
+**Prerequisites**: Docker with the Compose plugin. Go, Flutter, and Node are only needed if you want to run things outside of Docker.
+
+### Tests & lint
 
 ```bash
-make bootstrap    # first time: activates melos, bootstraps workspace
-melos analyze     # lint all Dart packages
-melos test        # run all Flutter tests
-melos build:web   # production web build
-```
+# Backend
+cd backend && go test ./... && go vet ./...
 
-### TypeScript SDKs
+# Console + Dart SDK
+make bootstrap   # first time only
+melos analyze && melos test
 
-```bash
-cd sdks/js   && npm install && npm run build && npm test
-cd sdks/node && npm install && npm run build
+# TypeScript SDKs
+cd sdks/js && npm install && npm run build && npm test
 ```
 
 ---
