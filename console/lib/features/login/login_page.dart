@@ -740,12 +740,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       child: Text(
         label,
         style: TextStyle(
-          color: primary ? const Color(0xFF6C47FF) : _cs.textSecondary,
+          color: primary ? const Color(0xFF3472A4) : _cs.textSecondary,
           fontSize: 13,
           fontWeight: FontWeight.w500,
           decoration: TextDecoration.underline,
           decorationColor: primary
-              ? const Color(0xFF6C47FF)
+              ? const Color(0xFF3472A4)
               : _cs.textSecondary,
         ),
       ),
@@ -809,9 +809,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       child: ElevatedButton(
         onPressed: _loading ? null : fn,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF6C47FF),
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: const Color(0xFF6C47FF).withValues(alpha: 0.5),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           elevation: 0,
         ),
