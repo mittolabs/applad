@@ -84,7 +84,7 @@ func (s *Service) GetKeyBySecret(ctx context.Context, secret string) (*model.API
 	hash := s.hashKey(secret)
 
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, scopes, expires_at, created_at FROM api_keys WHERE secret_prefix = $1 AND secret_hash = $2",
+		"SELECT id, project_id, name, scopes, expires_at, created_at, secret_prefix FROM api_keys WHERE secret_prefix = $1 AND secret_hash = $2",
 		prefix, hash)
 	if err != nil {
 		return nil, fmt.Errorf("projects: get key by secret query: %w", err)
