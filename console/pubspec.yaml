@@ -1,7 +1,7 @@
 name: applad_console
 description: Applad admin console — Flutter Web app.
 publish_to: none
-version: 0.1.0
+version: 0.2.0
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -20,6 +20,7 @@ dependencies:
   http: ^1.2.0
   flutter_monaco: ^1.4.0
   lucide_icons: ^0.257.0
+  package_info_plus: ^8.0.0
   flutter_markdown: ^0.7.4
 
 dev_dependencies:

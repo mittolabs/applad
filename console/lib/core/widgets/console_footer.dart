@@ -3,8 +3,7 @@ import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-
-const _version = '1.0.0';
+import 'package:package_info_plus/package_info_plus.dart';
 
 bool _isLight(BuildContext context) =>
   Theme.of(context).brightness == Brightness.light;
@@ -19,8 +18,23 @@ Color _footerText(BuildContext context, double alpha) => _isLight(context)
   ? const Color(0xFF1A1A2E).withValues(alpha: alpha)
   : Colors.white.withValues(alpha: alpha);
 
-class ConsoleFooter extends StatelessWidget {
+class ConsoleFooter extends StatefulWidget {
   const ConsoleFooter({super.key});
+
+  @override
+  State<ConsoleFooter> createState() => _ConsoleFooterState();
+}
+
+class _ConsoleFooterState extends State<ConsoleFooter> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) setState(() => _version = info.version);
+    });
+  }
 
   void _open(String url) => html.window.open(url, '_blank');
 
@@ -72,14 +86,15 @@ class ConsoleFooter extends StatelessWidget {
 
           const Spacer(),
 
-          // Version
-          Text(
-            'Version $_version',
-            style: TextStyle(
-              color: _footerText(context, 0.32),
-              fontSize: 12,
+          // Version — read from pubspec.yaml at runtime
+          if (_version.isNotEmpty)
+            Text(
+              'v$_version',
+              style: TextStyle(
+                color: _footerText(context, 0.32),
+                fontSize: 12,
+              ),
             ),
-          ),
 
           const SizedBox(width: 16),
 
