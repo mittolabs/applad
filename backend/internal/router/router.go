@@ -147,7 +147,13 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 
 	// Console auth
 	consoleSvc := console.NewService(database, cfg.JWTSecret)
-	consoleHandler := console.NewHandler(consoleSvc, cfg.ConsoleSignupEnabled)
+	consoleHandler := console.NewHandler(consoleSvc, cfg.ConsoleSignupEnabled, console.SMTPConfig{
+		Host: cfg.SMTPHost,
+		Port: cfg.SMTPPort,
+		User: cfg.SMTPUser,
+		Pass: cfg.SMTPPass,
+		From: cfg.SMTPFrom,
+	})
 
 	// Console OAuth providers (Google, GitHub, SSO) — for admin console login only.
 	// Per-project OAuth is configured through the console UI.

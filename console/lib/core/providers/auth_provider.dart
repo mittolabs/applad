@@ -115,6 +115,21 @@ class ConsoleAuthNotifier extends AsyncNotifier<ConsoleUser?> {
   }
 }
 
+/// Requests a password-reset token for the given email.
+/// Returns the API response map — callers inspect `emailSent` and `token`.
+Future<Map<String, dynamic>> requestPasswordReset(ApiClient api, String email) async {
+  final res = await api.post('/console/password-reset/request', data: {'email': email});
+  return Map<String, dynamic>.from(res.data as Map);
+}
+
+/// Confirms a password reset with the given token and new password.
+Future<void> confirmPasswordReset(ApiClient api, String token, String password) async {
+  await api.post('/console/password-reset/confirm', data: {
+    'token': token,
+    'password': password,
+  });
+}
+
 /// Which OAuth providers are configured for console login (e.g. ["github", "google"]).
 final consoleOAuthProvidersProvider = FutureProvider<List<String>>((ref) async {
   final api = ref.read(apiClientProvider);

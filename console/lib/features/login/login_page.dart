@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import '../../core/api/client.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/theme/console_colors.dart';
 
@@ -14,26 +16,55 @@ class LoginPage extends ConsumerStatefulWidget {
   ConsumerState<LoginPage> createState() => _LoginPageState();
 }
 
+enum _Mode { login, signup, forgot, reset }
+
 class _LoginPageState extends ConsumerState<LoginPage> {
-  final _emailCtrl = TextEditingController();
+  final _emailCtrl    = TextEditingController();
   final _passwordCtrl = TextEditingController();
-  final _nameCtrl = TextEditingController();
-  bool _isSignup = false;
-  bool _loading = false;
-  bool _oauthLoading = false;
-  bool _obscure = true;
+  final _newPassCtrl  = TextEditingController();
+  final _confirmCtrl  = TextEditingController();
+  final _tokenCtrl    = TextEditingController();
+  final _nameCtrl     = TextEditingController();
+  _Mode  _mode        = _Mode.login;
+  bool   _loading     = false;
+  bool   _oauthLoading = false;
+  bool   _obscure     = true;
+  bool   _obscureNew  = true;
   String? _error;
+  String? _success;
+  String? _surfacedToken; // token returned when SMTP not configured
+  String  _version   = '';
   late ConsoleColors _cs;
+
+  bool get _isSignup => _mode == _Mode.signup;
 
   @override
   void initState() {
     super.initState();
     _handleOAuthCallback();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) setState(() => _version = info.version);
+    });
   }
 
   /// If the backend redirected back with ?console_token=..., complete the login.
   void _handleOAuthCallback() {
     final uri = Uri.base;
+
+    // Password-reset link: /login?reset_token=xxx
+    final resetToken = uri.queryParameters['reset_token'];
+    if (resetToken != null && resetToken.isNotEmpty) {
+      html.window.history.replaceState(null, '', '/login');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _mode = _Mode.reset;
+          _tokenCtrl.text = resetToken;
+        });
+      });
+      return;
+    }
+
     final token = uri.queryParameters['console_token'];
     final error = uri.queryParameters['error'];
 
@@ -74,6 +105,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   void dispose() {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
+    _newPassCtrl.dispose();
+    _confirmCtrl.dispose();
+    _tokenCtrl.dispose();
     _nameCtrl.dispose();
     super.dispose();
   }
@@ -91,7 +125,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       });
     }
 
-    if (_isSignup && !signupEnabled) _isSignup = false;
+    if (_mode == _Mode.signup && !signupEnabled) _mode = _Mode.login;
 
     final isWide = MediaQuery.of(context).size.width > 900;
 
@@ -132,9 +166,27 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Logo
-            Image.asset(
-              'assets/applad-logo.png',
-              height: 40,
+            Row(
+              children: [
+                ClipOval(
+                  child: Image.asset(
+                    'assets/applad-mascot-head.png',
+                    width: 32,
+                    height: 32,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text(
+                  'Applad',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.02,
+                  ),
+                ),
+              ],
             ),
             const Spacer(),
 
@@ -240,226 +292,264 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   Widget _formPanel(bool signupEnabled) {
     final isWide = MediaQuery.of(context).size.width > 900;
+    return Container(
+      color: _cs.background,
+      child: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isWide ? 48 : 24,
+                  vertical: 48,
+                ),
+                child: SizedBox(
+                  width: 380,
+                  child: _oauthLoading
+                      ? _loadingOverlay()
+                      : switch (_mode) {
+                          _Mode.forgot => _forgotForm(),
+                          _Mode.reset  => _resetForm(),
+                          _            => _loginSignupForm(signupEnabled),
+                        },
+                ),
+              ),
+            ),
+          ),
+          // Version footer
+          if (_version.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Text(
+                'v$_version',
+                style: TextStyle(color: _cs.textSubtle, fontSize: 11),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Login / Sign-up form ───────────────────────────────────────────────────
+
+  Widget _loginSignupForm(bool signupEnabled) {
     final oauthAsync = ref.watch(consoleOAuthProvidersProvider);
     final oauthProviders = oauthAsync.whenOrNull(data: (v) => v) ?? [];
 
-    return Container(
-      color: _cs.background,
-      child: Center(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(
-            horizontal: isWide ? 48 : 24,
-            vertical: 48,
-          ),
-          child: SizedBox(
-            width: 380,
-            child: _oauthLoading
-                ? _loadingOverlay()
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Heading
-                      Text(
-                        _isSignup ? 'Sign up' : 'Sign in',
-                        style: TextStyle(
-                          color: _cs.textPrimary,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Social login buttons (only shown when providers are configured)
-                      if (oauthProviders.isNotEmpty && !_isSignup) ...[
-                        ...oauthProviders.map((p) => _socialButton(p)),
-                        const SizedBox(height: 24),
-                        _divider('or'),
-                        const SizedBox(height: 24),
-                      ],
-
-                      // Name field (signup only)
-                      if (_isSignup) ...[
-                        _label('Name'),
-                        const SizedBox(height: 6),
-                        _field(_nameCtrl, 'Your name'),
-                        const SizedBox(height: 20),
-                      ],
-
-                      // Email
-                      _label('Email'),
-                      const SizedBox(height: 6),
-                      _field(_emailCtrl, 'Your email',
-                          type: TextInputType.emailAddress),
-                      const SizedBox(height: 20),
-
-                      // Password
-                      _label('Password'),
-                      const SizedBox(height: 6),
-                      _passwordField(),
-
-                      // Password hint on signup
-                      if (_isSignup) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(LucideIcons.info,
-                                size: 14, color: _cs.textSubtle),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Password must be at least 8 characters',
-                              style: TextStyle(
-                                color: _cs.textSubtle,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-
-                      // Error
-                      if (_error != null) ...[
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
-                            border:
-                                Border.all(color: Colors.red.withValues(alpha: 0.3)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(LucideIcons.alertCircle,
-                                  size: 16, color: Colors.redAccent),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _error!,
-                                  style: const TextStyle(
-                                    color: Colors.redAccent,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-
-                      const SizedBox(height: 24),
-
-                      // Submit button
-                      SizedBox(
-                        width: double.infinity,
-                        height: 36,
-                        child: FilledButton(
-                          onPressed: _loading ? null : _submit,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF3472A4),
-                            padding: const EdgeInsets.symmetric(vertical: 0),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: _loading
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Text(
-                                  _isSignup ? 'Sign up' : 'Sign in',
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // Toggle links
-                      if (signupEnabled)
-                        Center(
-                          child: _isSignup
-                              ? Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      'Already have an account? ',
-                                      style: TextStyle(
-                                        color: _cs.textMuted,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    GestureDetector(
-                                      onTap: () => setState(() {
-                                        _isSignup = false;
-                                        _error = null;
-                                      }),
-                                      child: const Text(
-                                        'Sign in',
-                                        style: TextStyle(
-                                          color: Color(0xFF3472A4),
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          decoration: TextDecoration.underline,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    GestureDetector(
-                                      onTap: () {},
-                                      child: Text(
-                                        'Forgot password?',
-                                        style: TextStyle(
-                                          color: _cs.textMuted,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12),
-                                      child: Text(
-                                        '|',
-                                        style: TextStyle(
-                                          color: _cs.textSubtle,
-                                        ),
-                                      ),
-                                    ),
-                                    GestureDetector(
-                                      onTap: () => setState(() {
-                                        _isSignup = true;
-                                        _error = null;
-                                      }),
-                                      child: const Text(
-                                        'Sign up',
-                                        style: TextStyle(
-                                          color: Color(0xFF3472A4),
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          decoration: TextDecoration.underline,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                    ],
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _isSignup ? 'Sign up' : 'Sign in',
+          style: TextStyle(
+            color: _cs.textPrimary, fontSize: 28, fontWeight: FontWeight.w700,
           ),
         ),
-      ),
+        const SizedBox(height: 32),
+
+        if (oauthProviders.isNotEmpty && !_isSignup) ...[
+          ...oauthProviders.map((p) => _socialButton(p)),
+          const SizedBox(height: 24),
+          _divider('or'),
+          const SizedBox(height: 24),
+        ],
+
+        if (_isSignup) ...[
+          _label('Name'),
+          const SizedBox(height: 6),
+          _field(_nameCtrl, 'Your name'),
+          const SizedBox(height: 20),
+        ],
+
+        _label('Email'),
+        const SizedBox(height: 6),
+        _field(_emailCtrl, 'Your email', type: TextInputType.emailAddress),
+        const SizedBox(height: 20),
+
+        _label('Password'),
+        const SizedBox(height: 6),
+        _passwordField(_passwordCtrl, onSubmit: _submit),
+
+        if (_isSignup) ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            Icon(LucideIcons.info, size: 14, color: _cs.textSubtle),
+            const SizedBox(width: 6),
+            Text('Password must be at least 8 characters',
+                style: TextStyle(color: _cs.textSubtle, fontSize: 12)),
+          ]),
+        ],
+
+        _errorBanner(),
+        const SizedBox(height: 24),
+
+        _submitBtn(_isSignup ? 'Sign up' : 'Sign in', _submit),
+        const SizedBox(height: 20),
+
+        // Links row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _link('Forgot password?', () => setState(() {
+              _mode = _Mode.forgot; _error = null; _success = null;
+            })),
+            if (signupEnabled) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text('|', style: TextStyle(color: _cs.textSubtle)),
+              ),
+              _isSignup
+                  ? _link('Sign in', () => setState(() {
+                      _mode = _Mode.login; _error = null;
+                    }))
+                  : _link('Sign up', () => setState(() {
+                      _mode = _Mode.signup; _error = null;
+                    }),
+                      primary: true),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ── Forgot password form ───────────────────────────────────────────────────
+
+  Widget _forgotForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('Reset password',
+            style: TextStyle(
+              color: _cs.textPrimary, fontSize: 28, fontWeight: FontWeight.w700,
+            )),
+        const SizedBox(height: 8),
+        Text(
+          'Enter your email and we\'ll send a reset link. '
+          'If SMTP is not configured, a one-time token will be shown here.',
+          style: TextStyle(color: _cs.textMuted, fontSize: 13, height: 1.5),
+        ),
+        const SizedBox(height: 28),
+
+        _label('Email'),
+        const SizedBox(height: 6),
+        _field(_emailCtrl, 'Your email', type: TextInputType.emailAddress),
+
+        if (_surfacedToken != null) ...[
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF3472A4).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF3472A4).withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  const Icon(LucideIcons.info, size: 14, color: Color(0xFF3472A4)),
+                  const SizedBox(width: 6),
+                  Text('SMTP not configured — use this token:',
+                      style: TextStyle(color: _cs.textSecondary, fontSize: 12,
+                          fontWeight: FontWeight.w600)),
+                ]),
+                const SizedBox(height: 8),
+                SelectableText(
+                  _surfacedToken!,
+                  style: const TextStyle(
+                    fontFamily: 'monospace', fontSize: 12,
+                    color: Color(0xFF3472A4),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () => setState(() {
+                    _mode = _Mode.reset;
+                    _tokenCtrl.text = _surfacedToken!;
+                    _surfacedToken = null;
+                    _error = null;
+                    _success = null;
+                  }),
+                  child: const Text('Use this token →',
+                      style: TextStyle(
+                        color: Color(0xFF3472A4), fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.underline,
+                      )),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        if (_success != null) ...[
+          const SizedBox(height: 16),
+          _successBanner(_success!),
+        ],
+
+        _errorBanner(),
+        const SizedBox(height: 24),
+
+        _submitBtn('Send reset link', _submitForgot),
+        const SizedBox(height: 20),
+
+        Center(child: _link('Back to sign in', () => setState(() {
+          _mode = _Mode.login; _error = null; _success = null;
+          _surfacedToken = null;
+        }))),
+      ],
+    );
+  }
+
+  // ── Reset password form ────────────────────────────────────────────────────
+
+  Widget _resetForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('Set new password',
+            style: TextStyle(
+              color: _cs.textPrimary, fontSize: 28, fontWeight: FontWeight.w700,
+            )),
+        const SizedBox(height: 8),
+        Text('Enter your reset token and choose a new password.',
+            style: TextStyle(color: _cs.textMuted, fontSize: 13)),
+        const SizedBox(height: 28),
+
+        _label('Reset token'),
+        const SizedBox(height: 6),
+        _field(_tokenCtrl, 'Paste your token here'),
+        const SizedBox(height: 20),
+
+        _label('New password'),
+        const SizedBox(height: 6),
+        _passwordField(_newPassCtrl, obscureState: _obscureNew,
+            onToggle: () => setState(() => _obscureNew = !_obscureNew)),
+        const SizedBox(height: 20),
+
+        _label('Confirm password'),
+        const SizedBox(height: 6),
+        _field(_confirmCtrl, 'Repeat new password'),
+
+        if (_success != null) ...[
+          const SizedBox(height: 16),
+          _successBanner(_success!),
+        ],
+
+        _errorBanner(),
+        const SizedBox(height: 24),
+
+        _submitBtn('Set new password', _submitReset),
+        const SizedBox(height: 20),
+
+        Center(child: _link('Back to sign in', () => setState(() {
+          _mode = _Mode.login; _error = null; _success = null;
+        }))),
+      ],
     );
   }
 
@@ -595,11 +685,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
-  Widget _passwordField() {
+  Widget _passwordField(
+    TextEditingController ctrl, {
+    bool? obscureState,
+    VoidCallback? onToggle,
+    VoidCallback? onSubmit,
+  }) {
+    final isObscure = obscureState ?? _obscure;
+    final toggle    = onToggle   ?? () => setState(() => _obscure = !_obscure);
     return TextField(
-      controller: _passwordCtrl,
-      obscureText: _obscure,
-      onSubmitted: (_) => _submit(),
+      controller: ctrl,
+      obscureText: isObscure,
+      onSubmitted: onSubmit != null ? (_) => onSubmit() : null,
       style: TextStyle(color: _cs.textPrimary, fontSize: 13),
       decoration: InputDecoration(
         hintText: 'Your password',
@@ -622,17 +719,116 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           borderSide: const BorderSide(color: Color(0xFF3472A4)),
         ),
         suffixIcon: GestureDetector(
-          onTap: () => setState(() => _obscure = !_obscure),
+          onTap: toggle,
           child: Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Icon(
-              _obscure ? LucideIcons.eyeOff : LucideIcons.eye,
+              isObscure ? LucideIcons.eyeOff : LucideIcons.eye,
               size: 16,
               color: _cs.textSubtle,
             ),
           ),
         ),
         suffixIconConstraints: const BoxConstraints(minHeight: 0, minWidth: 0),
+      ),
+    );
+  }
+
+  Widget _link(String label, VoidCallback fn, {bool primary = false}) {
+    return GestureDetector(
+      onTap: fn,
+      child: Text(
+        label,
+        style: TextStyle(
+          color: primary ? const Color(0xFF6C47FF) : _cs.textSecondary,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          decoration: TextDecoration.underline,
+          decorationColor: primary
+              ? const Color(0xFF6C47FF)
+              : _cs.textSecondary,
+        ),
+      ),
+    );
+  }
+
+  Widget _errorBanner() {
+    if (_error == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          children: [
+            const Icon(LucideIcons.alertCircle, size: 14, color: Colors.red),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _error!,
+                style: const TextStyle(color: Colors.red, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _successBanner(String msg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF22C55E).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          const Icon(LucideIcons.checkCircle, size: 14, color: Color(0xFF22C55E)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              msg,
+              style: const TextStyle(color: Color(0xFF22C55E), fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _submitBtn(String label, VoidCallback fn) {
+    return SizedBox(
+      width: double.infinity,
+      height: 40,
+      child: ElevatedButton(
+        onPressed: _loading ? null : fn,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF6C47FF),
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: const Color(0xFF6C47FF).withValues(alpha: 0.5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          elevation: 0,
+        ),
+        child: _loading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Text(label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                )),
       ),
     );
   }
@@ -677,6 +873,79 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         }
       }
       setState(() => _error = msg);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _submitForgot() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      setState(() => _error = 'Please enter your email address.');
+      return;
+    }
+    setState(() { _loading = true; _error = null; _success = null; _surfacedToken = null; });
+    try {
+      final api = ref.read(apiClientProvider);
+      final result = await requestPasswordReset(api, email);
+      final emailSent = result['emailSent'] == true;
+      final token    = result['token'] as String?;
+      if (mounted) {
+        setState(() {
+          if (emailSent) {
+            _success = 'Reset link sent — check your inbox.';
+          } else if (token != null) {
+            _surfacedToken = token;
+          } else {
+            _success = 'If that email is registered, a reset link has been sent.';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Something went wrong. Please try again.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _submitReset() async {
+    final token   = _tokenCtrl.text.trim();
+    final pass    = _newPassCtrl.text;
+    final confirm = _confirmCtrl.text;
+    if (token.isEmpty) {
+      setState(() => _error = 'Please enter the reset token.');
+      return;
+    }
+    if (pass.length < 8) {
+      setState(() => _error = 'Password must be at least 8 characters.');
+      return;
+    }
+    if (pass != confirm) {
+      setState(() => _error = 'Passwords do not match.');
+      return;
+    }
+    setState(() { _loading = true; _error = null; _success = null; });
+    try {
+      final api = ref.read(apiClientProvider);
+      await confirmPasswordReset(api, token, pass);
+      if (mounted) {
+        setState(() {
+          _success = 'Password updated. You can now sign in.';
+          _newPassCtrl.clear();
+          _confirmCtrl.clear();
+          _tokenCtrl.clear();
+        });
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) setState(() { _mode = _Mode.login; _success = null; });
+      }
+    } catch (e) {
+      var msg = e.toString();
+      if (msg.contains('invalid') || msg.contains('expired')) {
+        msg = 'Invalid or expired token. Please request a new one.';
+      } else {
+        msg = 'Something went wrong. Please try again.';
+      }
+      if (mounted) setState(() => _error = msg);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

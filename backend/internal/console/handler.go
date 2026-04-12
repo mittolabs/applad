@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"sort"
 	"strings"
@@ -13,16 +14,26 @@ import (
 	oauthpkg "github.com/mittolabs/applad/internal/oauth"
 )
 
+// SMTPConfig holds optional SMTP settings for sending password-reset emails.
+type SMTPConfig struct {
+	Host string
+	Port string
+	User string
+	Pass string
+	From string
+}
+
 // Handler handles HTTP requests for console auth.
 type Handler struct {
 	svc           *Service
 	signupSetting string // "auto", "true", or "false"
 	providers     map[string]*oauthpkg.Provider
+	smtp          SMTPConfig
 }
 
 // NewHandler creates a new console auth Handler.
-func NewHandler(svc *Service, signupSetting string) *Handler {
-	return &Handler{svc: svc, signupSetting: signupSetting, providers: map[string]*oauthpkg.Provider{}}
+func NewHandler(svc *Service, signupSetting string, smtpCfg SMTPConfig) *Handler {
+	return &Handler{svc: svc, signupSetting: signupSetting, providers: map[string]*oauthpkg.Provider{}, smtp: smtpCfg}
 }
 
 // SetProviders registers OAuth providers available for console login.
@@ -51,6 +62,8 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/me/email", h.updateEmail)
 	r.Patch("/me/password", h.updatePassword)
 	r.Delete("/me", h.deleteAccount)
+	r.Post("/password-reset/request", h.requestPasswordReset)
+	r.Post("/password-reset/confirm", h.confirmPasswordReset)
 	return r
 }
 
@@ -375,4 +388,91 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// requestPasswordReset generates a reset token for the given email.
+// If SMTP is configured the token is emailed; otherwise it is returned in the
+// response body so the admin can share it out-of-band.
+func (h *Handler) requestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email string `json:"email"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Email == "" {
+		apperr.BadRequest(w, "email is required")
+		return
+	}
+
+	token, found, err := h.svc.RequestPasswordReset(r.Context(), body.Email)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if !found {
+		// Don't reveal whether the email exists.
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"emailSent": false,
+			"message":   "If that email is registered, a reset link has been sent.",
+		})
+		return
+	}
+
+	emailSent := false
+	if h.smtp.Host != "" {
+		scheme := "https"
+		if r.TLS == nil {
+			scheme = "http"
+		}
+		resetURL := fmt.Sprintf("%s://%s/login?reset_token=%s", scheme, r.Host, token)
+		if err := h.sendResetEmail(body.Email, resetURL); err == nil {
+			emailSent = true
+		}
+	}
+
+	resp := map[string]interface{}{
+		"emailSent": emailSent,
+		"message":   "Reset token generated.",
+	}
+	if !emailSent {
+		// SMTP not configured — surface the token so the admin can share it.
+		resp["token"] = token
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// confirmPasswordReset validates a reset token and sets a new password.
+func (h *Handler) confirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Token == "" || body.Password == "" {
+		apperr.BadRequest(w, "token and password are required")
+		return
+	}
+	if len(body.Password) < 8 {
+		apperr.BadRequest(w, "password must be at least 8 characters")
+		return
+	}
+	if err := h.svc.ConfirmPasswordReset(r.Context(), body.Token, body.Password); err != nil {
+		apperr.Write(w, http.StatusBadRequest, "invalid_token", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Password updated. Please sign in."})
+}
+
+func (h *Handler) sendResetEmail(to, resetURL string) error {
+	auth := smtp.PlainAuth("", h.smtp.User, h.smtp.Pass, h.smtp.Host)
+	msg := []byte("Subject: Reset your Applad console password\r\n" +
+		"From: " + h.smtp.From + "\r\n" +
+		"To: " + to + "\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n\r\n" +
+		"Hi,\r\n\r\n" +
+		"Click the link below to reset your Applad console password.\r\n" +
+		"This link expires in 1 hour.\r\n\r\n" +
+		resetURL + "\r\n\r\n" +
+		"If you did not request this, you can safely ignore this email.\r\n\r\n" +
+		"— Applad Console\r\n")
+	return smtp.SendMail(h.smtp.Host+":"+h.smtp.Port, auth, h.smtp.From, []string{to}, msg)
 }

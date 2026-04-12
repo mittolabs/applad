@@ -5,8 +5,11 @@ package console
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -14,6 +17,14 @@ import (
 	"github.com/mittolabs/applad/internal/uid"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// resetEntry stores a pending password-reset token.
+type resetEntry struct {
+	userID    string
+	expiresAt time.Time
+}
+
+var resetTokens sync.Map // string → resetEntry
 
 // ConsoleUser represents an admin console user.
 type ConsoleUser struct {
@@ -219,6 +230,52 @@ func (s *Service) LoginOrCreateByOAuth(ctx context.Context, email, name, provide
 		return nil, "", err
 	}
 	return &u, token, nil
+}
+
+// RequestPasswordReset generates a 1-hour reset token for the given email.
+// Returns (token, true, nil) when the email is found, or ("", false, nil) when not.
+// The caller decides whether to email the token or surface it directly.
+func (s *Service) RequestPasswordReset(ctx context.Context, email string) (token string, found bool, err error) {
+	var userID string
+	err = s.db.QueryRowContext(ctx,
+		"SELECT id FROM console_users WHERE email = $1", email).Scan(&userID)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	b := make([]byte, 24)
+	if _, err = rand.Read(b); err != nil {
+		return "", false, fmt.Errorf("console: generate reset token: %w", err)
+	}
+	token = hex.EncodeToString(b)
+	resetTokens.Store(token, resetEntry{userID: userID, expiresAt: time.Now().Add(time.Hour)})
+	return token, true, nil
+}
+
+// ConfirmPasswordReset validates the token and sets a new password.
+func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword string) error {
+	val, ok := resetTokens.Load(token)
+	if !ok {
+		return fmt.Errorf("invalid or expired reset token")
+	}
+	entry := val.(resetEntry)
+	if time.Now().After(entry.expiresAt) {
+		resetTokens.Delete(token)
+		return fmt.Errorf("invalid or expired reset token")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE console_users SET password_hash = $1, updated_at = $2 WHERE id = $3",
+		string(hash), time.Now().UTC(), entry.userID)
+	if err == nil {
+		resetTokens.Delete(token)
+	}
+	return err
 }
 
 // ValidateToken parses and validates a console JWT, returning the user ID.
