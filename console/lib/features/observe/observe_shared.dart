@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/theme/console_colors.dart';
+import '../../core/widgets/app_dropdown.dart';
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 
@@ -157,6 +158,8 @@ class ObActionBtn extends StatelessWidget {
 
 // ─── Dialog dropdown ──────────────────────────────────────────────────────────
 
+/// Thin wrapper that keeps the same call-site API as before.
+/// Internally delegates to [AppDropdown] for consistent compact styling.
 class ObDialogDropdown extends StatelessWidget {
   final String label, value;
   final List<String> items;
@@ -172,45 +175,13 @@ class ObDialogDropdown extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final colors = consoleColors(context);
-    final disp   = display ?? (v) => v;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: TextStyle(
-                color: colors.textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500)),
-        const SizedBox(height: 6),
-        DropdownButtonFormField<String>(
-          initialValue: value,
-          dropdownColor: colors.popupSurface,
-          style: TextStyle(color: colors.textPrimary, fontSize: 13),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: colors.fieldFill,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: colors.fieldBorder)),
-            enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: colors.fieldBorder)),
-            focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: obAccent)),
-          ),
-          items: items
-              .map((v) => DropdownMenuItem(value: v, child: Text(disp(v))))
-              .toList(),
-          onChanged: (v) { if (v != null) onChanged(v); },
-        ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => AppDropdown<String>(
+        label: label,
+        value: value,
+        items: items,
+        display: display,
+        onChanged: onChanged,
+      );
 }
 
 // ─── Mini section title ────────────────────────────────────────────────────────

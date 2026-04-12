@@ -82,30 +82,33 @@ class _ContentPageState extends ConsumerState<ContentPage> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = consoleColors(context);
+    final cs   = consoleColors(context);
     final hPad = pageHPad(context);
 
     return Scaffold(
       backgroundColor: cs.background,
-      body: Padding(
-        padding: EdgeInsets.symmetric(horizontal: hPad),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 32),
-            if (!_inEntryEditor) ...[
-              _Header(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!_inEntryEditor) ...[
+            Padding(
+              padding: EdgeInsets.fromLTRB(hPad, 32, hPad, 20),
+              child: _Header(
                 selectedType: _selectedType,
                 selectedEntry: _selectedEntry,
                 creatingEntry: _creatingEntry,
                 onBack: _selectedType != null ? _back : null,
                 cs: cs,
               ),
-              const SizedBox(height: 24),
-            ],
-            Expanded(child: _body(cs)),
+            ),
           ],
-        ),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: hPad),
+              child: _body(cs),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -149,30 +152,55 @@ class _Header extends StatelessWidget {
     required this.cs,
   });
 
+  String get _title {
+    if (selectedType == null) return 'Content';
+    if (creatingEntry) return 'New entry · ${selectedType!['name']}';
+    if (selectedEntry != null) {
+      return '${selectedType!['name']} · '
+          '${selectedEntry!['slug'] ?? selectedEntry![r'$id'] ?? 'Entry'}';
+    }
+    return selectedType!['name'] as String;
+  }
+
+  String? get _subtitle {
+    if (selectedType == null) {
+      return 'Structured content types with custom fields, versioning and localization';
+    }
+    if (!creatingEntry && selectedEntry == null) {
+      return selectedType!['slug'] as String? ?? '';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (onBack != null) ...[
-          GestureDetector(
-            onTap: onBack,
-            child: Icon(LucideIcons.arrowLeft, size: 16, color: cs.textSecondary),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: GestureDetector(
+              onTap: onBack,
+              child: Icon(LucideIcons.arrowLeft, size: 16, color: cs.textSecondary),
+            ),
           ),
           const SizedBox(width: 8),
         ],
-        Text(
-          selectedType == null
-              ? 'Content'
-              : creatingEntry
-                  ? 'New entry · ${selectedType!['name']}'
-                  : selectedEntry != null
-                      ? '${selectedType!['name']} · ${selectedEntry!['slug'] ?? selectedEntry![r'$id'] ?? 'Entry'}'
-                      : selectedType!['name'] as String,
-          style: TextStyle(
-            color: cs.textPrimary,
-            fontSize: 22,
-            fontWeight: FontWeight.w600,
-          ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_title,
+                style: TextStyle(
+                    color: cs.textPrimary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600)),
+            if (_subtitle != null && _subtitle!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(_subtitle!,
+                  style: TextStyle(color: cs.textSubtle, fontSize: 13)),
+            ],
+          ],
         ),
       ],
     );
@@ -183,30 +211,117 @@ class _Header extends StatelessWidget {
 // Types View
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _TypesView extends ConsumerWidget {
+class _TypesView extends ConsumerStatefulWidget {
   final ValueChanged<Map<String, dynamic>> onSelectType;
   final dynamic cs;
 
   const _TypesView({required this.onSelectType, required this.cs});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TypesView> createState() => _TypesViewState();
+}
+
+class _TypesViewState extends ConsumerState<_TypesView> {
+  final _search = TextEditingController();
+  bool _isGrid   = true;
+  String _filter = ''; // '' | 'versioned' | 'localized'
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs         = widget.cs;
     final typesAsync = ref.watch(_typesProvider);
 
     return typesAsync.when(
       loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      error: (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(_typesProvider)),
-      data: (types) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Toolbar
-          Row(
-            children: [
+      error:   (e, _) => AppErrorState(error: e, onRetry: () => ref.invalidate(_typesProvider)),
+      data: (allTypes) {
+        // search + filter
+        var types = allTypes;
+        final q = _search.text.trim().toLowerCase();
+        if (q.isNotEmpty) {
+          types = types.where((t) =>
+            (t['name'] as String? ?? '').toLowerCase().contains(q) ||
+            (t['slug'] as String? ?? '').toLowerCase().contains(q)).toList();
+        }
+        if (_filter == 'versioned') {
+          types = types.where((t) => t['versioning'] == true).toList();
+        } else if (_filter == 'localized') {
+          types = types.where((t) => t['localization'] == true).toList();
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Toolbar ──────────────────────────────────────────────────
+            Row(children: [
+              // Search
+              SizedBox(
+                width: 220,
+                height: 34,
+                child: TextField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  style: TextStyle(fontSize: 13, color: cs.textPrimary),
+                  decoration: InputDecoration(
+                    hintText: 'Search types…',
+                    hintStyle: TextStyle(color: cs.textMuted, fontSize: 13),
+                    prefixIcon: Icon(LucideIcons.search,
+                        size: 14, color: cs.textMuted),
+                    prefixIconConstraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
+                    filled: true,
+                    fillColor: cs.fieldFill,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: cs.fieldBorder)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: cs.fieldBorder)),
+                    focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide:
+                            const BorderSide(color: Color(0xFF3472A4))),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Filter chips
+              for (final chip in [
+                ('', 'All'),
+                ('versioned', 'Versioned'),
+                ('localized', 'Localized'),
+              ]) ...[
+                _FilterChip(
+                  label: chip.$2,
+                  active: _filter == chip.$1,
+                  cs: cs,
+                  onTap: () => setState(() => _filter = chip.$1),
+                ),
+                const SizedBox(width: 6),
+              ],
+              const Spacer(),
+              // Count
               Text(
                 '${types.length} type${types.length == 1 ? '' : 's'}',
-                style: TextStyle(fontSize: 13, color: cs.textSecondary),
+                style: TextStyle(fontSize: 12, color: cs.textMuted),
               ),
-              const Spacer(),
+              const SizedBox(width: 12),
+              // Grid / list toggle
+              _ViewToggle(
+                isGrid: _isGrid,
+                cs: cs,
+                onToggle: () => setState(() => _isGrid = !_isGrid),
+              ),
+              const SizedBox(width: 10),
               FilledButton.icon(
                 onPressed: () => _showCreateTypeDialog(context, ref),
                 icon: const Icon(LucideIcons.plus, size: 14),
@@ -214,44 +329,67 @@ class _TypesView extends ConsumerWidget {
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF3472A4),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                  textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                  textStyle:
+                      const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
+            ]),
+            const SizedBox(height: 16),
 
-          if (types.isEmpty)
-            Expanded(
-              child: AppEmptyState(
-                icon: LucideIcons.fileText,
-                title: 'No content types',
-                subtitle: 'Define structured content types with custom fields, versioning, and localization.',
-                actionLabel: 'Create type',
-                onAction: () => _showCreateTypeDialog(context, ref),
-              ),
-            )
-          else
-            Expanded(
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 280,
-                  mainAxisExtent: 140,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
+            // ── Content ──────────────────────────────────────────────────
+            if (types.isEmpty)
+              Expanded(
+                child: AppEmptyState(
+                  icon: LucideIcons.fileText,
+                  title: q.isNotEmpty || _filter.isNotEmpty
+                      ? 'No types match'
+                      : 'No content types',
+                  subtitle: q.isNotEmpty || _filter.isNotEmpty
+                      ? 'Try a different search or filter.'
+                      : 'Define structured content types with custom fields, versioning, and localization.',
+                  actionLabel: q.isEmpty && _filter.isEmpty ? 'Create type' : null,
+                  onAction: q.isEmpty && _filter.isEmpty
+                      ? () => _showCreateTypeDialog(context, ref)
+                      : null,
                 ),
-                itemCount: types.length,
-                itemBuilder: (_, i) => _TypeCard(
-                  type: types[i],
-                  cs: cs,
-                  onTap: () => onSelectType(types[i]),
-                  onEdit: () => _showEditTypeDialog(context, ref, types[i]),
-                  onDelete: () => _deleteType(context, ref, types[i]),
+              )
+            else if (_isGrid)
+              Expanded(
+                child: GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 260,
+                    mainAxisExtent: 140,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                  ),
+                  itemCount: types.length,
+                  itemBuilder: (_, i) => _TypeCard(
+                    type: types[i],
+                    cs: cs,
+                    onTap: () => widget.onSelectType(types[i]),
+                    onEdit: () => _showEditTypeDialog(context, ref, types[i]),
+                    onDelete: () => _deleteType(context, ref, types[i]),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.separated(
+                  itemCount: types.length,
+                  separatorBuilder: (_, __) =>
+                      Divider(height: 1, color: cs.border),
+                  itemBuilder: (_, i) => _TypeListRow(
+                    type: types[i],
+                    cs: cs,
+                    onTap: () => widget.onSelectType(types[i]),
+                    onEdit: () => _showEditTypeDialog(context, ref, types[i]),
+                    onDelete: () => _deleteType(context, ref, types[i]),
+                  ),
                 ),
               ),
-            ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
@@ -332,7 +470,7 @@ class _TypesView extends ConsumerWidget {
       subtitle: 'Delete "${type['name']}" and all its entries',
       content: Text(
         'This will permanently delete the content type and every entry it contains. This cannot be undone.',
-        style: TextStyle(color: cs.textSecondary, fontSize: 13),
+        style: TextStyle(color: widget.cs.textSecondary, fontSize: 13),
       ),
       actions: [
         const AppDialogCancel(),
@@ -1621,6 +1759,139 @@ class _FieldRowState extends State<_FieldRow> {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(5),
           borderSide: const BorderSide(color: Color(0xFF3472A4)),
+        ),
+      ),
+    );
+  }
+}
+
+// ── View toggle (grid / list) ─────────────────────────────────────────────────
+
+class _ViewToggle extends StatelessWidget {
+  final bool isGrid;
+  final dynamic cs;
+  final VoidCallback onToggle;
+  const _ViewToggle({required this.isGrid, required this.cs, required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+          border: Border.all(color: cs.border),
+          borderRadius: BorderRadius.circular(8)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        _Btn(LucideIcons.layoutGrid, isGrid,  cs, onToggle),
+        _Btn(LucideIcons.list,       !isGrid, cs, onToggle),
+      ]),
+    );
+  }
+}
+
+class _Btn extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final dynamic cs;
+  final VoidCallback onTap;
+  const _Btn(this.icon, this.active, this.cs, this.onTap);
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+              color: active ? cs.fillActive : Colors.transparent,
+              borderRadius: BorderRadius.circular(7)),
+          child: Icon(icon,
+              size: 14,
+              color: active ? const Color(0xFF3472A4) : cs.textMuted),
+        ),
+      );
+}
+
+// ── Type list row (list-view alternative to card) ─────────────────────────────
+
+class _TypeListRow extends StatefulWidget {
+  final Map<String, dynamic> type;
+  final dynamic cs;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  const _TypeListRow({
+    required this.type,
+    required this.cs,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  State<_TypeListRow> createState() => _TypeListRowState();
+}
+
+class _TypeListRowState extends State<_TypeListRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final t           = widget.type;
+    final cs          = widget.cs;
+    final name        = t['name'] as String? ?? '';
+    final slug        = t['slug'] as String? ?? '';
+    final fieldCount  = (t['fields'] as List?)?.length ?? 0;
+    final versioning  = t['versioning'] as bool? ?? false;
+    final localization = t['localization'] as bool? ?? false;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit:  (_) => setState(() => _hovered = false),
+      cursor:  SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          color: _hovered ? cs.fill : Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+          child: Row(children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                  color: cs.fill,
+                  borderRadius: BorderRadius.circular(8)),
+              child: Icon(LucideIcons.fileText, size: 14, color: cs.textSubtle),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name,
+                    style: TextStyle(
+                        color: cs.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500)),
+                Text(slug,
+                    style: TextStyle(
+                        color: cs.textMuted,
+                        fontSize: 11,
+                        fontFamily: 'monospace')),
+              ]),
+            ),
+            _Badge('$fieldCount field${fieldCount == 1 ? '' : 's'}', cs),
+            if (versioning) ...[
+              const SizedBox(width: 6),
+              _Badge('versioned', cs),
+            ],
+            if (localization) ...[
+              const SizedBox(width: 6),
+              _Badge('i18n', cs),
+            ],
+            const SizedBox(width: 16),
+            if (_hovered) ...[
+              _IconBtn(LucideIcons.pencil, cs, widget.onEdit),
+              const SizedBox(width: 4),
+              _IconBtn(LucideIcons.trash2, cs, widget.onDelete),
+            ],
+          ]),
         ),
       ),
     );

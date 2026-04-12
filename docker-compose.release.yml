@@ -1,0 +1,230 @@
+# =============================================================================
+# Applad — production release compose
+#
+# Uses pre-built images from GHCR. This is the file the installer downloads.
+# For development (build from source) use docker-compose.yml instead.
+#
+# Images are published by CI on every release tag:
+#   ghcr.io/mittolabs/applad-api:latest
+#   ghcr.io/mittolabs/applad-console:latest
+#   ghcr.io/mittolabs/applad-worker-{type}:latest
+# =============================================================================
+
+x-worker-env: &worker-env
+  DATABASE_DSN: "postgres://applad:${DB_PASSWORD}@pgbouncer:5432/applad?sslmode=disable"
+  REDIS_ADDR: "redis:6379"
+  STORAGE_PATH: "/var/applad/storage"
+  APP_ENV: "${APP_ENV:-production}"
+  SMTP_HOST: "${SMTP_HOST:-}"
+  SMTP_PORT: "${SMTP_PORT:-587}"
+  SMTP_USER: "${SMTP_USER:-}"
+  SMTP_PASS: "${SMTP_PASS:-}"
+  SMTP_FROM: "${SMTP_FROM:-noreply@applad.local}"
+  STORAGE_DRIVER: "${STORAGE_DRIVER:-local}"
+  S3_ENDPOINT: "${S3_ENDPOINT:-}"
+  S3_BUCKET: "${S3_BUCKET:-}"
+  S3_REGION: "${S3_REGION:-us-east-1}"
+  S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
+  S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+  DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-25}"
+  DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
+
+x-worker-deps: &worker-deps
+  pgbouncer:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+x-worker-volumes: &worker-volumes
+  - storage_data:/var/applad/storage
+
+services:
+  # ── API ─────────────────────────────────────────────────────────────────────
+  api:
+    image: ghcr.io/mittolabs/applad-api:${APPLAD_VERSION:-latest}
+    environment:
+      PORT: "8080"
+      DATABASE_DSN: "postgres://applad:${DB_PASSWORD}@pgbouncer:5432/applad?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      JWT_SECRET: "${JWT_SECRET}"
+      STORAGE_PATH: "/var/applad/storage"
+      APP_ENV: "${APP_ENV:-production}"
+      STORAGE_DRIVER: "${STORAGE_DRIVER:-local}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+      DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-25}"
+      DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
+      CONSOLE_SIGNUP_ENABLED: "${CONSOLE_SIGNUP_ENABLED:-auto}"
+    volumes:
+      - storage_data:/var/applad/storage
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  # ── Console ──────────────────────────────────────────────────────────────────
+  console:
+    image: ghcr.io/mittolabs/applad-console:${APPLAD_VERSION:-latest}
+    restart: unless-stopped
+
+  # ── Reverse proxy ────────────────────────────────────────────────────────────
+  proxy:
+    image: openresty/openresty:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ssl_certs:/etc/ssl/applad
+    depends_on:
+      - api
+      - console
+    restart: unless-stopped
+
+  # ── Workers ──────────────────────────────────────────────────────────────────
+  worker-builds:
+    image: ghcr.io/mittolabs/applad-worker-builds:${APPLAD_VERSION:-latest}
+    environment:
+      <<: *worker-env
+      DOCKER_HOST: "${DOCKER_HOST:-unix:///var/run/docker.sock}"
+    volumes:
+      - storage_data:/var/applad/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-certificates:
+    image: ghcr.io/mittolabs/applad-worker-certificates:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-databases:
+    image: ghcr.io/mittolabs/applad-worker-databases:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-deletes:
+    image: ghcr.io/mittolabs/applad-worker-deletes:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-executions:
+    image: ghcr.io/mittolabs/applad-worker-executions:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-mails:
+    image: ghcr.io/mittolabs/applad-worker-mails:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-messaging:
+    image: ghcr.io/mittolabs/applad-worker-messaging:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-migrations:
+    image: ghcr.io/mittolabs/applad-worker-migrations:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-usage:
+    image: ghcr.io/mittolabs/applad-worker-usage:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-webhooks:
+    image: ghcr.io/mittolabs/applad-worker-webhooks:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-cron:
+    image: ghcr.io/mittolabs/applad-worker-cron:${APPLAD_VERSION:-latest}
+    environment: *worker-env
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  # ── Infrastructure ────────────────────────────────────────────────────────────
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "applad"
+      DB_USER: "applad"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      LISTEN_PORT: "5432"
+      POOL_MODE: "session"
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "${DB_MAX_OPEN_CONNS:-25}"
+      AUTH_TYPE: "scram-sha-256"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: ghcr.io/mittolabs/applad-postgres:${APPLAD_VERSION:-latest}
+    environment:
+      POSTGRES_DB: "applad"
+      POSTGRES_USER: "applad"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U applad -d applad"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Optional: antivirus ───────────────────────────────────────────────────────
+  clamav:
+    image: clamav/clamav:stable
+    profiles:
+      - antivirus
+    volumes:
+      - clamav_data:/var/lib/clamav
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage_data:
+  ssl_certs:
+  clamav_data:

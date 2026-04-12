@@ -41,6 +41,7 @@ func Routes(h *Handler) http.Handler {
 	r := chi.NewRouter()
 	r.Post("/signup", h.signup)
 	r.Post("/login", h.login)
+	r.Post("/logout", h.logout)
 	r.Get("/signup-status", h.signupStatus)
 	r.Get("/auth-providers", h.listAuthProviders)
 	r.Get("/auth/{provider}", h.oauthRedirect)
@@ -143,6 +144,20 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		"user":  user,
 		"token": token,
 	})
+}
+
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	// Clear the session cookie.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "a_session_console",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
 }
 
 // listAuthProviders returns the names of OAuth providers configured for console login.

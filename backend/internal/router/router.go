@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/mittolabs/applad/internal/apperr"
 	"github.com/mittolabs/applad/internal/aichat"
 	"github.com/mittolabs/applad/internal/analytics"
 	"github.com/mittolabs/applad/internal/appcache"
@@ -62,11 +63,21 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	perfCollector := observe.NewPerfCollector(observeSvcEarly, 60*time.Second)
 	perfCollector.Start(context.Background())
 
+	// JSON 404 / 405 — override chi's plain-text defaults.
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		apperr.Write(w, http.StatusNotFound, "general_route_not_found",
+			"Route "+r.Method+" "+r.URL.Path+" not found.")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		apperr.Write(w, http.StatusMethodNotAllowed, "general_method_not_allowed",
+			"Method "+r.Method+" is not allowed on this route.")
+	})
+
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(trace.Middleware)
 	r.Use(observabilityMiddleware(perfCollector))
-	r.Use(chimw.Recoverer)
+	r.Use(mw.Recover) // JSON panic recovery (replaces chimw.Recoverer)
 	r.Use(mw.CORS)
 	r.Use(mw.SecurityHeaders)
 	r.Use(mw.RateLimitRedis(100, cacheClient.Client()))

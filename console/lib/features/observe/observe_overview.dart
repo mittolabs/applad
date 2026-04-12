@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/theme/console_colors.dart';
 import '../../core/utils/url_utils.dart';
+import '../../core/widgets/app_empty_state.dart';
 import 'observe_providers.dart';
 import 'observe_shared.dart';
 
@@ -76,7 +77,11 @@ class ObOverviewTab extends ConsumerWidget {
               obSectionTitle('Service Health', colors),
               const SizedBox(height: 12),
               services.isEmpty
-                  ? obEmptyCard('No services configured yet', colors)
+                  ? const AppEmptyState(
+                      icon: LucideIcons.heartPulse,
+                      title: 'No services configured yet',
+                      subtitle: 'Register uptime monitors to track your service health here.',
+                    )
                   : Wrap(
                       spacing: 12,
                       runSpacing: 12,
@@ -111,7 +116,11 @@ class ObOverviewTab extends ConsumerWidget {
                       .take(5)
                       .toList();
                   if (errs.isEmpty) {
-                    return obEmptyCard('No errors — great job!', colors);
+                    return const AppEmptyState(
+                      icon: LucideIcons.checkCircle,
+                      title: 'No errors — great job!',
+                      subtitle: 'Errors captured by the Applad SDK will appear here.',
+                    );
                   }
                   return Column(
                     children: errs
