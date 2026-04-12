@@ -11,13 +11,16 @@
 //   • No InkWell (use MouseRegion + GestureDetector)
 //   • No Material(color: transparent) on panel root (hover bleed)
 
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/auth_provider.dart';
-import '../../core/providers/project_provider.dart';
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
@@ -48,6 +51,7 @@ class _Msg {
   final String text;
   final DateTime time;
   _Msg(this.role, this.text) : time = DateTime.now();
+  _Msg.withTime(this.role, this.text, this.time);
 }
 
 // ── Quick actions (sidebar shortcuts) ────────────────────────────────────────
@@ -69,6 +73,21 @@ const _quickActions = [
   _QuickAction(LucideIcons.mail,        'Send emails',           'How do I send transactional emails from my project?'),
   _QuickAction(LucideIcons.workflow,    'Build a workflow',      'Help me create an automated workflow using the DAG engine.'),
 ];
+
+// ── AI config provider ────────────────────────────────────────────────────────
+
+final _aiConfigProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final api   = ref.read(apiClientProvider);
+  final token = ref.read(consoleTokenProvider);
+  if (token == null) return {};
+  api.setAuthToken(token);
+  try {
+    final res = await api.get('/ai/config');
+    return Map<String, dynamic>.from(res.data as Map? ?? {});
+  } catch (_) {
+    return {};
+  }
+});
 
 // ── Bubble position ───────────────────────────────────────────────────────────
 
@@ -94,15 +113,16 @@ class _Session {
 }
 
 class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
-  bool _open     = false;
-  bool _expanded = false;
-  bool _posInit  = false;
+  bool _open      = false;
+  bool _expanded  = false;
+  bool _posInit   = false;
+  bool _loading   = false;   // waiting for first token (shows thinking bubble)
+  bool _streaming = false;   // tokens arriving (prevents re-send)
 
-  final List<_Msg> _messages  = [];
+  final List<_Msg>     _messages = [];
   final List<_Session> _sessions = [];
   final _inputCtrl  = TextEditingController();
   final _scrollCtrl = ScrollController();
-  bool _loading = false;
 
   @override
   void dispose() {
@@ -116,7 +136,7 @@ class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
     _posInit = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(_bubblePosProvider.notifier).state = Offset(
-        screen.width - _bubbleSize - 20,
+        screen.width  - _bubbleSize - 20,
         screen.height - _bubbleSize - 28,
       );
     });
@@ -124,48 +144,116 @@ class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
 
   Future<void> _send() async {
     final text = _inputCtrl.text.trim();
-    if (text.isEmpty || _loading) return;
+    if (text.isEmpty || _loading || _streaming) return;
     _inputCtrl.clear();
 
     setState(() {
       _messages.add(_Msg('user', text));
       _loading = true;
+      _streaming = true;
     });
     _scrollToBottom();
 
     try {
-      final api = ref.read(apiClientProvider);
       final token = ref.read(consoleTokenProvider);
-      if (token != null) api.setAuthToken(token);
+      if (token == null) throw Exception('Not authenticated');
 
       String ctx = '';
       try {
         final path = GoRouter.of(context)
-            .routerDelegate
-            .currentConfiguration
-            .uri
-            .path;
+            .routerDelegate.currentConfiguration.uri.path;
         ctx = _routeLabel(path);
       } catch (_) {}
 
-      final res = await api.post('/ai/chat', data: {
+      final payload = jsonEncode({
         'messages': _messages
             .map((m) => {'role': m.role, 'content': m.text})
             .toList(),
         'context': ctx,
       });
 
-      final msg = (res.data as Map)['message'] as Map;
-      setState(() {
-        _messages.add(_Msg('assistant', msg['content'] as String));
-        _loading = false;
-      });
+      // Build absolute URL — package:http requires one.
+      final rawBase = ref.read(apiClientProvider).baseUrl;
+      final streamUri = rawBase.startsWith('http')
+          ? Uri.parse('$rawBase/ai/stream')
+          : Uri.base.resolve('$rawBase/ai/stream');
+
+      final request = http.Request('POST', streamUri)
+        ..headers['Content-Type']  = 'application/json'
+        ..headers['Authorization'] = 'Bearer $token'
+        ..body = payload;
+
+      final httpClient = http.Client();
+      try {
+        final response = await httpClient.send(request);
+        String leftover = '';
+        bool   gotFirst = false;
+        DateTime? firstTime;
+
+        await for (final bytes in response.stream) {
+          if (!mounted) break;
+          final chunk    = utf8.decode(bytes);
+          final combined = leftover + chunk;
+          final lines    = combined.split('\n');
+          leftover       = lines.removeLast();
+
+          for (final line in lines) {
+            if (!line.startsWith('data: ')) continue;
+            final data = line.substring(6).trim();
+            if (data == '[DONE]') break;
+            try {
+              final ev = jsonDecode(data) as Map;
+              if (ev.containsKey('error')) {
+                final errMsg = ev['error'] as String;
+                setState(() {
+                  _loading = false;
+                  _messages.add(_Msg('assistant', errMsg));
+                  gotFirst = true;
+                });
+                _scrollToBottom();
+              } else if (ev.containsKey('delta')) {
+                final delta = ev['delta'] as String;
+                setState(() {
+                  if (!gotFirst) {
+                    // First token — switch from thinking to streaming text.
+                    gotFirst  = true;
+                    firstTime = DateTime.now();
+                    _loading  = false;
+                    _messages.add(_Msg.withTime('assistant', delta, firstTime!));
+                  } else {
+                    final prev = _messages.last;
+                    _messages[_messages.length - 1] =
+                        _Msg.withTime('assistant', prev.text + delta, prev.time);
+                  }
+                });
+                _scrollToBottom();
+              }
+            } catch (_) {}
+          }
+        }
+
+        // If we never got a token (e.g. server error), add error message.
+        if (!gotFirst && mounted) {
+          setState(() {
+            _messages.add(_Msg('assistant', 'Sorry, I ran into an issue. Please try again.'));
+          });
+        }
+      } finally {
+        httpClient.close();
+      }
     } catch (e) {
-      setState(() {
-        _messages.add(_Msg('assistant',
-            'Sorry, I ran into an issue. Please try again.'));
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _messages.add(_Msg('assistant', 'Sorry, I ran into an issue. Please try again.'));
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading   = false;
+          _streaming = false;
+        });
+      }
     }
     _scrollToBottom();
   }
@@ -211,9 +299,7 @@ class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
     if (path.contains('/auth'))       return 'Auth page';
     if (path.contains('/deploy') || path.contains('/sites') ||
         path.contains('/containers') || path.contains('/mobile') ||
-        path.contains('/desktop')) {
-      return 'Deploy page';
-    }
+        path.contains('/desktop'))    return 'Deploy page';
     if (path.contains('/messaging'))  return 'Messaging page';
     if (path.contains('/workflows'))  return 'Workflows page';
     if (path.contains('/settings'))   return 'Project settings';
@@ -227,9 +313,19 @@ class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
     _initPos(screen);
     final pos = ref.watch(_bubblePosProvider);
 
-    // Only show on project-scoped pages
-    final projectId = ref.watch(currentProjectProvider);
-    if (projectId == null) return widget.child;
+    // Only show when logged in and not on the login page.
+    final token = ref.watch(consoleTokenProvider);
+    if (token == null) return widget.child;
+    try {
+      final path = GoRouter.of(context)
+          .routerDelegate.currentConfiguration.uri.path;
+      if (path == '/login') return widget.child;
+    } catch (_) {}
+
+    // Hide when AI is not configured on the backend.
+    final aiConfig    = ref.watch(_aiConfigProvider);
+    final configured  = aiConfig.whenOrNull(data: (d) => d['configured'] as bool?) ?? false;
+    if (!configured) return widget.child;
 
     return Stack(
       children: [
@@ -239,13 +335,15 @@ class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
         if (_expanded)
           Positioned.fill(
             child: _ExpandedWorkspace(
-              messages: _messages,
-              sessions: _sessions,
-              loading: _loading,
-              inputCtrl: _inputCtrl,
-              scrollCtrl: _scrollCtrl,
-              onSend: _send,
-              onFillPrompt: _fillPrompt,
+              messages:      _messages,
+              sessions:      _sessions,
+              loading:       _loading,
+              streaming:     _streaming,
+              inputCtrl:     _inputCtrl,
+              scrollCtrl:    _scrollCtrl,
+              modelName:     aiConfig.whenOrNull(data: (d) => d['model'] as String?) ?? '',
+              onSend:        _send,
+              onFillPrompt:  _fillPrompt,
               onCollapse: () => setState(() {
                 _expanded = false;
                 _open = true;
@@ -266,33 +364,34 @@ class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
         // ── Compact panel ───────────────────────────────────────────────────
         if (_open && !_expanded)
           _ChatPanel(
-            pos: pos,
-            screen: screen,
-            messages: _messages,
-            loading: _loading,
+            pos:       pos,
+            screen:    screen,
+            messages:  _messages,
+            loading:   _loading,
+            streaming: _streaming,
             inputCtrl: _inputCtrl,
             scrollCtrl: _scrollCtrl,
-            onSend: _send,
+            onSend:    _send,
             onExpand: () => setState(() {
               _open = false;
               _expanded = true;
             }),
-            onClose: () => setState(() => _open = false),
-            onClear: _newChat,
+            onClose:  () => setState(() => _open = false),
+            onClear:  _newChat,
           ),
 
         // ── Draggable bubble ────────────────────────────────────────────────
         if (!_expanded)
           _DraggableBubble(
-            pos: pos,
-            screen: screen,
-            open: _open,
+            pos:       pos,
+            screen:    screen,
+            open:      _open,
             hasUnread: _messages.isNotEmpty && !_open,
-            onTap: () => setState(() => _open = !_open),
+            onTap:     () => setState(() => _open = !_open),
             onDragUpdate: (delta) {
               final cur = ref.read(_bubblePosProvider);
               final next = Offset(
-                (cur.dx + delta.dx).clamp(0.0, screen.width - _bubbleSize),
+                (cur.dx + delta.dx).clamp(0.0, screen.width  - _bubbleSize),
                 (cur.dy + delta.dy).clamp(0.0, screen.height - _bubbleSize),
               );
               ref.read(_bubblePosProvider.notifier).state = next;
@@ -307,10 +406,10 @@ class _AiChatOverlayState extends ConsumerState<AiChatOverlay> {
 
 class _DraggableBubble extends StatefulWidget {
   final Offset pos;
-  final Size screen;
-  final bool open;
-  final bool hasUnread;
-  final VoidCallback onTap;
+  final Size   screen;
+  final bool   open;
+  final bool   hasUnread;
+  final VoidCallback         onTap;
   final ValueChanged<Offset> onDragUpdate;
 
   const _DraggableBubble({
@@ -349,23 +448,23 @@ class _DraggableBubbleState extends State<_DraggableBubble>
   Widget build(BuildContext context) {
     return Positioned(
       left: widget.pos.dx,
-      top: widget.pos.dy,
+      top:  widget.pos.dy,
       child: GestureDetector(
         onPanUpdate: (d) => widget.onDragUpdate(d.delta),
         onTap: widget.onTap,
         child: AnimatedBuilder(
           animation: _pulse,
           builder: (context, _) {
-            final glow = widget.open ? 0.4 : (0.15 + _pulse.value * 0.1);
+            final glow = widget.open ? 0.35 : (0.12 + _pulse.value * 0.08);
             return Container(
-              width: _bubbleSize,
+              width:  _bubbleSize,
               height: _bubbleSize,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: glow * 0.4),
+                    color:      Colors.black.withValues(alpha: glow),
                     blurRadius: 20,
                     spreadRadius: 2,
                   ),
@@ -375,22 +474,20 @@ class _DraggableBubbleState extends State<_DraggableBubble>
                 alignment: Alignment.center,
                 children: [
                   widget.open
-                      ? const Icon(LucideIcons.x, color: Color(0xFF1A1A1F), size: 22)
+                      ? const Icon(LucideIcons.x, color: Color(0xFF444444), size: 22)
                       : ClipOval(
                           child: Image.asset(
                             'assets/applad-mascot-head.png',
-                            width: 36,
-                            height: 36,
+                            width:  _bubbleSize,
+                            height: _bubbleSize,
                             fit: BoxFit.cover,
                           ),
                         ),
                   if (widget.hasUnread)
                     Positioned(
-                      top: 8,
-                      right: 8,
+                      top: 8, right: 8,
                       child: Container(
-                        width: 9,
-                        height: 9,
+                        width: 9, height: 9,
                         decoration: const BoxDecoration(
                           color: Color(0xFF10B981),
                           shape: BoxShape.circle,
@@ -411,11 +508,12 @@ class _DraggableBubbleState extends State<_DraggableBubble>
 
 class _ChatPanel extends StatelessWidget {
   final Offset pos;
-  final Size screen;
+  final Size   screen;
   final List<_Msg> messages;
-  final bool loading;
+  final bool   loading;
+  final bool   streaming;
   final TextEditingController inputCtrl;
-  final ScrollController scrollCtrl;
+  final ScrollController      scrollCtrl;
   final VoidCallback onSend;
   final VoidCallback onExpand;
   final VoidCallback onClose;
@@ -426,6 +524,7 @@ class _ChatPanel extends StatelessWidget {
     required this.screen,
     required this.messages,
     required this.loading,
+    required this.streaming,
     required this.inputCtrl,
     required this.scrollCtrl,
     required this.onSend,
@@ -448,17 +547,17 @@ class _ChatPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = _panelPos();
+    final p      = _panelPos();
     final availH = screen.height - 72;
     final panelH = _panelH.clamp(0.0, availH);
 
     return Positioned(
       left: p.dx,
-      top: p.dy,
+      top:  p.dy,
       child: Material(
         color: Colors.transparent,
         child: Container(
-          width: _panelW,
+          width:  _panelW,
           height: panelH,
           decoration: BoxDecoration(
             color: _panelBg,
@@ -476,22 +575,18 @@ class _ChatPanel extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             child: Column(
               children: [
-                _FinHeader(
-                  onExpand: onExpand,
-                  onClose: onClose,
-                  onClear: onClear,
-                ),
+                _FinHeader(onExpand: onExpand, onClose: onClose, onClear: onClear),
                 const Divider(height: 1, color: _divider),
                 Expanded(
                   child: _MessageList(
-                    messages: messages,
-                    loading: loading,
+                    messages:  messages,
+                    loading:   loading,
                     scrollCtrl: scrollCtrl,
-                    compact: true,
+                    compact:   true,
                   ),
                 ),
                 const Divider(height: 1, color: _divider),
-                _FinInput(ctrl: inputCtrl, onSend: onSend, loading: loading),
+                _FinInput(ctrl: inputCtrl, onSend: onSend, loading: loading || streaming),
                 _FinFooter(),
               ],
             ),
@@ -508,8 +603,7 @@ class _FinHeader extends StatelessWidget {
   final VoidCallback onExpand;
   final VoidCallback onClose;
   final VoidCallback onClear;
-  const _FinHeader(
-      {required this.onExpand, required this.onClose, required this.onClear});
+  const _FinHeader({required this.onExpand, required this.onClose, required this.onClear});
 
   @override
   Widget build(BuildContext context) {
@@ -522,9 +616,7 @@ class _FinHeader extends StatelessWidget {
           ClipOval(
             child: Image.asset(
               'assets/applad-mascot-head.png',
-              width: 34,
-              height: 34,
-              fit: BoxFit.cover,
+              width: 34, height: 34, fit: BoxFit.cover,
             ),
           ),
           const SizedBox(width: 12),
@@ -535,20 +627,15 @@ class _FinHeader extends StatelessWidget {
               children: [
                 Text('Applad AI',
                     style: TextStyle(
-                        color: _textPri,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        height: 1.2)),
+                        color: _textPri, fontSize: 14,
+                        fontWeight: FontWeight.w600, height: 1.2)),
                 SizedBox(height: 2),
                 Text('Ask anything about your project',
-                    style: TextStyle(
-                        color: _textSec, fontSize: 11.5, height: 1.2)),
+                    style: TextStyle(color: _textSec, fontSize: 11.5, height: 1.2)),
               ],
             ),
           ),
           _IconBtn(icon: LucideIcons.maximize2, onTap: onExpand),
-          const SizedBox(width: 2),
-          _IconBtn(icon: LucideIcons.edit3, onTap: onClear),
           const SizedBox(width: 2),
           _IconBtn(icon: LucideIcons.x, onTap: onClose),
         ],
@@ -558,8 +645,6 @@ class _FinHeader extends StatelessWidget {
 }
 
 // ── Full-screen expanded workspace ────────────────────────────────────────────
-
-// ── Dot grid painter (Railway-style subtle background) ────────────────────────
 
 class _DotGridPainter extends CustomPainter {
   @override
@@ -579,25 +664,27 @@ class _DotGridPainter extends CustomPainter {
   bool shouldRepaint(_DotGridPainter _) => false;
 }
 
-// ── Full-screen expanded workspace ────────────────────────────────────────────
-
 class _ExpandedWorkspace extends StatelessWidget {
-  final List<_Msg> messages;
+  final List<_Msg>     messages;
   final List<_Session> sessions;
-  final bool loading;
+  final bool           loading;
+  final bool           streaming;
+  final String         modelName;
   final TextEditingController inputCtrl;
-  final ScrollController scrollCtrl;
-  final VoidCallback onSend;
-  final ValueChanged<String> onFillPrompt;
-  final VoidCallback onCollapse;
-  final VoidCallback onClose;
-  final VoidCallback onClear;
+  final ScrollController      scrollCtrl;
+  final VoidCallback           onSend;
+  final ValueChanged<String>   onFillPrompt;
+  final VoidCallback           onCollapse;
+  final VoidCallback           onClose;
+  final VoidCallback           onClear;
   final ValueChanged<_Session> onLoadSession;
 
   const _ExpandedWorkspace({
     required this.messages,
     required this.sessions,
     required this.loading,
+    required this.streaming,
+    required this.modelName,
     required this.inputCtrl,
     required this.scrollCtrl,
     required this.onSend,
@@ -614,38 +701,34 @@ class _ExpandedWorkspace extends StatelessWidget {
       color: _expandedBg,
       child: Row(
         children: [
-          // ── Session history sidebar ───────────────────────────────────────
           _ExpandedSidebar(
-            sessions: sessions,
-            onNewChat: onClear,
+            sessions:      sessions,
+            onNewChat:     onClear,
             onLoadSession: onLoadSession,
           ),
           Container(width: 1, color: _divider),
-          // ── Main area with dot grid ───────────────────────────────────────
           Expanded(
             child: CustomPaint(
               painter: _DotGridPainter(),
               child: Column(
                 children: [
-                  _ExpandedTopBar(
-                      onCollapse: onCollapse,
-                      onClose: onClose,
-                      onClear: onClear),
+                  _ExpandedTopBar(onCollapse: onCollapse, onClose: onClose, onClear: onClear),
                   Expanded(
                     child: messages.isEmpty
                         ? const SizedBox.shrink()
                         : _ExpandedMessageList(
-                            messages: messages,
-                            loading: loading,
+                            messages:   messages,
+                            loading:    loading,
                             scrollCtrl: scrollCtrl,
                           ),
                   ),
                   _ExpandedBottom(
-                    ctrl: inputCtrl,
-                    onSend: onSend,
-                    loading: loading,
+                    ctrl:            inputCtrl,
+                    onSend:          onSend,
+                    loading:         loading || streaming,
                     showSuggestions: messages.isEmpty,
-                    onFillPrompt: onFillPrompt,
+                    onFillPrompt:    onFillPrompt,
+                    modelName:       modelName,
                   ),
                 ],
               ),
@@ -657,11 +740,11 @@ class _ExpandedWorkspace extends StatelessWidget {
   }
 }
 
-// ── Expanded sidebar (session history) ───────────────────────────────────────
+// ── Expanded sidebar ──────────────────────────────────────────────────────────
 
 class _ExpandedSidebar extends StatelessWidget {
-  final List<_Session> sessions;
-  final VoidCallback onNewChat;
+  final List<_Session>         sessions;
+  final VoidCallback           onNewChat;
   final ValueChanged<_Session> onLoadSession;
 
   const _ExpandedSidebar({
@@ -684,17 +767,14 @@ class _ExpandedSidebar extends StatelessWidget {
               ClipOval(
                 child: Image.asset(
                   'assets/applad-mascot-head.png',
-                  width: 26,
-                  height: 26,
-                  fit: BoxFit.cover,
+                  width: 26, height: 26, fit: BoxFit.cover,
                 ),
               ),
               const SizedBox(width: 9),
               const Expanded(
                 child: Text('Applad AI',
                     style: TextStyle(
-                        color: _textPri,
-                        fontSize: 13,
+                        color: _textPri, fontSize: 13,
                         fontWeight: FontWeight.w600,
                         decoration: TextDecoration.none)),
               ),
@@ -705,15 +785,13 @@ class _ExpandedSidebar extends StatelessWidget {
           const SizedBox(height: 8),
           Expanded(
             child: sessions.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                     child: Text(
                       'Previous conversations will appear here.',
                       style: TextStyle(
-                          color: _textMuted,
-                          fontSize: 12,
-                          height: 1.55,
-                          decoration: TextDecoration.none),
+                          color: _textMuted, fontSize: 12,
+                          height: 1.55, decoration: TextDecoration.none),
                     ),
                   )
                 : ListView.builder(
@@ -721,7 +799,7 @@ class _ExpandedSidebar extends StatelessWidget {
                     itemCount: sessions.length,
                     itemBuilder: (ctx, i) => _SessionRow(
                       session: sessions[i],
-                      onTap: () => onLoadSession(sessions[i]),
+                      onTap:   () => onLoadSession(sessions[i]),
                     ),
                   ),
           ),
@@ -748,12 +826,12 @@ class _SessionRowState extends State<_SessionRow> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit:  (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
-          margin: const EdgeInsets.only(bottom: 1),
+          margin:  const EdgeInsets.only(bottom: 1),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
             color: _hovered
@@ -784,52 +862,6 @@ class _SessionRowState extends State<_SessionRow> {
   }
 }
 
-class _SidebarBtn extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _SidebarBtn(
-      {required this.icon, required this.label, required this.onTap});
-
-  @override
-  State<_SidebarBtn> createState() => _SidebarBtnState();
-}
-
-class _SidebarBtnState extends State<_SidebarBtn> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          decoration: BoxDecoration(
-            color: _hovered
-                ? Colors.white.withValues(alpha: 0.07)
-                : Colors.white.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(8),
-            border:
-                Border.all(color: Colors.white.withValues(alpha: 0.1)),
-          ),
-          child: Row(children: [
-            Icon(widget.icon, size: 14, color: _textSec),
-            const SizedBox(width: 8),
-            Text(widget.label,
-                style:
-                    const TextStyle(color: _textSec, fontSize: 13)),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
 class _SidebarAction extends StatefulWidget {
   final _QuickAction action;
   final VoidCallback onTap;
@@ -847,12 +879,12 @@ class _SidebarActionState extends State<_SidebarAction> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit:  (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
-          margin: const EdgeInsets.only(bottom: 2),
+          margin:  const EdgeInsets.only(bottom: 2),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
             color: _hovered
@@ -880,11 +912,11 @@ class _SidebarActionState extends State<_SidebarAction> {
   }
 }
 
-// ── Expanded message list (plain text, Stitch-style) ─────────────────────────
+// ── Expanded message list ─────────────────────────────────────────────────────
 
 class _ExpandedMessageList extends StatelessWidget {
-  final List<_Msg> messages;
-  final bool loading;
+  final List<_Msg>      messages;
+  final bool            loading;
   final ScrollController scrollCtrl;
 
   const _ExpandedMessageList({
@@ -922,19 +954,16 @@ class _ExpandedAiMsg extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Small avatar
-          ClipOval(
-            child: Image.asset(
-              'assets/applad-mascot-head.png',
-              width: 22,
-              height: 22,
-              fit: BoxFit.cover,
+          Container(
+            margin: const EdgeInsets.only(top: 1, right: 12),
+            child: ClipOval(
+              child: Image.asset(
+                'assets/applad-mascot-head.png',
+                width: 22, height: 22, fit: BoxFit.cover,
+              ),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _AssistantBubble(text: msg.text, compact: false),
-          ),
+          Expanded(child: _AssistantBubble(text: msg.text, compact: false)),
         ],
       ),
     );
@@ -956,15 +985,12 @@ class _ExpandedUserMsg extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-                color: Colors.white.withValues(alpha: 0.08)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
           ),
           child: SelectableText(
             msg.text,
             style: const TextStyle(
-                color: _textPri,
-                fontSize: 14,
-                height: 1.55,
+                color: _textPri, fontSize: 14, height: 1.55,
                 decoration: TextDecoration.none),
           ),
         ),
@@ -1006,15 +1032,15 @@ class _ExpandedThinkingState extends State<_ExpandedThinking>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          ClipOval(
-            child: Image.asset(
-              'assets/applad-mascot-head.png',
-              width: 22,
-              height: 22,
-              fit: BoxFit.cover,
+          Container(
+            margin: const EdgeInsets.only(right: 12),
+            child: ClipOval(
+              child: Image.asset(
+                'assets/applad-mascot-head.png',
+                width: 22, height: 22, fit: BoxFit.cover,
+              ),
             ),
           ),
-          const SizedBox(width: 12),
           AnimatedBuilder(
             animation: _ctrl,
             builder: (ctx, _) => Row(
@@ -1022,8 +1048,7 @@ class _ExpandedThinkingState extends State<_ExpandedThinking>
               children: List.generate(3, (i) {
                 final v = (_ctrl.value - i * 0.25).clamp(0.0, 1.0);
                 return Container(
-                  width: 6,
-                  height: 6,
+                  width: 6, height: 6,
                   margin: const EdgeInsets.symmetric(horizontal: 3),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
@@ -1039,7 +1064,7 @@ class _ExpandedThinkingState extends State<_ExpandedThinking>
   }
 }
 
-// ── Expanded top bar (minimal) ────────────────────────────────────────────────
+// ── Expanded top bar ──────────────────────────────────────────────────────────
 
 class _ExpandedTopBar extends StatelessWidget {
   final VoidCallback onCollapse;
@@ -1054,8 +1079,6 @@ class _ExpandedTopBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 10, 12, 6),
       child: Row(children: [
         const Spacer(),
-        _IconBtn(icon: LucideIcons.edit3, onTap: onClear),
-        const SizedBox(width: 2),
         _IconBtn(icon: LucideIcons.minimize2, onTap: onCollapse),
         const SizedBox(width: 2),
         _IconBtn(icon: LucideIcons.x, onTap: onClose),
@@ -1064,14 +1087,15 @@ class _ExpandedTopBar extends StatelessWidget {
   }
 }
 
-// ── Expanded bottom: suggestions + input ──────────────────────────────────────
+// ── Expanded bottom ───────────────────────────────────────────────────────────
 
 class _ExpandedBottom extends StatelessWidget {
   final TextEditingController ctrl;
-  final VoidCallback onSend;
-  final bool loading;
-  final bool showSuggestions;
-  final ValueChanged<String> onFillPrompt;
+  final VoidCallback           onSend;
+  final bool                   loading;
+  final bool                   showSuggestions;
+  final ValueChanged<String>   onFillPrompt;
+  final String                 modelName;
 
   const _ExpandedBottom({
     required this.ctrl,
@@ -1079,6 +1103,7 @@ class _ExpandedBottom extends StatelessWidget {
     required this.loading,
     required this.showSuggestions,
     required this.onFillPrompt,
+    required this.modelName,
   });
 
   @override
@@ -1093,7 +1118,6 @@ class _ExpandedBottom extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Suggestion chips — only when no messages
               if (showSuggestions) ...[
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -1113,13 +1137,11 @@ class _ExpandedBottom extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
               ],
-              // Input box
               Container(
                 decoration: BoxDecoration(
                   color: _inputBg,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.1)),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                   boxShadow: [
                     BoxShadow(
                         color: Colors.black.withValues(alpha: 0.3),
@@ -1137,13 +1159,10 @@ class _ExpandedBottom extends StatelessWidget {
                         maxLines: 6,
                         minLines: 1,
                         style: const TextStyle(
-                            color: _textPri,
-                            fontSize: 14.5,
-                            height: 1.5),
+                            color: _textPri, fontSize: 14.5, height: 1.5),
                         decoration: const InputDecoration(
                           hintText: 'Ask anything about your project...',
-                          hintStyle: TextStyle(
-                              color: _textMuted, fontSize: 14.5),
+                          hintStyle: TextStyle(color: _textMuted, fontSize: 14.5),
                           border: InputBorder.none,
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
@@ -1158,33 +1177,37 @@ class _ExpandedBottom extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                       child: Row(children: [
-                        const _ToolbarIcon(icon: LucideIcons.paperclip),
+                        _ToolbarIcon(icon: LucideIcons.paperclip),
                         const SizedBox(width: 2),
-                        const _ToolbarIcon(icon: LucideIcons.smile),
+                        _ToolbarIcon(icon: LucideIcons.smile),
                         const SizedBox(width: 2),
-                        const _ToolbarIcon(icon: LucideIcons.mic),
+                        _ToolbarIcon(icon: LucideIcons.mic),
                         const Spacer(),
-                        // Model label
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.05),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.08)),
+                        if (modelName.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.08)),
+                            ),
+                            child: Row(children: [
+                              ClipOval(
+                                child: Image.asset(
+                                  'assets/applad-mascot-head.png',
+                                  width: 11, height: 11, fit: BoxFit.cover,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(modelName,
+                                  style: const TextStyle(
+                                      color: _textMuted,
+                                      fontSize: 11.5,
+                                      decoration: TextDecoration.none)),
+                            ]),
                           ),
-                          child: const Row(children: [
-                            Icon(LucideIcons.sparkles,
-                                size: 11, color: _textMuted),
-                            SizedBox(width: 5),
-                            Text('Claude Sonnet',
-                                style: TextStyle(
-                                    color: _textMuted,
-                                    fontSize: 11.5,
-                                    decoration: TextDecoration.none)),
-                          ]),
-                        ),
                         const SizedBox(width: 8),
                         _SendBtn(onSend: onSend, loading: loading),
                       ]),
@@ -1201,8 +1224,8 @@ class _ExpandedBottom extends StatelessWidget {
 }
 
 class _SuggestionChip extends StatefulWidget {
-  final IconData icon;
-  final String label;
+  final IconData     icon;
+  final String       label;
   final VoidCallback onTap;
   const _SuggestionChip(
       {required this.icon, required this.label, required this.onTap});
@@ -1219,13 +1242,12 @@ class _SuggestionChipState extends State<_SuggestionChip> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit:  (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: _hovered
                 ? _aiAccent.withValues(alpha: 0.12)
@@ -1239,8 +1261,7 @@ class _SuggestionChipState extends State<_SuggestionChip> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(widget.icon,
-                  size: 14,
+              Icon(widget.icon, size: 14,
                   color: _hovered ? _aiAccent : _textSec),
               const SizedBox(width: 8),
               Text(widget.label,
@@ -1256,14 +1277,13 @@ class _SuggestionChipState extends State<_SuggestionChip> {
   }
 }
 
-
 // ── Shared: message list ──────────────────────────────────────────────────────
 
 class _MessageList extends StatelessWidget {
-  final List<_Msg> messages;
-  final bool loading;
+  final List<_Msg>       messages;
+  final bool             loading;
   final ScrollController scrollCtrl;
-  final bool compact;
+  final bool             compact;
 
   const _MessageList({
     required this.messages,
@@ -1307,17 +1327,16 @@ class _WelcomeBubble extends StatelessWidget {
           Container(
             padding: EdgeInsets.symmetric(
                 horizontal: compact ? 12 : 16,
-                vertical: compact ? 10 : 12),
+                vertical:   compact ? 10 : 12),
             decoration: BoxDecoration(
               color: _msgBg,
               borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(4),
-                topRight: Radius.circular(16),
-                bottomLeft: Radius.circular(16),
+                topLeft:     Radius.circular(4),
+                topRight:    Radius.circular(16),
+                bottomLeft:  Radius.circular(16),
                 bottomRight: Radius.circular(16),
               ),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
             ),
             child: Text(
               'Hi there 👋\n\nI\'m your Applad AI assistant. Ask me anything about your project — databases, functions, auth, storage, deployments, workflows, and more.',
@@ -1380,7 +1399,7 @@ class _MsgBubble extends StatelessWidget {
 
 class _UserBubble extends StatelessWidget {
   final String text;
-  final bool compact;
+  final bool   compact;
   const _UserBubble({required this.text, required this.compact});
 
   @override
@@ -1391,9 +1410,9 @@ class _UserBubble extends StatelessWidget {
       decoration: BoxDecoration(
         color: _aiAccent.withValues(alpha: 0.22),
         borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(16),
-          topRight: Radius.circular(4),
-          bottomLeft: Radius.circular(16),
+          topLeft:     Radius.circular(16),
+          topRight:    Radius.circular(4),
+          bottomLeft:  Radius.circular(16),
           bottomRight: Radius.circular(16),
         ),
         border: Border.all(color: _aiAccent.withValues(alpha: 0.3)),
@@ -1409,10 +1428,9 @@ class _UserBubble extends StatelessWidget {
   }
 }
 
-// Renders assistant messages with inline code block support
 class _AssistantBubble extends StatelessWidget {
   final String text;
-  final bool compact;
+  final bool   compact;
   const _AssistantBubble({required this.text, required this.compact});
 
   @override
@@ -1424,26 +1442,24 @@ class _AssistantBubble extends StatelessWidget {
       decoration: BoxDecoration(
         color: _msgBg,
         borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(4),
-          topRight: Radius.circular(16),
-          bottomLeft: Radius.circular(16),
+          topLeft:     Radius.circular(4),
+          topRight:    Radius.circular(16),
+          bottomLeft:  Radius.circular(16),
           bottomRight: Radius.circular(16),
         ),
-        border:
-            Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: parts.map((p) {
           if (p.isCode) {
             return Container(
-              margin: const EdgeInsets.symmetric(vertical: 6),
+              margin:  const EdgeInsets.symmetric(vertical: 6),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: _codeBg,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.08)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
               ),
               child: SelectableText(
                 p.text,
@@ -1490,7 +1506,7 @@ class _AssistantBubble extends StatelessWidget {
 
 class _TextPart {
   final String text;
-  final bool isCode;
+  final bool   isCode;
   const _TextPart(this.text, this.isCode);
 }
 
@@ -1535,13 +1551,12 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
             decoration: BoxDecoration(
               color: _msgBg,
               borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(4),
-                topRight: Radius.circular(16),
-                bottomLeft: Radius.circular(16),
+                topLeft:     Radius.circular(4),
+                topRight:    Radius.circular(16),
+                bottomLeft:  Radius.circular(16),
                 bottomRight: Radius.circular(16),
               ),
-              border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
             ),
             child: AnimatedBuilder(
               animation: _ctrl,
@@ -1551,8 +1566,7 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
                   final delay = i * 0.25;
                   final v = (_ctrl.value - delay).clamp(0.0, 1.0);
                   return Container(
-                    width: 7,
-                    height: 7,
+                    width: 7, height: 7,
                     margin: const EdgeInsets.symmetric(horizontal: 3),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
@@ -1576,10 +1590,9 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
 
 class _FinInput extends StatelessWidget {
   final TextEditingController ctrl;
-  final VoidCallback onSend;
-  final bool loading;
-  const _FinInput(
-      {required this.ctrl, required this.onSend, required this.loading});
+  final VoidCallback          onSend;
+  final bool                  loading;
+  const _FinInput({required this.ctrl, required this.onSend, required this.loading});
 
   @override
   Widget build(BuildContext context) {
@@ -1605,8 +1618,7 @@ class _FinInput extends StatelessWidget {
                     color: _textPri, fontSize: 13.5, height: 1.5),
                 decoration: const InputDecoration(
                   hintText: 'Ask a question...',
-                  hintStyle:
-                      TextStyle(color: _textMuted, fontSize: 13.5),
+                  hintStyle: TextStyle(color: _textMuted, fontSize: 13.5),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
@@ -1621,11 +1633,11 @@ class _FinInput extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 2, 10, 10),
               child: Row(children: [
-                const _ToolbarIcon(icon: LucideIcons.paperclip),
+                _ToolbarIcon(icon: LucideIcons.paperclip),
                 const SizedBox(width: 2),
-                const _ToolbarIcon(icon: LucideIcons.smile),
+                _ToolbarIcon(icon: LucideIcons.smile),
                 const SizedBox(width: 2),
-                const _ToolbarIcon(icon: LucideIcons.mic),
+                _ToolbarIcon(icon: LucideIcons.mic),
                 const Spacer(),
                 _SendBtn(onSend: onSend, loading: loading),
               ]),
@@ -1658,10 +1670,10 @@ class _FinFooter extends StatelessWidget {
   }
 }
 
-// ── Icon button (no Tooltip — we're above the navigator overlay) ──────────────
+// ── Icon button ───────────────────────────────────────────────────────────────
 
 class _IconBtn extends StatefulWidget {
-  final IconData icon;
+  final IconData     icon;
   final VoidCallback onTap;
   const _IconBtn({required this.icon, required this.onTap});
 
@@ -1677,7 +1689,7 @@ class _IconBtnState extends State<_IconBtn> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit:  (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
@@ -1716,7 +1728,7 @@ class _ToolbarIconState extends State<_ToolbarIcon> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit:  (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: () {},
         child: AnimatedContainer(
@@ -1741,7 +1753,7 @@ class _ToolbarIconState extends State<_ToolbarIcon> {
 
 class _SendBtn extends StatefulWidget {
   final VoidCallback onSend;
-  final bool loading;
+  final bool         loading;
   const _SendBtn({required this.onSend, required this.loading});
 
   @override
@@ -1758,24 +1770,21 @@ class _SendBtnState extends State<_SendBtn> {
           ? SystemMouseCursors.basic
           : SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit:  (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.loading ? null : widget.onSend,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          width: 32,
-          height: 32,
+          width: 32, height: 32,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: widget.loading
                 ? null
                 : LinearGradient(
                     begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+                    end:   Alignment.bottomRight,
                     colors: [
-                      _hovered
-                          ? _aiAccent.withValues(alpha: 0.85)
-                          : _aiAccent,
+                      _hovered ? _aiAccent.withValues(alpha: 0.85) : _aiAccent,
                       _aiAccentDim,
                     ],
                   ),
@@ -1784,11 +1793,7 @@ class _SendBtnState extends State<_SendBtn> {
                 : null,
             boxShadow: widget.loading || !_hovered
                 ? null
-                : [
-                    BoxShadow(
-                        color: _aiAccent.withValues(alpha: 0.4),
-                        blurRadius: 12)
-                  ],
+                : [BoxShadow(color: _aiAccent.withValues(alpha: 0.4), blurRadius: 12)],
           ),
           child: widget.loading
               ? Padding(
@@ -1798,8 +1803,7 @@ class _SendBtnState extends State<_SendBtn> {
                     color: _aiAccent.withValues(alpha: 0.6),
                   ),
                 )
-              : const Icon(LucideIcons.arrowUp,
-                  size: 15, color: Colors.white),
+              : const Icon(LucideIcons.arrowUp, size: 15, color: Colors.white),
         ),
       ),
     );

@@ -22,6 +22,12 @@ class ApiClient {
 
   Dio get dio => _dio;
 
+  /// The base URL without trailing slash (e.g. "/v1" or "http://localhost:8080/v1").
+  String get baseUrl {
+    final url = _dio.options.baseUrl;
+    return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  }
+
   // Strip a leading '/' so paths like '/console/me' are resolved relative
   // to the baseUrl instead of being treated as absolute host-root paths by
   // Dart's Uri.resolve() (which would drop the '/v1' prefix entirely).

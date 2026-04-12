@@ -54,6 +54,11 @@ services:
       S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
       DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-25}"
       DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
+      # AI chat — set all three to enable the assistant (see .env.example for model options)
+      AI_PROVIDER: "${AI_PROVIDER:-}"
+      AI_API_KEY: "${AI_API_KEY:-}"
+      AI_MODEL: "${AI_MODEL:-}"
+      AI_BASE_URL: "${AI_BASE_URL:-}"
     volumes:
       - storage_data:/var/applad/storage
     depends_on: *worker-deps

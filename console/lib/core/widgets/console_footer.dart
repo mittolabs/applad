@@ -39,7 +39,7 @@ class ConsoleFooter extends StatelessWidget {
         children: [
           // Copyright
           Text(
-            '© ${DateTime.now().year} Applad. All rights reserved.',
+            '© ${DateTime.now().year} Mittolabs LTD. All rights reserved.',
             style: TextStyle(
               color: _footerText(context, 0.32),
               fontSize: 12,

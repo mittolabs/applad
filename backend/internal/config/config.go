@@ -148,8 +148,15 @@ type Config struct {
 	ConsoleSSOTokenURL     string
 	ConsoleSSOUserInfoURL  string
 
-	// AI chat
-	AnthropicAPIKey string
+	// AI chat — provider-agnostic config.
+	// AI_PROVIDER: anthropic | openai | gemini | ollama
+	// AI_API_KEY:  API key for the chosen provider
+	// AI_MODEL:    model override (optional; each provider has a sensible default)
+	// AI_BASE_URL: endpoint override (optional; useful for Ollama or API proxies)
+	AIProvider string
+	AIAPIKey   string
+	AIModel    string
+	AIBaseURL  string
 }
 
 func Load() *Config {
@@ -274,7 +281,10 @@ func Load() *Config {
 		ConsoleSSOAuthURL:         getEnv("CONSOLE_SSO_AUTH_URL", ""),
 		ConsoleSSOTokenURL:        getEnv("CONSOLE_SSO_TOKEN_URL", ""),
 		ConsoleSSOUserInfoURL:     getEnv("CONSOLE_SSO_USERINFO_URL", ""),
-		AnthropicAPIKey:           getEnv("ANTHROPIC_API_KEY", ""),
+		AIProvider: getEnv("AI_PROVIDER", ""),
+		AIAPIKey:   getEnv("AI_API_KEY", ""),
+		AIModel:    getEnv("AI_MODEL", ""),
+		AIBaseURL:  getEnv("AI_BASE_URL", ""),
 	}
 }
 

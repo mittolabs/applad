@@ -494,7 +494,7 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
                                       fontSize: 28,
                                       fontWeight: FontWeight.w700)),
                             ),
-                            ..._buildMemberAvatars(orgs, currentOrgId),
+                            _buildMemberAvatars(orgs, currentOrgId),
                             const SizedBox(width: 8),
                             OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
@@ -736,30 +736,64 @@ class _ProjectsPageState extends ConsumerState<ProjectsPage> {
     return '?';
   }
 
-  List<Widget> _buildMemberAvatars(
+  Widget _buildMemberAvatars(
       List<Map<String, dynamic>> orgs, String? currentOrgId) {
-    final memberNames = <String>['You'];
+    const avatarRadius = 14.0;
+    const borderWidth = 2.0;
+    const overlap = 10.0;
+    const maxShown = 3;
+
+    int totalMembers = 1;
     if (currentOrgId != null) {
       final org = orgs.where((o) => o['\$id'] == currentOrgId).firstOrNull;
       if (org != null) {
-        final count = (org['totalMembers'] ?? 1) as int;
-        for (var i = 1; i < count && i < 4; i++) {
-          memberNames.add('M$i');
-        }
+        totalMembers = (org['totalMembers'] ?? 1) as int;
       }
     }
-    return memberNames.map((name) {
-      return Padding(
-        padding: const EdgeInsets.only(right: 4),
-        child: CircleAvatar(
-          radius: 14,
-          backgroundColor: _accent.withValues(alpha: 0.25),
-          child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-              style: const TextStyle(
-                  color: _accent, fontSize: 11, fontWeight: FontWeight.w600)),
-        ),
-      );
-    }).toList();  // _accent is intentional brand color; not a theme token
+
+    // Initials for shown avatars — "Y" for the current user, generic for others.
+    final shown = totalMembers.clamp(1, maxShown);
+    final overflow = totalMembers - maxShown;
+    final showOverflow = overflow > 0;
+    final totalSlots = shown + (showOverflow ? 1 : 0);
+
+    final avatarDiameter = avatarRadius * 2;
+    final totalWidth =
+        avatarDiameter + (totalSlots - 1) * (avatarDiameter - overlap);
+
+    return SizedBox(
+      width: totalWidth,
+      height: avatarDiameter,
+      child: Stack(
+        children: [
+          for (var i = 0; i < shown; i++)
+            Positioned(
+              left: i * (avatarDiameter - overlap),
+              child: _AvatarCircle(
+                initials: i == 0 ? 'Y' : (i + 1).toString(),
+                radius: avatarRadius,
+                borderWidth: borderWidth,
+                borderColor: _cs.background,
+                bg: _cs.surface,
+                fg: _cs.textSecondary,
+              ),
+            ),
+          if (showOverflow)
+            Positioned(
+              left: shown * (avatarDiameter - overlap),
+              child: _AvatarCircle(
+                initials: '+$overflow',
+                radius: avatarRadius,
+                borderWidth: borderWidth,
+                borderColor: _cs.background,
+                bg: _cs.fill,
+                fg: _cs.textMuted,
+                fontSize: overflow >= 10 ? 8 : 9,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1825,4 +1859,49 @@ class _DashedBorderPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DashedBorderPainter old) =>
       color != old.color;
+}
+
+// ── Overlapping avatar circle ─────────────────────────────────────────────────
+
+class _AvatarCircle extends StatelessWidget {
+  final String initials;
+  final double radius;
+  final double borderWidth;
+  final Color borderColor;
+  final Color bg;
+  final Color fg;
+  final double fontSize;
+
+  const _AvatarCircle({
+    required this.initials,
+    required this.radius,
+    required this.borderWidth,
+    required this.borderColor,
+    required this.bg,
+    required this.fg,
+    this.fontSize = 10,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: borderColor, width: borderWidth),
+        color: bg,
+      ),
+      child: Center(
+        child: Text(
+          initials,
+          style: TextStyle(
+            color: fg,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
 }
