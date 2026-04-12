@@ -45,7 +45,7 @@ func (s *Service) Create(ctx context.Context, name, description string) (*model.
 	id := uid.New("unique()")
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO projects (id, name, description, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
 		id, name, description, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("projects: create: %w", err)
@@ -62,7 +62,7 @@ func (s *Service) Create(ctx context.Context, name, description string) (*model.
 // Get returns a project by ID.
 func (s *Service) Get(ctx context.Context, id string) (*model.Project, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, name, description, created_at, updated_at FROM projects WHERE id = ?", id)
+		"SELECT id, name, description, created_at, updated_at FROM projects WHERE id = $1", id)
 	return scanProject(row)
 }
 
@@ -84,7 +84,7 @@ func (s *Service) GetKeyBySecret(ctx context.Context, secret string) (*model.API
 	hash := s.hashKey(secret)
 
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, scopes, expires_at, created_at FROM api_keys WHERE secret_prefix = ? AND secret_hash = ?",
+		"SELECT id, project_id, name, scopes, expires_at, created_at FROM api_keys WHERE secret_prefix = $1 AND secret_hash = $2",
 		prefix, hash)
 	if err != nil {
 		return nil, fmt.Errorf("projects: get key by secret query: %w", err)
@@ -106,7 +106,7 @@ func (s *Service) List(ctx context.Context, orgID ...string) ([]*model.Project, 
 	var err error
 	if len(orgID) > 0 && orgID[0] != "" {
 		rows, err = s.db.QueryContext(ctx,
-			"SELECT id, name, description, created_at, updated_at FROM projects WHERE org_id = ? ORDER BY created_at DESC", orgID[0])
+			"SELECT id, name, description, created_at, updated_at FROM projects WHERE org_id = $1 ORDER BY created_at DESC", orgID[0])
 	} else {
 		rows, err = s.db.QueryContext(ctx,
 			"SELECT id, name, description, created_at, updated_at FROM projects ORDER BY created_at DESC")
@@ -129,7 +129,7 @@ func (s *Service) List(ctx context.Context, orgID ...string) ([]*model.Project, 
 // Update updates a project's name and description.
 func (s *Service) Update(ctx context.Context, id, name, description string) (*model.Project, error) {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE projects SET name = ?, description = ? WHERE id = ?",
+		"UPDATE projects SET name = $1, description = $2 WHERE id = $3",
 		name, description, id)
 	if err != nil {
 		return nil, fmt.Errorf("projects: update: %w", err)
@@ -139,7 +139,7 @@ func (s *Service) Update(ctx context.Context, id, name, description string) (*mo
 
 // Delete removes a project by ID.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", id)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM projects WHERE id = $1", id)
 	return err
 }
 
@@ -157,7 +157,7 @@ func (s *Service) CreateKey(ctx context.Context, projectID, name string, scopes 
 
 	scopesJSON, _ := json.Marshal(scopes)
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO api_keys (id, project_id, name, secret_hash, secret_prefix, scopes, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO api_keys (id, project_id, name, secret_hash, secret_prefix, scopes, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
 		id, projectID, name, hash, prefix, scopesJSON, expiresAt, now)
 	if err != nil {
 		return nil, "", fmt.Errorf("projects: create key: %w", err)
@@ -178,7 +178,7 @@ func (s *Service) CreateKey(ctx context.Context, projectID, name string, scopes 
 // ListKeys returns all API keys for a project.
 func (s *Service) ListKeys(ctx context.Context, projectID string) ([]*model.APIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, scopes, expires_at, created_at, secret_prefix FROM api_keys WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, project_id, name, scopes, expires_at, created_at, secret_prefix FROM api_keys WHERE project_id = $1 ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, fmt.Errorf("projects: list keys: %w", err)
@@ -198,7 +198,7 @@ func (s *Service) ListKeys(ctx context.Context, projectID string) ([]*model.APIK
 // GetKey returns a single API key by ID.
 func (s *Service) GetKey(ctx context.Context, projectID, keyID string) (*model.APIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, name, scopes, expires_at, created_at, secret_prefix FROM api_keys WHERE id = ? AND project_id = ?",
+		"SELECT id, project_id, name, scopes, expires_at, created_at, secret_prefix FROM api_keys WHERE id = $1 AND project_id = $2",
 		keyID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("projects: get key: %w", err)
@@ -215,25 +215,29 @@ func (s *Service) GetKey(ctx context.Context, projectID, keyID string) (*model.A
 func (s *Service) UpdateKey(ctx context.Context, projectID, keyID string, name *string, scopes []string, setExpiry bool, expiresAt *time.Time) (*model.APIKey, error) {
 	sets := []string{}
 	args := []interface{}{}
+	n := 1
 	if name != nil && strings.TrimSpace(*name) != "" {
-		sets = append(sets, "name = ?")
+		sets = append(sets, fmt.Sprintf("name = $%d", n))
 		args = append(args, strings.TrimSpace(*name))
+		n++
 	}
 	if scopes != nil {
 		scopesJSON, _ := json.Marshal(scopes)
-		sets = append(sets, "scopes = ?")
+		sets = append(sets, fmt.Sprintf("scopes = $%d", n))
 		args = append(args, scopesJSON)
+		n++
 	}
 	if setExpiry {
-		sets = append(sets, "expires_at = ?")
+		sets = append(sets, fmt.Sprintf("expires_at = $%d", n))
 		args = append(args, expiresAt)
+		n++
 	}
 	if len(sets) == 0 {
 		return s.GetKey(ctx, projectID, keyID)
 	}
 	args = append(args, keyID, projectID)
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE api_keys SET "+strings.Join(sets, ", ")+" WHERE id = ? AND project_id = ?",
+		fmt.Sprintf("UPDATE api_keys SET %s WHERE id = $%d AND project_id = $%d", strings.Join(sets, ", "), n, n+1),
 		args...)
 	if err != nil {
 		return nil, fmt.Errorf("projects: update key: %w", err)
@@ -244,7 +248,7 @@ func (s *Service) UpdateKey(ctx context.Context, projectID, keyID string, name *
 // DeleteKey removes an API key.
 func (s *Service) DeleteKey(ctx context.Context, projectID, keyID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM api_keys WHERE id = ? AND project_id = ?", keyID, projectID)
+		"DELETE FROM api_keys WHERE id = $1 AND project_id = $2", keyID, projectID)
 	return err
 }
 
@@ -269,19 +273,19 @@ type UsageStats struct {
 // GetUsage returns aggregated usage stats for a project.
 func (s *Service) GetUsage(ctx context.Context, projectID string) (*UsageStats, error) {
 	u := &UsageStats{ProjectID: projectID}
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&u.Users)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = ?", projectID).Scan(&u.Sessions)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM databases WHERE project_id = ?", projectID).Scan(&u.Databases)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tables WHERE project_id = ?", projectID).Scan(&u.Tables)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = $1", projectID).Scan(&u.Users)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = $1", projectID).Scan(&u.Sessions)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM databases WHERE project_id = $1", projectID).Scan(&u.Databases)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tables WHERE project_id = $1", projectID).Scan(&u.Tables)
 	s.db.QueryRowContext(ctx, "SELECT 0").Scan(&u.Rows)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = ?", projectID).Scan(&u.Buckets)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = ?", projectID).Scan(&u.Files)
-	s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = ?", projectID).Scan(&u.StorageBytes)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM teams WHERE project_id = ?", projectID).Scan(&u.Teams)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflows WHERE project_id = ?", projectID).Scan(&u.Workflows)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflow_executions WHERE project_id = ?", projectID).Scan(&u.Executions)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM functions WHERE project_id = ?", projectID).Scan(&u.Functions)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM deployments WHERE project_id = ?", projectID).Scan(&u.Deployments)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = $1", projectID).Scan(&u.Buckets)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = $1", projectID).Scan(&u.Files)
+	s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = $1", projectID).Scan(&u.StorageBytes)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM teams WHERE project_id = $1", projectID).Scan(&u.Teams)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflows WHERE project_id = $1", projectID).Scan(&u.Workflows)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflow_executions WHERE project_id = $1", projectID).Scan(&u.Executions)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM functions WHERE project_id = $1", projectID).Scan(&u.Functions)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM deployments WHERE project_id = $1", projectID).Scan(&u.Deployments)
 	return u, nil
 }
 
@@ -305,26 +309,26 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 
 	const sql = `
 		SELECT 'function'   AS type, id, name AS label, runtime            AS subtitle
-		FROM   functions    WHERE project_id = ? AND name  ILIKE ?
+		FROM   functions    WHERE project_id = $1 AND name  ILIKE $2
 		UNION ALL
 		SELECT 'database',           id, name,           ''                AS subtitle
-		FROM   databases    WHERE project_id = ? AND name  ILIKE ?
+		FROM   databases    WHERE project_id = $3 AND name  ILIKE $4
 		UNION ALL
 		SELECT 'bucket',             id, name,           ''                AS subtitle
-		FROM   buckets      WHERE project_id = ? AND name  ILIKE ?
+		FROM   buckets      WHERE project_id = $5 AND name  ILIKE $6
 		UNION ALL
 		SELECT 'workflow',           id, name,           trigger_type      AS subtitle
-		FROM   workflows    WHERE project_id = ? AND name  ILIKE ?
+		FROM   workflows    WHERE project_id = $7 AND name  ILIKE $8
 		UNION ALL
 		SELECT 'deployment',         id, name,           type              AS subtitle
-		FROM   deploy_targets WHERE project_id = ? AND name ILIKE ?
+		FROM   deploy_targets WHERE project_id = $9 AND name ILIKE $10
 		UNION ALL
 		SELECT 'user',               id,
 		       COALESCE(NULLIF(name,''), email, id),
 		       COALESCE(email, '')                                         AS subtitle
-		FROM   users        WHERE project_id = ? AND (name ILIKE ? OR email ILIKE ?)
+		FROM   users        WHERE project_id = $11 AND (name ILIKE $12 OR email ILIKE $13)
 		ORDER  BY label
-		LIMIT  ?`
+		LIMIT  $14`
 
 	rows, err := s.db.QueryContext(ctx, sql,
 		projectID, pattern, // functions
@@ -373,7 +377,7 @@ func (s *Service) CreatePlatform(ctx context.Context, projectID, pType, name, ho
 	id := uid.New("unique()")
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO platforms (id, project_id, type, name, hostname, store_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO platforms (id, project_id, type, name, hostname, store_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
 		id, projectID, pType, name, hostname, storeID, now)
 	if err != nil {
 		return nil, fmt.Errorf("platforms: create: %w", err)
@@ -387,7 +391,7 @@ func (s *Service) CreatePlatform(ctx context.Context, projectID, pType, name, ho
 // ListPlatforms returns all platforms for a project.
 func (s *Service) ListPlatforms(ctx context.Context, projectID string) ([]*Platform, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, created_at FROM platforms WHERE project_id = ? ORDER BY created_at DESC",
+		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, created_at FROM platforms WHERE project_id = $1 ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, fmt.Errorf("platforms: list: %w", err)
@@ -414,14 +418,14 @@ func (s *Service) ListPlatforms(ctx context.Context, projectID string) ([]*Platf
 // DeletePlatform removes a platform.
 func (s *Service) DeletePlatform(ctx context.Context, projectID, platformID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM platforms WHERE id = ? AND project_id = ?", platformID, projectID)
+		"DELETE FROM platforms WHERE id = $1 AND project_id = $2", platformID, projectID)
 	return err
 }
 
 // GetPlatform fetches a single platform by ID.
 func (s *Service) GetPlatform(ctx context.Context, projectID, platformID string) (*Platform, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, created_at FROM platforms WHERE id = ? AND project_id = ?",
+		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, created_at FROM platforms WHERE id = $1 AND project_id = $2",
 		platformID, projectID)
 	var p Platform
 	var hostname, storeID, deployTargetID sql.NullString
@@ -441,28 +445,32 @@ func (s *Service) GetPlatform(ctx context.Context, projectID, platformID string)
 func (s *Service) UpdatePlatform(ctx context.Context, projectID, platformID string, name, hostname, deployTargetID *string) (*Platform, error) {
 	sets := []string{}
 	args := []interface{}{}
+	n := 1
 	if name != nil {
-		sets = append(sets, "name = ?")
+		sets = append(sets, fmt.Sprintf("name = $%d", n))
 		args = append(args, *name)
+		n++
 	}
 	if hostname != nil {
-		sets = append(sets, "hostname = ?")
+		sets = append(sets, fmt.Sprintf("hostname = $%d", n))
 		args = append(args, *hostname)
+		n++
 	}
 	if deployTargetID != nil {
-		sets = append(sets, "deploy_target_id = ?")
+		sets = append(sets, fmt.Sprintf("deploy_target_id = $%d", n))
 		if *deployTargetID == "" {
 			args = append(args, nil) // store NULL when disconnecting
 		} else {
 			args = append(args, *deployTargetID)
 		}
+		n++
 	}
 	if len(sets) == 0 {
 		return s.GetPlatform(ctx, projectID, platformID)
 	}
 	args = append(args, platformID, projectID)
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE platforms SET "+strings.Join(sets, ", ")+" WHERE id = ? AND project_id = ?",
+		fmt.Sprintf("UPDATE platforms SET %s WHERE id = $%d AND project_id = $%d", strings.Join(sets, ", "), n, n+1),
 		args...)
 	if err != nil {
 		return nil, fmt.Errorf("platforms: update: %w", err)
@@ -504,7 +512,7 @@ func defaultAuthSecurity() AuthSecurity {
 func (s *Service) GetAuthSecurity(ctx context.Context, projectID string) (AuthSecurity, error) {
 	var raw sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		"SELECT auth_config FROM projects WHERE id = ?", projectID).Scan(&raw)
+		"SELECT auth_config FROM projects WHERE id = $1", projectID).Scan(&raw)
 	if err != nil {
 		return defaultAuthSecurity(), fmt.Errorf("projects: get auth security: %w", err)
 	}
@@ -526,7 +534,7 @@ func (s *Service) GetAuthSecurity(ctx context.Context, projectID string) (AuthSe
 func (s *Service) UpdateAuthSecurity(ctx context.Context, projectID string, sec AuthSecurity) error {
 	var raw sql.NullString
 	_ = s.db.QueryRowContext(ctx,
-		"SELECT auth_config FROM projects WHERE id = ?", projectID).Scan(&raw)
+		"SELECT auth_config FROM projects WHERE id = $1", projectID).Scan(&raw)
 	cfg := map[string]interface{}{}
 	if raw.Valid && raw.String != "" && raw.String != "null" {
 		_ = json.Unmarshal([]byte(raw.String), &cfg)
@@ -534,7 +542,7 @@ func (s *Service) UpdateAuthSecurity(ctx context.Context, projectID string, sec 
 	cfg["security"] = sec
 	configJSON, _ := json.Marshal(cfg)
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE projects SET auth_config = ? WHERE id = ?", configJSON, projectID)
+		"UPDATE projects SET auth_config = $1 WHERE id = $2", configJSON, projectID)
 	if err != nil {
 		return fmt.Errorf("projects: update auth security: %w", err)
 	}
@@ -545,7 +553,7 @@ func (s *Service) UpdateAuthSecurity(ctx context.Context, projectID string, sec 
 func (s *Service) UpdateAuthConfig(ctx context.Context, projectID string, config map[string]interface{}) error {
 	configJSON, _ := json.Marshal(config)
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE projects SET auth_config = ? WHERE id = ?", configJSON, projectID)
+		"UPDATE projects SET auth_config = $1 WHERE id = $2", configJSON, projectID)
 	if err != nil {
 		return fmt.Errorf("projects: update auth config: %w", err)
 	}
@@ -556,7 +564,7 @@ func (s *Service) UpdateAuthConfig(ctx context.Context, projectID string, config
 func (s *Service) UpdateServicesConfig(ctx context.Context, projectID string, config map[string]interface{}) error {
 	configJSON, _ := json.Marshal(config)
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE projects SET services_config = ? WHERE id = ?", configJSON, projectID)
+		"UPDATE projects SET services_config = $1 WHERE id = $2", configJSON, projectID)
 	if err != nil {
 		return fmt.Errorf("projects: update services config: %w", err)
 	}
