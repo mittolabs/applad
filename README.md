@@ -30,8 +30,6 @@
 </p>
 
 <br/>
-
-<p align="center">
   <img src="assets/console-preview.png" alt="Applad console" width="100%" />
 </p>
 
@@ -104,6 +102,7 @@ melos analyze && melos test
 cd sdks/js && npm install && npm run build && npm test
 ```
 
+<<<<<<< HEAD
 ---
 
 ## Security
@@ -116,6 +115,8 @@ If you discover a security vulnerability please **do not** open a public issue. 
 
 We welcome contributions of all sizes — bug fixes, docs, new SDK methods, or entirely new features. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get started.
 
+=======
+>>>>>>> ed92bf7402c01180c2699ed8215c6b970f523b4d
 ---
 
 ## License
