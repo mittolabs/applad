@@ -809,6 +809,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       child: ElevatedButton(
         onPressed: _loading ? null : fn,
         style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF3472A4),
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: const Color(0xFF3472A4).withValues(alpha: 0.4),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           elevation: 0,
         ),
