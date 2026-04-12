@@ -192,21 +192,20 @@ cd "$INSTALL_DIR"
 if [ "$MODE" = upgrade ]; then
   [ -f "$COMPOSE_FILE" ] || die "No $COMPOSE_FILE found in $INSTALL_DIR. Run install first."
   section "Upgrading Applad"
-  info "Pulling latest images from ghcr.io/mittolabs…"
-  # Always upgrade to latest — pinning to a specific tag risks starting services
-  # with an image that was never published if that release's CI partially failed.
-  APPLAD_VERSION=latest docker compose -f "$COMPOSE_FILE" pull --ignore-pull-failures || true
-  info "Restarting services…"
-  APPLAD_VERSION=latest docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
-  # Keep .env in sync
+  NEW_VERSION="$(ask "Target version:" "latest")"
+  # Update the version in .env if it exists
   if [ -f .env ]; then
     if grep -q '^APPLAD_VERSION=' .env; then
-      sed -i.bak "s/^APPLAD_VERSION=.*/APPLAD_VERSION=latest/" .env
+      sed -i.bak "s/^APPLAD_VERSION=.*/APPLAD_VERSION=${NEW_VERSION}/" .env
     else
-      echo "APPLAD_VERSION=latest" >> .env
+      echo "APPLAD_VERSION=${NEW_VERSION}" >> .env
     fi
   fi
-  log "Upgrade complete — running latest"
+  info "Pulling images (version: ${NEW_VERSION})…"
+  APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" pull
+  info "Restarting services…"
+  APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+  log "Upgrade complete — running ${NEW_VERSION}"
   printf '\n'
   info "Tail logs: ${BOLD}docker compose -f %s logs -f${RESET}" "$COMPOSE_FILE"
   exit 0
