@@ -105,7 +105,7 @@ func TestList_ReturnsEmpty(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("SELECT id").WillReturnRows(sqlmock.NewRows([]string{}))
 
-	logs, total, err := svc.List(context.Background(), "proj1", "", "", "", 50, 0)
+	logs, total, err := svc.List(context.Background(), "proj1", "", "", "", "", 50, 0)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

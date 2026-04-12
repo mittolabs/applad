@@ -43,7 +43,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 	logs, total, err := h.svc.List(r.Context(), projectID,
-		q.Get("action"), q.Get("resourceType"), q.Get("userId"),
+		q.Get("action"), q.Get("resourceType"), q.Get("userId"), q.Get("method"),
 		limit, offset,
 	)
 	if err != nil {

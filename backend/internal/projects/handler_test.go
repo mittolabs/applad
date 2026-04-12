@@ -9,7 +9,7 @@ import (
 )
 
 func TestCreateProject_MissingName(t *testing.T) {
-	svc := &Service{}
+	svc := NewService(nil, "", "test-secret")
 	h := NewHandler(svc)
 
 	tests := []struct {
@@ -38,7 +38,7 @@ func TestCreateProject_MissingName(t *testing.T) {
 }
 
 func TestRoutes_Structure(t *testing.T) {
-	svc := &Service{}
+	svc := NewService(nil, "", "test-secret")
 	h := NewHandler(svc)
 	router := Routes(h)
 	if router == nil {
@@ -64,7 +64,7 @@ func TestWriteJSON(t *testing.T) {
 }
 
 func TestCreateKey_MissingName(t *testing.T) {
-	svc := &Service{}
+	svc := NewService(nil, "", "test-secret")
 	h := NewHandler(svc)
 
 	tests := []struct {

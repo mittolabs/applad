@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
@@ -29,10 +30,14 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/{projectId}", h.deleteProject)
 	r.Post("/{projectId}/keys", h.createKey)
 	r.Get("/{projectId}/keys", h.listKeys)
+	r.Get("/{projectId}/keys/{keyId}", h.getKey)
+	r.Patch("/{projectId}/keys/{keyId}", h.updateKey)
 	r.Delete("/{projectId}/keys/{keyId}", h.deleteKey)
 	r.Get("/{projectId}/usage", h.getUsage)
 	r.Post("/{projectId}/platforms", h.createPlatform)
 	r.Get("/{projectId}/platforms", h.listPlatforms)
+	r.Get("/{projectId}/platforms/{platformId}", h.getPlatform)
+	r.Patch("/{projectId}/platforms/{platformId}", h.updatePlatform)
 	r.Delete("/{projectId}/platforms/{platformId}", h.deletePlatform)
 	r.Patch("/{projectId}/auth", h.updateAuthConfig)
 	r.Get("/{projectId}/auth/security", h.getAuthSecurity)
@@ -125,8 +130,9 @@ func (h *Handler) deleteProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectId")
 	var body struct {
-		Name   string   `json:"name"`
-		Scopes []string `json:"scopes"`
+		Name      string   `json:"name"`
+		Scopes    []string `json:"scopes"`
+		ExpiresAt *string  `json:"expiresAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
@@ -135,7 +141,16 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 	if body.Scopes == nil {
 		body.Scopes = []string{}
 	}
-	key, _, err := h.svc.CreateKey(r.Context(), projectID, body.Name, body.Scopes)
+	var expiresAt *time.Time
+	if body.ExpiresAt != nil && *body.ExpiresAt != "" {
+		t, err := time.Parse(time.RFC3339, *body.ExpiresAt)
+		if err != nil {
+			apperr.BadRequest(w, "invalid expiresAt: use RFC3339 format")
+			return
+		}
+		expiresAt = &t
+	}
+	key, _, err := h.svc.CreateKey(r.Context(), projectID, body.Name, body.Scopes, expiresAt)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -154,6 +169,57 @@ func (h *Handler) listKeys(w http.ResponseWriter, r *http.Request) {
 		"total": len(keys),
 		"keys":  keys,
 	})
+}
+
+func (h *Handler) getKey(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	keyID := chi.URLParam(r, "keyId")
+	key, err := h.svc.GetKey(r.Context(), projectID, keyID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "key")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, key)
+}
+
+func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	keyID := chi.URLParam(r, "keyId")
+	var body struct {
+		Name      *string  `json:"name"`
+		Scopes    []string `json:"scopes"`
+		ExpiresAt *string  `json:"expiresAt"` // RFC3339 or "" to clear
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	var expiresAt *time.Time
+	if body.ExpiresAt != nil {
+		if *body.ExpiresAt != "" {
+			t, err := time.Parse(time.RFC3339, *body.ExpiresAt)
+			if err != nil {
+				apperr.BadRequest(w, "invalid expiresAt: use RFC3339 format")
+				return
+			}
+			expiresAt = &t
+		}
+		// empty string = clear expiry (expiresAt stays nil)
+	}
+	key, err := h.svc.UpdateKey(r.Context(), projectID, keyID, body.Name, body.Scopes, body.ExpiresAt != nil, expiresAt)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "key")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, key)
 }
 
 func (h *Handler) deleteKey(w http.ResponseWriter, r *http.Request) {
@@ -207,6 +273,37 @@ func (h *Handler) listPlatforms(w http.ResponseWriter, r *http.Request) {
 		"total":     len(platforms),
 		"platforms": platforms,
 	})
+}
+
+func (h *Handler) getPlatform(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	platformID := chi.URLParam(r, "platformId")
+	p, err := h.svc.GetPlatform(r.Context(), projectID, platformID)
+	if err != nil {
+		apperr.NotFound(w, "platform")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+func (h *Handler) updatePlatform(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	platformID := chi.URLParam(r, "platformId")
+	var body struct {
+		Name           *string `json:"name"`
+		Hostname       *string `json:"hostname"`
+		DeployTargetID *string `json:"deployTargetId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	p, err := h.svc.UpdatePlatform(r.Context(), projectID, platformID, body.Name, body.Hostname, body.DeployTargetID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 func (h *Handler) deletePlatform(w http.ResponseWriter, r *http.Request) {

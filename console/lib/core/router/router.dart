@@ -14,6 +14,7 @@ import '../../features/functions/functions_page.dart';
 import '../../features/messaging/messaging_page.dart';
 import '../../features/workflows/workflows_page.dart';
 import '../../features/settings/settings_page.dart';
+import '../../features/settings/api_key_detail_page.dart';
 import '../../features/flags/flags_page.dart';
 import '../../features/health/health_page.dart';
 import '../../features/sites/sites_page.dart';
@@ -206,6 +207,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/project/:projectId/settings',
             pageBuilder: (_, state) =>
                 _noTransition(state, const SettingsPage()),
+          ),
+          GoRoute(
+            path: '/project/:projectId/settings/keys/:keyId',
+            pageBuilder: (_, state) =>
+                _noTransition(state, const ApiKeyDetailPage()),
           ),
           GoRoute(
             path: '/project/:projectId/platforms',
