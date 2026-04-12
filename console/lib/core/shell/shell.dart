@@ -118,7 +118,6 @@ List<_NavGroup> _buildGroups() => [
         _NavChild('Containers', 'containers', LucideIcons.box),
         _NavChild('Mobile', 'mobile', LucideIcons.smartphone),
         _NavChild('Desktop', 'desktop', LucideIcons.monitor),
-        _NavChild('Deployments', 'deploy', LucideIcons.rocket),
       ]),
       const _NavGroup('observe', 'Observe', LucideIcons.activity, [
         _NavChild('Overview',    'observe',     LucideIcons.layoutDashboard),
@@ -264,7 +263,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       'flags': 'build',
       'realtime': 'build',
       'platforms': 'platforms',
-      'deploy': 'platforms',
+
       'sites': 'platforms',
       'containers': 'platforms',
       'mobile': 'platforms',

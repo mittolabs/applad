@@ -2,11 +2,12 @@
   <img src="assets/logo.jpg" alt="Applad" width="160" />
 </p>
 
-<h3 align="center">Open-source backend-as-a-service with a built-in workflow engine.</h3>
+<h2 align="center">Build products, not infrastructure.</h2>
 
 <p align="center">
-  Auth · Databases · Storage · Functions · Realtime · Messaging · Workflows · Deploy<br/>
-  Self-hosted. Go backend. Flutter Web console. One <code>docker compose up</code>.
+  Applad is a self-hosted backend platform with everything your app needs —<br/>
+  auth, databases, storage, functions, realtime, messaging, and a workflow engine.<br/>
+  Your server, your data, your rules.
 </p>
 
 <br/>
@@ -19,54 +20,19 @@
 
 ## Self-host
 
-**Requirements**: Docker + Docker Compose. Nothing else.
+**Requirements**: Docker with the Compose plugin. Nothing else.
 
 ```bash
-git clone https://github.com/mittolabs/applad
-cd applad
-docker compose up -d
+curl -fsSL https://raw.githubusercontent.com/mittolabs/applad/main/install.sh | bash
 ```
 
-Open **http://localhost** → create your admin account → you're in.
+The installer will ask for your domain, TLS preference (none, Let's Encrypt, or custom cert), storage driver, and SMTP settings. Secrets are generated automatically. When it's done, open the URL it prints and create your admin account.
 
-> Defaults work out of the box for local dev. No `.env` required.
-
-<details>
-<summary>API only (skips the Flutter console build)</summary>
+**To upgrade:**
 
 ```bash
-docker compose up api postgres redis proxy -d
+./install.sh upgrade
 ```
-
-The API is at **http://localhost/v1**. Useful when iterating on the backend — skips the slow Flutter compile step.
-</details>
-
-### Production
-
-Set secrets before going live:
-
-```bash
-printf "JWT_SECRET=$(openssl rand -hex 32)\nDB_PASSWORD=$(openssl rand -hex 16)\n" > .env
-docker compose up -d
-```
-
-Point your domain at the server. That's it.
-
-### Key environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `JWT_SECRET` | `change-me` | **Required in prod.** HS256 signing key |
-| `APP_ENV` | `development` | Set to `production` to enforce `JWT_SECRET` |
-| `DATABASE_DSN` | `postgres://...` | PostgreSQL connection string |
-| `REDIS_ADDR` | `redis:6379` | Redis address |
-| `STORAGE_PATH` | `/var/applad/storage` | File storage root |
-| `CONSOLE_SIGNUP_ENABLED` | `auto` | `auto` (disabled after first user) · `true` · `false` |
-| `SMTP_HOST/PORT/USER/PASS/FROM` | — | Email via SMTP |
-| `TWILIO_SID/TOKEN/FROM` | — | SMS via Twilio |
-| `FCM_SERVER_KEY` | — | Firebase push notifications |
-
-OAuth2 providers (Google, GitHub, Apple, Discord, Twitter + 11 more) are configured per-project inside the console UI — no env vars needed.
 
 ---
 
@@ -97,7 +63,7 @@ Pull requests are welcome. To get started locally:
 ```bash
 cd backend
 go build ./...    # compile
-go test ./...     # unit tests (202 tests across 19 packages)
+go test ./...     # unit tests
 go vet ./...      # vet
 gofmt -w .        # format
 ```
