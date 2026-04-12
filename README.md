@@ -30,6 +30,8 @@
 </p>
 
 <br/>
+
+<p align="center">
   <img src="assets/console-preview.png" alt="Applad console" width="100%" />
 </p>
 
@@ -71,7 +73,7 @@ The installer will ask for your domain, TLS preference (none, Let's Encrypt, or 
 
 ## Contributing
 
-Pull requests are welcome.
+Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
 ### Local dev stack
 
@@ -102,15 +104,13 @@ melos analyze && melos test
 cd sdks/js && npm install && npm run build && npm test
 ```
 
+---
+
 ## Security
 
 If you discover a security vulnerability please **do not** open a public issue. See [SECURITY.md](SECURITY.md) for the responsible disclosure process.
 
-
-## Contributing
-
-We welcome contributions of all sizes — bug fixes, docs, new SDK methods, or entirely new features. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get started.
-
+---
 
 ## License
 
