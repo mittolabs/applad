@@ -1,11 +1,15 @@
 package worker
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
@@ -78,6 +82,10 @@ func (w *Builds) process(ctx context.Context, job *queue.Job) error {
 		return w.processFunctionExecution(ctx, job)
 	case "function_build":
 		return w.processFunctionBuild(ctx, job)
+	case "deploy_release":
+		return w.processRelease(ctx, job)
+	case "deploy_rollback":
+		return w.processRollback(ctx, job)
 	default:
 		return w.processDeployment(ctx, job)
 	}
@@ -281,3 +289,281 @@ func (w *Builds) updateDeployStatusWithError(ctx context.Context, id, projectID,
 		metrics.DBErrors.Inc()
 	}
 }
+
+// ── deploy_release / deploy_rollback processors ───────────────────────────────
+
+// pipelineConfig holds the fields we need from deploy_pipelines + deploy_targets.
+type pipelineConfig struct {
+	pipelineID  string
+	targetID    string
+	projectID   string
+	sourceType  string // "git" | "upload"
+	sourceURL   string
+	branch      string
+	buildCmd    string
+	outputDir   string
+	targetType  string // "serverless" | "web" | "container"
+	runtime     string
+	entrypoint  string
+	timeoutMs   int
+}
+
+func (w *Builds) loadPipelineConfig(ctx context.Context, pipelineID, targetID, projectID string) (*pipelineConfig, error) {
+	var cfg pipelineConfig
+	cfg.pipelineID = pipelineID
+	cfg.targetID = targetID
+	cfg.projectID = projectID
+
+	err := w.db.QueryRowContext(ctx,
+		`SELECT dp.source_type, dp.source_url, dp.branch, dp.build_cmd, dp.output_dir,
+		        dt.type, dt.runtime, dt.entrypoint, dp.timeout_ms
+		 FROM deploy_pipelines dp
+		 JOIN deploy_targets dt ON dt.id = dp.target_id
+		 WHERE dp.id = ? AND dp.project_id = ?`, pipelineID, projectID,
+	).Scan(&cfg.sourceType, &cfg.sourceURL, &cfg.branch, &cfg.buildCmd, &cfg.outputDir,
+		&cfg.targetType, &cfg.runtime, &cfg.entrypoint, &cfg.timeoutMs)
+	if err != nil {
+		return nil, fmt.Errorf("load pipeline config: %w", err)
+	}
+	return &cfg, nil
+}
+
+func (w *Builds) updateReleaseStatus(ctx context.Context, releaseID, status, buildLog, releaseErr string, durationMs int64) {
+	now := time.Now().UTC()
+	var completedAt interface{}
+	if status == "success" || status == "failed" {
+		completedAt = now
+	}
+	if _, err := w.db.ExecContext(ctx,
+		`UPDATE deploy_releases SET status=?, build_log=?, error=?, completed_at=?, duration_ms=? WHERE id=?`,
+		status, buildLog, releaseErr, completedAt, durationMs, releaseID); err != nil {
+		slog.Error("builds worker: update release status failed", "release_id", releaseID, "error", err)
+		metrics.DBErrors.Inc()
+	}
+}
+
+func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
+	releaseID, _ := job.Payload["releaseId"].(string)
+	pipelineID, _ := job.Payload["pipelineId"].(string)
+	targetID, _ := job.Payload["targetId"].(string)
+	projectID, _ := job.Payload["projectId"].(string)
+	commitSHA, _ := job.Payload["commitSha"].(string)
+
+	if releaseID == "" || pipelineID == "" {
+		slog.Warn("builds worker: deploy_release job missing ids", "job_id", job.ID)
+		return nil
+	}
+
+	start := time.Now()
+	w.updateReleaseStatus(ctx, releaseID, "building", "", "", 0)
+	w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "pending", "Building…")
+
+	cfg, err := w.loadPipelineConfig(ctx, pipelineID, targetID, projectID)
+	if err != nil {
+		w.updateReleaseStatus(ctx, releaseID, "failed", "", err.Error(), time.Since(start).Milliseconds())
+		w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Build configuration error")
+		return err
+	}
+
+	var sourceDir string
+	if cfg.sourceType == "git" && cfg.sourceURL != "" {
+		cloned, err := cloneToSource(ctx, cfg.sourceURL, cfg.branch)
+		if err != nil {
+			w.updateReleaseStatus(ctx, releaseID, "failed", err.Error(), "", time.Since(start).Milliseconds())
+			w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Clone failed")
+			return err
+		}
+		sourceDir = cloned
+		defer os.RemoveAll(sourceDir)
+	}
+
+	w.updateReleaseStatus(ctx, releaseID, "deploying", "", "", 0)
+
+	deployConfig := runtime.ParseDeployConfig(map[string]interface{}{
+		"buildCmd":   cfg.buildCmd,
+		"outputDir":  cfg.outputDir,
+		"runtime":    cfg.runtime,
+		"entrypoint": cfg.entrypoint,
+		"sourceDir":  sourceDir,
+	})
+
+	var deployErr error
+	switch cfg.targetType {
+	case "serverless", "function":
+		req := runtime.ExecRequest{
+			FunctionID: targetID, ProjectID: projectID,
+			Runtime: cfg.runtime, Entrypoint: cfg.entrypoint, SourceDir: sourceDir,
+			Timeout: cfg.timeoutMs / 1000,
+		}
+		_, deployErr = w.executor.Build(ctx, req)
+	case "container":
+		deployErr = w.deployExecutor.DeployContainer(ctx, releaseID, projectID, deployConfig)
+	default: // "web" and unknown
+		deployErr = w.deployExecutor.DeployWeb(ctx, releaseID, projectID, deployConfig)
+	}
+
+	durationMs := time.Since(start).Milliseconds()
+	if deployErr != nil {
+		w.updateReleaseStatus(ctx, releaseID, "failed", "", deployErr.Error(), durationMs)
+		w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Deploy failed")
+		return deployErr
+	}
+
+	w.updateReleaseStatus(ctx, releaseID, "success", "", "", durationMs)
+	w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "success", "Deployed successfully")
+	slog.Info("builds worker: release complete", "release_id", releaseID, "duration_ms", durationMs)
+	return nil
+}
+
+func (w *Builds) processRollback(ctx context.Context, job *queue.Job) error {
+	releaseID, _ := job.Payload["releaseId"].(string)
+	originalReleaseID, _ := job.Payload["originalReleaseId"].(string)
+	pipelineID, _ := job.Payload["pipelineId"].(string)
+	targetID, _ := job.Payload["targetId"].(string)
+	projectID, _ := job.Payload["projectId"].(string)
+	artifactPath, _ := job.Payload["artifactPath"].(string)
+
+	if releaseID == "" {
+		return nil
+	}
+
+	start := time.Now()
+	w.updateReleaseStatus(ctx, releaseID, "deploying", "", "", 0)
+
+	cfg, err := w.loadPipelineConfig(ctx, pipelineID, targetID, projectID)
+	if err != nil {
+		w.updateReleaseStatus(ctx, releaseID, "failed", "", err.Error(), time.Since(start).Milliseconds())
+		return err
+	}
+
+	deployConfig := runtime.ParseDeployConfig(map[string]interface{}{
+		"artifactPath": artifactPath,
+		"runtime":      cfg.runtime,
+		"entrypoint":   cfg.entrypoint,
+	})
+
+	var deployErr error
+	switch cfg.targetType {
+	case "container":
+		deployErr = w.deployExecutor.DeployContainer(ctx, releaseID, projectID, deployConfig)
+	default:
+		deployErr = w.deployExecutor.DeployWeb(ctx, releaseID, projectID, deployConfig)
+	}
+
+	durationMs := time.Since(start).Milliseconds()
+	if deployErr != nil {
+		w.updateReleaseStatus(ctx, releaseID, "failed", "", deployErr.Error(), durationMs)
+		return deployErr
+	}
+
+	// Mark the original release as rolled_back.
+	if originalReleaseID != "" {
+		w.db.ExecContext(ctx, //nolint:errcheck
+			`UPDATE deploy_releases SET status='rolled_back' WHERE id=?`, originalReleaseID)
+	}
+
+	w.updateReleaseStatus(ctx, releaseID, "success", "", "", durationMs)
+	slog.Info("builds worker: rollback complete", "release_id", releaseID)
+	return nil
+}
+
+// postReleaseCommitStatus looks up the git connection for the pipeline's project
+// and posts a commit status back to GitHub/GitLab.
+func (w *Builds) postReleaseCommitStatus(ctx context.Context, projectID, pipelineID, commitSHA, state, description string) {
+	if commitSHA == "" {
+		return
+	}
+
+	var accessToken, provider, sourceURL string
+	err := w.db.QueryRowContext(ctx,
+		`SELECT gc.access_token, gc.provider, dp.source_url
+		 FROM deploy_pipelines dp
+		 JOIN git_connections gc ON gc.project_id = dp.project_id
+		 WHERE dp.id = ? AND dp.project_id = ?
+		 LIMIT 1`, pipelineID, projectID,
+	).Scan(&accessToken, &provider, &sourceURL)
+	if err == sql.ErrNoRows || err != nil {
+		return // No git connection — nothing to post.
+	}
+	if accessToken == "" || sourceURL == "" {
+		return
+	}
+
+	// Extract "owner/repo" from the source URL.
+	repoFull := extractRepoName(sourceURL)
+	if repoFull == "" {
+		return
+	}
+
+	go func() {
+		postCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		postCommitStatusHTTP(postCtx, provider, accessToken, repoFull, commitSHA, state, "", description)
+	}()
+}
+
+func postCommitStatusHTTP(ctx context.Context, provider, accessToken, repoFull, sha, state, targetURL, description string) {
+	var apiURL string
+	var body []byte
+
+	switch provider {
+	case "github":
+		ghState := map[string]string{"pending": "pending", "success": "success", "failure": "failure", "error": "error"}[state]
+		if ghState == "" {
+			ghState = "error"
+		}
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/statuses/%s", repoFull, sha)
+		body, _ = json.Marshal(map[string]string{
+			"state": ghState, "target_url": targetURL,
+			"description": truncateStr(description, 140), "context": "applad/deploy",
+		})
+	case "gitlab":
+		glState := map[string]string{"pending": "pending", "success": "success", "failure": "failed", "error": "failed"}[state]
+		if glState == "" {
+			glState = "failed"
+		}
+		encoded := strings.ReplaceAll(repoFull, "/", "%2F")
+		apiURL = fmt.Sprintf("https://gitlab.com/api/v4/projects/%s/statuses/%s", encoded, sha)
+		body, _ = json.Marshal(map[string]string{
+			"state": glState, "target_url": targetURL,
+			"description": truncateStr(description, 140), "name": "applad/deploy",
+		})
+	default:
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if provider == "github" {
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Warn("builds worker: commit status post failed", "error", err)
+		return
+	}
+	resp.Body.Close()
+}
+
+func extractRepoName(sourceURL string) string {
+	// Handle https://github.com/owner/repo and https://github.com/owner/repo.git
+	u := strings.TrimSuffix(sourceURL, ".git")
+	parts := strings.Split(u, "/")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+	}
+	return ""
+}
+
+func truncateStr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}
+

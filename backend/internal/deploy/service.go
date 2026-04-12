@@ -3,8 +3,12 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,7 +68,7 @@ type Release struct {
 	ProjectID    string     `json:"projectId"`
 	PipelineID   string     `json:"pipelineId"`
 	TargetID     string     `json:"targetId"`
-	Status       string     `json:"status"` // pending, building, deploying, success, failed, rolled_back
+	Status       string     `json:"status"` // pending, building, deploying, success, failed, rolled_back, destroyed
 	TriggerType  string     `json:"triggerType"`
 	TriggerActor string     `json:"triggerActor"`
 	CommitSHA    string     `json:"commitSha,omitempty"`
@@ -76,6 +80,11 @@ type Release struct {
 	StartedAt    *time.Time `json:"startedAt"`
 	CompletedAt  *time.Time `json:"completedAt"`
 	CreatedAt    time.Time  `json:"$createdAt"`
+	// Preview deploy fields (set when TriggerType is "pull_request")
+	IsPreview  bool   `json:"isPreview"`
+	PreviewURL string `json:"previewUrl,omitempty"`
+	PRNumber   int    `json:"prNumber,omitempty"`
+	PRBranch   string `json:"prBranch,omitempty"`
 }
 
 // Execution represents a single invocation of a serverless target.
@@ -361,8 +370,8 @@ func (s *Service) TriggerPipeline(ctx context.Context, pipelineID, projectID, tr
 	now := time.Now().UTC()
 
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO deploy_releases (id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor, commit_sha, started_at, created_at)
-		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+		`INSERT INTO deploy_releases (id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor, commit_sha, is_preview, started_at, created_at)
+		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, FALSE, ?, ?)`,
 		id, projectID, p.ID, p.TargetID, triggerType, actor, commitSHA, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: trigger pipeline: %w", err)
@@ -375,7 +384,7 @@ func (s *Service) TriggerPipeline(ctx context.Context, pipelineID, projectID, tr
 	}
 
 	if s.queue != nil {
-		s.queue.Push(ctx, "builds", queue.Job{
+		s.queue.Push(ctx, "builds", queue.Job{ //nolint:errcheck
 			ID:   id,
 			Type: "deploy_release",
 			Payload: map[string]interface{}{
@@ -391,20 +400,69 @@ func (s *Service) TriggerPipeline(ctx context.Context, pipelineID, projectID, tr
 	return rel, nil
 }
 
+// TriggerPipelineFromWebhook creates a release from a git push/PR webhook event.
+// For pull_request events isPreview should be true and previewURL/prNumber/prBranch populated.
+func (s *Service) TriggerPipelineFromWebhook(ctx context.Context, pipelineID, projectID, triggerType, actor, commitSHA string, isPreview bool, previewURL string, prNumber int, prBranch string) (*Release, error) {
+	p, err := s.GetPipeline(ctx, pipelineID, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	id := uid.New("unique()")
+	now := time.Now().UTC()
+
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO deploy_releases (id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor, commit_sha, is_preview, preview_url, pr_number, pr_branch, started_at, created_at)
+		 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, projectID, p.ID, p.TargetID, triggerType, actor, commitSHA,
+		isPreview, nullString(previewURL), nullInt(prNumber), nullString(prBranch), now, now)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: trigger pipeline from webhook: %w", err)
+	}
+
+	rel := &Release{
+		ID: id, ProjectID: projectID, PipelineID: p.ID, TargetID: p.TargetID,
+		Status: "pending", TriggerType: triggerType, TriggerActor: actor,
+		CommitSHA: commitSHA, IsPreview: isPreview, PreviewURL: previewURL,
+		PRNumber: prNumber, PRBranch: prBranch, StartedAt: &now, CreatedAt: now,
+	}
+
+	if s.queue != nil {
+		s.queue.Push(ctx, "builds", queue.Job{ //nolint:errcheck
+			ID:   id,
+			Type: "deploy_release",
+			Payload: map[string]interface{}{
+				"releaseId":  id,
+				"pipelineId": p.ID,
+				"targetId":   p.TargetID,
+				"projectId":  projectID,
+				"commitSha":  commitSHA,
+				"isPreview":  isPreview,
+			},
+			CreatedAt: now,
+		})
+	}
+
+	return rel, nil
+}
+
 // GetRelease returns a release by ID.
 func (s *Service) GetRelease(ctx context.Context, id, projectID string) (*Release, error) {
 	var r Release
-	var errStr, commitSHA, buildLog, deployLog, artifactPath sql.NullString
+	var errStr, commitSHA, buildLog, deployLog, artifactPath, previewURL, prBranch sql.NullString
+	var prNumber sql.NullInt64
 	var startedAt, completedAt sql.NullTime
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor,
 		        commit_sha, build_log, deploy_log, artifact_path, duration_ms, error,
-		        started_at, completed_at, created_at
+		        started_at, completed_at, created_at,
+		        is_preview, preview_url, pr_number, pr_branch
 		 FROM deploy_releases WHERE id = ? AND project_id = ?`, id, projectID,
 	).Scan(&r.ID, &r.ProjectID, &r.PipelineID, &r.TargetID, &r.Status,
 		&r.TriggerType, &r.TriggerActor, &commitSHA, &buildLog, &deployLog,
-		&artifactPath, &r.DurationMs, &errStr, &startedAt, &completedAt, &r.CreatedAt)
+		&artifactPath, &r.DurationMs, &errStr, &startedAt, &completedAt, &r.CreatedAt,
+		&r.IsPreview, &previewURL, &prNumber, &prBranch)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("release not found")
 	}
@@ -416,6 +474,11 @@ func (s *Service) GetRelease(ctx context.Context, id, projectID string) (*Releas
 	r.DeployLog = deployLog.String
 	r.ArtifactPath = artifactPath.String
 	r.Error = errStr.String
+	r.PreviewURL = previewURL.String
+	r.PRBranch = prBranch.String
+	if prNumber.Valid {
+		r.PRNumber = int(prNumber.Int64)
+	}
 	if startedAt.Valid {
 		r.StartedAt = &startedAt.Time
 	}
@@ -425,11 +488,12 @@ func (s *Service) GetRelease(ctx context.Context, id, projectID string) (*Releas
 	return &r, nil
 }
 
-// ListReleases returns releases for a project, optionally filtered by pipeline, target, or status.
-func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targetID, status string) ([]*Release, int, error) {
+// ListReleases returns releases for a project, optionally filtered by pipeline, target, status, or preview flag.
+func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targetID, status string, previewOnly ...bool) ([]*Release, int, error) {
 	query := `SELECT id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor,
 	                 commit_sha, build_log, deploy_log, artifact_path, duration_ms, error,
-	                 started_at, completed_at, created_at
+	                 started_at, completed_at, created_at,
+	                 is_preview, preview_url, pr_number, pr_branch
 	          FROM deploy_releases WHERE project_id = ?`
 	args := []interface{}{projectID}
 
@@ -445,6 +509,9 @@ func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targe
 		query += " AND status = ?"
 		args = append(args, status)
 	}
+	if len(previewOnly) > 0 && previewOnly[0] {
+		query += " AND is_preview = TRUE"
+	}
 	query += " ORDER BY created_at DESC"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -456,11 +523,13 @@ func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targe
 	var releases []*Release
 	for rows.Next() {
 		var r Release
-		var errStr, commitSHA, buildLog, deployLog, artifactPath sql.NullString
+		var errStr, commitSHA, buildLog, deployLog, artifactPath, previewURL, prBranch sql.NullString
+		var prNumber sql.NullInt64
 		var startedAt, completedAt sql.NullTime
 		if err := rows.Scan(&r.ID, &r.ProjectID, &r.PipelineID, &r.TargetID, &r.Status,
 			&r.TriggerType, &r.TriggerActor, &commitSHA, &buildLog, &deployLog,
-			&artifactPath, &r.DurationMs, &errStr, &startedAt, &completedAt, &r.CreatedAt); err != nil {
+			&artifactPath, &r.DurationMs, &errStr, &startedAt, &completedAt, &r.CreatedAt,
+			&r.IsPreview, &previewURL, &prNumber, &prBranch); err != nil {
 			return nil, 0, err
 		}
 		r.CommitSHA = commitSHA.String
@@ -468,6 +537,11 @@ func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targe
 		r.DeployLog = deployLog.String
 		r.ArtifactPath = artifactPath.String
 		r.Error = errStr.String
+		r.PreviewURL = previewURL.String
+		r.PRBranch = prBranch.String
+		if prNumber.Valid {
+			r.PRNumber = int(prNumber.Int64)
+		}
 		if startedAt.Valid {
 			r.StartedAt = &startedAt.Time
 		}
@@ -1354,8 +1428,12 @@ type GitConnection struct {
 	AccountName    string     `json:"accountName"`
 	AccountType    string     `json:"accountType"`
 	ExpiresAt      *time.Time `json:"expiresAt"`
-	CreatedAt      time.Time  `json:"$createdAt"`
-	UpdatedAt      time.Time  `json:"$updatedAt"`
+	// WebhookSecret is the HMAC-SHA256 key used to verify inbound push/PR events.
+	// Shown once at generation time; stored hashed in DB is NOT done — stored plaintext
+	// because GitHub sends HMAC(payload, secret) and we must reproduce it.
+	WebhookSecret string    `json:"webhookSecret,omitempty"`
+	CreatedAt     time.Time `json:"$createdAt"`
+	UpdatedAt     time.Time `json:"$updatedAt"`
 }
 
 // GitRepository represents a repository returned from the Git provider API.
@@ -1394,7 +1472,7 @@ func (s *Service) CreateGitConnection(ctx context.Context, projectID, provider, 
 // ListGitConnections returns all git connections for a project.
 func (s *Service) ListGitConnections(ctx context.Context, projectID string) ([]*GitConnection, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, provider, installation_id, access_token, refresh_token, account_name, account_type, expires_at, created_at, updated_at
+		`SELECT id, project_id, provider, installation_id, access_token, refresh_token, account_name, account_type, expires_at, webhook_secret, created_at, updated_at
 		 FROM git_connections WHERE project_id = ? ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
@@ -1405,17 +1483,57 @@ func (s *Service) ListGitConnections(ctx context.Context, projectID string) ([]*
 	for rows.Next() {
 		var c GitConnection
 		var expiresAt sql.NullTime
+		var webhookSecret sql.NullString
 		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Provider, &c.InstallationID,
 			&c.AccessToken, &c.RefreshToken, &c.AccountName, &c.AccountType,
-			&expiresAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			&expiresAt, &webhookSecret, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		if expiresAt.Valid {
 			c.ExpiresAt = &expiresAt.Time
 		}
+		c.WebhookSecret = webhookSecret.String
 		connections = append(connections, &c)
 	}
 	return connections, len(connections), nil
+}
+
+// GetGitConnectionByID returns a git connection by its ID without a project filter.
+// Used internally by the webhook receiver which identifies the connection from the URL.
+func (s *Service) GetGitConnectionByID(ctx context.Context, connectionID string) (*GitConnection, error) {
+	var c GitConnection
+	var expiresAt sql.NullTime
+	var webhookSecret sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, provider, installation_id, access_token, refresh_token, account_name, account_type, expires_at, webhook_secret, created_at, updated_at
+		 FROM git_connections WHERE id = ?`, connectionID,
+	).Scan(&c.ID, &c.ProjectID, &c.Provider, &c.InstallationID,
+		&c.AccessToken, &c.RefreshToken, &c.AccountName, &c.AccountType,
+		&expiresAt, &webhookSecret, &c.CreatedAt, &c.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("git connection not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if expiresAt.Valid {
+		c.ExpiresAt = &expiresAt.Time
+	}
+	c.WebhookSecret = webhookSecret.String
+	return &c, nil
+}
+
+// GenerateWebhookSecret creates a random webhook secret for a git connection and stores it.
+// Returns the plaintext secret (shown once to the user for entry in GitHub/GitLab settings).
+func (s *Service) GenerateWebhookSecret(ctx context.Context, connectionID, projectID string) (string, error) {
+	secret := uid.RandomHex(32)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE git_connections SET webhook_secret = ?, updated_at = NOW() WHERE id = ? AND project_id = ?`,
+		secret, connectionID, projectID)
+	if err != nil {
+		return "", fmt.Errorf("deploy: generate webhook secret: %w", err)
+	}
+	return secret, nil
 }
 
 // DeleteGitConnection removes a git connection.
@@ -1659,4 +1777,385 @@ func (s *Service) CreateDefaultEnvironments(ctx context.Context, projectID strin
 		}
 	}
 	return nil
+}
+
+// ── Git Webhook ───────────────────────────────────────────────────────────────
+
+// gitPushPayload is the subset of a GitHub/GitLab push event we care about.
+type gitPushPayload struct {
+	Ref        string `json:"ref"`    // "refs/heads/main"
+	After      string `json:"after"`  // commit SHA (GitHub)
+	CheckoutSHA string `json:"checkout_sha"` // commit SHA (GitLab)
+	HeadCommit struct {
+		ID string `json:"id"`
+	} `json:"head_commit"`
+	Pusher struct {
+		Name string `json:"name"`
+	} `json:"pusher"`
+	// GitLab pusher info
+	UserName string `json:"user_name"`
+	Repository struct {
+		FullName string `json:"full_name"` // GitHub: "owner/repo"
+		Homepage string `json:"homepage"`  // GitLab: "https://gitlab.com/owner/repo"
+	} `json:"repository"`
+}
+
+// gitPRPayload is the subset of a GitHub pull_request event we care about.
+type gitPRPayload struct {
+	Action string `json:"action"` // opened, synchronize, closed, reopened
+	Number int    `json:"number"`
+	PullRequest struct {
+		Head struct {
+			SHA string `json:"sha"`
+			Ref string `json:"ref"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+	} `json:"pull_request"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+	Sender struct {
+		Login string `json:"login"`
+	} `json:"sender"`
+}
+
+// HandleGitWebhook verifies an inbound push or pull_request event from GitHub or GitLab,
+// finds matching pipelines, and triggers builds. Returns the number of pipelines triggered.
+func (s *Service) HandleGitWebhook(ctx context.Context, connectionID, event string, payload []byte, signature string) (int, error) {
+	conn, err := s.GetGitConnectionByID(ctx, connectionID)
+	if err != nil {
+		return 0, fmt.Errorf("webhook: %w", err)
+	}
+
+	// Verify signature.
+	if conn.WebhookSecret == "" {
+		return 0, fmt.Errorf("webhook: no secret configured for this connection")
+	}
+	if !verifyWebhookSignature(conn.Provider, conn.WebhookSecret, payload, signature) {
+		return 0, fmt.Errorf("webhook: signature verification failed")
+	}
+
+	switch event {
+	case "push":
+		return s.handlePushEvent(ctx, conn, payload)
+	case "pull_request", "Merge Request Hook":
+		return s.handlePREvent(ctx, conn, payload)
+	default:
+		// Ignore unrecognised events (ping, etc.)
+		return 0, nil
+	}
+}
+
+// verifyWebhookSignature checks HMAC-SHA256 for GitHub or token equality for GitLab.
+func verifyWebhookSignature(provider, secret string, payload []byte, signature string) bool {
+	switch provider {
+	case "github":
+		// GitHub sends: X-Hub-Signature-256: sha256=<hex>
+		expected := "sha256=" + computeHMAC(secret, payload)
+		return hmac.Equal([]byte(signature), []byte(expected))
+	case "gitlab":
+		// GitLab sends the secret verbatim in X-Gitlab-Token
+		return hmac.Equal([]byte(signature), []byte(secret))
+	default:
+		// Bitbucket and others: best-effort HMAC
+		expected := "sha256=" + computeHMAC(secret, payload)
+		return hmac.Equal([]byte(signature), []byte(expected))
+	}
+}
+
+func computeHMAC(secret string, payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (s *Service) handlePushEvent(ctx context.Context, conn *GitConnection, payload []byte) (int, error) {
+	var ev gitPushPayload
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		return 0, fmt.Errorf("webhook: parse push payload: %w", err)
+	}
+
+	// Extract branch from ref (refs/heads/main → main).
+	branch := strings.TrimPrefix(ev.Ref, "refs/heads/")
+	if branch == "" || branch == ev.Ref {
+		return 0, nil // tag push or unknown ref — ignore
+	}
+
+	// Resolve commit SHA.
+	sha := ev.After
+	if sha == "" {
+		sha = ev.HeadCommit.ID
+	}
+	if sha == "" {
+		sha = ev.CheckoutSHA
+	}
+
+	// Resolve actor.
+	actor := ev.Pusher.Name
+	if actor == "" {
+		actor = ev.UserName
+	}
+
+	// Resolve full repo name for pipeline matching.
+	repoName := ev.Repository.FullName
+	if repoName == "" && ev.Repository.Homepage != "" {
+		// GitLab: extract "owner/repo" from the homepage URL.
+		parts := strings.SplitN(strings.TrimPrefix(ev.Repository.Homepage, "https://"), "/", 3)
+		if len(parts) >= 3 {
+			repoName = parts[1] + "/" + parts[2]
+		}
+	}
+
+	pipelines, err := s.findMatchingPipelines(ctx, conn.ProjectID, repoName, branch, "push")
+	if err != nil {
+		return 0, err
+	}
+
+	triggered := 0
+	for _, p := range pipelines {
+		if _, err := s.TriggerPipelineFromWebhook(ctx, p.ID, conn.ProjectID, "push", actor, sha, false, "", 0, ""); err != nil {
+			return triggered, fmt.Errorf("webhook: trigger pipeline %s: %w", p.ID, err)
+		}
+		// Post pending commit status back to provider.
+		s.postCommitStatusAsync(conn, repoName, sha, "pending", "", "Building…")
+		triggered++
+	}
+	return triggered, nil
+}
+
+func (s *Service) handlePREvent(ctx context.Context, conn *GitConnection, payload []byte) (int, error) {
+	var ev gitPRPayload
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		return 0, fmt.Errorf("webhook: parse pr payload: %w", err)
+	}
+
+	repoName := ev.Repository.FullName
+	prBranch := ev.PullRequest.Head.Ref
+	baseBranch := ev.PullRequest.Base.Ref
+	sha := ev.PullRequest.Head.SHA
+	actor := ev.Sender.Login
+
+	switch ev.Action {
+	case "opened", "synchronize", "reopened":
+		pipelines, err := s.findMatchingPipelines(ctx, conn.ProjectID, repoName, baseBranch, "pull_request")
+		if err != nil {
+			return 0, err
+		}
+		triggered := 0
+		for _, p := range pipelines {
+			previewURL := fmt.Sprintf("preview/%s-%s", sha[:7], p.TargetID[:8])
+			rel, err := s.TriggerPipelineFromWebhook(ctx, p.ID, conn.ProjectID, "pull_request", actor, sha, true, previewURL, ev.Number, prBranch)
+			if err != nil {
+				return triggered, fmt.Errorf("webhook: trigger preview pipeline %s: %w", p.ID, err)
+			}
+			_ = rel
+			s.postCommitStatusAsync(conn, repoName, sha, "pending", "", "Building preview…")
+			triggered++
+		}
+		return triggered, nil
+
+	case "closed":
+		// Destroy open preview releases for this PR.
+		_, err := s.db.ExecContext(ctx,
+			`UPDATE deploy_releases SET status = 'destroyed', completed_at = NOW()
+			 WHERE project_id = ? AND pr_number = ? AND is_preview = TRUE AND status NOT IN ('destroyed', 'failed')`,
+			conn.ProjectID, ev.Number)
+		return 0, err
+
+	default:
+		return 0, nil
+	}
+}
+
+// findMatchingPipelines finds pipelines for a project whose source_url references the given
+// repo and whose branch matches, and whose trigger_on array includes the event type.
+func (s *Service) findMatchingPipelines(ctx context.Context, projectID, repoFullName, branch, event string) ([]*Pipeline, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
+		 FROM deploy_pipelines
+		 WHERE project_id = ?
+		   AND source_type = 'git'
+		   AND branch = ?
+		   AND source_url LIKE ?`,
+		projectID, branch, "%"+repoFullName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var matched []*Pipeline
+	for rows.Next() {
+		var p Pipeline
+		var envJSON []byte
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.TargetID, &p.Name,
+			&p.SourceType, &p.SourceURL, &p.Branch, &p.BuildCmd, &p.OutputDir,
+			&envJSON, &p.TriggerOn, &p.CacheDirs, &p.TimeoutMs,
+			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		json.Unmarshal(envJSON, &p.EnvVars) //nolint:errcheck
+		if p.EnvVars == nil {
+			p.EnvVars = map[string]string{}
+		}
+		if p.TriggerOn == nil {
+			p.TriggerOn = json.RawMessage("[]")
+		}
+		// Check trigger_on includes the event.
+		var triggers []string
+		if err := json.Unmarshal(p.TriggerOn, &triggers); err == nil {
+			for _, t := range triggers {
+				if t == event {
+					matched = append(matched, &p)
+					break
+				}
+			}
+		}
+	}
+	return matched, rows.Err()
+}
+
+// ── Commit Status ─────────────────────────────────────────────────────────────
+
+// PostCommitStatus posts a build status back to GitHub or GitLab for a given commit SHA.
+// state: "pending" | "success" | "failure" | "error"
+func (s *Service) PostCommitStatus(ctx context.Context, connectionID, repoFullName, sha, state, targetURL, description string) error {
+	conn, err := s.GetGitConnectionByID(ctx, connectionID)
+	if err != nil {
+		return err
+	}
+	return postCommitStatus(ctx, conn.Provider, conn.AccessToken, repoFullName, sha, state, targetURL, description)
+}
+
+// postCommitStatusAsync fires PostCommitStatus in the background, logging any error.
+func (s *Service) postCommitStatusAsync(conn *GitConnection, repoFullName, sha, state, targetURL, description string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := postCommitStatus(ctx, conn.Provider, conn.AccessToken, repoFullName, sha, state, targetURL, description); err != nil {
+			// Non-fatal — log but don't surface to the webhook caller.
+			_ = err
+		}
+	}()
+}
+
+func postCommitStatus(ctx context.Context, provider, accessToken, repoFullName, sha, state, targetURL, description string) error {
+	if accessToken == "" {
+		return fmt.Errorf("commit status: no access token for connection")
+	}
+
+	var apiURL string
+	var body []byte
+
+	switch provider {
+	case "github":
+		// Map Applad states to GitHub states.
+		ghState := map[string]string{
+			"pending": "pending",
+			"success": "success",
+			"failure": "failure",
+			"error":   "error",
+		}[state]
+		if ghState == "" {
+			ghState = "error"
+		}
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/statuses/%s", repoFullName, sha)
+		body, _ = json.Marshal(map[string]string{
+			"state":       ghState,
+			"target_url":  targetURL,
+			"description": truncate(description, 140),
+			"context":     "applad/deploy",
+		})
+
+	case "gitlab":
+		// GitLab uses project path encoded as %2F, and different state names.
+		glState := map[string]string{
+			"pending": "pending",
+			"success": "success",
+			"failure": "failed",
+			"error":   "failed",
+		}[state]
+		if glState == "" {
+			glState = "failed"
+		}
+		encoded := strings.ReplaceAll(repoFullName, "/", "%2F")
+		apiURL = fmt.Sprintf("https://gitlab.com/api/v4/projects/%s/statuses/%s", encoded, sha)
+		body, _ = json.Marshal(map[string]string{
+			"state":       glState,
+			"target_url":  targetURL,
+			"description": truncate(description, 140),
+			"name":        "applad/deploy",
+		})
+
+	default:
+		return nil // Provider doesn't support commit statuses.
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if provider == "github" {
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("commit status: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("commit status: provider returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// ── Preview Deployments ───────────────────────────────────────────────────────
+
+// DestroyPreviewRelease marks a preview release as destroyed (PR closed or manually).
+func (s *Service) DestroyPreviewRelease(ctx context.Context, releaseID, projectID string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE deploy_releases SET status = 'destroyed', completed_at = NOW()
+		 WHERE id = ? AND project_id = ? AND is_preview = TRUE`,
+		releaseID, projectID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("preview release not found")
+	}
+	return nil
+}
+
+// ListPreviewReleases returns all active preview releases for a target.
+func (s *Service) ListPreviewReleases(ctx context.Context, projectID, targetID string) ([]*Release, int, error) {
+	return s.ListReleases(ctx, projectID, "", targetID, "", true)
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+func nullString(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nullInt(n int) interface{} {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
 }

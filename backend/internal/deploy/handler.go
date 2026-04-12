@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -96,7 +97,12 @@ func Routes(h *Handler) http.Handler {
 		r.Get("/", h.listGitConnections)
 		r.Delete("/{connectionId}", h.deleteGitConnection)
 		r.Get("/{connectionId}/repos", h.listRepositories)
+		r.Post("/{connectionId}/webhook-secret", h.generateWebhookSecret)
 	})
+
+	// Preview releases
+	r.Get("/targets/{targetId}/releases/previews", h.listPreviewReleases)
+	r.Delete("/releases/{releaseId}/preview", h.destroyPreviewRelease)
 
 	// Environments
 	r.Route("/environments", func(r chi.Router) {
@@ -107,6 +113,14 @@ func Routes(h *Handler) http.Handler {
 		r.Delete("/{envId}", h.deleteEnvironment)
 	})
 
+	return r
+}
+
+// WebhookRoutes returns a router for public inbound git webhook events.
+// Mounted separately outside the project-auth middleware.
+func WebhookRoutes(h *Handler) http.Handler {
+	r := chi.NewRouter()
+	r.Post("/{connectionId}", h.handleGitWebhook)
 	return r
 }
 
@@ -938,6 +952,106 @@ func (h *Handler) deleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.Contains(err.Error(), "cannot delete") {
 			apperr.BadRequest(w, err.Error())
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Git webhook handlers ──
+
+// handleGitWebhook is the public inbound endpoint for GitHub/GitLab push and PR events.
+// It is mounted at POST /v1/deploy/git/webhook/{connectionId} without project-auth middleware.
+func (h *Handler) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
+	connectionID := chi.URLParam(r, "connectionId")
+
+	// Detect provider from headers.
+	event := r.Header.Get("X-GitHub-Event")
+	signature := r.Header.Get("X-Hub-Signature-256")
+	if event == "" {
+		// GitLab sends X-Gitlab-Event and X-Gitlab-Token.
+		event = r.Header.Get("X-Gitlab-Event")
+		signature = r.Header.Get("X-Gitlab-Token")
+		// Normalise GitLab event names to match our handler.
+		switch event {
+		case "Push Hook":
+			event = "push"
+		case "Merge Request Hook":
+			event = "pull_request"
+		}
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 5<<20)) // 5 MB limit
+	if err != nil {
+		apperr.BadRequest(w, "failed to read request body")
+		return
+	}
+
+	triggered, err := h.svc.HandleGitWebhook(r.Context(), connectionID, event, body, signature)
+	if err != nil {
+		if strings.Contains(err.Error(), "signature verification failed") || strings.Contains(err.Error(), "no secret configured") {
+			apperr.Write(w, http.StatusUnauthorized, "webhook_unauthorized", err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "git connection")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"triggered": triggered,
+	})
+}
+
+// generateWebhookSecret creates (or rotates) the HMAC secret for a git connection.
+func (h *Handler) generateWebhookSecret(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	connectionID := chi.URLParam(r, "connectionId")
+
+	secret, err := h.svc.GenerateWebhookSecret(r.Context(), connectionID, projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"webhookSecret": secret,
+		"webhookUrl":    "/v1/deploy/git/webhook/" + connectionID,
+	})
+}
+
+// ── Preview release handlers ──
+
+func (h *Handler) listPreviewReleases(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	targetID := chi.URLParam(r, "targetId")
+
+	releases, total, err := h.svc.ListPreviewReleases(r.Context(), projectID, targetID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if releases == nil {
+		releases = []*Release{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":    total,
+		"releases": releases,
+	})
+}
+
+func (h *Handler) destroyPreviewRelease(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	releaseID := chi.URLParam(r, "releaseId")
+
+	if err := h.svc.DestroyPreviewRelease(r.Context(), releaseID, projectID); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "preview release")
 			return
 		}
 		apperr.Internal(w, err)

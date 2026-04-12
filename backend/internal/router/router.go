@@ -141,6 +141,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	workflowSvc := workflows.NewService(database, workflowQueue)
 	workflowHandler := workflows.NewHandler(workflowSvc)
 
+	// Deploy handler — created here so it can be shared between the public webhook
+	// route (no auth) and the authenticated /deploy mount below.
+	deployHandler := deploy.NewHandler(deploySvc)
+
 	// Console auth
 	consoleSvc := console.NewService(database, cfg.JWTSecret)
 	consoleHandler := console.NewHandler(consoleSvc, cfg.ConsoleSignupEnabled)
@@ -180,8 +184,8 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		r.Mount("/projects", projects.Routes(projects.NewHandler(projectSvc)))
 
 		// AI chat — console JWT required, no project header needed
-		aiSvc := aichat.NewService(cfg.AnthropicAPIKey)
-		r.Mount("/ai", aichat.Routes(aichat.NewHandler(aiSvc, consoleSvc)))
+		aiSvc := aichat.NewService(cfg.AIProvider, cfg.AIAPIKey, cfg.AIModel, cfg.AIBaseURL)
+		r.Mount("/ai", aichat.Routes(aichat.NewHandler(aiSvc, consoleSvc, cfg.Port)))
 
 		// Locale — no auth required
 		r.Mount("/locale", locale.Routes(locale.NewHandler()))
@@ -255,6 +259,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			// Workflow webhook trigger — no auth required, resolves project from workflow ID
 			r.Mount("/workflows/webhooks", workflows.WebhookRoutes(workflowHandler))
 
+			// Git push/PR webhook — no project auth; HMAC-verified by the handler.
+			r.Mount("/deploy/git/webhook", deploy.WebhookRoutes(deployHandler))
+
 			// Server-side routes — require auth
 			r.Group(func(r chi.Router) {
 				r.Use(mw.RequireAuth)
@@ -264,7 +271,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/databases", databases.Routes(databases.NewHandler(dbSvc)))
 				r.Mount("/storage", storage.Routes(storage.NewHandler(storageSvc)))
 				r.Mount("/messaging", messaging.Routes(messaging.NewHandler(messagingSvc)))
-				r.Mount("/deploy", deploy.Routes(deploy.NewHandler(deploySvc)))
+				r.Mount("/deploy", deploy.Routes(deployHandler))
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))
 
