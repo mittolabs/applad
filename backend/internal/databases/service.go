@@ -884,11 +884,11 @@ func (s *Service) checkPermission(ctx context.Context, projectID, resourceType, 
 	args := make([]interface{}, 0, len(roles)+4)
 	args = append(args, projectID, resourceType, resourceID, action)
 	for index, role := range roles {
-		placeholders[index] = "?"
+		placeholders[index] = fmt.Sprintf("$%d", index+5)
 		args = append(args, role)
 	}
 	query := fmt.Sprintf(
-		"SELECT COUNT(*) FROM permissions WHERE project_id = ? AND resource_type = ? AND resource_id = ? AND action = ? AND role IN (%s)",
+		"SELECT COUNT(*) FROM permissions WHERE project_id = $1 AND resource_type = $2 AND resource_id = $3 AND action = $4 AND role IN (%s)",
 		strings.Join(placeholders, ","),
 	)
 	var count int
@@ -906,7 +906,7 @@ func (s *Service) SetPermissions(ctx context.Context, projectID, resourceType, r
 	defer tx.Rollback() //nolint:errcheck
 
 	if _, err := tx.ExecContext(ctx,
-		"DELETE FROM permissions WHERE project_id = ? AND resource_type = ? AND resource_id = ?",
+		"DELETE FROM permissions WHERE project_id = $1 AND resource_type = $2 AND resource_id = $3",
 		projectID, resourceType, resourceID,
 	); err != nil {
 		return fmt.Errorf("delete permissions: %w", err)
@@ -916,7 +916,7 @@ func (s *Service) SetPermissions(ctx context.Context, projectID, resourceType, r
 			return fmt.Errorf("invalid permission action %q", permission.Action)
 		}
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO permissions (id, project_id, resource_type, resource_id, role, action) VALUES (?, ?, ?, ?, ?, ?)",
+			"INSERT INTO permissions (id, project_id, resource_type, resource_id, role, action) VALUES ($1, $2, $3, $4, $5, $6)",
 			uid.New("unique()"), projectID, resourceType, resourceID, permission.Role, permission.Action,
 		); err != nil {
 			return fmt.Errorf("insert permission: %w", err)
@@ -939,7 +939,7 @@ func (s *Service) SetPermissions(ctx context.Context, projectID, resourceType, r
 
 func (s *Service) GetPermissions(ctx context.Context, projectID, resourceType, resourceID string) ([]Permission, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT role, action FROM permissions WHERE project_id = ? AND resource_type = ? AND resource_id = ? ORDER BY created_at ASC",
+		"SELECT role, action FROM permissions WHERE project_id = $1 AND resource_type = $2 AND resource_id = $3 ORDER BY created_at ASC",
 		projectID, resourceType, resourceID,
 	)
 	if err != nil {
@@ -1795,9 +1795,9 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID 
 			placeholders := make([]string, 0, len(keys))
 			args := make([]interface{}, 0, len(keys))
 			idents := make([]string, 0, len(keys))
-			for _, key := range keys {
+			for i, key := range keys {
 				idents = append(idents, pgIdent(key))
-				placeholders = append(placeholders, "?")
+				placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 				args = append(args, data[key])
 			}
 			query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", pgIdent(table.Name), strings.Join(idents, ", "), strings.Join(placeholders, ", "))
