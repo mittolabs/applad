@@ -285,6 +285,75 @@ func (s *Service) GetUsage(ctx context.Context, projectID string) (*UsageStats, 
 	return u, nil
 }
 
+// --- search ---
+
+// SearchResult is a single match returned by the cross-resource search.
+type SearchResult struct {
+	Type     string `json:"type"`     // function, database, bucket, workflow, deployment, user
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Subtitle string `json:"subtitle,omitempty"`
+}
+
+// Search performs a case-insensitive ILIKE search across the main resource
+// types for a project and returns up to limit results ordered by label.
+func (s *Service) Search(ctx context.Context, projectID, query string, limit int) ([]*SearchResult, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	pattern := "%" + strings.ReplaceAll(query, "%", "\\%") + "%"
+
+	const sql = `
+		SELECT 'function'   AS type, id, name AS label, runtime            AS subtitle
+		FROM   functions    WHERE project_id = ? AND name  ILIKE ?
+		UNION ALL
+		SELECT 'database',           id, name,           ''                AS subtitle
+		FROM   databases    WHERE project_id = ? AND name  ILIKE ?
+		UNION ALL
+		SELECT 'bucket',             id, name,           ''                AS subtitle
+		FROM   buckets      WHERE project_id = ? AND name  ILIKE ?
+		UNION ALL
+		SELECT 'workflow',           id, name,           trigger_type      AS subtitle
+		FROM   workflows    WHERE project_id = ? AND name  ILIKE ?
+		UNION ALL
+		SELECT 'deployment',         id, name,           type              AS subtitle
+		FROM   deploy_targets WHERE project_id = ? AND name ILIKE ?
+		UNION ALL
+		SELECT 'user',               id,
+		       COALESCE(NULLIF(name,''), email, id),
+		       COALESCE(email, '')                                         AS subtitle
+		FROM   users        WHERE project_id = ? AND (name ILIKE ? OR email ILIKE ?)
+		ORDER  BY label
+		LIMIT  ?`
+
+	rows, err := s.db.QueryContext(ctx, sql,
+		projectID, pattern, // functions
+		projectID, pattern, // databases
+		projectID, pattern, // buckets
+		projectID, pattern, // workflows
+		projectID, pattern, // deploy_targets
+		projectID, pattern, pattern, // users (name OR email)
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*SearchResult
+	for rows.Next() {
+		var r SearchResult
+		if err := rows.Scan(&r.Type, &r.ID, &r.Label, &r.Subtitle); err != nil {
+			return nil, fmt.Errorf("search: scan: %w", err)
+		}
+		results = append(results, &r)
+	}
+	if results == nil {
+		results = []*SearchResult{}
+	}
+	return results, nil
+}
+
 // --- platforms ---
 
 // Platform represents a registered platform for a project.

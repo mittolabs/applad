@@ -22,6 +22,7 @@ const _kExpiryOptions = <String, String>{
   '30d': '30 Days',
   '90d': '90 Days',
   '1y': '1 Year',
+  'custom': 'Custom date...',
 };
 
 const _kScopeGroups = <String, List<String>>{
@@ -127,6 +128,7 @@ class _KeyDetailBodyState extends ConsumerState<_KeyDetailBody> {
 
   // Expiry
   late String _expiry;
+  DateTime? _customDate;
   bool _expiryDirty = false;
   bool _expirySaving = false;
 
@@ -154,8 +156,33 @@ class _KeyDetailBodyState extends ConsumerState<_KeyDetailBody> {
     return 'never'; // existing keys keep their date; dropdown is for editing
   }
 
+  Future<void> _pickCustomDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _customDate ?? now.add(const Duration(days: 30)),
+      firstDate: now.add(const Duration(days: 1)),
+      lastDate: DateTime(now.year + 10),
+    );
+    if (picked != null) {
+      setState(() {
+        _customDate = picked;
+        _expiryDirty = true;
+      });
+    } else {
+      setState(() => _expiry = 'never');
+    }
+  }
+
   String? _expiresAtIso() {
     if (_expiry == 'never') return '';
+    if (_expiry == 'custom') {
+      if (_customDate == null) return '';
+      return DateTime(_customDate!.year, _customDate!.month, _customDate!.day,
+              23, 59, 59)
+          .toUtc()
+          .toIso8601String();
+    }
     final now = DateTime.now().toUtc();
     final DateTime t;
     switch (_expiry) {
@@ -466,10 +493,14 @@ class _KeyDetailBodyState extends ConsumerState<_KeyDetailBody> {
                               child: Text(e.value),
                             ))
                         .toList(),
-                    onChanged: (v) => setState(() {
-                      _expiry = v ?? 'never';
-                      _expiryDirty = true;
-                    }),
+                    onChanged: (v) async {
+                      final val = v ?? 'never';
+                      setState(() {
+                        _expiry = val;
+                        _expiryDirty = true;
+                      });
+                      if (val == 'custom') await _pickCustomDate();
+                    },
                   ),
                   if (_expiryPreview() != null) ...[
                     const SizedBox(height: 6),
@@ -702,22 +733,14 @@ class _DetailsCard extends StatelessWidget {
                           fontSize: 11,
                           fontWeight: FontWeight.w500)),
                   const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Text(
-                        secretPrefix.isNotEmpty
-                            ? '$secretPrefix···'
-                            : '•' * 12,
-                        style: TextStyle(
-                            color: colors.textSecondary,
-                            fontSize: 12,
-                            fontFamily: 'monospace'),
-                      ),
-                      if (secretPrefix.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        _CopyIconButton(text: secretPrefix),
-                      ],
-                    ],
+                  Text(
+                    secretPrefix.isNotEmpty
+                        ? '$secretPrefix···'
+                        : '•' * 12,
+                    style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: 12,
+                        fontFamily: 'monospace'),
                   ),
                   const SizedBox(height: 4),
                   Text('Full secret only shown once at creation',

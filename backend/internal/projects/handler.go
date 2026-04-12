@@ -34,6 +34,7 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/{projectId}/keys/{keyId}", h.updateKey)
 	r.Delete("/{projectId}/keys/{keyId}", h.deleteKey)
 	r.Get("/{projectId}/usage", h.getUsage)
+	r.Get("/{projectId}/search", h.search)
 	r.Post("/{projectId}/platforms", h.createPlatform)
 	r.Get("/{projectId}/platforms", h.listPlatforms)
 	r.Get("/{projectId}/platforms/{platformId}", h.getPlatform)
@@ -240,6 +241,21 @@ func (h *Handler) getUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, usage)
+}
+
+func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"results": []*SearchResult{}})
+		return
+	}
+	results, err := h.svc.Search(r.Context(), projectID, q, 20)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"results": results})
 }
 
 func (h *Handler) createPlatform(w http.ResponseWriter, r *http.Request) {
