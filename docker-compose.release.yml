@@ -188,13 +188,14 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: ghcr.io/mittolabs/applad-postgres:${APPLAD_VERSION:-latest}
+    image: postgres:16-alpine
     environment:
       POSTGRES_DB: "applad"
       POSTGRES_USER: "applad"
       POSTGRES_PASSWORD: "${DB_PASSWORD}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U applad -d applad"]
       interval: 10s

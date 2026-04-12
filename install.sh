@@ -24,6 +24,7 @@ RELEASE_BASE="https://raw.githubusercontent.com/${GITHUB_ORG}/${GITHUB_REPO}/mai
 # Files we need in the install directory
 COMPOSE_FILE="docker-compose.yml"        # written from docker-compose.release.yml
 NGINX_CONF="nginx.conf"
+INIT_SQL="postgres-init.sql"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -225,6 +226,18 @@ elif [ ! -f "$COMPOSE_FILE" ]; then
   log "docker-compose.yml downloaded"
 else
   log "docker-compose.yml already present"
+fi
+
+# postgres init.sql — runs once on first database init
+if [ -f "$SCRIPT_DIR/docker/postgres/init.sql" ] && [ "$INSTALL_DIR" != "$SCRIPT_DIR" ]; then
+  cp "$SCRIPT_DIR/docker/postgres/init.sql" "$INSTALL_DIR/$INIT_SQL"
+  log "postgres-init.sql copied from repo"
+elif [ ! -f "$INIT_SQL" ]; then
+  info "Downloading postgres-init.sql…"
+  fetch "${RELEASE_BASE}/docker/postgres/init.sql" "$INIT_SQL"
+  log "postgres-init.sql downloaded"
+else
+  log "postgres-init.sql already present"
 fi
 
 
