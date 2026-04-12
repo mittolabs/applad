@@ -94,7 +94,12 @@ class ConsoleAuthNotifier extends AsyncNotifier<ConsoleUser?> {
     state = AsyncData(user);
   }
 
-  void logout() {
+  Future<void> logout() async {
+    try {
+      await ref.read(apiClientProvider).post('/console/logout');
+    } catch (_) {
+      // Best-effort — clear locally even if the request fails.
+    }
     _clearToken();
     state = const AsyncData(null);
   }

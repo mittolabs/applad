@@ -6,7 +6,6 @@ import '../../core/theme/console_colors.dart';
 import '../../core/utils/url_utils.dart';
 import 'observe_overview.dart';
 import 'observe_errors.dart';
-import 'observe_performance.dart';
 import 'observe_releases.dart';
 import 'observe_logs.dart';
 import 'observe_replays.dart';
@@ -24,7 +23,6 @@ class ObservePage extends ConsumerWidget {
   static const _sections = {
     'observe':     ('Overview',    'Errors, performance, releases, logs and uptime for your project'),
     'errors':      ('Errors',      'Track, triage and resolve errors in your project'),
-    'performance': ('Performance', 'P95 latency, Apdex scores and web vitals'),
     'releases':    ('Releases',    'Tag deployments and correlate them with errors'),
     'logs':        ('Logs',        'Search and tail structured logs from your project'),
     'replays':     ('Replays',     'Session replays for debugging user-reported issues'),
@@ -73,7 +71,6 @@ class ObservePage extends ConsumerWidget {
           Expanded(
             child: switch (seg) {
               'errors'      => ObErrorsTab(projectId: projectId),
-              'performance' => ObPerformanceTab(projectId: projectId),
               'releases'    => ObReleasesTab(projectId: projectId),
               'logs'        => ObLogsTab(projectId: projectId),
               'replays'     => ObReplaysTab(projectId: projectId),

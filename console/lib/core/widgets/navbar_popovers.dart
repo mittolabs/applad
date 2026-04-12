@@ -858,27 +858,49 @@ class _UserMenuPanel extends ConsumerWidget {
                   label: 'Sign out',
                   icon: LucideIcons.logOut,
                   onTap: () async {
-                    onClose();
-                    final confirmed = await showAppDialog<bool>(
+                    bool signingOut = false;
+                    await showAppDialog<void>(
                       context: context,
                       title: 'Sign out',
-                      content: Text(
-                        'Are you sure you want to sign out?',
-                        style: TextStyle(color: consoleColors(context).textSecondary),
+                      content: StatefulBuilder(
+                        builder: (ctx, ss) => Text(
+                          'Are you sure you want to sign out?',
+                          style: TextStyle(
+                              color: consoleColors(ctx).textSecondary),
+                        ),
                       ),
                       actions: [
-                        const AppDialogCancel(),
-                        AppDialogAction(
-                          label: 'Sign out',
-                          destructive: true,
-                          onTap: () => Navigator.of(context, rootNavigator: true).pop(true),
+                        StatefulBuilder(
+                          builder: (ctx, ss) => Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const AppDialogCancel(),
+                              AppDialogAction(
+                                label: 'Sign out',
+                                destructive: true,
+                                loading: signingOut,
+                                onTap: signingOut
+                                    ? null
+                                    : () async {
+                                        ss(() => signingOut = true);
+                                        await ref
+                                            .read(consoleAuthProvider.notifier)
+                                            .logout();
+                                        if (ctx.mounted) {
+                                          Navigator.of(ctx,
+                                                  rootNavigator: true)
+                                              .pop();
+                                        }
+                                        if (context.mounted) {
+                                          context.go('/login');
+                                        }
+                                      },
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     );
-                    if (confirmed == true && context.mounted) {
-                      ref.read(consoleAuthProvider.notifier).logout();
-                      context.go('/login');
-                    }
                   },
                 ),
               ],

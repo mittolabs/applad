@@ -123,7 +123,6 @@ List<_NavGroup> _buildGroups() => [
       const _NavGroup('observe', 'Observe', LucideIcons.activity, [
         _NavChild('Overview',    'observe',     LucideIcons.layoutDashboard),
         _NavChild('Errors',      'errors',      LucideIcons.alertTriangle),
-        _NavChild('Performance', 'performance', LucideIcons.zap),
         _NavChild('Releases',    'releases',    LucideIcons.tag),
         _NavChild('Logs',        'logs',        LucideIcons.terminal),
         _NavChild('Replays',     'replays',     LucideIcons.video),
@@ -275,7 +274,6 @@ class _AppShellState extends ConsumerState<AppShell> {
       'observe':     'observe',
       'errors':      'observe',
       'logs':        'observe',
-      'performance': 'observe',
       'releases':    'observe',
       'replays':     'observe',
       'uptime':      'observe',

@@ -35,7 +35,7 @@ class ObPerformanceTab extends ConsumerWidget {
             (metrics['p95Ms'] ?? 0) != 0;
 
         if (!hasData) {
-          return AppEmptyState(
+          return const AppEmptyState(
             icon: LucideIcons.activity,
             title: 'No performance data yet',
             subtitle: 'Instrument your backend with the Applad SDK to start\ntracking latency, Apdex scores and web vitals.',

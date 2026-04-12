@@ -158,11 +158,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                 _noTransition(state, const ObservePage()),
           ),
           GoRoute(
-            path: '/project/:projectId/performance',
-            pageBuilder: (_, state) =>
-                _noTransition(state, const ObservePage()),
-          ),
-          GoRoute(
             path: '/project/:projectId/uptime',
             pageBuilder: (_, state) =>
                 _noTransition(state, const ObservePage()),

@@ -2896,53 +2896,60 @@ class _CreateColumnPanelState extends ConsumerState<_CreateColumnPanel> {
                     value: _array,
                     onChanged: (v) => setState(() => _array = v),
                   ),
-                  const SizedBox(height: 16),
-                  // ── Validation ──────────────────────────────────────────
-                  Text('Validation',
-                      style: TextStyle(
-                          color: _cs.textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.6)),
-                  const SizedBox(height: 10),
-                  if (_type == 'string') ...[
-                    _PanelField(
-                        controller: _minLenCtrl,
-                        label: 'Min length',
-                        hint: 'e.g. 3',
-                        keyboardType: TextInputType.number),
-                    const SizedBox(height: 8),
-                    _PanelField(
-                        controller: _maxLenCtrl,
-                        label: 'Max length',
-                        hint: 'e.g. 255',
-                        keyboardType: TextInputType.number),
-                    const SizedBox(height: 8),
+                  if (_type != 'boolean' && _type != 'datetime' &&
+                      _type != 'point' && _type != 'relationship') ...[
+                    const SizedBox(height: 16),
+                    // ── Validation ────────────────────────────────────────
+                    Text('Validation',
+                        style: TextStyle(
+                            color: _cs.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.6)),
+                    const SizedBox(height: 10),
+                    if (_type == 'string') ...[
+                      _PanelField(
+                          controller: _minLenCtrl,
+                          label: 'Min length',
+                          hint: 'e.g. 3',
+                          keyboardType: TextInputType.number),
+                      const SizedBox(height: 8),
+                      _PanelField(
+                          controller: _maxLenCtrl,
+                          label: 'Max length',
+                          hint: 'e.g. 255',
+                          keyboardType: TextInputType.number),
+                      const SizedBox(height: 8),
+                    ],
+                    if (_type == 'integer' || _type == 'float') ...[
+                      _PanelField(
+                          controller: _minCtrl,
+                          label: 'Min value',
+                          hint: 'e.g. 0',
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true, signed: true)),
+                      const SizedBox(height: 8),
+                      _PanelField(
+                          controller: _maxCtrl,
+                          label: 'Max value',
+                          hint: 'e.g. 100',
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true, signed: true)),
+                      const SizedBox(height: 8),
+                    ],
+                    if (_type == 'string' || _type == 'email') ...[
+                      _PanelField(
+                          controller: _patternCtrl,
+                          label: 'Regex pattern',
+                          hint: r'e.g. ^[a-zA-Z]+$'),
+                      const SizedBox(height: 8),
+                      _PanelField(
+                          controller: _validationMsgCtrl,
+                          label: 'Custom error message',
+                          hint: 'e.g. Invalid format'),
+                      const SizedBox(height: 8),
+                    ],
                   ],
-                  if (_type == 'integer' || _type == 'float') ...[
-                    _PanelField(
-                        controller: _minCtrl,
-                        label: 'Min value',
-                        hint: 'e.g. 0',
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true)),
-                    const SizedBox(height: 8),
-                    _PanelField(
-                        controller: _maxCtrl,
-                        label: 'Max value',
-                        hint: 'e.g. 100',
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true)),
-                    const SizedBox(height: 8),
-                  ],
-                  _PanelField(
-                      controller: _patternCtrl,
-                      label: 'Regex pattern',
-                      hint: r'e.g. ^[a-zA-Z]+$'),
-                  const SizedBox(height: 8),
-                  _PanelField(
-                      controller: _validationMsgCtrl,
-                      label: 'Custom error message',
-                      hint: 'e.g. Invalid format'),
-                  const SizedBox(height: 8),
                 ],
               ),
             ),
