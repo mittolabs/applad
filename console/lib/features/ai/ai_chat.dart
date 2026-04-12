@@ -449,10 +449,13 @@ class _DraggableBubbleState extends State<_DraggableBubble>
     return Positioned(
       left: widget.pos.dx,
       top:  widget.pos.dy,
-      child: GestureDetector(
-        onPanUpdate: (d) => widget.onDragUpdate(d.delta),
-        onTap: widget.onTap,
-        child: AnimatedBuilder(
+      child: Listener(
+        // Use Listener (not GestureDetector) for drag so it doesn't enter the
+        // gesture arena and compete with TextField text-selection gestures.
+        onPointerMove: (e) => widget.onDragUpdate(e.delta),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedBuilder(
           animation: _pulse,
           builder: (context, _) {
             final glow = widget.open ? 0.35 : (0.12 + _pulse.value * 0.08);
@@ -500,7 +503,8 @@ class _DraggableBubbleState extends State<_DraggableBubble>
           },
         ),
       ),
-    );
+    ),
+  );
   }
 }
 
