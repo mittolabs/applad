@@ -9,7 +9,7 @@ import '../../features/overview/overview_page.dart';
 import '../../features/auth/auth_page.dart';
 import '../../features/databases/databases_page.dart';
 import '../../features/storage/storage_page.dart';
-import '../../features/deploy/deploy_page.dart';
+
 import '../../features/functions/functions_page.dart';
 import '../../features/messaging/messaging_page.dart';
 import '../../features/workflows/workflows_page.dart';
@@ -103,11 +103,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (_, state) =>
                 _noTransition(state, const AuthPage()),
           ),
-          GoRoute(
-            path: '/project/:projectId/deploy',
-            pageBuilder: (_, state) =>
-                _noTransition(state, const DeployPage()),
-          ),
+
           GoRoute(
             path: '/project/:projectId/functions',
             pageBuilder: (_, state) =>

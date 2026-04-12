@@ -540,111 +540,13 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
       Map<String, dynamic> target,
       String projectId,
       String platformId) {
-    final cs = consoleColors(ctx);
-    final tName = target['name'] as String? ?? '';
-    final tType = target['type'] as String? ?? '';
-    final createdAt = target[r'$createdAt'] as String?;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Target hero card ──
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: cs.surface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: cs.border),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: _accent.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(LucideIcons.rocket,
-                          size: 18, color: _accent),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(tName,
-                              style: TextStyle(
-                                  color: cs.textPrimary,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          Row(children: [
-                            if (tType.isNotEmpty) ...[
-                              AppBadge(label: _capitalise(tType)),
-                              const SizedBox(width: 8),
-                            ],
-                            if (createdAt != null)
-                              Text(
-                                'Connected ${_fmtDate(createdAt)}',
-                                style: TextStyle(
-                                    color: cs.textSubtle,
-                                    fontSize: 11),
-                              ),
-                          ]),
-                        ],
-                      ),
-                    ),
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                          foregroundColor: cs.textSecondary,
-                          textStyle: const TextStyle(fontSize: 12)),
-                      icon: const Icon(LucideIcons.externalLink,
-                          size: 12),
-                      label: const Text('View in Deploy'),
-                      onPressed: () =>
-                          ctx.go('/project/$projectId/deploy'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Divider(height: 1),
-                const SizedBox(height: 16),
-                // Recent releases
-                _RecentReleasesSection(
-                  projectId: projectId,
-                  targetId: target[r'$id'] as String? ?? '',
-                  colors: cs,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          // ── Disconnect ──
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: _red,
-              side: BorderSide(color: _red.withValues(alpha: 0.5)),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6)),
-            ),
-            icon: const Icon(LucideIcons.unlink, size: 13),
-            label: const Text('Disconnect deployment',
-                style: TextStyle(fontSize: 12)),
-            onPressed: () =>
-                _disconnectDeployment(ctx, projectId, platformId),
-          ),
-        ],
-      ),
+    final targetId = target[r'$id'] as String? ?? '';
+    return _DeploymentReleasesView(
+      target: target,
+      targetId: targetId,
+      projectId: projectId,
+      platformId: platformId,
+      onDisconnect: () => _disconnectDeployment(ctx, projectId, platformId),
     );
   }
 
@@ -679,8 +581,6 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
     );
   }
 
-  String _capitalise(String s) =>
-      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
 
   Future<void> _disconnectDeployment(BuildContext ctx,
@@ -1021,108 +921,661 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
   }
 }
 
-// ── Recent releases widget ────────────────────────────────────────────────────
+// ── Full deployment releases view ─────────────────────────────────────────────
 
-class _RecentReleasesSection extends ConsumerWidget {
-  final String projectId;
+class _DeploymentReleasesView extends ConsumerStatefulWidget {
+  final Map<String, dynamic> target;
   final String targetId;
-  final ConsoleColors colors;
+  final String projectId;
+  final String platformId;
+  final VoidCallback onDisconnect;
 
-  const _RecentReleasesSection({
-    required this.projectId,
+  const _DeploymentReleasesView({
+    required this.target,
     required this.targetId,
-    required this.colors,
+    required this.projectId,
+    required this.platformId,
+    required this.onDisconnect,
   });
 
-  String _fmtDuration(int? ms) {
+  @override
+  ConsumerState<_DeploymentReleasesView> createState() =>
+      _DeploymentReleasesViewState();
+}
+
+class _DeploymentReleasesViewState
+    extends ConsumerState<_DeploymentReleasesView> {
+  int _page = 1;
+  final int _perPage = 12;
+  Map<String, dynamic>? _stats;
+  List<Map<String, dynamic>> _releases = [];
+  int _total = 0;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final api = ref.read(apiClientProvider);
+    try {
+      final results = await Future.wait([
+        api
+            .get('/deploy/targets/${widget.targetId}/stats')
+            .then((r) => r.data as Map<String, dynamic>)
+            .catchError((_) => <String, dynamic>{}),
+        api
+            .get('/deploy/targets/${widget.targetId}/releases',
+                params: {'limit': '$_perPage', 'offset': '${(_page - 1) * _perPage}'})
+            .then((r) => r.data as Map<String, dynamic>)
+            .catchError((_) => <String, dynamic>{}),
+      ]);
+      if (!mounted) return;
+      final statsData = results[0];
+      final relData = results[1];
+      setState(() {
+        _stats = statsData;
+        _releases = List<Map<String, dynamic>>.from(
+            relData['releases'] ?? relData['executions'] ?? []);
+        _total = relData['total'] as int? ?? _releases.length;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  static String _fmtDur(int? ms) {
     if (ms == null || ms == 0) return '—';
-    if (ms < 1000) return '${ms}ms';
     final s = ms ~/ 1000;
     if (s < 60) return '${s}s';
     return '${s ~/ 60}m ${s % 60}s';
   }
 
-  String _fmtDate(String? iso) {
-    if (iso == null) return '—';
-    final t = DateTime.tryParse(iso)?.toLocal();
+  static String _fmtSize(int? bytes) {
+    if (bytes == null || bytes == 0) return '—';
+    if (bytes < 1024) return '${bytes}B';
+    if (bytes < 1048576) return '${(bytes / 1024).toStringAsFixed(1)}KB';
+    return '${(bytes / 1048576).toStringAsFixed(1)}MB';
+  }
+
+  static String _fmtDate(dynamic raw) {
+    if (raw == null) return '—';
+    final t = (raw is DateTime ? raw : DateTime.tryParse(raw.toString()))
+        ?.toLocal();
     if (t == null) return '—';
-    return '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+    const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${m[t.month]} ${t.day}, ${t.year}';
+  }
+
+  static String _cap(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  void _showCreateMenu(BuildContext ctx) {
+    final RenderBox btn = ctx.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(ctx).context.findRenderObject() as RenderBox;
+    final offset = btn.localToGlobal(Offset(0, btn.size.height + 4),
+        ancestor: overlay);
+    showMenu<String>(
+      context: ctx,
+      position: RelativeRect.fromLTRB(
+          offset.dx, offset.dy, offset.dx + 200, offset.dy + 200),
+      color: consoleColors(ctx).popupSurface,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      items: [
+        PopupMenuItem(
+          value: 'git',
+          child: Row(children: [
+            const Icon(LucideIcons.gitBranch, size: 14),
+            const SizedBox(width: 10),
+            const Text('Git', style: TextStyle(fontSize: 13)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C47FF).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text('Recommended',
+                  style: TextStyle(color: Color(0xFF6C47FF), fontSize: 10)),
+            ),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'cli',
+          child: Row(children: [
+            const Icon(LucideIcons.terminal, size: 14),
+            const SizedBox(width: 10),
+            const Text('CLI', style: TextStyle(fontSize: 13)),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'manual',
+          child: Row(children: [
+            const Icon(LucideIcons.upload, size: 14),
+            const SizedBox(width: 10),
+            const Text('Manual', style: TextStyle(fontSize: 13)),
+          ]),
+        ),
+      ],
+    ).then((choice) {
+      if (choice == null || !mounted) return;
+      switch (choice) {
+        case 'git':
+          _showGitDialog();
+          break;
+        case 'cli':
+          _showCliDialog();
+          break;
+        case 'manual':
+          _showManualDialog();
+          break;
+      }
+    });
+  }
+
+  void _showGitDialog() {
+    showAppDialog(
+      context: context,
+      title: 'Create Git deployment',
+      subtitle: 'Trigger a build from a connected Git pipeline.',
+      content: _GitDeployDialog(
+        targetId: widget.targetId,
+        projectId: widget.projectId,
+        onCreated: _load,
+      ),
+      actions: const [AppDialogCancel()],
+    );
+  }
+
+  void _showCliDialog() {
+    showAppDialog(
+      context: context,
+      title: 'Create CLI deployment',
+      subtitle: 'Deploy by running the Applad CLI in your project folder.',
+      content: _CliDeployDialog(targetId: widget.targetId),
+      actions: const [AppDialogCancel()],
+    );
+  }
+
+  void _showManualDialog() {
+    showAppDialog(
+      context: context,
+      title: 'Create manual deployment',
+      subtitle: 'Upload a tar.gz file containing your project source code.',
+      content: const _ManualDeployDialog(),
+      actions: const [AppDialogCancel()],
+    );
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Header row ──────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(32, 24, 32, 0),
+          child: Row(
+            children: [
+              if (_stats != null) ...[
+                _statItem(cs, 'Builds', '${_stats!['totalBuilds'] ?? _total}'),
+                _statDivider(),
+                _statItem(cs, 'Successful', '${_stats!['successful'] ?? '—'}'),
+                _statDivider(),
+                _statItem(cs, 'Failed', '${_stats!['failed'] ?? '—'}'),
+                _statDivider(),
+                _statItem(cs, 'Avg build time',
+                    _fmtDur(_stats!['avgBuildTimeMs'] as int?)),
+                const Spacer(),
+              ] else
+                const Spacer(),
+              Builder(builder: (ctx) => FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _accent,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 9),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                  textStyle: const TextStyle(fontSize: 13),
+                ),
+                icon: const Icon(LucideIcons.plus, size: 14),
+                label: const Text('Create deployment'),
+                onPressed: () => _showCreateMenu(ctx),
+              )),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // ── Releases table ──────────────────────────────────────────────────
+        if (_loading)
+          const Expanded(child: Center(child: CircularProgressIndicator()))
+        else
+          Expanded(
+            child: AppDataTable(
+              columns: const [
+                AppTableColumn(key: r'$id',       label: 'Deployment ID', flex: 3),
+                AppTableColumn(key: 'status',     label: 'Status',        flex: 2, sortable: false),
+                AppTableColumn(key: 'durationMs', label: 'Build duration',flex: 2, sortable: false),
+                AppTableColumn(key: 'size',       label: 'Total size',    flex: 2, sortable: false),
+                AppTableColumn(key: 'source',     label: 'Source',        flex: 2, sortable: false),
+                AppTableColumn(key: r'$createdAt',label: 'Updated',       flex: 2),
+              ],
+              rows: _releases,
+              getCellValue: (row, key) => switch (key) {
+                r'$id'        => row[r'$id'] as String? ?? '',
+                'status'      => row['status'] as String? ?? '',
+                'durationMs'  => _fmtDur(row['durationMs'] as int?),
+                'size'        => _fmtSize(row['artifactSize'] as int?),
+                'source'      => row['triggerType'] as String? ?? '—',
+                r'$createdAt' => _fmtDate(row[r'$createdAt'] ?? row['createdAt']),
+                _             => '',
+              },
+              cellBuilder: (row, key) {
+                if (key == 'status') {
+                  return StatusChip.fromStatus(
+                      row['status'] as String? ?? '');
+                }
+                if (key == 'source') {
+                  final src = row['triggerType'] as String? ?? '';
+                  IconData icon = switch (src) {
+                    'git' => LucideIcons.gitBranch,
+                    'cli' => LucideIcons.terminal,
+                    _ => LucideIcons.upload,
+                  };
+                  return Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(icon, size: 13, color: cs.textSubtle),
+                    const SizedBox(width: 5),
+                    Text(
+                      _cap(src.isEmpty ? 'manual' : src),
+                      style: TextStyle(
+                          color: cs.textSecondary, fontSize: 12)),
+                  ]);
+                }
+                return null;
+              },
+              emptyIcon: LucideIcons.rocket,
+              emptyTitle: 'No deployments yet',
+              emptySubtitle:
+                  'Click "Create deployment" to trigger your first build.',
+              total: _total,
+              perPage: _perPage,
+              currentPage: _page,
+              onPrev: () {
+                setState(() => _page--);
+                _load();
+              },
+              onNext: () {
+                setState(() => _page++);
+                _load();
+              },
+              onPerPageChanged: (_) {},
+              itemLabel: 'Deployments',
+              searchController: TextEditingController(),
+              onSearch: () {},
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _statItem(ConsoleColors cs, String label, String value) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label,
+              style: TextStyle(color: cs.textSubtle, fontSize: 11)),
+          const SizedBox(height: 2),
+          Text(value,
+              style: TextStyle(
+                  color: cs.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600)),
+        ],
+      );
+
+  Widget _statDivider() => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Container(width: 1, height: 28, color: const Color(0xFF2A2B30)),
+      );
+}
+
+// ── Git deploy dialog ─────────────────────────────────────────────────────────
+
+class _GitDeployDialog extends ConsumerStatefulWidget {
+  final String targetId;
+  final String projectId;
+  final VoidCallback onCreated;
+
+  const _GitDeployDialog({
+    required this.targetId,
+    required this.projectId,
+    required this.onCreated,
+  });
+
+  @override
+  ConsumerState<_GitDeployDialog> createState() => _GitDeployDialogState();
+}
+
+class _GitDeployDialogState extends ConsumerState<_GitDeployDialog> {
+  List<Map<String, dynamic>> _pipelines = [];
+  String? _selectedPipelineId;
+  bool _activateAfterBuild = true;
+  bool _loading = true;
+  bool _triggering = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPipelines();
+  }
+
+  Future<void> _loadPipelines() async {
     final api = ref.read(apiClientProvider);
+    try {
+      final res = await api.get('/deploy/targets/${widget.targetId}/pipelines');
+      final data = res.data as Map<String, dynamic>? ?? {};
+      final list = List<Map<String, dynamic>>.from(data['pipelines'] ?? []);
+      setState(() {
+        _pipelines = list;
+        _selectedPipelineId = list.isNotEmpty ? list.first[r'$id'] as String? : null;
+        _loading = false;
+      });
+    } catch (_) {
+      setState(() => _loading = false);
+    }
+  }
 
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: api
-          .get('/deploy/targets/$targetId/releases',
-              params: {'limit': '5'})
-          .then((r) {
-        final data = r.data as Map<String, dynamic>? ?? {};
-        return List<Map<String, dynamic>>.from(
-            data['releases'] ?? data['executions'] ?? []);
-      }).catchError((_) => <Map<String, dynamic>>[]),
-      builder: (context, snap) {
-        final releases = snap.data ?? [];
+  Future<void> _trigger() async {
+    if (_selectedPipelineId == null) return;
+    setState(() => _triggering = true);
+    final api = ref.read(apiClientProvider);
+    try {
+      await api.post('/deploy/pipelines/$_selectedPipelineId/trigger',
+          data: {'triggerType': 'manual', 'activate': _activateAfterBuild});
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      widget.onCreated();
+    } catch (_) {
+      if (mounted) setState(() => _triggering = false);
+    }
+  }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Text('Recent deployments',
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+    if (_loading) {
+      return const SizedBox(
+          height: 80, child: Center(child: CircularProgressIndicator()));
+    }
+    if (_pipelines.isEmpty) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          Icon(LucideIcons.gitBranch, size: 28, color: cs.textSubtle),
+          const SizedBox(height: 10),
+          Text('No Git pipelines configured.',
+              style: TextStyle(color: cs.textSecondary, fontSize: 13)),
+          Text('Connect a repository in the Deploy section first.',
+              style: TextStyle(color: cs.textSubtle, fontSize: 12)),
+          const SizedBox(height: 8),
+        ],
+      );
+    }
+    final pipeline = _pipelines.firstWhere(
+        (p) => p[r'$id'] == _selectedPipelineId,
+        orElse: () => _pipelines.first);
+    final repo = pipeline['sourceURL'] as String? ?? '';
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Repo info row
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: cs.fill,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: cs.border),
+          ),
+          child: Row(children: [
+            Icon(LucideIcons.gitBranch, size: 14, color: cs.textSubtle),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(repo.isEmpty ? 'Git repository' : repo,
                   style: TextStyle(
-                      color: colors.textSecondary,
-                      fontSize: 12,
+                      color: cs.textPrimary,
+                      fontSize: 13,
                       fontWeight: FontWeight.w500)),
-            ]),
-            const SizedBox(height: 10),
-            if (!snap.hasData)
-              const SizedBox(
-                  height: 40,
-                  child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2)))
-            else if (releases.isEmpty)
-              Text('No deployments yet.',
-                  style: TextStyle(color: colors.textSubtle, fontSize: 12))
-            else
-              ...releases.map((r) {
-                final status = r['status'] as String? ?? '';
-                final trigger = r['triggerType'] as String? ?? '';
-                final actor = r['triggerActor'] as String? ?? '';
-                final dur = _fmtDuration(r['durationMs'] as int?);
-                final date = _fmtDate(r[r'$createdAt'] ?? r['createdAt']);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: Row(children: [
-                    StatusChip.fromStatus(status),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        trigger.isNotEmpty
-                            ? actor.isNotEmpty
-                                ? '$trigger by $actor'
-                                : trigger
-                            : 'manual',
-                        style: TextStyle(
-                            color: colors.textSecondary, fontSize: 12),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Text(dur,
-                        style: TextStyle(
-                            color: colors.textSubtle,
-                            fontSize: 11,
-                            fontFamily: 'monospace')),
-                    const SizedBox(width: 12),
-                    Text(date,
-                        style: TextStyle(
-                            color: colors.textSubtle, fontSize: 11)),
-                  ]),
-                );
-              }),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 14),
+        Text('Production branch',
+            style: TextStyle(
+                color: cs.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        // Branch dropdown (pipelines as options)
+        AppSelectField<String>(
+          label: '',
+          value: _selectedPipelineId ?? '',
+          items: _pipelines
+              .map((p) => DropdownMenuItem(
+                    value: p[r'$id'] as String? ?? '',
+                    child: Text(p['branch'] as String? ?? 'main'),
+                  ))
+              .toList(),
+          onChanged: (v) => setState(() => _selectedPipelineId = v),
+        ),
+        const SizedBox(height: 14),
+        // Activate after build
+        GestureDetector(
+          onTap: () =>
+              setState(() => _activateAfterBuild = !_activateAfterBuild),
+          child: Row(children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: Checkbox(
+                value: _activateAfterBuild,
+                onChanged: (v) =>
+                    setState(() => _activateAfterBuild = v ?? true),
+                activeColor: _accent,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Activate deployment after build',
+                      style: TextStyle(
+                          color: cs.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500)),
+                  Text(
+                    'This deployment will automatically activate after the build '
+                    'completes. If unchecked, it will remain inactive.',
+                    style: TextStyle(color: cs.textSubtle, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            const AppDialogCancel(),
+            const SizedBox(width: 8),
+            AppDialogAction(
+              label: 'Create',
+              loading: _triggering,
+              onTap: _trigger,
+            ),
           ],
-        );
-      },
+        ),
+      ],
+    );
+  }
+}
+
+// ── CLI deploy dialog ─────────────────────────────────────────────────────────
+
+class _CliDeployDialog extends StatefulWidget {
+  final String targetId;
+  const _CliDeployDialog({required this.targetId});
+
+  @override
+  State<_CliDeployDialog> createState() => _CliDeployDialogState();
+}
+
+class _CliDeployDialogState extends State<_CliDeployDialog> {
+  int _tab = 0; // 0=Unix 1=CMD 2=PowerShell
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+    final id = widget.targetId;
+
+    final unixCmd = 'applad deploy \\\n  --target-id $id \\\n  --activate';
+    final cmdCmd = 'applad deploy ^\n  --target-id $id ^\n  --activate';
+    final psCmd = 'applad deploy `\n  --target-id $id `\n  --activate';
+
+    final snippet = [unixCmd, cmdCmd, psCmd][_tab];
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Tab row
+        Row(children: [
+          for (final (i, label) in [
+            (0, 'Unix'),
+            (1, 'CMD'),
+            (2, 'PowerShell'),
+          ])
+            Padding(
+              padding: const EdgeInsets.only(right: 2),
+              child: GestureDetector(
+                onTap: () => setState(() => _tab = i),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: _tab == i
+                        ? _accent.withValues(alpha: 0.15)
+                        : cs.fill,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: _tab == i
+                            ? _accent.withValues(alpha: 0.4)
+                            : cs.border),
+                  ),
+                  child: Text(label,
+                      style: TextStyle(
+                          color: _tab == i ? _accent : cs.textSecondary,
+                          fontSize: 12,
+                          fontWeight: _tab == i
+                              ? FontWeight.w500
+                              : FontWeight.w400)),
+                ),
+              ),
+            ),
+        ]),
+        const SizedBox(height: 12),
+        // Code block
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.fill,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: cs.border),
+          ),
+          child: Text(snippet,
+              style: TextStyle(
+                  color: cs.textPrimary,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  height: 1.6)),
+        ),
+        const SizedBox(height: 12),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(LucideIcons.info, size: 13, color: cs.textSubtle),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              "If it's your first time using the CLI, install it with "
+              '`npm install -g @applad/cli` before running the deploy command.',
+              style: TextStyle(color: cs.textSubtle, fontSize: 11),
+            ),
+          ),
+        ]),
+      ],
+    );
+  }
+}
+
+// ── Manual deploy dialog ──────────────────────────────────────────────────────
+
+class _ManualDeployDialog extends StatelessWidget {
+  const _ManualDeployDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = consoleColors(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          height: 140,
+          decoration: BoxDecoration(
+            color: cs.fill,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: cs.border),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(LucideIcons.uploadCloud, size: 32, color: cs.textSubtle),
+              const SizedBox(height: 10),
+              Text('Drag and drop file here or click to upload',
+                  style: TextStyle(color: cs.textSecondary, fontSize: 13)),
+              const SizedBox(height: 4),
+              Text('Max file size: 30MB',
+                  style: TextStyle(color: cs.textSubtle, fontSize: 11)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            const AppDialogCancel(),
+            const SizedBox(width: 8),
+            AppDialogAction(label: 'Create', onTap: () {}),
+          ],
+        ),
+      ],
     );
   }
 }
