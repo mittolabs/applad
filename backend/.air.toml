@@ -1,0 +1,31 @@
+# Air config for the API server
+# https://github.com/air-verse/air
+
+root = "."
+tmp_dir = "/tmp/air"
+
+[build]
+  cmd = "go build -o /tmp/air/api ./cmd/api"
+  bin = "/tmp/air/api"
+  full_bin = "/tmp/air/api"
+  include_ext = ["go"]
+  exclude_dir = ["vendor", "testdata"]
+  exclude_regex = ["_test.go$"]
+  delay = 500           # ms — debounce before rebuild
+  kill_delay = "200ms"
+  rerun = false
+  log = "air-api.log"
+  send_interrupt = true
+
+[log]
+  time = false
+  main_only = true
+
+[color]
+  main = "green"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "magenta"
+
+[misc]
+  clean_on_exit = true

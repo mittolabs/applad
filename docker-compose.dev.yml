@@ -1,0 +1,252 @@
+# =============================================================================
+# Applad — local development compose
+#
+# Hot-reloads Go (via Air) and Flutter web (flutter run --hot).
+# Infrastructure (Postgres, Redis, PgBouncer) is identical to production.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up
+#
+# First run will be slow (Air and Flutter images pull, Go deps download,
+# Flutter pub get runs). Subsequent starts are fast.
+# =============================================================================
+
+x-worker-env: &worker-env
+  DATABASE_DSN: "postgres://applad:applad@pgbouncer:5432/applad?sslmode=disable"
+  REDIS_ADDR: "redis:6379"
+  STORAGE_PATH: "/var/applad/storage"
+  APP_ENV: "development"
+  JWT_SECRET: "dev-secret-change-me"
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USER: ""
+  SMTP_PASS: ""
+  SMTP_FROM: "noreply@applad.local"
+  STORAGE_DRIVER: "local"
+
+x-worker-deps: &worker-deps
+  pgbouncer:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+x-worker-volumes: &worker-volumes
+  - ./backend:/app
+  - storage_data:/var/applad/storage
+  - go_mod_cache:/go/pkg/mod
+
+# Workers use `go run` — they change less often than the API.
+# Restart a specific worker after editing: docker compose -f docker-compose.dev.yml restart worker-X
+x-worker-run: &worker-image
+  image: golang:1.22-alpine
+  working_dir: /app
+
+services:
+  # ── API (Go + Air hot-reload) ─────────────────────────────────────────────
+  api:
+    image: cosmtrek/air:latest
+    working_dir: /app
+    command: air -c .air.toml
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_DSN: "postgres://applad:applad@pgbouncer:5432/applad?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      JWT_SECRET: "dev-secret-change-me"
+      STORAGE_PATH: "/var/applad/storage"
+      APP_ENV: "development"
+      STORAGE_DRIVER: "local"
+    volumes:
+      - ./backend:/app
+      - storage_data:/var/applad/storage
+      - go_cache:/root/.cache/go-build
+      - go_mod_cache:/go/pkg/mod
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  # ── Console (Flutter web dev server, hot-reload) ──────────────────────────
+  console:
+    image: ghcr.io/cirruslabs/flutter:stable
+    working_dir: /app
+    command: >
+      sh -c "flutter pub get &&
+             flutter run -d web-server
+               --web-port=3000
+               --web-hostname=0.0.0.0
+               --hot"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./console:/app
+      - flutter_pub_cache:/root/.pub-cache
+    restart: unless-stopped
+
+  # ── Reverse proxy ─────────────────────────────────────────────────────────
+  proxy:
+    image: openresty/openresty:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - console
+    restart: unless-stopped
+
+  # ── Workers (go run — restart with `docker compose restart worker-X`) ─────
+  worker-builds:
+    <<: *worker-image
+    command: go run ./cmd/workers/builds
+    environment:
+      <<: *worker-env
+      DOCKER_HOST: "${DOCKER_HOST:-unix:///var/run/docker.sock}"
+    volumes:
+      - ./backend:/app
+      - storage_data:/var/applad/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+      - go_mod_cache:/go/pkg/mod
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-databases:
+    <<: *worker-image
+    command: go run ./cmd/workers/databases
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-deletes:
+    <<: *worker-image
+    command: go run ./cmd/workers/deletes
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-executions:
+    <<: *worker-image
+    command: go run ./cmd/workers/executions
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-mails:
+    <<: *worker-image
+    command: go run ./cmd/workers/mails
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-messaging:
+    <<: *worker-image
+    command: go run ./cmd/workers/messaging
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-migrations:
+    <<: *worker-image
+    command: go run ./cmd/workers/migrations
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-usage:
+    <<: *worker-image
+    command: go run ./cmd/workers/usage
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-webhooks:
+    <<: *worker-image
+    command: go run ./cmd/workers/webhooks
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-certificates:
+    <<: *worker-image
+    command: go run ./cmd/workers/certificates
+    environment: *worker-env
+    volumes: *worker-volumes
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  worker-cron:
+    <<: *worker-image
+    command: go run ./cmd/workers/cron
+    environment: *worker-env
+    volumes:
+      - ./backend:/app
+      - go_mod_cache:/go/pkg/mod
+    depends_on: *worker-deps
+    restart: unless-stopped
+
+  # ── Infrastructure (identical to production) ──────────────────────────────
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "applad"
+      DB_USER: "applad"
+      DB_PASSWORD: "applad"
+      LISTEN_PORT: "5432"
+      POOL_MODE: "session"
+      MAX_CLIENT_CONN: "100"
+      DEFAULT_POOL_SIZE: "10"
+      AUTH_TYPE: "scram-sha-256"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: "applad"
+      POSTGRES_USER: "applad"
+      POSTGRES_PASSWORD: "applad"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U applad -d applad"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage_data:
+  go_cache:
+  go_mod_cache:
+  flutter_pub_cache:
