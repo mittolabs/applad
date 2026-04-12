@@ -13,6 +13,25 @@
 <br/>
 
 <p align="center">
+  <a href="https://github.com/mittolabs/applad/actions/workflows/ci.yml">
+    <img src="https://github.com/mittolabs/applad/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+  <a href="https://github.com/mittolabs/applad/releases">
+    <img src="https://img.shields.io/github/v/release/mittolabs/applad?color=6C47FF&label=release" alt="Latest release" />
+  </a>
+  <a href="https://github.com/mittolabs/applad/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-BSD_3--Clause-blue" alt="License" />
+  </a>
+  <img src="https://img.shields.io/badge/Go-1.23-00ADD8?logo=go&logoColor=white" alt="Go 1.23" />
+  <img src="https://img.shields.io/badge/Flutter-web-54C5F8?logo=flutter&logoColor=white" alt="Flutter" />
+  <a href="https://github.com/mittolabs/applad/stargazers">
+    <img src="https://img.shields.io/github/stars/mittolabs/applad?style=flat&color=6C47FF" alt="Stars" />
+  </a>
+</p>
+
+<br/>
+
+<p align="center">
   <img src="assets/console-preview.png" alt="Applad console" width="100%" />
 </p>
 
@@ -84,6 +103,18 @@ melos analyze && melos test
 # TypeScript SDKs
 cd sdks/js && npm install && npm run build && npm test
 ```
+
+---
+
+## Security
+
+If you discover a security vulnerability please **do not** open a public issue. See [SECURITY.md](SECURITY.md) for the responsible disclosure process.
+
+---
+
+## Contributing
+
+We welcome contributions of all sizes — bug fixes, docs, new SDK methods, or entirely new features. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get started.
 
 ---
 

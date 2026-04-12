@@ -19,9 +19,12 @@ jobs:
         with:
           go-version: "1.23"
           cache-dependency-path: backend/go.sum
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test ./...
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
 
   flutter:
     name: Flutter (console + SDKs)
@@ -43,7 +46,7 @@ jobs:
         run: melos test
 
   sdk-js:
-    name: SDK (TypeScript)
+    name: SDK (TypeScript / client)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -55,5 +58,22 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: sdks/js/package.json
+      - run: npm install
+      - run: npm run build
+      - run: npm test
+
+  sdk-node:
+    name: SDK (Node.js / server)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdks/node/package.json
       - run: npm install
       - run: npm run build
