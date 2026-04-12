@@ -6,11 +6,13 @@ import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
 import '../../core/utils/url_utils.dart';
+import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/app_data_table.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_error_state.dart';
 import '../../core/widgets/id_text.dart';
 import '../../core/widgets/page_tabs.dart';
+import '../../core/widgets/status_chip.dart';
 
 const _accent = Color(0xFF3472A4);
 const _red = Color(0xFFEF4444);
@@ -221,20 +223,11 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
                     cellBuilder: (row, key) {
                       if (key == 'type') {
                         final type = row['type'] as String? ?? '';
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: _accent.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            _typeLabel(type),
-                            style: const TextStyle(
-                                color: _accent,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500),
-                          ),
+                        final meta = _types.where((t) => t.id == type).firstOrNull;
+                        return AppBadge(
+                          label: meta?.label ?? _typeLabel(type),
+                          icon: meta?.icon,
+                          color: _accent,
                         );
                       }
                       if (key == 'identity') {
@@ -331,50 +324,62 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
     final t = _selectedPlatform!;
     final cs = consoleColors(context);
     final type = t['type'] as String? ?? 'web';
-    const tabs = ['Overview', 'Settings'];
+    const tabs = ['Overview', 'Deployment', 'Settings'];
 
     return Scaffold(
       backgroundColor: cs.background,
       body: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(32, 20, 32, 16),
-          child: Row(children: [
-            IconButton(
-              icon: Icon(LucideIcons.arrowLeft,
-                  size: 18, color: cs.textSecondary),
-              onPressed: () => setState(() {
-                _selectedPlatform = null;
-                _detailTab = 0;
-                _linkedTargetFuture = null;
-                _linkedTargetFutureId = null;
-              }),
-            ),
-            const SizedBox(width: 8),
-            Icon(_typeIconFor(type), size: 16, color: cs.textSubtle),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t['name'] as String? ?? '',
-                    style: TextStyle(
-                        color: cs.textPrimary,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600),
-                  ),
-                  if (_identityValue(t).isNotEmpty)
-                    Text(
-                      _identityValue(t),
-                      style: TextStyle(
-                          color: cs.textSecondary,
-                          fontSize: 12,
-                          fontFamily: 'monospace'),
-                    ),
-                ],
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: Icon(LucideIcons.arrowLeft,
+                    size: 18, color: cs.textSecondary),
+                onPressed: () => setState(() {
+                  _selectedPlatform = null;
+                  _detailTab = 0;
+                  _linkedTargetFuture = null;
+                  _linkedTargetFutureId = null;
+                }),
               ),
-            ),
-          ]),
+              const SizedBox(width: 4),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: _accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(_typeIconFor(type), size: 16, color: _accent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      t['name'] as String? ?? '',
+                      style: TextStyle(
+                          color: cs.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600),
+                    ),
+                    if (_identityValue(t).isNotEmpty)
+                      Text(
+                        _identityValue(t),
+                        style: TextStyle(
+                            color: cs.textSecondary,
+                            fontSize: 12,
+                            fontFamily: 'monospace'),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -395,8 +400,9 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
       String type, List<String> tabs) {
     final tabName = tabs[_detailTab.clamp(0, tabs.length - 1)];
     return switch (tabName) {
-      'Overview' => _overviewTab(ctx, t, type),
-      'Settings' => _settingsTab(ctx, t, type),
+      'Overview'   => _overviewTab(ctx, t, type),
+      'Deployment' => _deploymentTab(ctx, t),
+      'Settings'   => _settingsTab(ctx, t, type),
       _ => const SizedBox.shrink(),
     };
   }
@@ -409,7 +415,6 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
     final id = t[r'$id'] as String? ?? t['id'] as String? ?? '';
     final identity = _identityValue(t);
     final created = _fmtDate(t[r'$createdAt'] ?? t['createdAt']);
-    final projectId = ref.watch(currentProjectProvider) ?? '';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
@@ -452,44 +457,100 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
-          // Connected deployment section
-          _deploymentSection(ctx, t, projectId),
         ],
       ),
     );
   }
 
-  Widget _deploymentSection(
-      BuildContext ctx, Map<String, dynamic> t, String projectId) {
+  // ── Deployment tab ────────────────────────────────────────────────────────────
+
+  Widget _deploymentTab(BuildContext ctx, Map<String, dynamic> t) {
     final cs = consoleColors(ctx);
-    final platformId =
-        t[r'$id'] as String? ?? t['id'] as String? ?? '';
+    final projectId = ref.watch(currentProjectProvider) ?? '';
+    final platformId = t[r'$id'] as String? ?? t['id'] as String? ?? '';
     final linkedTargetId = t['deployTargetId'] as String? ?? '';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(children: [
-          Text('Deployment',
-              style: TextStyle(
-                  color: cs.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600)),
-          const Spacer(),
-          if (linkedTargetId.isNotEmpty)
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                  foregroundColor: cs.textSecondary,
-                  textStyle: const TextStyle(fontSize: 12)),
-              icon: const Icon(LucideIcons.externalLink, size: 12),
-              label: const Text('View in Deploy'),
-              onPressed: () =>
-                  ctx.go('/project/$projectId/deploy'),
+    if (linkedTargetId.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: cs.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cs.border),
+              ),
+              child: Icon(LucideIcons.rocket,
+                  size: 24, color: cs.textSubtle),
             ),
-        ]),
-        const SizedBox(height: 10),
-        if (linkedTargetId.isEmpty)
+            const SizedBox(height: 16),
+            Text('No deployment connected',
+                style: TextStyle(
+                    color: cs.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text(
+              'Connect a deploy target to enable builds and track\ndeployment status directly from this platform.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: cs.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: _accent,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 18, vertical: 10),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(LucideIcons.link2, size: 14),
+              label: const Text('Connect deployment',
+                  style: TextStyle(fontSize: 13)),
+              onPressed: () =>
+                  _showConnectDeploymentDialog(ctx, projectId, platformId),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _fetchLinkedTarget(linkedTargetId),
+      builder: (ctx, snap) {
+        if (!snap.hasData && !snap.hasError) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final target = snap.data;
+        if (target == null) {
+          return _deploymentErrorState(ctx, projectId, platformId);
+        }
+        return _deploymentConnectedView(
+            ctx, t, target, projectId, platformId);
+      },
+    );
+  }
+
+  Widget _deploymentConnectedView(
+      BuildContext ctx,
+      Map<String, dynamic> platform,
+      Map<String, dynamic> target,
+      String projectId,
+      String platformId) {
+    final cs = consoleColors(ctx);
+    final tName = target['name'] as String? ?? '';
+    final tType = target['type'] as String? ?? '';
+    final createdAt = target[r'$createdAt'] as String?;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Target hero card ──
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -501,150 +562,126 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  Icon(LucideIcons.rocket,
-                      size: 14, color: cs.textSubtle),
-                  const SizedBox(width: 8),
-                  Text('No deployment connected',
-                      style: TextStyle(
-                          color: cs.textPrimary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500)),
-                ]),
-                const SizedBox(height: 6),
-                Text(
-                  'Connect a deploy target to enable automatic builds and track deployment status directly from this platform.',
-                  style: TextStyle(
-                      color: cs.textSecondary, fontSize: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(LucideIcons.rocket,
+                          size: 18, color: _accent),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(tName,
+                              style: TextStyle(
+                                  color: cs.textPrimary,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          Row(children: [
+                            if (tType.isNotEmpty) ...[
+                              AppBadge(label: _capitalise(tType)),
+                              const SizedBox(width: 8),
+                            ],
+                            if (createdAt != null)
+                              Text(
+                                'Connected ${_fmtDate(createdAt)}',
+                                style: TextStyle(
+                                    color: cs.textSubtle,
+                                    fontSize: 11),
+                              ),
+                          ]),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                          foregroundColor: cs.textSecondary,
+                          textStyle: const TextStyle(fontSize: 12)),
+                      icon: const Icon(LucideIcons.externalLink,
+                          size: 12),
+                      label: const Text('View in Deploy'),
+                      onPressed: () =>
+                          ctx.go('/project/$projectId/deploy'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _accent,
-                    side: const BorderSide(color: _accent),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6)),
-                  ),
-                  icon: const Icon(LucideIcons.link2, size: 13),
-                  label: const Text('Connect deployment',
-                      style: TextStyle(fontSize: 12)),
-                  onPressed: () => _showConnectDeploymentDialog(
-                      ctx, projectId, platformId),
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 16),
+                // Recent releases
+                _RecentReleasesSection(
+                  projectId: projectId,
+                  targetId: target[r'$id'] as String? ?? '',
+                  colors: cs,
                 ),
               ],
             ),
-          )
-        else
-          FutureBuilder<Map<String, dynamic>?>(
-            future: _fetchLinkedTarget(linkedTargetId),
-            builder: (ctx, snap) {
-              if (!snap.hasData) {
-                return Container(
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: cs.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: cs.border),
-                  ),
-                  child: const Center(
-                      child: CircularProgressIndicator()),
-                );
-              }
-              final target = snap.data;
-              if (target == null) {
-                return _deploymentErrorCard(ctx, projectId,
-                    platformId, linkedTargetId);
-              }
-              final tName =
-                  target['name'] as String? ?? linkedTargetId;
-              final tType = target['type'] as String? ?? '';
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: cs.surface,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: cs.border),
-                ),
-                child: Row(children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: _accent.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(LucideIcons.rocket,
-                        size: 16, color: _accent),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text(tName,
-                            style: TextStyle(
-                                color: cs.textPrimary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500)),
-                        Text(tType,
-                            style: TextStyle(
-                                color: cs.textSecondary,
-                                fontSize: 11)),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Disconnect',
-                    icon: Icon(LucideIcons.unlink,
-                        size: 14, color: cs.textSubtle),
-                    onPressed: () => _disconnectDeployment(
-                        ctx, projectId, platformId),
-                  ),
-                ]),
-              );
-            },
           ),
-      ],
+          const SizedBox(height: 24),
+          // ── Disconnect ──
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _red,
+              side: BorderSide(color: _red.withValues(alpha: 0.5)),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6)),
+            ),
+            icon: const Icon(LucideIcons.unlink, size: 13),
+            label: const Text('Disconnect deployment',
+                style: TextStyle(fontSize: 12)),
+            onPressed: () =>
+                _disconnectDeployment(ctx, projectId, platformId),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _deploymentErrorCard(BuildContext ctx, String projectId,
-      String platformId, String targetId) {
+  Widget _deploymentErrorState(
+      BuildContext ctx, String projectId, String platformId) {
     final cs = consoleColors(ctx);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: cs.border),
-      ),
-      child: Row(children: [
-        Icon(LucideIcons.alertTriangle,
-            size: 14, color: cs.textSubtle),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            'Deployment target not found. It may have been deleted.',
-            style:
-                TextStyle(color: cs.textSecondary, fontSize: 12),
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(LucideIcons.alertTriangle, size: 28, color: cs.textSubtle),
+          const SizedBox(height: 12),
+          Text('Deployment target not found',
+              style: TextStyle(
+                  color: cs.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500)),
+          const SizedBox(height: 4),
+          Text('It may have been deleted.',
+              style: TextStyle(color: cs.textSecondary, fontSize: 12)),
+          const SizedBox(height: 16),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+                foregroundColor: _red,
+                side: const BorderSide(color: _red)),
+            onPressed: () =>
+                _disconnectDeployment(ctx, projectId, platformId),
+            child: const Text('Remove connection'),
           ),
-        ),
-        TextButton(
-          style: TextButton.styleFrom(
-              foregroundColor: _red,
-              textStyle: const TextStyle(fontSize: 12)),
-          onPressed: () => _disconnectDeployment(
-              ctx, projectId, platformId),
-          child: const Text('Remove'),
-        ),
-      ]),
+        ],
+      ),
     );
   }
+
+  String _capitalise(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
 
   Future<void> _disconnectDeployment(BuildContext ctx,
       String projectId, String platformId) async {
@@ -984,6 +1021,112 @@ class _PlatformsPageState extends ConsumerState<PlatformsPage> {
   }
 }
 
+// ── Recent releases widget ────────────────────────────────────────────────────
+
+class _RecentReleasesSection extends ConsumerWidget {
+  final String projectId;
+  final String targetId;
+  final ConsoleColors colors;
+
+  const _RecentReleasesSection({
+    required this.projectId,
+    required this.targetId,
+    required this.colors,
+  });
+
+  String _fmtDuration(int? ms) {
+    if (ms == null || ms == 0) return '—';
+    if (ms < 1000) return '${ms}ms';
+    final s = ms ~/ 1000;
+    if (s < 60) return '${s}s';
+    return '${s ~/ 60}m ${s % 60}s';
+  }
+
+  String _fmtDate(String? iso) {
+    if (iso == null) return '—';
+    final t = DateTime.tryParse(iso)?.toLocal();
+    if (t == null) return '—';
+    return '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final api = ref.read(apiClientProvider);
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: api
+          .get('/deploy/targets/$targetId/releases',
+              params: {'limit': '5'})
+          .then((r) {
+        final data = r.data as Map<String, dynamic>? ?? {};
+        return List<Map<String, dynamic>>.from(
+            data['releases'] ?? data['executions'] ?? []);
+      }).catchError((_) => <Map<String, dynamic>>[]),
+      builder: (context, snap) {
+        final releases = snap.data ?? [];
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Text('Recent deployments',
+                  style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500)),
+            ]),
+            const SizedBox(height: 10),
+            if (!snap.hasData)
+              const SizedBox(
+                  height: 40,
+                  child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2)))
+            else if (releases.isEmpty)
+              Text('No deployments yet.',
+                  style: TextStyle(color: colors.textSubtle, fontSize: 12))
+            else
+              ...releases.map((r) {
+                final status = r['status'] as String? ?? '';
+                final trigger = r['triggerType'] as String? ?? '';
+                final actor = r['triggerActor'] as String? ?? '';
+                final dur = _fmtDuration(r['durationMs'] as int?);
+                final date = _fmtDate(r[r'$createdAt'] ?? r['createdAt']);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(children: [
+                    StatusChip.fromStatus(status),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        trigger.isNotEmpty
+                            ? actor.isNotEmpty
+                                ? '$trigger by $actor'
+                                : trigger
+                            : 'manual',
+                        style: TextStyle(
+                            color: colors.textSecondary, fontSize: 12),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text(dur,
+                        style: TextStyle(
+                            color: colors.textSubtle,
+                            fontSize: 11,
+                            fontFamily: 'monospace')),
+                    const SizedBox(width: 12),
+                    Text(date,
+                        style: TextStyle(
+                            color: colors.textSubtle, fontSize: 11)),
+                  ]),
+                );
+              }),
+          ],
+        );
+      },
+    );
+  }
+}
+
 // ── Connect deployment dialog content ─────────────────────────────────────────
 
 class _ConnectDeploymentContent extends ConsumerWidget {
@@ -1028,10 +1171,27 @@ class _ConnectDeploymentContent extends ConsumerWidget {
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 4),
                 Text(
-                  'Create a deploy target in the Deploy section first.',
+                  'You need to create a deploy target first.',
                   style: TextStyle(
                       color: cs.textSecondary, fontSize: 12),
                   textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _accent,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6)),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                  icon: const Icon(LucideIcons.externalLink, size: 13),
+                  label: const Text('Go to Deploy'),
+                  onPressed: () {
+                    Navigator.of(context, rootNavigator: true).pop();
+                    context.go('/project/$projectId/deploy');
+                  },
                 ),
               ],
             ),

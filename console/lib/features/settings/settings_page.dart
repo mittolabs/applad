@@ -1718,6 +1718,7 @@ const _kExpiryOptions = <String, String>{
   '30d': '30 Days',
   '90d': '90 Days',
   '1y': '1 Year',
+  'custom': 'Custom date...',
 };
 
 const _kScopeGroups = <String, List<String>>{
@@ -1748,6 +1749,7 @@ class _CreateKeyDialog extends StatefulWidget {
 class _CreateKeyDialogState extends State<_CreateKeyDialog> {
   final _nameCtrl = TextEditingController();
   String _expiry = 'never';
+  DateTime? _customDate;
   final Set<String> _scopes = {};
   bool _loading = false;
 
@@ -1757,8 +1759,31 @@ class _CreateKeyDialogState extends State<_CreateKeyDialog> {
     super.dispose();
   }
 
+  Future<void> _pickCustomDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _customDate ?? now.add(const Duration(days: 30)),
+      firstDate: now.add(const Duration(days: 1)),
+      lastDate: DateTime(now.year + 10),
+    );
+    if (picked != null) {
+      setState(() => _customDate = picked);
+    } else {
+      // Revert if user cancelled without picking
+      setState(() => _expiry = 'never');
+    }
+  }
+
   String? _expiresAtIso() {
     if (_expiry == 'never') return null;
+    if (_expiry == 'custom') {
+      if (_customDate == null) return null;
+      return DateTime(_customDate!.year, _customDate!.month, _customDate!.day,
+              23, 59, 59)
+          .toUtc()
+          .toIso8601String();
+    }
     final now = DateTime.now().toUtc();
     final DateTime t;
     switch (_expiry) {
@@ -1938,8 +1963,11 @@ class _CreateKeyDialogState extends State<_CreateKeyDialog> {
                                   child: Text(e.value),
                                 ))
                             .toList(),
-                        onChanged: (v) =>
-                            setState(() => _expiry = v ?? 'never'),
+                        onChanged: (v) async {
+                          final val = v ?? 'never';
+                          setState(() => _expiry = val);
+                          if (val == 'custom') await _pickCustomDate();
+                        },
                       ),
                       if (preview != null) ...[
                         const SizedBox(height: 6),
@@ -2502,18 +2530,11 @@ class _PrefixCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = consoleColors(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('$prefix···',
-            style: TextStyle(
-                color: colors.textSubtle,
-                fontSize: 12,
-                fontFamily: 'monospace')),
-        const SizedBox(width: 6),
-        _CopyButton(text: prefix, size: 12),
-      ],
-    );
+    return Text('$prefix···',
+        style: TextStyle(
+            color: colors.textSubtle,
+            fontSize: 12,
+            fontFamily: 'monospace'));
   }
 }
 
