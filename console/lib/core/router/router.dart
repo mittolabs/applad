@@ -49,6 +49,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      // Root redirect — send / to the right place based on auth state.
+      GoRoute(
+        path: '/',
+        redirect: (context, state) {
+          final token = ref.read(consoleTokenProvider);
+          return token != null ? '/projects' : '/login';
+        },
+      ),
+
       // Full-page routes (no sidebar)
       GoRoute(
         path: '/login',
