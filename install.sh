@@ -590,10 +590,10 @@ PROFILES=""
 [ "$ENABLE_CLAMAV" = true ] && PROFILES="--profile antivirus"
 
 info "Pulling from ghcr.io/mittolabs (version: ${APPLAD_VERSION})…"
-docker compose -f "$COMPOSE_FILE" pull $PROFILES
+docker compose -f "$COMPOSE_FILE" $PROFILES pull
 
 section "Starting services"
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans $PROFILES
+docker compose -f "$COMPOSE_FILE" $PROFILES up -d --remove-orphans
 log "All services started"
 
 # ═════════════════════════════════════════════════════════════════════════════
