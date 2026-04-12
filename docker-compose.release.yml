@@ -58,6 +58,11 @@ services:
       DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-25}"
       DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
       CONSOLE_SIGNUP_ENABLED: "${CONSOLE_SIGNUP_ENABLED:-auto}"
+      # AI chat assistant (optional — set AI_PROVIDER + AI_API_KEY + AI_MODEL to enable)
+      AI_PROVIDER: "${AI_PROVIDER:-}"
+      AI_API_KEY: "${AI_API_KEY:-}"
+      AI_MODEL: "${AI_MODEL:-}"
+      AI_BASE_URL: "${AI_BASE_URL:-}"
     volumes:
       - storage_data:/var/applad/storage
     depends_on: *worker-deps
