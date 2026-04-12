@@ -10,7 +10,7 @@ jobs:
   # ── Go backend ────────────────────────────────────────────────────────────────
   backend:
     name: Backend (Go)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
       contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'backend/')
@@ -33,7 +33,7 @@ jobs:
   # ── Flutter console + Dart SDK ────────────────────────────────────────────────
   flutter:
     name: Flutter (console + SDKs)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
       contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'console/') ||
@@ -59,7 +59,7 @@ jobs:
   # ── TypeScript client SDK ─────────────────────────────────────────────────────
   sdk-js:
     name: SDK (TypeScript / client)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
       contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/js/')
@@ -80,7 +80,7 @@ jobs:
   # ── Node.js server SDK ────────────────────────────────────────────────────────
   sdk-node:
     name: SDK (Node.js / server)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
       contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/node/')
