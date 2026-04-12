@@ -7,9 +7,13 @@ on:
     branches: [main]
 
 jobs:
+  # ── Go backend ────────────────────────────────────────────────────────────────
   backend:
     name: Backend (Go)
     runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'backend/')
     defaults:
       run:
         working-directory: backend
@@ -26,9 +30,16 @@ jobs:
       - name: Test
         run: go test ./...
 
+  # ── Flutter console + Dart SDK ────────────────────────────────────────────────
   flutter:
     name: Flutter (console + SDKs)
     runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'console/') ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/dart/') ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'melos.yaml') ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'pubspec.yaml')
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -37,17 +48,21 @@ jobs:
           channel: stable
           cache: true
       - name: Install Melos
-        run: dart pub global activate melos
+        run: dart pub get
       - name: Bootstrap workspace
-        run: melos bootstrap
+        run: dart run melos bootstrap
       - name: Analyze
-        run: melos analyze
+        run: dart run melos analyze
       - name: Test
-        run: melos test
+        run: dart run melos test
 
+  # ── TypeScript client SDK ─────────────────────────────────────────────────────
   sdk-js:
     name: SDK (TypeScript / client)
     runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/js/')
     defaults:
       run:
         working-directory: sdks/js
@@ -57,14 +72,18 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: sdks/js/package.json
-      - run: npm install
+          cache-dependency-path: sdks/js/package-lock.json
+      - run: npm ci
       - run: npm run build
       - run: npm test
 
+  # ── Node.js server SDK ────────────────────────────────────────────────────────
   sdk-node:
     name: SDK (Node.js / server)
     runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/node/')
     defaults:
       run:
         working-directory: sdks/node
@@ -74,6 +93,6 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: sdks/node/package.json
-      - run: npm install
+          cache-dependency-path: sdks/node/package-lock.json
+      - run: npm ci
       - run: npm run build
