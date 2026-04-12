@@ -29,6 +29,7 @@ import '../../features/realtime/realtime_page.dart';
 import '../../features/content/content_page.dart';
 import '../../features/platforms/platforms_page.dart';
 import '../../features/observe/observe_page.dart';
+import '../pages/not_found_page.dart';
 
 Page<void> _noTransition(GoRouterState state, Widget child) {
   return NoTransitionPage(key: state.pageKey, child: child);
@@ -37,6 +38,8 @@ Page<void> _noTransition(GoRouterState state, Widget child) {
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/login',
+    errorBuilder: (context, state) =>
+        NotFoundPage(path: state.uri.path),
     redirect: (context, state) {
       final token = ref.read(consoleTokenProvider);
       final isLoginRoute = state.uri.path == '/login';
