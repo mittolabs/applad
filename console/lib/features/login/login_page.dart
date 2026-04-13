@@ -590,7 +590,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       padding: const EdgeInsets.only(bottom: 10),
       child: SizedBox(
         width: double.infinity,
-        height: 48,
+        height: 38,
         child: OutlinedButton(
           onPressed: () => _continueWithProvider(provider),
           style: OutlinedButton.styleFrom(
@@ -680,15 +680,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       controller: ctrl,
       keyboardType: type,
       textInputAction: TextInputAction.next,
-      style: TextStyle(color: _cs.textPrimary, fontSize: 14),
+      style: TextStyle(color: _cs.textPrimary, fontSize: 13),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: TextStyle(color: _cs.textSubtle, fontSize: 14),
+        hintStyle: TextStyle(color: _cs.textSubtle, fontSize: 13),
         filled: true,
         fillColor: _cs.fieldFill,
-        isDense: false,
+        isDense: true,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: _cs.fieldBorder),
@@ -717,15 +717,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       controller: ctrl,
       obscureText: isObscure,
       onSubmitted: onSubmit != null ? (_) => onSubmit() : null,
-      style: TextStyle(color: _cs.textPrimary, fontSize: 14),
+      style: TextStyle(color: _cs.textPrimary, fontSize: 13),
       decoration: InputDecoration(
         hintText: 'Your password',
-        hintStyle: TextStyle(color: _cs.textSubtle, fontSize: 14),
+        hintStyle: TextStyle(color: _cs.textSubtle, fontSize: 13),
         filled: true,
         fillColor: _cs.fieldFill,
-        isDense: false,
+        isDense: true,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: _cs.fieldBorder),
@@ -825,7 +825,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Widget _submitBtn(String label, VoidCallback fn) {
     return SizedBox(
       width: double.infinity,
-      height: 48,
+      height: 38,
       child: ElevatedButton(
         onPressed: _loading ? null : fn,
         style: ElevatedButton.styleFrom(
