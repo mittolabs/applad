@@ -140,9 +140,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       backgroundColor: _cs.background,
       body: Row(
         children: [
-          Expanded(flex: 6, child: _brandingPanel()),
+          Expanded(flex: 5, child: _brandingPanel()),
           Container(width: 1, color: Colors.white.withValues(alpha: 0.06)),
-          Expanded(flex: 3, child: _formPanel(signupEnabled)),
+          Expanded(flex: 4, child: _formPanel(signupEnabled)),
         ],
       ),
     );
