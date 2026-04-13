@@ -212,7 +212,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           Text(
             _isSignup
                 ? 'Your backend,\nyour rules.'
-                : 'From idea to\nproduction-ready, today.',
+                : 'Go from idea\nto production today.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.88),
               fontSize: 52,
@@ -223,7 +223,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           ),
           const SizedBox(height: 20),
           Text(
-            'Everything your app needs, self-hosted\nand ready to go.',
+            'Everything your app needs,\nwithout compromise.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.35),
               fontSize: 16,
