@@ -141,6 +141,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       body: Row(
         children: [
           Expanded(flex: 5, child: _brandingPanel()),
+          Container(width: 1, color: Colors.white.withValues(alpha: 0.06)),
           Expanded(flex: 4, child: _formPanel(signupEnabled)),
         ],
       ),
@@ -154,150 +155,78 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Widget _brandingPanel() {
     return Container(
       color: const Color(0xFF0B0B0F),
-      child: Padding(
-        padding: const EdgeInsets.all(48),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Logo
-            Row(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF3472A4).withValues(alpha: 0.9),
-                        blurRadius: 8,
-                        spreadRadius: 2,
-                      ),
-                      BoxShadow(
-                        color: const Color(0xFF3472A4).withValues(alpha: 0.6),
-                        blurRadius: 24,
-                        spreadRadius: 4,
-                      ),
-                      BoxShadow(
-                        color: const Color(0xFF3472A4).withValues(alpha: 0.3),
-                        blurRadius: 60,
-                        spreadRadius: 6,
-                      ),
-                    ],
-                  ),
-                  child: ClipOval(
-                    child: Image.asset(
-                      'assets/applad-mascot-head.png',
-                      width: 44,
-                      height: 44,
-                      fit: BoxFit.cover,
+      padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 48),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Logo row — top left
+          Row(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF3472A4).withValues(alpha: 0.7),
+                      blurRadius: 10,
+                      spreadRadius: 1,
                     ),
+                    BoxShadow(
+                      color: const Color(0xFF3472A4).withValues(alpha: 0.35),
+                      blurRadius: 32,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+                child: ClipOval(
+                  child: Image.asset(
+                    'assets/applad-mascot-head.png',
+                    width: 44,
+                    height: 44,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                const SizedBox(width: 12),
-                const Text(
-                  'applad',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.3,
-                  ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'applad',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
                 ),
-              ],
-            ),
-            const Spacer(),
+              ),
+            ],
+          ),
 
-            // Tagline
-            Text(
-              _isSignup
-                  ? 'Your backend,\nyour rules.'
-                  : 'Ship faster\nwith Applad_',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.85),
-                fontSize: 48,
-                fontWeight: FontWeight.w700,
-                height: 1.15,
-              ),
-            ),
-            const SizedBox(height: 24),
+          const Spacer(),
 
-            // Subtitle
-            Text(
-              'Auth, Databases, Storage, Functions, Workflows\n'
-              'and Messaging \u2014 one docker compose up.',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.4),
-                fontSize: 16,
-                height: 1.5,
-              ),
+          // Tagline — vertically centered
+          Text(
+            _isSignup
+                ? 'Your backend,\nyour rules.'
+                : 'Ship faster\nwith Applad_',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.88),
+              fontSize: 44,
+              fontWeight: FontWeight.w700,
+              height: 1.15,
+              letterSpacing: -0.5,
             ),
-            const SizedBox(height: 48),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Auth · Databases · Storage · Functions\nWorkflows · Messaging — one docker compose up.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.35),
+              fontSize: 14,
+              height: 1.65,
+            ),
+          ),
 
-            // Testimonial card
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '\u201cSelf-hosted BaaS with a workflow engine built in \u2014 '
-                    'exactly what we needed.\u201d',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.6),
-                      fontSize: 14,
-                      fontStyle: FontStyle.italic,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 16,
-                        backgroundColor:
-                            const Color(0xFF3472A4).withValues(alpha: 0.3),
-                        child: const Text(
-                          'OS',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Open Source',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.7),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            'Community',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.35),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Spacer(flex: 2),
-          ],
-        ),
+          const Spacer(),
+        ],
       ),
     );
   }
