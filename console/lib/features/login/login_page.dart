@@ -153,13 +153,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   Widget _brandingPanel() {
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0F1925), Color(0xFF0B0B0F)],
-        ),
-      ),
+      color: const Color(0xFF0B0B0F),
       child: Padding(
         padding: const EdgeInsets.all(48),
         child: Column(
@@ -168,12 +162,34 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             // Logo
             Row(
               children: [
-                ClipOval(
-                  child: Image.asset(
-                    'assets/applad-mascot-head.png',
-                    width: 44,
-                    height: 44,
-                    fit: BoxFit.cover,
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF3472A4).withValues(alpha: 0.9),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                      BoxShadow(
+                        color: const Color(0xFF3472A4).withValues(alpha: 0.6),
+                        blurRadius: 24,
+                        spreadRadius: 4,
+                      ),
+                      BoxShadow(
+                        color: const Color(0xFF3472A4).withValues(alpha: 0.3),
+                        blurRadius: 60,
+                        spreadRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: Image.asset(
+                      'assets/applad-mascot-head.png',
+                      width: 44,
+                      height: 44,
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
