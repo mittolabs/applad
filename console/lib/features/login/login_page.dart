@@ -159,11 +159,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         Positioned.fill(child: ColoredBox(color: const Color(0xFF0B0B0F))),
         // Abstract background shapes
         Positioned.fill(child: CustomPaint(painter: _PanelShapes())),
-        Center(
-          child: Padding(
+        Padding(
             padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 48),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Logo row — mascot + wordmark together, centered
@@ -244,7 +243,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 ),
               ],
             ),
-          ),
         ),
       ],
     );
