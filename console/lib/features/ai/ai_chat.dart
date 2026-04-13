@@ -481,8 +481,8 @@ class _DraggableBubbleState extends State<_DraggableBubble>
                       : ClipOval(
                           child: Image.asset(
                             'assets/applad-mascot-head.png',
-                            width:  _bubbleSize,
-                            height: _bubbleSize,
+                            width:  _bubbleSize - 8,
+                            height: _bubbleSize - 8,
                             fit: BoxFit.cover,
                           ),
                         ),
