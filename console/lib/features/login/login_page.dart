@@ -387,6 +387,30 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       primary: true),
           ],
         ),
+
+        if (!_isSignup) ...[
+          const SizedBox(height: 16),
+          Center(
+            child: Text.rich(
+              TextSpan(
+                style: TextStyle(color: _cs.textSubtle, fontSize: 12, height: 1.5),
+                children: const [
+                  TextSpan(text: 'By signing in, you agree to our '),
+                  TextSpan(
+                    text: 'Terms',
+                    style: TextStyle(decoration: TextDecoration.underline),
+                  ),
+                  TextSpan(text: ' and '),
+                  TextSpan(
+                    text: 'Privacy Policy',
+                    style: TextStyle(decoration: TextDecoration.underline),
+                  ),
+                  TextSpan(text: '.'),
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
