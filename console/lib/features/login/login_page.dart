@@ -241,6 +241,50 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       color: _cs.background,
       child: Column(
         children: [
+          // Logo — shown only on narrow screens (branding panel is hidden)
+          if (!isWide)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
+              child: Row(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF3472A4).withValues(alpha: 0.7),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        ),
+                        BoxShadow(
+                          color: const Color(0xFF3472A4).withValues(alpha: 0.35),
+                          blurRadius: 32,
+                          spreadRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: ClipOval(
+                      child: Image.asset(
+                        'assets/applad-mascot-head.png',
+                        width: 36,
+                        height: 36,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'applad',
+                    style: TextStyle(
+                      color: _cs.textPrimary,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: Center(
               child: SingleChildScrollView(
