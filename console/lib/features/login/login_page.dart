@@ -208,7 +208,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
           const Spacer(),
 
-          // Tagline — vertically centered
+          // Tagline — pinned to bottom like Appwrite
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -232,19 +232,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   letterSpacing: -0.5,
                 ),
               ),
+              const SizedBox(height: 16),
+              Text(
+                'Everything your app needs, without compromise.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.35),
+                  fontSize: 15,
+                  height: 1.5,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 20),
-          Text(
-            'Everything your app needs,\nwithout compromise.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.35),
-              fontSize: 16,
-              height: 1.65,
-            ),
-          ),
-
-          const Spacer(),
         ],
       ),
         ),
