@@ -303,48 +303,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (!isWide) ...[
-          Row(
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF3472A4).withValues(alpha: 0.7),
-                      blurRadius: 10,
-                      spreadRadius: 1,
-                    ),
-                    BoxShadow(
-                      color: const Color(0xFF3472A4).withValues(alpha: 0.35),
-                      blurRadius: 32,
-                      spreadRadius: 4,
-                    ),
-                  ],
-                ),
-                child: ClipOval(
-                  child: Image.asset(
-                    'assets/applad-mascot-head.png',
-                    width: 48,
-                    height: 48,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'applad',
-                style: TextStyle(
-                  color: _cs.textPrimary,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.3,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-        ],
+        if (!isWide) _logoRow(),
         Text(
           _isSignup ? 'Sign up' : 'Sign in',
           style: TextStyle(
@@ -447,10 +406,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   // ── Forgot password form ───────────────────────────────────────────────────
 
   Widget _forgotForm() {
+    final isWide = MediaQuery.of(context).size.width > 900;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (!isWide) _logoRow(),
         Text('Reset password',
             style: TextStyle(
               color: _cs.textPrimary, fontSize: 28, fontWeight: FontWeight.w700,
@@ -536,10 +497,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   // ── Reset password form ────────────────────────────────────────────────────
 
   Widget _resetForm() {
+    final isWide = MediaQuery.of(context).size.width > 900;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (!isWide) _logoRow(),
         Text('Set new password',
             style: TextStyle(
               color: _cs.textPrimary, fontSize: 28, fontWeight: FontWeight.w700,
@@ -581,6 +544,53 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       ],
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Narrow-screen logo row (mascot + wordmark)
+  // ---------------------------------------------------------------------------
+
+  Widget _logoRow() => Padding(
+        padding: const EdgeInsets.only(bottom: 28),
+        child: Row(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF3472A4).withValues(alpha: 0.7),
+                    blurRadius: 10,
+                    spreadRadius: 1,
+                  ),
+                  BoxShadow(
+                    color: const Color(0xFF3472A4).withValues(alpha: 0.35),
+                    blurRadius: 32,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: Image.asset(
+                  'assets/applad-mascot-head.png',
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'applad',
+              style: TextStyle(
+                color: _cs.textPrimary,
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.3,
+              ),
+            ),
+          ],
+        ),
+      );
 
   // ---------------------------------------------------------------------------
   // Social login button
