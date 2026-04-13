@@ -164,7 +164,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 48),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Logo row — mascot + wordmark together, centered
                 Row(
@@ -212,7 +212,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 // Tagline
                 Text(
                   _isSignup ? 'Your backend,' : 'Go from idea',
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.start,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.88),
                     fontSize: 52,
@@ -223,7 +223,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 ),
                 Text(
                   _isSignup ? 'your rules.' : 'to production today.',
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.start,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.88),
                     fontSize: 52,
@@ -235,7 +235,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 const SizedBox(height: 16),
                 Text(
                   'Everything your app needs, without compromise.',
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.start,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.35),
                     fontSize: 15,
