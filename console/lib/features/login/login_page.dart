@@ -600,6 +600,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             padding: const EdgeInsets.symmetric(horizontal: 16),
           ),
           child: Row(
@@ -833,6 +835,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           foregroundColor: Colors.white,
           disabledBackgroundColor: const Color(0xFF3472A4).withValues(alpha: 0.4),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: EdgeInsets.zero,
           elevation: 0,
         ),
         child: _loading
