@@ -364,17 +364,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         _field(_emailCtrl, 'Your email', type: TextInputType.emailAddress),
         const SizedBox(height: 20),
 
-        // Password label row with inline forgot link
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _label('Password'),
-            if (!_isSignup)
-              _link('Forgot password?', () => setState(() {
-                _mode = _Mode.forgot; _error = null; _success = null;
-              })),
-          ],
-        ),
+        _label('Password'),
         const SizedBox(height: 6),
         _passwordField(_passwordCtrl, onSubmit: _submit),
 
@@ -392,13 +382,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         const SizedBox(height: 24),
 
         _submitBtn(_isSignup ? 'Sign up' : 'Sign in', _submit),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
 
-        // Sign in / Sign up toggle
-        if (signupEnabled)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+        // Links row — forgot + sign up/in toggle
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _link('Forgot password?', () => setState(() {
+              _mode = _Mode.forgot; _error = null; _success = null;
+            })),
+            if (signupEnabled) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text('|', style: TextStyle(color: _cs.textSubtle)),
+              ),
               _isSignup
                   ? _link('Sign in', () => setState(() {
                       _mode = _Mode.login; _error = null;
@@ -408,28 +405,30 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     }),
                       primary: true),
             ],
-          ),
-        const SizedBox(height: 32),
+          ],
+        ),
+        const SizedBox(height: 16),
 
         // Legal footer
-        Text.rich(
-          TextSpan(
-            style: TextStyle(color: _cs.textSubtle, fontSize: 12, height: 1.5),
-            children: const [
-              TextSpan(text: 'By signing in, you agree to our '),
-              TextSpan(
-                text: 'Terms',
-                style: TextStyle(decoration: TextDecoration.underline),
-              ),
-              TextSpan(text: ' and '),
-              TextSpan(
-                text: 'Privacy Policy',
-                style: TextStyle(decoration: TextDecoration.underline),
-              ),
-              TextSpan(text: '.'),
-            ],
+        Center(
+          child: Text.rich(
+            TextSpan(
+              style: TextStyle(color: _cs.textSubtle, fontSize: 12, height: 1.5),
+              children: const [
+                TextSpan(text: 'By signing in, you agree to our '),
+                TextSpan(
+                  text: 'Terms',
+                  style: TextStyle(decoration: TextDecoration.underline),
+                ),
+                TextSpan(text: ' and '),
+                TextSpan(
+                  text: 'Privacy Policy',
+                  style: TextStyle(decoration: TextDecoration.underline),
+                ),
+                TextSpan(text: '.'),
+              ],
+            ),
           ),
-          textAlign: TextAlign.center,
         ),
       ],
     );
