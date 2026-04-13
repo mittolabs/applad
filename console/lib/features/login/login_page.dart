@@ -212,7 +212,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           Text(
             _isSignup
                 ? 'Your backend,\nyour rules.'
-                : 'Ship faster\nwith Applad_',
+                : 'From idea to\nproduction-ready, today.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.88),
               fontSize: 52,
@@ -827,7 +827,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Widget _submitBtn(String label, VoidCallback fn) {
     return SizedBox(
       width: double.infinity,
-      height: 38,
+      height: 34,
       child: ElevatedButton(
         onPressed: _loading ? null : fn,
         style: ElevatedButton.styleFrom(
@@ -851,7 +851,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               )
             : Text(label,
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                 )),
       ),
