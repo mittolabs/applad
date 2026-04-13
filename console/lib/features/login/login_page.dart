@@ -353,8 +353,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
         const SizedBox(height: 32),
 
-        if (oauthProviders.isNotEmpty && !_isSignup) ...[
-          ...oauthProviders.map((p) => _socialButton(p)),
+        if (!_isSignup) ...[
+          _socialButton('github'),
+          // Any additional configured providers (excluding GitHub to avoid duplicate)
+          ...oauthProviders.where((p) => p != 'github').map((p) => _socialButton(p)),
           const SizedBox(height: 24),
           _divider('or'),
           const SizedBox(height: 24),
