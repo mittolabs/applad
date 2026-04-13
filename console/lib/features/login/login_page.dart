@@ -140,9 +140,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       backgroundColor: _cs.background,
       body: Row(
         children: [
-          Expanded(flex: 6, child: _brandingPanel()),
+          Expanded(flex: 5, child: _brandingPanel()),
           Container(width: 1, color: Colors.white.withValues(alpha: 0.06)),
-          Expanded(flex: 3, child: _formPanel(signupEnabled)),
+          Expanded(flex: 4, child: _formPanel(signupEnabled)),
         ],
       ),
     );
@@ -159,77 +159,92 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         Positioned.fill(child: ColoredBox(color: const Color(0xFF0B0B0F))),
         // Abstract background shapes
         Positioned.fill(child: CustomPaint(painter: _PanelShapes())),
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 48),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Logo
-                Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF3472A4).withValues(alpha: 0.7),
-                        blurRadius: 10,
-                        spreadRadius: 1,
-                      ),
-                      BoxShadow(
-                        color: const Color(0xFF3472A4).withValues(alpha: 0.35),
-                        blurRadius: 32,
-                        spreadRadius: 4,
-                      ),
-                    ],
-                  ),
-                  child: ClipOval(
-                    child: Image.asset(
-                      'assets/applad-mascot-head.png',
-                      width: 64,
-                      height: 64,
-                      fit: BoxFit.cover,
+        Container(
+      color: Colors.transparent,
+      padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 48),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Logo row — top left
+          Row(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF3472A4).withValues(alpha: 0.7),
+                      blurRadius: 10,
+                      spreadRadius: 1,
                     ),
+                    BoxShadow(
+                      color: const Color(0xFF3472A4).withValues(alpha: 0.35),
+                      blurRadius: 32,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+                child: ClipOval(
+                  child: Image.asset(
+                    'assets/applad-mascot-head.png',
+                    width: 52,
+                    height: 52,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                const SizedBox(height: 40),
-
-                // Tagline
-                Text(
-                  _isSignup ? 'Your backend,' : 'Go from idea',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    fontSize: 48,
-                    fontWeight: FontWeight.w700,
-                    height: 1.15,
-                    letterSpacing: -0.5,
-                  ),
+              ),
+              const SizedBox(width: 14),
+              const Text(
+                'applad',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
                 ),
-                Text(
-                  _isSignup ? 'your rules.' : 'to production today.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    fontSize: 48,
-                    fontWeight: FontWeight.w700,
-                    height: 1.15,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Everything your app needs, without compromise.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.35),
-                    fontSize: 15,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+
+          const Spacer(),
+
+          // Tagline — pinned to bottom like Appwrite
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _isSignup ? 'Your backend,' : 'Go from idea',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontSize: 52,
+                  fontWeight: FontWeight.w700,
+                  height: 1.15,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              Text(
+                _isSignup ? 'your rules.' : 'to production today.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontSize: 52,
+                  fontWeight: FontWeight.w700,
+                  height: 1.15,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Everything your app needs, without compromise.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.35),
+                  fontSize: 15,
+                  height: 1.5,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
         ),
       ],
     );
