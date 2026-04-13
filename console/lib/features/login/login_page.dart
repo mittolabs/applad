@@ -357,9 +357,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           _socialButton('github'),
           // Any additional configured providers (excluding GitHub to avoid duplicate)
           ...oauthProviders.where((p) => p != 'github').map((p) => _socialButton(p)),
-          const SizedBox(height: 24),
+          const SizedBox(height: 10),
           _divider('or'),
-          const SizedBox(height: 24),
+          const SizedBox(height: 10),
         ],
 
         if (_isSignup) ...[
@@ -457,8 +457,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             )),
         const SizedBox(height: 8),
         Text(
-          'Enter your email and we\'ll send a reset link. '
-          'If SMTP is not configured, a one-time token will be shown here.',
+          'Enter your email and we\'ll send you a reset link.',
           style: TextStyle(color: _cs.textMuted, fontSize: 13, height: 1.5),
         ),
         const SizedBox(height: 28),
@@ -589,18 +588,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   Widget _socialButton(String provider) {
     final (label, icon) = switch (provider) {
-      'github' => ('Continue with GitHub', Icon(LucideIcons.github, size: 18, color: _cs.textPrimary)),
+      'github' => ('Continue with GitHub', Icon(LucideIcons.github, size: 16, color: _cs.textPrimary)),
       'google' => ('Continue with Google', _googleIcon()),
-      'sso'    => ('Continue with SSO', Icon(LucideIcons.building2, size: 18, color: _cs.textSecondary)),
+      'sso'    => ('Continue with SSO', Icon(LucideIcons.building2, size: 16, color: _cs.textSecondary)),
       _        => ('Continue with ${provider[0].toUpperCase()}${provider.substring(1)}',
-                   Icon(LucideIcons.logIn, size: 18, color: _cs.textSecondary)),
+                   Icon(LucideIcons.logIn, size: 16, color: _cs.textSecondary)),
     };
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 5),
       child: SizedBox(
         width: double.infinity,
-        height: 38,
+        height: 34,
         child: OutlinedButton(
           onPressed: () => _continueWithProvider(provider),
           style: OutlinedButton.styleFrom(

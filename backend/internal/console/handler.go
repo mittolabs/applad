@@ -3,6 +3,7 @@ package console
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -417,27 +418,28 @@ func (h *Handler) requestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	resetURL := fmt.Sprintf("%s://%s/login?reset_token=%s", scheme, r.Host, token)
+
 	emailSent := false
 	if h.smtp.Host != "" {
-		scheme := "https"
-		if r.TLS == nil {
-			scheme = "http"
-		}
-		resetURL := fmt.Sprintf("%s://%s/login?reset_token=%s", scheme, r.Host, token)
 		if err := h.sendResetEmail(body.Email, resetURL); err == nil {
 			emailSent = true
 		}
 	}
 
-	resp := map[string]interface{}{
-		"emailSent": emailSent,
-		"message":   "Reset token generated.",
-	}
 	if !emailSent {
-		// SMTP not configured — surface the token so the admin can share it.
-		resp["token"] = token
+		// SMTP not configured — log the reset URL to server output only.
+		// Never return the token in the HTTP response.
+		log.Printf("[console] SMTP not configured. Password reset URL for %s: %s", body.Email, resetURL)
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"emailSent": emailSent,
+		"message":   "If that email is registered, a reset link has been sent.",
+	})
 }
 
 // confirmPasswordReset validates a reset token and sets a new password.
