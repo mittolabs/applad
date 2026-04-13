@@ -153,8 +153,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   // ---------------------------------------------------------------------------
 
   Widget _brandingPanel() {
-    return Container(
-      color: const Color(0xFF0B0B0F),
+    return Stack(
+      children: [
+        // Base background
+        Positioned.fill(child: ColoredBox(color: const Color(0xFF0B0B0F))),
+        // Abstract background shapes
+        Positioned.fill(child: CustomPaint(painter: _PanelShapes())),
+        Container(
+      color: Colors.transparent,
       padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 48),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -228,6 +234,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           const Spacer(),
         ],
       ),
+        ),
+      ],
     );
   }
 
@@ -939,5 +947,108 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       if (mounted) setState(() => _loading = false);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Abstract panel background — angular swept shapes like folded material
+// ---------------------------------------------------------------------------
+
+class _PanelShapes extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // Shape 1 — large sweep from top-right corner, fading toward bottom-left
+    _drawShape(
+      canvas,
+      size,
+      path: Path()
+        ..moveTo(w * 0.25, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h * 0.55)
+        ..cubicTo(w * 0.85, h * 0.42, w * 0.55, h * 0.28, w * 0.05, h * 0.18)
+        ..close(),
+      begin: Alignment.topRight,
+      end: Alignment.bottomLeft,
+      colors: [
+        Colors.white.withValues(alpha: 0.055),
+        Colors.white.withValues(alpha: 0.0),
+      ],
+    );
+
+    // Shape 2 — tighter inner fold on top-right, slightly lighter
+    _drawShape(
+      canvas,
+      size,
+      path: Path()
+        ..moveTo(w * 0.55, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w, h * 0.32)
+        ..cubicTo(w * 0.9, h * 0.22, w * 0.75, h * 0.14, w * 0.48, h * 0.07)
+        ..close(),
+      begin: Alignment.topRight,
+      end: Alignment.centerLeft,
+      colors: [
+        Colors.white.withValues(alpha: 0.07),
+        Colors.white.withValues(alpha: 0.01),
+      ],
+    );
+
+    // Shape 3 — subtle bottom-left ambient shape
+    _drawShape(
+      canvas,
+      size,
+      path: Path()
+        ..moveTo(0, h * 0.6)
+        ..cubicTo(w * 0.15, h * 0.55, w * 0.3, h * 0.7, w * 0.1, h)
+        ..lineTo(0, h)
+        ..close(),
+      begin: Alignment.centerLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white.withValues(alpha: 0.025),
+        Colors.white.withValues(alpha: 0.0),
+      ],
+    );
+
+    // Edge highlight — thin bright line along the right edge of shape 1
+    _drawShape(
+      canvas,
+      size,
+      path: Path()
+        ..moveTo(w * 0.24, 0)
+        ..lineTo(w * 0.30, 0)
+        ..cubicTo(w * 0.18, h * 0.08, w * 0.08, h * 0.14, w * 0.04, h * 0.19)
+        ..cubicTo(w * 0.00, h * 0.14, w * 0.06, h * 0.09, w * 0.19, 0)
+        ..close(),
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.white.withValues(alpha: 0.10),
+        Colors.white.withValues(alpha: 0.0),
+      ],
+    );
+  }
+
+  void _drawShape(
+    Canvas canvas,
+    Size size, {
+    required Path path,
+    required AlignmentGeometry begin,
+    required AlignmentGeometry end,
+    required List<Color> colors,
+  }) {
+    final rect = Offset.zero & size;
+    final b = (begin as Alignment);
+    final e = (end as Alignment);
+    final paint = Paint()
+      ..shader = LinearGradient(begin: b, end: e, colors: colors)
+          .createShader(rect);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_PanelShapes old) => false;
 }
 
