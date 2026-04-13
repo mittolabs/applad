@@ -223,7 +223,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           ),
           const SizedBox(height: 20),
           Text(
-            'Auth · Databases · Storage · Functions\nWorkflows · Messaging — one docker compose up.',
+            'Everything your app needs, self-hosted\nand ready to go.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.35),
               fontSize: 16,
