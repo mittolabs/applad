@@ -209,17 +209,30 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           const Spacer(),
 
           // Tagline — vertically centered
-          Text(
-            _isSignup
-                ? 'Your backend,\nyour rules.'
-                : 'Go from idea\nto production today.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.88),
-              fontSize: 52,
-              fontWeight: FontWeight.w700,
-              height: 1.15,
-              letterSpacing: -0.5,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _isSignup ? 'Your backend,' : 'Go from idea',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontSize: 52,
+                  fontWeight: FontWeight.w700,
+                  height: 1.15,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              Text(
+                _isSignup ? 'your rules.' : 'to production today.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontSize: 52,
+                  fontWeight: FontWeight.w700,
+                  height: 1.15,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           Text(
