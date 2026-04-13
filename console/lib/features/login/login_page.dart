@@ -171,19 +171,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 ClipOval(
                   child: Image.asset(
                     'assets/applad-mascot-head.png',
-                    width: 32,
-                    height: 32,
+                    width: 44,
+                    height: 44,
                     fit: BoxFit.cover,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 const Text(
-                  'Applad',
+                  'applad',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 24,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: -0.02,
+                    letterSpacing: -0.3,
                   ),
                 ),
               ],
