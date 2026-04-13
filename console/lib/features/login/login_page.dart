@@ -187,20 +187,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 child: ClipOval(
                   child: Image.asset(
                     'assets/applad-mascot-head.png',
-                    width: 44,
-                    height: 44,
+                    width: 52,
+                    height: 52,
                     fit: BoxFit.cover,
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               const Text(
                 'applad',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 24,
+                  fontSize: 28,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: -0.3,
+                  letterSpacing: -0.4,
                 ),
               ),
             ],
@@ -215,7 +215,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 : 'Ship faster\nwith Applad_',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.88),
-              fontSize: 44,
+              fontSize: 52,
               fontWeight: FontWeight.w700,
               height: 1.15,
               letterSpacing: -0.5,
@@ -226,7 +226,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             'Auth · Databases · Storage · Functions\nWorkflows · Messaging — one docker compose up.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.35),
-              fontSize: 14,
+              fontSize: 16,
               height: 1.65,
             ),
           ),
