@@ -160,7 +160,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         // Abstract background shapes
         Positioned.fill(child: CustomPaint(painter: _PanelShapes())),
         Padding(
-            padding: const EdgeInsets.only(left: 80, right: 56, top: 48, bottom: 48),
+            padding: const EdgeInsets.only(left: 120, right: 56, top: 48, bottom: 48),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
