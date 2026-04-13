@@ -30,6 +30,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool   _oauthLoading = false;
   bool   _obscure     = true;
   bool   _obscureNew  = true;
+  bool   _policyAccepted = false;
   String? _error;
   String? _success;
   String? _surfacedToken; // token returned when SMTP not configured
@@ -350,54 +351,41 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         _errorBanner(),
         const SizedBox(height: 24),
 
-        _submitBtn(_isSignup ? 'Sign up' : 'Sign in', _submit),
+        // Policy checkbox — signup only
+        if (_isSignup) ...[
+          _policyCheckbox(),
+          const SizedBox(height: 16),
+        ],
+
+        _submitBtn(
+          _isSignup ? 'Sign up' : 'Sign in',
+          _isSignup && !_policyAccepted ? null : _submit,
+        ),
         const SizedBox(height: 16),
 
-        // Links row — forgot + sign up/in toggle
+        // Links row
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _link('Forgot password?', () => setState(() {
-              _mode = _Mode.forgot; _error = null; _success = null;
-            })),
-            if (signupEnabled) ...[
+            if (!_isSignup)
+              _link('Forgot password?', () => setState(() {
+                _mode = _Mode.forgot; _error = null; _success = null;
+              })),
+            if (!_isSignup && signupEnabled)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Text('|', style: TextStyle(color: _cs.textSubtle)),
               ),
+            if (signupEnabled)
               _isSignup
-                  ? _link('Sign in', () => setState(() {
+                  ? _link('Already got an account? Sign in', () => setState(() {
                       _mode = _Mode.login; _error = null;
                     }))
                   : _link('Sign up', () => setState(() {
-                      _mode = _Mode.signup; _error = null;
+                      _mode = _Mode.signup; _error = null; _policyAccepted = false;
                     }),
                       primary: true),
-            ],
           ],
-        ),
-        const SizedBox(height: 16),
-
-        // Legal footer
-        Center(
-          child: Text.rich(
-            TextSpan(
-              style: TextStyle(color: _cs.textSubtle, fontSize: 12, height: 1.5),
-              children: const [
-                TextSpan(text: 'By signing in, you agree to our '),
-                TextSpan(
-                  text: 'Terms',
-                  style: TextStyle(decoration: TextDecoration.underline),
-                ),
-                TextSpan(text: ' and '),
-                TextSpan(
-                  text: 'Privacy Policy',
-                  style: TextStyle(decoration: TextDecoration.underline),
-                ),
-                TextSpan(text: '.'),
-              ],
-            ),
-          ),
         ),
       ],
     );
@@ -542,6 +530,61 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           _mode = _Mode.login; _error = null; _success = null;
         }))),
       ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Policy checkbox (signup only)
+  // ---------------------------------------------------------------------------
+
+  Widget _policyCheckbox() {
+    return GestureDetector(
+      onTap: () => setState(() => _policyAccepted = !_policyAccepted),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: Checkbox(
+              value: _policyAccepted,
+              onChanged: (v) => setState(() => _policyAccepted = v ?? false),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              side: BorderSide(color: _cs.fieldBorder, width: 1.5),
+              activeColor: const Color(0xFF3472A4),
+              checkColor: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                style: TextStyle(color: _cs.textSubtle, fontSize: 12, height: 1.6),
+                children: [
+                  const TextSpan(text: 'By registering, you agree that you have read, understand, and acknowledge our '),
+                  TextSpan(
+                    text: 'Privacy Policy',
+                    style: TextStyle(
+                      color: _cs.textSecondary,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                  const TextSpan(text: ' and accept our '),
+                  TextSpan(
+                    text: 'Terms of Use',
+                    style: TextStyle(
+                      color: _cs.textSecondary,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                  const TextSpan(text: '.'),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -709,7 +752,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         fillColor: _cs.fieldFill,
         isDense: true,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: _cs.fieldBorder),
@@ -746,7 +789,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         fillColor: _cs.fieldFill,
         isDense: true,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: _cs.fieldBorder),
@@ -843,7 +886,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
-  Widget _submitBtn(String label, VoidCallback fn) {
+  Widget _submitBtn(String label, VoidCallback? fn) {
     return SizedBox(
       width: double.infinity,
       height: 34,
