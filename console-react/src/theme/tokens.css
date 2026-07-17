@@ -1,0 +1,154 @@
+/*
+ * Design tokens — single source of truth.
+ * Ported 1:1 from console/lib/core/theme/console_colors.dart (dark + light)
+ * and console/lib/app.dart (radius 8, accent #3472A4).
+ *
+ * Colors that were Flutter `Color.withValues(alpha:)` are expressed as
+ * rgb()/rgba() so opacity composites identically over the page background.
+ *
+ * Theme is selected by the `data-theme` attribute on <html> ("dark" | "light").
+ * Dark is the default (matches the running app).
+ */
+
+@theme {
+  /* Radius scale (app.dart _radius = 8, with documented exceptions) */
+  --radius-hair: 1px;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-6: 6px;
+  --radius-7: 7px;
+  --radius: 8px;
+  --radius-10: 10px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --radius-full: 9999px;
+
+  /* Accent / brand — the ONE place. Swap here to change everything. */
+  --color-accent: #3472a4;
+  --color-accent-2: #6c47ff; /* secondary purple (iOS badge, workflow nodes) */
+  --color-accent-3: #8b5cf6; /* tertiary purple (development env, AI nodes) */
+  --color-danger: #ef4444;
+  --color-danger-strong: #dc2626;
+
+  /* Type scale (de-facto, from usage frequency) */
+  --text-micro: 9px;
+  --text-2xs: 10px;
+  --text-caption: 11px;
+  --text-label: 12px;
+  --text-body: 13px;
+  --text-control: 14px;
+  --text-subhead: 15px;
+  --text-title: 16px;
+  --text-dialog: 18px;
+  --text-h1: 20px;
+  --text-h2: 24px;
+  --text-display: 52px;
+
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  /* Standard control height — buttons, inputs, selects all align to this. */
+  --control-h: 32px;
+}
+
+/* ---- DARK (default) ---- console_colors.dart lines 66-83 ---- */
+:root,
+:root[data-theme='dark'] {
+  --background: #0b0b0f;
+  --surface: #16171b;
+  --surface-alt: #101014;
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow: rgba(0, 0, 0, 0.5);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.72);
+  --text-muted: rgba(255, 255, 255, 0.45);
+  --text-subtle: rgba(255, 255, 255, 0.25);
+  --fill: rgba(255, 255, 255, 0.03);
+  --fill-hover: rgba(255, 255, 255, 0.04);
+  --fill-active: rgba(255, 255, 255, 0.08);
+  --field-fill: rgba(255, 255, 255, 0.04);
+  --field-border: rgba(255, 255, 255, 0.1);
+  --popup-surface: #1e1f24;
+  --badge-fill: rgba(255, 255, 255, 0.06);
+
+  /* rail/panel backgrounds (shell.dart) */
+  --rail-bg: #101014;
+  --panel-bg: #131317;
+
+  /* status pill colors — dark (status_chip.dart 125-182) */
+  --status-success: #34d399;
+  --status-warning: #fbbf24;
+  --status-danger: #f87171;
+  --status-info: #60a5fa;
+  --status-neutral: #9ca3af;
+
+  /* syntax highlighting — dark (code_block.dart 111-129) */
+  --code-plain: #e0e0e0;
+  --code-comment: #546e7a;
+  --code-string: #a5d6a7;
+  --code-number: #f78c6c;
+  --code-keyword: #c792ea;
+}
+
+/* ---- LIGHT ---- console_colors.dart lines 46-63 ---- */
+:root[data-theme='light'] {
+  --background: #ffffff;
+  --surface: #ffffff;
+  --surface-alt: #f6f7f9;
+  --border: rgba(0, 0, 0, 0.11);
+  --shadow: rgba(0, 0, 0, 0.08);
+  --text-primary: #0f1117;
+  --text-secondary: rgba(15, 17, 23, 0.72);
+  --text-muted: rgba(0, 0, 0, 0.48);
+  --text-subtle: rgba(0, 0, 0, 0.3);
+  --fill: rgba(0, 0, 0, 0.04);
+  --fill-hover: rgba(0, 0, 0, 0.06);
+  --fill-active: rgba(52, 114, 164, 0.1);
+  --field-fill: #f7f8fa;
+  --field-border: rgba(0, 0, 0, 0.12);
+  --popup-surface: #ffffff;
+  --badge-fill: rgba(0, 0, 0, 0.05);
+
+  --rail-bg: #f7f8fa;
+  --panel-bg: #ffffff;
+
+  --status-success: #059669;
+  --status-warning: #d97706;
+  --status-danger: #dc2626;
+  --status-info: #2563eb;
+  --status-neutral: #6b7280;
+
+  /* syntax highlighting — light (code_block.dart) */
+  --code-plain: #1e293b;
+  --code-comment: #64748b;
+  --code-string: #15803d;
+  --code-number: #d97706;
+  --code-keyword: #7c3aed;
+}
+
+/* Bridge our semantic vars into Tailwind's color space so utilities like
+ * bg-surface / text-muted / border-border resolve to the tokens above. */
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-border: var(--border);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
+  --color-fill: var(--fill);
+  --color-fill-hover: var(--fill-hover);
+  --color-fill-active: var(--fill-active);
+  --color-field-fill: var(--field-fill);
+  --color-field-border: var(--field-border);
+  --color-popup-surface: var(--popup-surface);
+  --color-badge-fill: var(--badge-fill);
+  --color-rail-bg: var(--rail-bg);
+  --color-panel-bg: var(--panel-bg);
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-danger: var(--status-danger);
+  --color-status-info: var(--status-info);
+  --color-status-neutral: var(--status-neutral);
+}
