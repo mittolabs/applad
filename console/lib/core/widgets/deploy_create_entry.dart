@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../api/client.dart';
 import '../theme/console_colors.dart';
 
@@ -465,7 +465,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
         const SizedBox(height: 20),
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: _accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-          icon: const Icon(LucideIcons.github, size: 16),
+          icon: const Icon(LucideIcons.gitBranch, size: 16),
           label: const Text('Connect to GitHub', style: TextStyle(fontSize: 13)),
           onPressed: () {
             // TODO: open GitHub OAuth flow
@@ -496,7 +496,7 @@ class _CreateEntryDialogState extends State<_CreateEntryDialog> {
               return DropdownMenuItem<String>(
                 value: c['\$id'] as String,
                 child: Row(children: [
-                  Icon(LucideIcons.github, size: 14, color: colors.textSecondary),
+                  Icon(LucideIcons.gitBranch, size: 14, color: colors.textSecondary),
                   const SizedBox(width: 8),
                   Text(c['name'] ?? c['login'] ?? c['\$id'] ?? '', style: TextStyle(color: colors.textPrimary, fontSize: 13)),
                 ]),

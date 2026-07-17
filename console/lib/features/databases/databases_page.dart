@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/utils/url_utils.dart';
 import '../../core/widgets/app_dialog.dart';

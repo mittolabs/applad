@@ -4,7 +4,7 @@ import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
 import '../theme/console_colors.dart';
@@ -587,7 +587,7 @@ class _SupportPanel extends StatelessWidget {
               title: 'Open GitHub issue',
               subtitle: 'Report a bug or pitch a new feature',
               buttonLabel: 'Open issue',
-              buttonIcon: LucideIcons.github,
+              buttonIcon: LucideIcons.gitBranch,
               onTap: () => _openUrl(
                   'https://github.com/mittolabs/applad/issues/new'),
             ),

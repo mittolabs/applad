@@ -2,7 +2,7 @@
 import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 bool _isLight(BuildContext context) =>
@@ -70,7 +70,7 @@ class _ConsoleFooterState extends State<ConsoleFooter> {
 
           // GitHub icon
           _FooterIconButton(
-            icon: LucideIcons.github,
+            icon: LucideIcons.gitBranch,
             tooltip: 'GitHub',
             onTap: () => _open('https://github.com/mittolabs/applad'),
           ),

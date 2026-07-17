@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
@@ -177,7 +177,7 @@ final _allNodeDefs = <_NodeDef>[
   const _NodeDef('telegram', 'Telegram', 'Send Telegram messages',
       LucideIcons.send, Color(0xFF26A5E4), category: 'Integrations'),
   const _NodeDef('github', 'GitHub', 'Create issues, PRs',
-      LucideIcons.github, Color(0xFFE6EDF3), category: 'Integrations'),
+      LucideIcons.gitBranch, Color(0xFFE6EDF3), category: 'Integrations'),
   const _NodeDef('google_sheets', 'Google Sheets', 'Read/write spreadsheets',
       LucideIcons.sheet, Color(0xFF34A853), category: 'Integrations'),
   const _NodeDef('notion', 'Notion', 'Query databases, create pages',

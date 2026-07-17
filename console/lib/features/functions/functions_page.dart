@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/api/client.dart';
 import '../../core/providers/project_provider.dart';
 import '../../core/theme/console_colors.dart';
@@ -318,7 +318,7 @@ class _FunctionsPageState extends ConsumerState<FunctionsPage> {
               const SizedBox(width: 8),
               _SourceTypeBtn(
                 label: 'GitHub',
-                icon: LucideIcons.github,
+                icon: LucideIcons.gitBranch,
                 selected: sourceType == 'git',
                 onTap: () => setState(() => sourceType = 'git'),
               ),
@@ -1124,7 +1124,7 @@ class _FuncSettingsTabState extends ConsumerState<_FuncSettingsTab> {
                   const SizedBox(width: 8),
                   _SourceTypeBtn(
                     label: 'GitHub',
-                    icon: LucideIcons.github,
+                    icon: LucideIcons.gitBranch,
                     selected: _sourceType == 'git',
                     onTap: () => setState(() => _sourceType = 'git'),
                   ),
