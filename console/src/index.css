@@ -1,0 +1,101 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './theme/tokens.css';
+
+/* Base — mirrors app.dart global scaffold + ClampingScrollPhysics (no bounce). */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text-primary);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  font-size: var(--text-body);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* web-native scroll: no rubber-banding, matches Flutter ClampingScrollPhysics */
+  overscroll-behavior: none;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Slim, Railway-style scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fill-active) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--fill-active);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+  background-clip: content-box;
+}
+
+/* Keyboard focus ring for interactive elements (a11y). Kept subtle and only
+ * for keyboard focus. Text fields are exempt — they indicate focus with a
+ * subtle border change instead of an offset ring (no glowing blue frame). */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+[contenteditable]:focus-visible {
+  outline: none;
+}
+
+/* ── Applad AI overlay animations (features/ai/AiChatOverlay.tsx) ── */
+@keyframes ai-bubble-pulse {
+  0%, 100% { box-shadow: 0 0 20px 2px rgba(0, 0, 0, 0.14); }
+  50%      { box-shadow: 0 0 20px 2px rgba(0, 0, 0, 0.22); }
+}
+.ai-bubble-pulse { animation: ai-bubble-pulse 2s ease-in-out infinite; }
+
+@keyframes ai-dot {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+.ai-dot { animation: ai-dot 0.9s ease-in-out infinite; }
+
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+.ai-spin { animation: ai-spin 0.7s linear infinite; }
+
+/* Dot-grid background for the expanded AI workspace */
+.ai-dotgrid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1.1px, transparent 1.1px);
+  background-size: 28px 28px;
+}
+
+/* Quick-action suggestion chip (expanded input) */
+.ai-chip {
+  color: #aaaaaa;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 120ms ease;
+}
+.ai-chip:hover {
+  color: #ffffff;
+  background: color-mix(in srgb, #3472a4 12%, transparent);
+  border-color: color-mix(in srgb, #3472a4 40%, transparent);
+}

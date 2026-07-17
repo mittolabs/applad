@@ -30,13 +30,12 @@ jobs:
       - name: Test
         run: go test ./...
 
-  # ── Flutter console + Dart SDK ────────────────────────────────────────────────
+  # ── Dart SDK (Flutter) ────────────────────────────────────────────────────────
   flutter:
-    name: Flutter (console + SDKs)
+    name: Dart SDK
     runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'console/') ||
       contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/dart/') ||
       contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'melos.yaml') ||
       contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'pubspec.yaml')
@@ -55,6 +54,27 @@ jobs:
         run: dart run melos analyze
       - name: Test
         run: dart run melos test
+
+  # ── React console ─────────────────────────────────────────────────────────────
+  console:
+    name: Console (React + Vite)
+    runs-on: ubuntu-24.04
+    if: |
+      github.event_name == 'pull_request' ||
+      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'console/')
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
 
   # ── E2E / integration tests ───────────────────────────────────────────────────
   e2e:

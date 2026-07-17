@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Applad
 
-Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go backend, Flutter Web admin console. Runs as a single `docker compose up` with PostgreSQL and Redis.
+Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go backend, React + Vite admin console. Runs as a single `docker compose up` with PostgreSQL and Redis.
+
+> The admin console was a Flutter Web app; it was rewritten in React + Vite + TypeScript (Tailwind v4 + shadcn/ui) at feature parity and now lives at `console/`. The old Flutter app has been removed. `melos` now manages only `sdks/dart`. Console design/parity notes: `console/CORE_REFERENCE.md`, `console/PARITY_AUDIT.md`.
 
 ## Commands
 
@@ -15,7 +17,7 @@ docker compose down        # stop all
 make up / make down        # shortcuts
 ```
 
-To bring up only the backend (skips the slow Flutter console build):
+To bring up only the backend (skips the console build):
 ```bash
 docker compose up api postgres redis proxy -d
 ```
@@ -30,13 +32,22 @@ gofmt -w .              # format
 go vet ./...            # vet
 ```
 
-### Flutter/Dart workspace (console + sdks/dart)
+### React console (`console/`)
 ```bash
-make bootstrap          # first time: activates melos, bootstraps workspace, npm install
-melos analyze           # dart analyze across all packages
-melos test              # flutter test across all packages
-melos format            # dart format across all packages
-melos build:web         # flutter build web --release (console only)
+cd console
+npm install             # first time
+npm run dev             # Vite dev server (proxies /v1 → :8080)
+npm run build           # tsc -b && vite build
+npm test                # vitest run
+npm run lint            # eslint
+```
+
+### Dart SDK workspace (sdks/dart)
+```bash
+make bootstrap          # first time: activates melos, bootstraps workspace
+melos analyze           # dart analyze
+melos test              # flutter test
+melos format            # dart format
 ```
 
 ### TypeScript SDKs
@@ -55,7 +66,7 @@ backend/        Go backend — single Go module (github.com/mittolabs/applad)
   cmd/workers/  10 worker binaries
   internal/     26 packages (see below)
   tests/        Integration tests (build-tag gated: integration)
-console/        Flutter Web admin app (Lucide icons, dark Railway-style UI)
+console/        React + Vite admin app (Tailwind v4 + shadcn/ui, Lucide icons, dark Railway-style UI)
 sdks/dart/      Dart SDK — client (Dio) + server (http) in one package
 sdks/js/        TypeScript client SDK
 sdks/node/      Node.js server SDK
@@ -128,7 +139,7 @@ Single consolidated migration in `backend/internal/db/migrations/`:
 
 API and internal code use tables/rows/columns terminology only. User data lives in real PostgreSQL schemas named `p_{projectId}_{databaseId}`.
 
-### Flutter console
+### React console
 
 **Design system**: Dark Railway-style UI (`#0B0B0F` bg, `#16171B` surfaces, `#6C47FF` accent). Lucide icons. 8px border radius globally. Path-based routing (not hash). No slide animations — instant page swap for sidebar nav, subtle fade for full-page transitions. Web-native scroll physics (clamping, no bounce).
 
@@ -145,7 +156,7 @@ API and internal code use tables/rows/columns terminology only. User data lives 
 
 **Shared widgets**: `PageTabs` (horizontal tab bar), `SearchListHeader` (search + total + trailing button), `SearchListFooter` (per-page dropdown + pagination).
 
-Feature pages: `console/lib/features/`:
+Feature pages: `console/src/features/`:
 
 | Feature | Description |
 |---|---|
@@ -192,7 +203,7 @@ Feature pages: `console/lib/features/`:
 |---|---|---|
 | `proxy` (openresty) | 80 | Routes `/v1/` → api, `/` → console |
 | `api` | 8080 (internal) | Go API server |
-| `console` | 3000 (internal) | Flutter Web, served by nginx with SPA fallback |
+| `console` | 3000 (internal) | React + Vite static bundle, served by nginx with SPA fallback |
 | `postgres` | internal | Primary store |
 | `redis` | internal | Cache + pub/sub + job queues |
 | `10 workers` | internal | builds (with Docker socket), certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks |

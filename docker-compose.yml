@@ -64,27 +64,13 @@ services:
     depends_on: *worker-deps
     restart: unless-stopped
 
+  # React + Vite admin console (served as a static bundle by nginx).
   console:
     build:
       context: .
       dockerfile: docker/console/Dockerfile
     ports:
       - "3000:80"
-    restart: unless-stopped
-
-  # New React + Vite console — parallel build for review. Gated behind the
-  # `preview` profile so it does NOT start with a normal `docker compose up`
-  # and the live Flutter `console`/`proxy` stay untouched.
-  # Preview:  docker compose --profile preview up -d console-react   (→ :3005)
-  # Cutover:  repoint proxy upstream console:80 -> console-react:80 once at parity.
-  console-react:
-    build:
-      context: .
-      dockerfile: docker/console-react/Dockerfile
-    ports:
-      - "3005:80"
-    profiles:
-      - preview
     restart: unless-stopped
 
   proxy:

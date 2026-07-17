@@ -189,7 +189,9 @@ func (h *Handler) oauthRedirect(w http.ResponseWriter, r *http.Request) {
 	providerName := chi.URLParam(r, "provider")
 	p, ok := h.providers[providerName]
 	if !ok {
-		apperr.BadRequest(w, "unsupported OAuth provider")
+		// This is a full-page navigation from the login screen, so send the
+		// user back to a rendered page instead of a raw JSON error.
+		http.Redirect(w, r, "/login?error=oauth_unavailable", http.StatusTemporaryRedirect)
 		return
 	}
 	scheme := "https"
@@ -207,7 +209,7 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	providerName := chi.URLParam(r, "provider")
 	p, ok := h.providers[providerName]
 	if !ok {
-		apperr.BadRequest(w, "unsupported OAuth provider")
+		http.Redirect(w, r, "/login?error=oauth_unavailable", http.StatusTemporaryRedirect)
 		return
 	}
 
