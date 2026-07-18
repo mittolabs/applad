@@ -29,6 +29,7 @@ func NewCron(cfg *config.Config) *Cron {
 func (w *Cron) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
+	StartRedisHeartbeat(ctx, rdb, "cron")
 
 	database, err := db.Connect(w.cfg.DatabaseDSN, w.cfg.DBMaxOpenConns, w.cfg.DBMaxIdleConns)
 	if err != nil {

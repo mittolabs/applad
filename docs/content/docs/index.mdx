@@ -1,0 +1,33 @@
+---
+title: Introduction
+description: Applad is a self-hosted backend-as-a-service with a built-in workflow engine.
+---
+
+Applad gives your app every backend service it needs — **databases, authentication,
+storage, functions, messaging, realtime and workflows** — behind one consistent REST API
+and admin console, running from a single `docker compose up`.
+
+## Why Applad
+
+- **Self-hosted.** It runs on your infrastructure. No vendor lock-in, no per-seat pricing.
+- **Batteries included.** Postgres, Redis, the API, background workers and the console all
+  ship together.
+- **One API.** Every service is reachable under `/v1` with the same auth model, and there
+  are SDKs for JavaScript, Node, Dart, Go and Python.
+
+## Where things live
+
+| Surface | URL |
+| --- | --- |
+| Admin console | `applad.dev` |
+| Your deployed apps | `<project>.applad.dev` |
+| Marketing site | `applad.io` |
+| These docs | `docs.applad.io` |
+
+<Callout title="Local development">
+  Locally the same hosts are used with a `.localhost` suffix (e.g.
+  `applad.dev.localhost`), which every Chromium browser resolves to `127.0.0.1`
+  automatically.
+</Callout>
+
+Head to [Getting started](/getting-started) to bring the stack up.

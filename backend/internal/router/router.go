@@ -7,14 +7,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
-	"github.com/mittolabs/applad/internal/apperr"
 	"github.com/mittolabs/applad/internal/aichat"
 	"github.com/mittolabs/applad/internal/analytics"
 	"github.com/mittolabs/applad/internal/appcache"
+	"github.com/mittolabs/applad/internal/apperr"
 	"github.com/mittolabs/applad/internal/audit"
 	"github.com/mittolabs/applad/internal/auth"
-	"github.com/mittolabs/applad/internal/billing"
 	"github.com/mittolabs/applad/internal/avatars"
+	"github.com/mittolabs/applad/internal/billing"
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/console"
@@ -25,22 +25,23 @@ import (
 	"github.com/mittolabs/applad/internal/deploy"
 	"github.com/mittolabs/applad/internal/edge"
 	"github.com/mittolabs/applad/internal/flags"
-	"github.com/mittolabs/applad/internal/observe"
 	"github.com/mittolabs/applad/internal/functions"
 	"github.com/mittolabs/applad/internal/health"
 	"github.com/mittolabs/applad/internal/jobs"
 	"github.com/mittolabs/applad/internal/locale"
 	"github.com/mittolabs/applad/internal/messaging"
 	"github.com/mittolabs/applad/internal/metrics"
-	"github.com/mittolabs/applad/internal/migrations"
 	mw "github.com/mittolabs/applad/internal/middleware"
+	"github.com/mittolabs/applad/internal/migrations"
 	oauthpkg "github.com/mittolabs/applad/internal/oauth"
+	"github.com/mittolabs/applad/internal/observe"
 	"github.com/mittolabs/applad/internal/organizations"
 	"github.com/mittolabs/applad/internal/projects"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/realtime"
 	"github.com/mittolabs/applad/internal/regions"
 	"github.com/mittolabs/applad/internal/search"
+	"github.com/mittolabs/applad/internal/status"
 	"github.com/mittolabs/applad/internal/storage"
 	"github.com/mittolabs/applad/internal/teams"
 	"github.com/mittolabs/applad/internal/trace"
@@ -102,11 +103,11 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	deploySvc := deploy.NewService(database, deployQueue)
 	healthHandler := health.NewHandler(database, cacheClient)
 	messagingSvc := messaging.NewService(database, messaging.Config{
-		Host:         cfg.SMTPHost,
-		Port:         cfg.SMTPPort,
-		Username:     cfg.SMTPUser,
-		Password:     cfg.SMTPPass,
-		From:         cfg.SMTPFrom,
+		Host:            cfg.SMTPHost,
+		Port:            cfg.SMTPPort,
+		Username:        cfg.SMTPUser,
+		Password:        cfg.SMTPPass,
+		From:            cfg.SMTPFrom,
 		TwilioSID:       cfg.TwilioSID,
 		TwilioToken:     cfg.TwilioToken,
 		TwilioFrom:      cfg.TwilioFrom,
@@ -178,6 +179,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	r.Route("/v1", func(r chi.Router) {
 		// Health — no auth required
 		r.Mount("/health", health.Routes(healthHandler))
+
+		// Status — public self-monitoring snapshot powering status.applad.io
+		r.Mount("/status", status.Routes(status.NewHandler(status.NewService(database, cacheClient, cfg))))
 
 		// Console auth — system-level admin signup/login (no project header)
 		r.Mount("/console", console.Routes(consoleHandler))

@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+@source '../node_modules/fumadocs-ui/dist/**/*.js';
+
+/* Match the Applad console/site brand theme (console_colors.dart):
+ * bg #0B0B0F, surfaces #16171B, alt #101014, border white/8%, accent #3472A4. */
+.dark {
+  --color-fd-background: #0b0b0f;
+  --color-fd-foreground: #e8e8ea;
+  --color-fd-card: #16171b;
+  --color-fd-card-foreground: #e8e8ea;
+  --color-fd-popover: #16171b;
+  --color-fd-popover-foreground: #e8e8ea;
+  --color-fd-primary: #3472a4;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #16171b;
+  --color-fd-secondary-foreground: #e8e8ea;
+  --color-fd-muted: #101014;
+  --color-fd-muted-foreground: #8a8a92;
+  --color-fd-accent: #1c1d22;
+  --color-fd-accent-foreground: #ffffff;
+  --color-fd-border: rgba(255, 255, 255, 0.08);
+  --color-fd-ring: #3472a4;
+}
+
+/* Keep the same accent in light mode too. */
+:root {
+  --color-fd-primary: #3472a4;
+  --color-fd-ring: #3472a4;
+}

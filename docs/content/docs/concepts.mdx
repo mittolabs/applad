@@ -1,0 +1,28 @@
+---
+title: Core concepts
+description: The building blocks of an Applad project.
+---
+
+## Projects
+
+A **project** is an isolated backend. Each project has its own database schema, storage
+bucket namespace, users, functions and API keys, and is served at
+`<project>.applad.dev` when you deploy an app to it.
+
+## Services
+
+| Service | What it does |
+| --- | --- |
+| Databases | Postgres tables, relationships, indexes and row-level security |
+| Auth | Email, magic links, MFA and OAuth (15 providers), sessions, teams |
+| Storage | Buckets, chunked uploads, image transforms, antivirus |
+| Functions | Serverless code in 8 pre-warmed runtimes |
+| Messaging | Email, SMS and push, plus topics and subscribers |
+| Workflows | A native DAG engine with a visual builder and webhooks |
+| Realtime | WebSocket subscriptions to database changes and events |
+| Deploy | Ship sites and containers from git, with previews and rollbacks |
+
+## API keys
+
+Server-to-server access uses **API keys** scoped to a project. Client apps use session
+tokens issued at sign-in. Both are managed from the console.

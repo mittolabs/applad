@@ -1,0 +1,9 @@
+# Keep build contexts small and force fresh, platform-correct installs.
+**/node_modules
+**/.next
+**/.source
+**/dist
+**/out
+**/.git
+**/*.tsbuildinfo
+**/.DS_Store

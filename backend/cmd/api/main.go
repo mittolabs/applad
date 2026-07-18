@@ -14,6 +14,7 @@ import (
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/logger"
 	"github.com/mittolabs/applad/internal/router"
+	"github.com/mittolabs/applad/internal/status"
 )
 
 func main() {
@@ -74,6 +75,10 @@ func main() {
 			slog.Error("server error", "error", err)
 		}
 	}()
+
+	// Self-monitoring: probe our own components on a schedule so the public
+	// status page (status.applad.io) reflects real health.
+	go status.NewService(database, cacheClient, cfg).Run(ctx)
 
 	<-ctx.Done()
 	stop()

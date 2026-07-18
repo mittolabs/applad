@@ -37,8 +37,10 @@ services:
     build:
       context: ./backend
       dockerfile: ../docker/api/Dockerfile
-    ports:
-      - "8080:8080"
+    # Not published to the host — reached only through the proxy at
+    # applad.dev.localhost/v1. (Expose 8080 here if you need direct access.)
+    expose:
+      - "8080"
     environment:
       PORT: "8080"
       DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@pgbouncer:5432/applad?sslmode=disable"
@@ -65,12 +67,40 @@ services:
     restart: unless-stopped
 
   # React + Vite admin console (served as a static bundle by nginx).
+  # Reached through the proxy at applad.dev.localhost — not published directly.
   console:
     build:
       context: .
       dockerfile: docker/console/Dockerfile
-    ports:
-      - "3000:80"
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  # Marketing site → applad.io.localhost
+  website:
+    build:
+      context: .
+      dockerfile: docker/website/Dockerfile
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  # Documentation (Fumadocs) → docs.applad.io.localhost
+  docs:
+    build:
+      context: .
+      dockerfile: docker/docs/Dockerfile
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  # Status page → status.applad.io.localhost (reads GET /v1/status)
+  status:
+    build:
+      context: .
+      dockerfile: docker/status/Dockerfile
+    expose:
+      - "80"
     restart: unless-stopped
 
   proxy:

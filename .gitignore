@@ -21,6 +21,16 @@ sdks/js/dist/
 sdks/node/node_modules/
 sdks/node/dist/
 
+# Frontends (built in Docker)
+website/node_modules/
+website/dist/
+status/node_modules/
+status/dist/
+docs/node_modules/
+docs/.next/
+docs/.source/
+docs/dist/
+
 # Python
 sdks/python/*.egg-info/
 sdks/python/dist/

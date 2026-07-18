@@ -1,0 +1,37 @@
+---
+title: Getting started
+description: Bring the whole Applad stack up in under a minute.
+---
+
+## Run the stack
+
+```bash
+git clone https://github.com/mittolabs/applad
+cd applad
+docker compose up -d
+```
+
+That starts PostgreSQL, Redis, the API, the background workers and the admin console.
+
+## Open the console
+
+Visit **`applad.dev.localhost`** and create your first admin account. From there you can
+create a project, generate an API key, and start using the services.
+
+## Connect your app
+
+Install a client SDK and point it at your project:
+
+```ts
+import { Applad } from '@mittolabs/applad';
+
+const applad = new Applad({
+  endpoint: 'http://applad.dev.localhost',
+  projectId: 'YOUR_PROJECT_ID',
+});
+```
+
+<Callout type="info">
+  Server SDKs (Node, Go, Python) authenticate with a project API key created in the console
+  under **Settings → API keys**.
+</Callout>
