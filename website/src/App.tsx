@@ -4,6 +4,7 @@ import {
   Check,
   Cloud,
   Code2,
+  Copy,
   Database,
   FileText,
   Flag,
@@ -262,6 +263,10 @@ function Services() {
 }
 
 function Deploy() {
+  // install.sh is served from this same host, so follow it: applad.io.localhost
+  // in dev, applad.io in production.
+  const installOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://applad.io';
+  const installCmd = `curl -fsSL ${installOrigin}/install.sh | sh`;
   return (
     <section id="pricing" className="mx-auto max-w-6xl px-6 py-24">
       <div className="mx-auto mb-12 max-w-2xl text-center">
@@ -284,14 +289,17 @@ function Deploy() {
           </div>
           <p className="mt-3 text-muted">Own every byte. Your infrastructure, your data, every feature included.</p>
           <div className="mt-5 rounded-xl border border-white/[0.06] bg-black/30 p-4">
-            <div className="mb-2 flex items-center gap-2 text-[11px] text-muted">
-              <Terminal size={13} />
-              one command
+            <div className="mb-2 flex items-center justify-between text-[11px] text-muted">
+              <span className="flex items-center gap-2">
+                <Terminal size={13} />
+                one command
+              </span>
+              <CopyButton text={installCmd} />
             </div>
             <pre className="overflow-x-auto font-[family-name:var(--font-mono)] text-[13px] leading-relaxed">
               <code>
                 <span className="select-none text-muted">$ </span>
-                <span className="text-text">docker compose up -d</span>
+                <span className="text-text">{installCmd}</span>
               </code>
             </pre>
           </div>
@@ -332,6 +340,38 @@ function Deploy() {
         </a>
       </p>
     </section>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      aria-label={copied ? 'Copied' : 'Copy command'}
+      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium transition-colors hover:text-text"
+      style={{ color: copied ? ACCENT : undefined }}
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
   );
 }
 
@@ -401,8 +441,8 @@ function Footer() {
               <span className="text-[17px] font-bold tracking-tight">applad</span>
             </a>
             <p className="mt-4 text-sm leading-relaxed text-muted">
-              A ready-made backend and a personal AI for building web, mobile and desktop apps.
-              Cloud or self-hosted.
+              The complete AI-native development infrastructure for your apps. Plan, build, test,
+              deploy and monitor. Cloud or self-hosted.
             </p>
             <a
               href={GITHUB_URL}

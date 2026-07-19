@@ -87,6 +87,12 @@ textarea:focus-visible,
   background-size: 28px 28px;
 }
 
+/* Workflow canvas — match the console background (React Flow's dark theme
+ * defaults to #141414, lighter than our #0B0B0F). Keeps the dot mesh. */
+.react-flow {
+  --xy-background-color: var(--background);
+}
+
 /* Quick-action suggestion chip (expanded input) */
 .ai-chip {
   color: #aaaaaa;

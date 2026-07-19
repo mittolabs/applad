@@ -11,15 +11,15 @@
   --color-fd-foreground: #e8e8ea;
   --color-fd-card: #16171b;
   --color-fd-card-foreground: #e8e8ea;
-  --color-fd-popover: #16171b;
+  --color-fd-popover: #131418;
   --color-fd-popover-foreground: #e8e8ea;
-  --color-fd-primary: #3472a4;
+  --color-fd-primary: #4c8fca;
   --color-fd-primary-foreground: #ffffff;
   --color-fd-secondary: #16171b;
   --color-fd-secondary-foreground: #e8e8ea;
   --color-fd-muted: #101014;
   --color-fd-muted-foreground: #8a8a92;
-  --color-fd-accent: #1c1d22;
+  --color-fd-accent: #1a1b20;
   --color-fd-accent-foreground: #ffffff;
   --color-fd-border: rgba(255, 255, 255, 0.08);
   --color-fd-ring: #3472a4;
@@ -29,4 +29,133 @@
 :root {
   --color-fd-primary: #3472a4;
   --color-fd-ring: #3472a4;
+}
+
+/* ── Applad-branded refinements over the Fumadocs preset ─────────────────────── */
+
+body {
+  font-family:
+    system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-fd-primary) 40%, transparent);
+}
+
+/* A faint accent glow behind the top of the page, echoing the marketing site. */
+#nd-page::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 320px;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(600px 220px at 60% -40px, rgba(52, 114, 164, 0.14), transparent 70%);
+}
+
+/* Headings — tighter, confident. */
+.prose h1,
+article h1 {
+  letter-spacing: -0.02em;
+}
+.prose h2,
+.prose h3 {
+  letter-spacing: -0.01em;
+}
+
+/* Links — accent, subtle underline on hover. */
+.prose a:not([data-card]) {
+  color: var(--color-fd-primary);
+  text-decoration: none;
+  font-weight: 500;
+  text-underline-offset: 3px;
+}
+.prose a:not([data-card]):hover {
+  text-decoration: underline;
+}
+
+/* Inline code — branded chip on the alt surface (not code blocks). */
+.prose :not(pre) > code {
+  background: var(--color-fd-muted);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.1em 0.4em;
+  font-size: 0.85em;
+  font-weight: 500;
+  color: #cdd6e4;
+}
+.prose :not(pre) > code::before,
+.prose :not(pre) > code::after {
+  content: none;
+}
+
+/* Tables — rounded container, surface header, quiet row dividers. */
+.prose table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 0.9em;
+}
+.prose thead {
+  background: var(--color-fd-muted);
+}
+.prose th,
+.prose td {
+  border: none;
+  border-bottom: 1px solid var(--color-fd-border);
+  padding: 0.7rem 1rem;
+  text-align: left;
+}
+.prose thead th {
+  font-weight: 600;
+  color: var(--color-fd-foreground);
+}
+.prose tbody tr:last-child td {
+  border-bottom: none;
+}
+.prose tbody tr {
+  transition: background 0.15s;
+}
+.prose tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Cards (Fumadocs <Cards>) — crafted glass panel like the marketing site.
+ * Scoped with :not(.peer) so it never hits heading self-link anchors, which
+ * Fumadocs also marks with data-card. */
+a[data-card]:not(.peer) {
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.006)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.15s, transform 0.15s;
+}
+a[data-card]:not(.peer):hover {
+  border-color: color-mix(in srgb, var(--color-fd-primary) 45%, transparent) !important;
+}
+
+/* Sidebar active item — quiet accent text, no filled pill or bar. */
+#nd-sidebar a[data-active='true'],
+aside a[data-active='true'] {
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--color-fd-primary);
+  font-weight: 500;
+}
+
+/* Section eyebrow-style dividers between sidebar groups (Fumadocs group labels). */
+#nd-sidebar p,
+aside [data-radix-collection-item] > p {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+/* Subtle, thin scrollbars to match the dark UI. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }

@@ -617,7 +617,7 @@ function WelcomeBubble({ compact }: { compact: boolean }) {
         }}
       >
         <span style={{ color: C.textPri }} className="whitespace-pre-wrap text-[13px] leading-relaxed">
-          {'Hi there 👋\n\nI’m your Applad AI assistant. Ask me anything about your project — databases, functions, auth, storage, deployments, workflows, and more.'}
+          {'Hi there 👋\n\nI’m your Applad AI assistant. Ask me anything about your project: databases, functions, auth, storage, deployments, workflows, and more.'}
         </span>
       </div>
       <div style={{ color: C.textMuted }} className="mt-1.5 text-[11px]">
