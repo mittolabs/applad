@@ -38,7 +38,8 @@ type ConsoleUser struct {
 // ConsoleClaims is the JWT claims structure for console auth.
 type ConsoleClaims struct {
 	jwt.RegisteredClaims
-	Console bool `json:"console"`
+	Console   bool   `json:"console"`
+	SessionID string `json:"sid,omitempty"`
 }
 
 // Service handles console auth business logic.
@@ -69,7 +70,7 @@ func (s *Service) Signup(ctx context.Context, email, password, name string) (*Co
 		return nil, "", fmt.Errorf("console: signup: %w", err)
 	}
 
-	token, err := s.signJWT(id, email)
+	token, err := s.signJWT(id, email, "")
 	if err != nil {
 		return nil, "", err
 	}
@@ -101,7 +102,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (*ConsoleUs
 		return nil, "", fmt.Errorf("console: invalid credentials")
 	}
 
-	token, err := s.signJWT(u.ID, u.Email)
+	token, err := s.signJWT(u.ID, u.Email, "")
 	if err != nil {
 		return nil, "", err
 	}
@@ -225,7 +226,7 @@ func (s *Service) LoginOrCreateByOAuth(ctx context.Context, email, name, provide
 		u.Name = nameNull.String
 	}
 
-	token, err := s.signJWT(u.ID, u.Email)
+	token, err := s.signJWT(u.ID, u.Email, "")
 	if err != nil {
 		return nil, "", err
 	}
@@ -293,14 +294,15 @@ func (s *Service) ValidateToken(tokenStr string) (string, error) {
 	return claims.Subject, nil
 }
 
-func (s *Service) signJWT(userID, email string) (string, error) {
+func (s *Service) signJWT(userID, email, sessionID string) (string, error) {
 	claims := ConsoleClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(30 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
-		Console: true,
+		Console:   true,
+		SessionID: sessionID,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.jwtSecret))

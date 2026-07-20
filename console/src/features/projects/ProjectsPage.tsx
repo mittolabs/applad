@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FolderGit2, MoreVertical, Plus, Settings, Trash2, UserPlus } from 'lucide-react';
@@ -741,37 +741,34 @@ function SettingsTab({ orgId, orgName }: { orgId: string | null; orgName?: strin
   });
 
   return (
-    <div className="flex max-w-lg flex-col gap-6">
-      <div className="rounded-[var(--radius-10)] border border-border bg-surface p-5">
-        <div className="text-[length:var(--text-control)] font-medium text-text-primary">
-          Organization name
-        </div>
-        <div className="mt-3 flex gap-2">
+    <div className="flex max-w-3xl flex-col gap-6">
+      <SettingsCard title="Organization name" subtitle="This is how your organization appears across the console.">
+        <div className="flex flex-col gap-4">
           <Input value={name} onChange={(e) => setName(e.target.value)} />
-          <Button loading={rename.isPending} disabled={!name.trim()} onClick={() => rename.mutate()}>
-            Save
+          <div className="flex justify-end">
+            <Button loading={rename.isPending} disabled={!name.trim()} onClick={() => rename.mutate()}>
+              Save changes
+            </Button>
+          </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="Organization ID" subtitle="Use this ID when calling the API or configuring the SDKs.">
+        {orgId ? <IdText id={orgId} /> : <span className="text-text-subtle">—</span>}
+      </SettingsCard>
+
+      <SettingsCard
+        danger
+        icon={Trash2}
+        title="Delete organization"
+        subtitle="Permanently removes this organization and all of its projects and data. This cannot be undone."
+      >
+        <div className="flex md:justify-end">
+          <Button variant="destructive" onClick={() => setConfirmDelete(true)}>
+            Delete organization
           </Button>
         </div>
-      </div>
-
-      <div className="rounded-[var(--radius-10)] border border-border bg-surface p-5">
-        <div className="text-[length:var(--text-control)] font-medium text-text-primary">
-          Organization ID
-        </div>
-        <div className="mt-3">{orgId ? <IdText id={orgId} /> : <span className="text-text-subtle">—</span>}</div>
-      </div>
-
-      <div className="rounded-[var(--radius-10)] border border-[color-mix(in_srgb,var(--color-danger)_40%,var(--border))] bg-surface p-5">
-        <div className="text-[length:var(--text-control)] font-medium text-[var(--status-danger)]">
-          Danger zone
-        </div>
-        <div className="mt-1 text-[length:var(--text-body)] text-text-muted">
-          Deleting an organization removes all its projects and data.
-        </div>
-        <Button variant="destructive" className="mt-3" onClick={() => setConfirmDelete(true)}>
-          Delete organization
-        </Button>
-      </div>
+      </SettingsCard>
 
       <ConfirmDialog
         open={confirmDelete}
@@ -782,6 +779,47 @@ function SettingsTab({ orgId, orgName }: { orgId: string | null; orgName?: strin
         loading={del.isPending}
         onConfirm={() => del.mutate()}
       />
+    </div>
+  );
+}
+
+/* Two-column settings section: title + subtitle on the left, controls on the
+ * right — matches the account page. */
+function SettingsCard({
+  title,
+  subtitle,
+  icon: Icon,
+  danger,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  icon?: typeof Trash2;
+  danger?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-[var(--radius-10)] border bg-surface p-5 md:p-6 ${
+        danger ? 'border-[color-mix(in_srgb,var(--color-danger)_40%,var(--border))]' : 'border-border'
+      }`}
+    >
+      <div className="flex flex-col gap-5 md:flex-row md:gap-8">
+        <div className="md:w-2/5">
+          <div
+            className={`flex items-center gap-2 text-[length:var(--text-control)] font-medium ${
+              danger ? 'text-[var(--status-danger)]' : 'text-text-primary'
+            }`}
+          >
+            {Icon && <Icon size={16} />}
+            {title}
+          </div>
+          {subtitle && (
+            <div className="mt-2 text-[length:var(--text-body)] text-text-muted">{subtitle}</div>
+          )}
+        </div>
+        <div className="flex-1">{children}</div>
+      </div>
     </div>
   );
 }

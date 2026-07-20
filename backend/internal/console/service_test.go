@@ -26,7 +26,7 @@ func newMockService(t *testing.T) (*Service, sqlmock.Sqlmock) {
 
 func TestSignJWT_Roundtrip(t *testing.T) {
 	svc := &Service{jwtSecret: "test-secret-key-12345"}
-	token, err := svc.signJWT("user123", "test@example.com")
+	token, err := svc.signJWT("user123", "test@example.com", "")
 	if err != nil {
 		t.Fatalf("signJWT failed: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestValidateToken_Invalid(t *testing.T) {
 func TestValidateToken_WrongSecret(t *testing.T) {
 	svc1 := &Service{jwtSecret: "secret-1"}
 	svc2 := &Service{jwtSecret: "secret-2"}
-	token, _ := svc1.signJWT("user1", "test@test.com")
+	token, _ := svc1.signJWT("user1", "test@test.com", "")
 	_, err := svc2.ValidateToken(token)
 	if err == nil {
 		t.Error("expected error for wrong secret")
@@ -62,7 +62,7 @@ func TestValidateToken_WrongSecret(t *testing.T) {
 
 func TestValidateToken_ConsoleFlag(t *testing.T) {
 	svc := &Service{jwtSecret: "test-secret"}
-	token, _ := svc.signJWT("user1", "test@test.com")
+	token, _ := svc.signJWT("user1", "test@test.com", "")
 	userID, err := svc.ValidateToken(token)
 	if err != nil {
 		t.Fatalf("expected valid console token: %v", err)

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowRight,
+  Activity,
+  Blocks,
   Check,
   Cloud,
   Code2,
@@ -8,10 +10,12 @@ import {
   Database,
   FileText,
   Flag,
+  FlaskConical,
   FolderOpen,
   Github,
   KeyRound,
   Mail,
+  PencilRuler,
   Radio,
   Rocket,
   Server,
@@ -33,6 +37,7 @@ export function App() {
     <div className="min-h-screen">
       <Nav />
       <Hero />
+      <Lifecycle />
       <AiSpotlight />
       <WorkflowSpotlight />
       <Services />
@@ -122,6 +127,37 @@ function Hero() {
   );
 }
 
+// The software lifecycle Applad covers, stage by stage.
+const LIFECYCLE: { icon: LucideIcon; name: string }[] = [
+  { icon: PencilRuler, name: 'Plan' },
+  { icon: Blocks, name: 'Build' },
+  { icon: FlaskConical, name: 'Test' },
+  { icon: Rocket, name: 'Deploy' },
+  { icon: Workflow, name: 'Automate' },
+  { icon: Activity, name: 'Monitor' },
+];
+
+function Lifecycle() {
+  return (
+    <section className="mx-auto max-w-6xl px-6 py-16">
+      <p className="text-center text-xs font-medium uppercase tracking-[0.16em] text-muted/70">
+        One platform for the entire software lifecycle
+      </p>
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-x-12 gap-y-6">
+        {LIFECYCLE.map((s) => (
+          <div
+            key={s.name}
+            className="flex items-center gap-2 text-muted opacity-55 transition-opacity hover:opacity-90"
+          >
+            <s.icon size={22} strokeWidth={1.6} />
+            <span className="text-lg font-semibold tracking-tight">{s.name}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Spotlight({
   eyebrow,
   title,
@@ -156,8 +192,10 @@ function AiSpotlight() {
       title="Just ask"
       body={
         <>
-          Describe what you want and it's done: tables, auth, functions and workflows, wired right
-          into your project. Prefer to build it yourself? The SDKs are right there.
+          The lad is an AI that works on your project, not just chats about it. It knows your
+          schema, data and config, and takes real actions across the stack: designing tables,
+          wiring auth, writing functions and workflows, connecting services and shipping. No
+          snippets to paste. Prefer to build it yourself? The SDKs are right there.
         </>
       }
       visual={

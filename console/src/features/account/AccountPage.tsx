@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
-import { Activity, Eye, EyeOff, KeyRound, Monitor, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Activity, Eye, EyeOff, KeyRound, Monitor, ShieldAlert, ShieldCheck, Smartphone } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useOrgs } from '@/api/queries';
@@ -39,7 +39,7 @@ export function AccountPage() {
         </div>
         <div className="mt-6">
           {tab === 0 && <OverviewTab />}
-          {tab === 1 && <PlaceholderTab icon={Monitor} text="Your active sign-in sessions will appear here." />}
+          {tab === 1 && <SessionsTab />}
           {tab === 2 && <PlaceholderTab icon={Activity} text="Your account activity will appear here." />}
           {tab === 3 && <OrganizationsTab />}
         </div>
@@ -230,6 +230,123 @@ function OrganizationsTab() {
         </button>
       ))}
     </div>
+  );
+}
+
+interface ConsoleSession {
+  $id: string;
+  userAgent: string;
+  ip: string;
+  $createdAt: string;
+  lastSeenAt: string;
+  current: boolean;
+}
+
+function deviceMeta(ua: string): { label: string; Icon: typeof Monitor } {
+  const mobile = /Mobile|Android|iPhone|iPad/i.test(ua);
+  let os = 'Unknown OS';
+  // iOS/Android first — their UAs contain "like Mac OS X" / "Linux".
+  if (/iPhone|iPad|iPod/i.test(ua)) os = 'iOS';
+  else if (/Android/i.test(ua)) os = 'Android';
+  else if (/Mac OS X|Macintosh/i.test(ua)) os = 'macOS';
+  else if (/Windows/i.test(ua)) os = 'Windows';
+  else if (/Linux/i.test(ua)) os = 'Linux';
+  let browser = 'Browser';
+  if (/Edg\//i.test(ua)) browser = 'Edge';
+  else if (/OPR\/|Opera/i.test(ua)) browser = 'Opera';
+  else if (/Firefox\//i.test(ua)) browser = 'Firefox';
+  else if (/Chrome\//i.test(ua)) browser = 'Chrome';
+  else if (/Safari\//i.test(ua)) browser = 'Safari';
+  return { label: ua ? `${browser} on ${os}` : 'Unknown device', Icon: mobile ? Smartphone : Monitor };
+}
+
+function timeAgo(iso: string): string {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 120) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function SessionsTab() {
+  const qc = useQueryClient();
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['console-sessions'],
+    queryFn: async () => {
+      const res = await api.get('/console/sessions');
+      return (res.data as { sessions?: ConsoleSession[] }).sessions ?? [];
+    },
+  });
+  const [revokeTarget, setRevokeTarget] = useState<ConsoleSession | null>(null);
+  const revoke = useMutation({
+    mutationFn: (id: string) => api.delete(`/console/sessions/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['console-sessions'] }),
+  });
+
+  const sessions = data ?? [];
+
+  if (isLoading) {
+    return (
+      <div className="rounded-[var(--radius-10)] border border-border py-16 text-center text-[length:var(--text-body)] text-text-subtle">
+        Loading sessions…
+      </div>
+    );
+  }
+  if (isError) {
+    return <PlaceholderTab icon={Monitor} text="Couldn't load your sessions. Try again." />;
+  }
+  if (sessions.length === 0) {
+    return <PlaceholderTab icon={Monitor} text="Your active sign-in sessions will appear here." />;
+  }
+
+  return (
+    <>
+      <div className="overflow-hidden rounded-[var(--radius-10)] border border-border">
+        {sessions.map((s) => {
+          const { label, Icon } = deviceMeta(s.userAgent);
+          return (
+            <div
+              key={s.$id}
+              className="flex items-center gap-3 border-b border-[var(--fill)] px-4 py-3.5 last:border-0"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-8)] bg-fill text-text-secondary">
+                <Icon size={16} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[length:var(--text-body)] text-text-primary">{label}</span>
+                  {s.current && (
+                    <span className="rounded-full bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] px-2 py-0.5 text-[length:var(--text-caption)] font-medium text-[var(--color-accent)]">
+                      This device
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 text-[length:var(--text-caption)] text-text-subtle">
+                  {s.ip || 'Unknown IP'} · {s.current ? 'Active now' : `Last active ${timeAgo(s.lastSeenAt)}`}
+                </div>
+              </div>
+              {!s.current && (
+                <Button variant="ghost" size="sm" onClick={() => setRevokeTarget(s)}>
+                  Revoke
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        onOpenChange={(o) => !o && setRevokeTarget(null)}
+        title="Revoke session"
+        message="This device will be signed out the next time it makes a request."
+        confirmLabel="Revoke"
+        destructive
+        onConfirm={() => {
+          if (revokeTarget) revoke.mutate(revokeTarget.$id);
+          setRevokeTarget(null);
+        }}
+      />
+    </>
   );
 }
 

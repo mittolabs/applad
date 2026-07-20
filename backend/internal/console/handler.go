@@ -63,9 +63,38 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/me/email", h.updateEmail)
 	r.Patch("/me/password", h.updatePassword)
 	r.Delete("/me", h.deleteAccount)
+	r.Get("/sessions", h.listSessions)
+	r.Delete("/sessions/{id}", h.revokeSession)
 	r.Post("/password-reset/request", h.requestPasswordReset)
 	r.Post("/password-reset/confirm", h.confirmPasswordReset)
 	return r
+}
+
+// bearerToken extracts the raw JWT from the Authorization header.
+func bearerToken(r *http.Request) (string, bool) {
+	auth := r.Header.Get("Authorization")
+	if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+		return "", false
+	}
+	return strings.TrimPrefix(auth, "Bearer "), true
+}
+
+// clientIP returns the best-guess client IP, honouring the reverse proxy.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xr := r.Header.Get("X-Real-IP"); xr != "" {
+		return xr
+	}
+	host := r.RemoteAddr
+	if i := strings.LastIndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	return host
 }
 
 func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
@@ -98,12 +127,18 @@ func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, token, err := h.svc.Signup(r.Context(), body.Email, body.Password, body.Name)
+	user, _, err := h.svc.Signup(r.Context(), body.Email, body.Password, body.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") || strings.Contains(err.Error(), "duplicate") {
 			apperr.Conflict(w, "email already in use")
 			return
 		}
+		apperr.Internal(w, err)
+		return
+	}
+
+	token, err := h.svc.CreateSessionToken(r.Context(), user.ID, user.Email, r.UserAgent(), clientIP(r))
+	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
@@ -138,9 +173,15 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, token, err := h.svc.Login(r.Context(), body.Email, body.Password)
+	user, _, err := h.svc.Login(r.Context(), body.Email, body.Password)
 	if err != nil {
 		apperr.Write(w, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
+		return
+	}
+
+	token, err := h.svc.CreateSessionToken(r.Context(), user.ID, user.Email, r.UserAgent(), clientIP(r))
+	if err != nil {
+		apperr.Internal(w, err)
 		return
 	}
 
@@ -241,13 +282,19 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, token, err := h.svc.LoginOrCreateByOAuth(ctx, userInfo.Email, userInfo.Name, providerName, h.signupSetting)
+	user, _, err := h.svc.LoginOrCreateByOAuth(ctx, userInfo.Email, userInfo.Name, providerName, h.signupSetting)
 	if err != nil {
 		if strings.Contains(err.Error(), "signup disabled") {
 			http.Redirect(w, r, "/login?error=signup_disabled", http.StatusTemporaryRedirect)
 		} else {
 			http.Redirect(w, r, "/login?error=oauth_failed", http.StatusTemporaryRedirect)
 		}
+		return
+	}
+
+	token, err := h.svc.CreateSessionToken(ctx, user.ID, user.Email, r.UserAgent(), clientIP(r))
+	if err != nil {
+		http.Redirect(w, r, "/login?error=oauth_failed", http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -294,15 +341,7 @@ func (h *Handler) signupStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
-	// Extract console JWT from Authorization header
-	auth := r.Header.Get("Authorization")
-	if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
-		apperr.Unauthorized(w)
-		return
-	}
-	tokenStr := strings.TrimPrefix(auth, "Bearer ")
-
-	userID, err := h.svc.ValidateToken(tokenStr)
+	userID, err := h.extractUserID(r)
 	if err != nil {
 		apperr.Unauthorized(w)
 		return
@@ -317,11 +356,48 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) extractUserID(r *http.Request) (string, error) {
-	auth := r.Header.Get("Authorization")
-	if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+	tok, ok := bearerToken(r)
+	if !ok {
 		return "", fmt.Errorf("no token")
 	}
-	return h.svc.ValidateToken(strings.TrimPrefix(auth, "Bearer "))
+	// ValidateSession also rejects revoked sessions, so revoking a session logs
+	// that device out on its next request.
+	userID, _, err := h.svc.ValidateSession(r.Context(), tok)
+	return userID, err
+}
+
+// listSessions returns the caller's active sessions, flagging the current one.
+func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
+	tok, ok := bearerToken(r)
+	if !ok {
+		apperr.Unauthorized(w)
+		return
+	}
+	userID, sessionID, err := h.svc.ValidateSession(r.Context(), tok)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	sessions, err := h.svc.ListSessions(r.Context(), userID, sessionID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": sessions})
+}
+
+// revokeSession signs the given session out (ownership enforced).
+func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	if err := h.svc.RevokeSession(r.Context(), userID, chi.URLParam(r, "id")); err != nil {
+		apperr.NotFound(w, "session")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
 func (h *Handler) updateName(w http.ResponseWriter, r *http.Request) {
