@@ -8,12 +8,12 @@ import (
 
 func TestRow_MarshalJSON_MergesData(t *testing.T) {
 	row := Row{
-		ID:           "doc1",
-		TableID:      "tbl1",
-		DatabaseID:   "db1",
-		CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		Permissions:  []string{"read(\"any\")"},
+		ID:          "doc1",
+		TableID:     "tbl1",
+		DatabaseID:  "db1",
+		CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		Permissions: []string{"read(\"any\")"},
 		Data: map[string]interface{}{
 			"title": "Hello",
 			"count": float64(42),

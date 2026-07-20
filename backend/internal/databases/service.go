@@ -165,6 +165,10 @@ func toSQLType(columnType string, options map[string]interface{}) string {
 		return "TIMESTAMPTZ"
 	case "email", "url", "enum":
 		return "TEXT"
+	case "richtext", "media":
+		// Editorial field types (content mode): rich text body and a media
+		// reference (storage file id or URL). Both are text at rest.
+		return "TEXT"
 	case "ip":
 		return "INET"
 	case "point":
@@ -346,10 +350,10 @@ func (s *Service) GetTable(ctx context.Context, tableID, databaseID, projectID s
 	var table model.Table
 	var permissionsJSON []byte
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT id, database_id, name, enabled, row_security, COALESCE(permissions, '[]'), created_at, updated_at
+		`SELECT id, database_id, name, enabled, row_security, content_enabled, COALESCE(permissions, '[]'), created_at, updated_at
 		 FROM tables WHERE id = $1 AND database_id = $2 AND project_id = $3`,
 		tableID, databaseID, projectID,
-	).Scan(&table.ID, &table.DatabaseID, &table.Name, &table.Enabled, &table.RowSecurity, &permissionsJSON, &table.CreatedAt, &table.UpdatedAt); err != nil {
+	).Scan(&table.ID, &table.DatabaseID, &table.Name, &table.Enabled, &table.RowSecurity, &table.ContentEnabled, &permissionsJSON, &table.CreatedAt, &table.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("table not found")
 		}
@@ -363,7 +367,7 @@ func (s *Service) GetTable(ctx context.Context, tableID, databaseID, projectID s
 
 func (s *Service) ListTables(ctx context.Context, databaseID, projectID string) ([]*model.Table, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, database_id, name, enabled, row_security, COALESCE(permissions, '[]'), created_at, updated_at
+		`SELECT id, database_id, name, enabled, row_security, content_enabled, COALESCE(permissions, '[]'), created_at, updated_at
 		 FROM tables WHERE database_id = $1 AND project_id = $2 ORDER BY created_at DESC`,
 		databaseID, projectID,
 	)
@@ -376,7 +380,7 @@ func (s *Service) ListTables(ctx context.Context, databaseID, projectID string) 
 	for rows.Next() {
 		var table model.Table
 		var permissionsJSON []byte
-		if err := rows.Scan(&table.ID, &table.DatabaseID, &table.Name, &table.Enabled, &table.RowSecurity, &permissionsJSON, &table.CreatedAt, &table.UpdatedAt); err != nil {
+		if err := rows.Scan(&table.ID, &table.DatabaseID, &table.Name, &table.Enabled, &table.RowSecurity, &table.ContentEnabled, &permissionsJSON, &table.CreatedAt, &table.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		json.Unmarshal(permissionsJSON, &table.Permissions) //nolint:errcheck
@@ -420,9 +424,9 @@ func (s *Service) UpdateTable(ctx context.Context, tableID, databaseID, projectI
 		tableCtx, err := s.lookupTableContext(ctx, tableID)
 		if err == nil {
 			if *rowSecurity {
-				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s ENABLE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name)))  //nolint:errcheck
-				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s FORCE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name)))   //nolint:errcheck
-				s.syncRLSPolicies(ctx, tableCtx)                                                                                                       //nolint:errcheck
+				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s ENABLE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name))) //nolint:errcheck
+				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s FORCE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name)))  //nolint:errcheck
+				s.syncRLSPolicies(ctx, tableCtx)                                                                                                    //nolint:errcheck
 			} else {
 				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s DISABLE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name))) //nolint:errcheck
 			}
@@ -765,7 +769,7 @@ func (s *Service) DeleteIndex(ctx context.Context, tableID, key string) error {
 		return err
 	}
 	s.db.ExecContext(ctx, fmt.Sprintf("DROP INDEX IF EXISTS %s.%s", pgIdent(tableContext.Schema), pgIdent(key))) //nolint:errcheck
-	s.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id = $1 AND key_name = $2", tableID, key)               //nolint:errcheck
+	s.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id = $1 AND key_name = $2", tableID, key)             //nolint:errcheck
 	return nil
 }
 

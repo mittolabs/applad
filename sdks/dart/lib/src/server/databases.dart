@@ -286,10 +286,15 @@ class Databases {
     required String tableId,
     int? limit,
     int? offset,
+    String? status,
+    String? locale,
   }) async {
     final query = <String, String>{};
     if (limit != null) query['limit'] = limit.toString();
     if (offset != null) query['offset'] = offset.toString();
+    // Content mode: narrow to a publish state and/or a locale.
+    if (status != null) query['status'] = status;
+    if (locale != null) query['locale'] = locale;
     final qs = query.isNotEmpty
         ? '?${query.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value)}').join('&')}'
         : '';
@@ -327,5 +332,55 @@ class Databases {
   }) async {
     return _client
         .delete('/v1/databases/$databaseId/tables/$tableId/rows/$rowId');
+  }
+
+  // --- Content mode ---
+  // A table can act as an editorial collection: rows gain a draft/published
+  // workflow, a slug, a locale and version history. Same table, same rows API.
+
+  /// Turns a table into an editorial collection.
+  Future<Map<String, dynamic>> enableContentMode({
+    required String databaseId,
+    required String tableId,
+  }) async {
+    return _client.post('/v1/databases/$databaseId/tables/$tableId/content');
+  }
+
+  /// Hides the editorial tools again. Nothing is deleted.
+  Future<Map<String, dynamic>> disableContentMode({
+    required String databaseId,
+    required String tableId,
+  }) async {
+    return _client.delete('/v1/databases/$databaseId/tables/$tableId/content');
+  }
+
+  /// Publishes an entry.
+  Future<Map<String, dynamic>> publishRow({
+    required String databaseId,
+    required String tableId,
+    required String rowId,
+  }) async {
+    return _client
+        .post('/v1/databases/$databaseId/tables/$tableId/rows/$rowId/publish');
+  }
+
+  /// Returns an entry to draft.
+  Future<Map<String, dynamic>> unpublishRow({
+    required String databaseId,
+    required String tableId,
+    required String rowId,
+  }) async {
+    return _client
+        .post('/v1/databases/$databaseId/tables/$tableId/rows/$rowId/unpublish');
+  }
+
+  /// Version snapshots for an entry, newest first.
+  Future<Map<String, dynamic>> listRowVersions({
+    required String databaseId,
+    required String tableId,
+    required String rowId,
+  }) async {
+    return _client
+        .get('/v1/databases/$databaseId/tables/$tableId/rows/$rowId/versions');
   }
 }

@@ -90,16 +90,19 @@ type Database struct {
 
 // Table represents a database table.
 type Table struct {
-	ID          string   `json:"$id"`
+	ID          string    `json:"$id"`
 	CreatedAt   time.Time `json:"$createdAt"`
 	UpdatedAt   time.Time `json:"$updatedAt"`
-	DatabaseID  string   `json:"databaseId"`
-	Name        string   `json:"name"`
-	Enabled     bool     `json:"enabled"`
-	RowSecurity bool     `json:"rowSecurity"`
-	Permissions []string `json:"$permissions"`
-	Columns     []Column `json:"columns"`
-	Indexes     []Index  `json:"indexes"`
+	DatabaseID  string    `json:"databaseId"`
+	Name        string    `json:"name"`
+	Enabled     bool      `json:"enabled"`
+	RowSecurity bool      `json:"rowSecurity"`
+	// ContentEnabled turns on editorial behaviour: draft/publish, slug, locale
+	// and version history on this table's rows.
+	ContentEnabled bool     `json:"contentEnabled"`
+	Permissions    []string `json:"$permissions"`
+	Columns        []Column `json:"columns"`
+	Indexes        []Index  `json:"indexes"`
 }
 
 // ColumnValidation holds application-level validation rules for a column.

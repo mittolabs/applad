@@ -211,11 +211,14 @@ export class Databases {
   listRows(
     databaseId: string,
     tableId: string,
-    opts?: { limit?: number; offset?: number }
+    opts?: { limit?: number; offset?: number; status?: 'draft' | 'published'; locale?: string }
   ) {
     const params = new URLSearchParams();
     if (opts?.limit) params.set('limit', String(opts.limit));
     if (opts?.offset) params.set('offset', String(opts.offset));
+    // Content mode: narrow to a publish state and/or a locale.
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.locale) params.set('locale', opts.locale);
     const qs = params.toString();
     return this.client.call(
       'GET',
@@ -250,6 +253,44 @@ export class Databases {
     return this.client.call(
       'DELETE',
       `/databases/${databaseId}/tables/${tableId}/rows/${rowId}`
+    );
+  }
+
+  // --- Content mode ---
+  // A table can act as an editorial collection: rows gain a draft/published
+  // workflow, a slug, a locale and version history. Same table, same rows API.
+
+  /** Turn a table into an editorial collection. */
+  enableContentMode(databaseId: string, tableId: string) {
+    return this.client.call('POST', `/databases/${databaseId}/tables/${tableId}/content`);
+  }
+
+  /** Hide the editorial tools again. Nothing is deleted. */
+  disableContentMode(databaseId: string, tableId: string) {
+    return this.client.call('DELETE', `/databases/${databaseId}/tables/${tableId}/content`);
+  }
+
+  /** Publish an entry. */
+  publishRow(databaseId: string, tableId: string, rowId: string) {
+    return this.client.call(
+      'POST',
+      `/databases/${databaseId}/tables/${tableId}/rows/${rowId}/publish`
+    );
+  }
+
+  /** Return an entry to draft. */
+  unpublishRow(databaseId: string, tableId: string, rowId: string) {
+    return this.client.call(
+      'POST',
+      `/databases/${databaseId}/tables/${tableId}/rows/${rowId}/unpublish`
+    );
+  }
+
+  /** Version snapshots for an entry, newest first. */
+  listRowVersions(databaseId: string, tableId: string, rowId: string) {
+    return this.client.call(
+      'GET',
+      `/databases/${databaseId}/tables/${tableId}/rows/${rowId}/versions`
     );
   }
 

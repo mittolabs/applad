@@ -18,7 +18,6 @@ import (
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/console"
-	"github.com/mittolabs/applad/internal/content"
 	"github.com/mittolabs/applad/internal/credentials"
 	"github.com/mittolabs/applad/internal/databases"
 	"github.com/mittolabs/applad/internal/db"
@@ -307,7 +306,6 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/analytics", analytics.Routes(analytics.NewHandler(analytics.NewService(database))))
 				r.Mount("/cache", appcache.Routes(appcache.NewHandler(appcache.NewService(cacheClient.Client()))))
 				r.Mount("/billing", billing.Routes(billing.NewHandler(billing.NewService(database))))
-				r.Mount("/content", content.Routes(content.NewHandler(content.NewService(database))))
 				r.Mount("/edge", edge.Routes(edge.NewHandler(edge.NewService(database))))
 				r.Mount("/jobs", jobs.Routes(jobs.NewHandler(jobs.NewService(database))))
 				r.Mount("/search", search.Routes(search.NewHandler(search.NewService(database))))

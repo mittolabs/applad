@@ -54,6 +54,9 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/{databaseId}/tables/{tableId}/columns/url", h.createColumn("url"))
 	r.Post("/{databaseId}/tables/{tableId}/columns/datetime", h.createColumn("datetime"))
 	r.Post("/{databaseId}/tables/{tableId}/columns/enum", h.createColumn("enum"))
+	// Editorial field types (content mode).
+	r.Post("/{databaseId}/tables/{tableId}/columns/richtext", h.createColumn("richtext"))
+	r.Post("/{databaseId}/tables/{tableId}/columns/media", h.createColumn("media"))
 	r.Post("/{databaseId}/tables/{tableId}/columns/point", h.createColumn("point"))
 	r.Get("/{databaseId}/tables/{tableId}/columns", h.listColumns)
 	r.Delete("/{databaseId}/tables/{tableId}/columns/{key}", h.deleteColumn)
@@ -87,6 +90,13 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/{databaseId}/tables/{tableId}/rows/{rowId}", h.deleteRow)
 
 	// Bulk / atomic row operations
+	// Content mode: editorial behaviour on top of the same table and rows API.
+	r.Post("/{databaseId}/tables/{tableId}/content", h.enableContentMode)
+	r.Delete("/{databaseId}/tables/{tableId}/content", h.disableContentMode)
+	r.Post("/{databaseId}/tables/{tableId}/rows/{rowId}/publish", h.setPublished(true))
+	r.Post("/{databaseId}/tables/{tableId}/rows/{rowId}/unpublish", h.setPublished(false))
+	r.Get("/{databaseId}/tables/{tableId}/rows/{rowId}/versions", h.listRowVersions)
+
 	r.Post("/{databaseId}/tables/{tableId}/rows/bulk", h.bulkCreateRows)
 	r.Patch("/{databaseId}/tables/{tableId}/rows/bulk", h.bulkUpdateRows)
 	r.Delete("/{databaseId}/tables/{tableId}/rows/bulk", h.bulkDeleteRows)
@@ -477,7 +487,51 @@ func (h *Handler) createRow(w http.ResponseWriter, r *http.Request) {
 		apperr.Internal(w, err)
 		return
 	}
+	// No-op unless the table is in content mode.
+	h.svc.RecordRowVersion(ctx, tableID, row.ID, userID, body.Data)
 	writeJSON(w, http.StatusCreated, row)
+}
+
+// ── Content mode ─────────────────────────────────────────────────────────────
+
+func (h *Handler) enableContentMode(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.SetContentMode(r.Context(), chi.URLParam(r, "tableId"), true); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"contentEnabled": true})
+}
+
+func (h *Handler) disableContentMode(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.SetContentMode(r.Context(), chi.URLParam(r, "tableId"), false); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"contentEnabled": false})
+}
+
+func (h *Handler) setPublished(published bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rowID := chi.URLParam(r, "rowId")
+		if err := h.svc.SetRowPublished(r.Context(), chi.URLParam(r, "tableId"), rowID, published); err != nil {
+			apperr.NotFound(w, "row")
+			return
+		}
+		status := "draft"
+		if published {
+			status = "published"
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"$id": rowID, "status": status})
+	}
+}
+
+func (h *Handler) listRowVersions(w http.ResponseWriter, r *http.Request) {
+	versions, err := h.svc.ListRowVersions(r.Context(), chi.URLParam(r, "tableId"), chi.URLParam(r, "rowId"))
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(versions), "versions": versions})
 }
 
 func (h *Handler) listRows(w http.ResponseWriter, r *http.Request) {
@@ -497,12 +551,20 @@ func (h *Handler) listRows(w http.ResponseWriter, r *http.Request) {
 		CursorAfter: r.URL.Query().Get("cursorAfter"),
 	}
 
-	// Parse queries: ?queries[]=equal("name","John")&queries[]=greaterThan("age",18)
+	// Parse queries: ?queries[]=equal("name","John")&greaterThan("age",18)
 	for _, q := range r.URL.Query()["queries[]"] {
 		parsed := parseQueryString(q)
 		if parsed != nil {
 			params.Queries = append(params.Queries, *parsed)
 		}
+	}
+
+	// Editorial shorthands for content-enabled tables: ?status=published&locale=en
+	if status := r.URL.Query().Get("status"); status != "" {
+		params.Queries = append(params.Queries, Query{Field: "status", Method: "equal", Values: status})
+	}
+	if locale := r.URL.Query().Get("locale"); locale != "" {
+		params.Queries = append(params.Queries, Query{Field: "locale", Method: "equal", Values: locale})
 	}
 
 	rows, total, err := h.svc.ListRowsWithAuth(ctx, projectID, dbID, tableID, userID, nil, params)
@@ -655,6 +717,8 @@ func (h *Handler) updateRow(w http.ResponseWriter, r *http.Request) {
 		apperr.Internal(w, err)
 		return
 	}
+	// No-op unless the table is in content mode.
+	h.svc.RecordRowVersion(ctx, tableID, rowID, userID, body.Data)
 	writeJSON(w, http.StatusOK, row)
 }
 

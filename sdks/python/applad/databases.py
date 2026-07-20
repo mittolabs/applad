@@ -215,11 +215,13 @@ class Databases:
             {"rowId": "unique()", "data": data, "permissions": []},
         )
 
-    def list_rows(self, database_id: str, table_id: str):
-        return self.client._call(
-            "GET",
-            f"/databases/{database_id}/tables/{table_id}/rows",
+    def list_rows(self, database_id: str, table_id: str, status: str = "", locale: str = ""):
+        # Content mode: narrow to a publish state and/or a locale.
+        query = "&".join(
+            f"{k}={v}" for k, v in (("status", status), ("locale", locale)) if v
         )
+        path = f"/databases/{database_id}/tables/{table_id}/rows"
+        return self.client._call("GET", f"{path}?{query}" if query else path)
 
     def get_row(self, database_id: str, table_id: str, row_id: str):
         return self.client._call(
@@ -238,6 +240,40 @@ class Databases:
         return self.client._call(
             "DELETE",
             f"/databases/{database_id}/tables/{table_id}/rows/{row_id}",
+        )
+
+    # --- Content mode ---
+    # A table can act as an editorial collection: rows gain a draft/published
+    # workflow, a slug, a locale and version history. Same table, same rows API.
+
+    def enable_content_mode(self, database_id: str, table_id: str):
+        """Turn a table into an editorial collection."""
+        return self.client._call(
+            "POST", f"/databases/{database_id}/tables/{table_id}/content"
+        )
+
+    def disable_content_mode(self, database_id: str, table_id: str):
+        """Hide the editorial tools again. Nothing is deleted."""
+        return self.client._call(
+            "DELETE", f"/databases/{database_id}/tables/{table_id}/content"
+        )
+
+    def publish_row(self, database_id: str, table_id: str, row_id: str):
+        """Publish an entry."""
+        return self.client._call(
+            "POST", f"/databases/{database_id}/tables/{table_id}/rows/{row_id}/publish"
+        )
+
+    def unpublish_row(self, database_id: str, table_id: str, row_id: str):
+        """Return an entry to draft."""
+        return self.client._call(
+            "POST", f"/databases/{database_id}/tables/{table_id}/rows/{row_id}/unpublish"
+        )
+
+    def list_row_versions(self, database_id: str, table_id: str, row_id: str):
+        """Version snapshots for an entry, newest first."""
+        return self.client._call(
+            "GET", f"/databases/{database_id}/tables/{table_id}/rows/{row_id}/versions"
         )
 
     # --- Column permissions ---

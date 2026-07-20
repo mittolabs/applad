@@ -13,11 +13,12 @@ import { ErrorState } from '@/components/error-state';
 import { toast } from '@/components/toast';
 import { BackHeader, ChipGroup, str, type Json } from './shared';
 import { RowsPanel } from './RowsPanel';
+import { EntriesPanel } from './EntriesPanel';
 import { ColumnsPanel } from './ColumnsPanel';
 import { IndexesPanel } from './IndexesPanel';
 import { RelationshipsPanel } from './RelationshipsPanel';
 
-const TABS = ['Rows', 'Columns', 'Indexes', 'Relationships', 'Settings'];
+const BASE_TABS = ['Rows', 'Columns', 'Indexes', 'Relationships', 'Settings'];
 
 export function TableDetail({
   dbId,
@@ -33,22 +34,35 @@ export function TableDetail({
   const [tab, setTab] = useState(0);
   const [showCreateColumn, setShowCreateColumn] = useState(false);
 
+  // Content-enabled tables get an editorial Entries view in front of the raw grid.
+  const { data: table } = useQuery({
+    queryKey: ['db-table', dbId, tableId],
+    queryFn: async () => (await api.get(`/databases/${dbId}/tables/${tableId}`)).data as Json,
+  });
+  const contentEnabled = Boolean(table?.['contentEnabled']);
+  const tabs = contentEnabled ? ['Entries', ...BASE_TABS] : BASE_TABS;
+  const active = tabs[tab] ?? 'Rows';
+
+  // Toggling content mode changes the tab list; keep the selection in range.
+  useEffect(() => {
+    if (tab >= tabs.length) setTab(0);
+  }, [tab, tabs.length]);
+
+  const goToColumns = () => {
+    setTab(tabs.indexOf('Columns'));
+    setShowCreateColumn(true);
+  };
+
   return (
     <div className="flex flex-col gap-6 p-6 md:p-8">
       <BackHeader title={tableName} subtitle={tableId} icon={Table2} onBack={onBack} />
-      <PageTabs tabs={TABS} selected={tab} onChange={setTab} />
+      <PageTabs tabs={tabs} selected={tab} onChange={setTab} />
 
-      {tab === 0 && (
-        <RowsPanel
-          dbId={dbId}
-          tableId={tableId}
-          onCreateColumn={() => {
-            setTab(1);
-            setShowCreateColumn(true);
-          }}
-        />
+      {active === 'Entries' && <EntriesPanel dbId={dbId} tableId={tableId} />}
+      {active === 'Rows' && (
+        <RowsPanel dbId={dbId} tableId={tableId} onCreateColumn={goToColumns} />
       )}
-      {tab === 1 && (
+      {active === 'Columns' && (
         <ColumnsPanel
           dbId={dbId}
           tableId={tableId}
@@ -56,9 +70,9 @@ export function TableDetail({
           setShowCreate={setShowCreateColumn}
         />
       )}
-      {tab === 2 && <IndexesPanel dbId={dbId} tableId={tableId} />}
-      {tab === 3 && <RelationshipsPanel dbId={dbId} tableId={tableId} />}
-      {tab === 4 && (
+      {active === 'Indexes' && <IndexesPanel dbId={dbId} tableId={tableId} />}
+      {active === 'Relationships' && <RelationshipsPanel dbId={dbId} tableId={tableId} />}
+      {active === 'Settings' && (
         <TableSettings dbId={dbId} tableId={tableId} tableName={tableName} onDeleted={onBack} />
       )}
     </div>
@@ -123,6 +137,7 @@ function TableSettings({
   // Optimistic local state for the toggles (null = use API value).
   const [enabledOverride, setEnabledOverride] = useState<boolean | null>(null);
   const [rowSecurityOverride, setRowSecurityOverride] = useState<boolean | null>(null);
+  const [contentOverride, setContentOverride] = useState<boolean | null>(null);
   const [name, setName] = useState('');
   const [savingName, setSavingName] = useState(false);
 
@@ -153,6 +168,8 @@ function TableSettings({
   const enabled = enabledOverride ?? (table?.['enabled'] as boolean | undefined) ?? true;
   const rowSecurity =
     rowSecurityOverride ?? (table?.['rowSecurity'] as boolean | undefined) ?? false;
+  const contentEnabled =
+    contentOverride ?? (table?.['contentEnabled'] as boolean | undefined) ?? false;
 
   const invalidateDetail = () => qc.invalidateQueries({ queryKey: ['db-table', dbId, tableId] });
   const invalidatePerms = () =>
@@ -176,6 +193,18 @@ function TableSettings({
       invalidateDetail();
     } catch (e) {
       setRowSecurityOverride(!v);
+      toast.error(friendlyError(e));
+    }
+  };
+
+  const toggleContentMode = async (v: boolean) => {
+    setContentOverride(v);
+    try {
+      if (v) await api.post(`${base}/content`);
+      else await api.delete(`${base}/content`);
+      invalidateDetail();
+    } catch (e) {
+      setContentOverride(!v);
       toast.error(friendlyError(e));
     }
   };
@@ -298,7 +327,20 @@ function TableSettings({
         </p>
       </SectionCard>
 
-      {/* 5. Delete table */}
+      {/* 5. Content mode */}
+      <SectionCard title="Content mode">
+        <div className="flex items-center gap-2">
+          <Switch checked={contentEnabled} onCheckedChange={toggleContentMode} disabled={!table} />
+          <span className="text-[length:var(--text-body)] text-text-primary">Content mode</span>
+        </div>
+        <p className="mt-3 whitespace-pre-line text-[length:var(--text-label)] leading-relaxed text-text-subtle">
+          {
+            'Turn this table into an editorial collection. Rows gain a draft/published workflow, a slug, a locale and version history, and an Entries tab for editing them.\n\nIt is the same table and the same API. Turning it off only hides the editorial tools, nothing is deleted.'
+          }
+        </p>
+      </SectionCard>
+
+      {/* 6. Delete table */}
       <div className="rounded-[var(--radius-10)] border border-[color-mix(in_srgb,var(--color-danger)_40%,var(--border))] bg-surface p-5">
         <div className="text-[length:var(--text-control)] font-medium text-[var(--status-danger)]">
           Delete table

@@ -231,6 +231,23 @@ func (s *DatabasesService) ListRows(databaseID, tableID string) (map[string]inte
 	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables/%s/rows", databaseID, tableID), nil)
 }
 
+// ListRowsFiltered narrows a content-enabled table to a publish state and/or a
+// locale. Empty values are omitted.
+func (s *DatabasesService) ListRowsFiltered(databaseID, tableID, status, locale string) (map[string]interface{}, error) {
+	q := url.Values{}
+	if status != "" {
+		q.Set("status", status)
+	}
+	if locale != "" {
+		q.Set("locale", locale)
+	}
+	path := fmt.Sprintf("/databases/%s/tables/%s/rows", databaseID, tableID)
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	return s.client.call("GET", path, nil)
+}
+
 func (s *DatabasesService) GetRow(databaseID, tableID, rowID string) (map[string]interface{}, error) {
 	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables/%s/rows/%s", databaseID, tableID, rowID), nil)
 }
@@ -243,6 +260,35 @@ func (s *DatabasesService) UpdateRow(databaseID, tableID, rowID string, data map
 
 func (s *DatabasesService) DeleteRow(databaseID, tableID, rowID string) (map[string]interface{}, error) {
 	return s.client.call("DELETE", fmt.Sprintf("/databases/%s/tables/%s/rows/%s", databaseID, tableID, rowID), nil)
+}
+
+// --- Content mode ---
+// A table can act as an editorial collection: rows gain a draft/published
+// workflow, a slug, a locale and version history. Same table, same rows API.
+
+// EnableContentMode turns a table into an editorial collection.
+func (s *DatabasesService) EnableContentMode(databaseID, tableID string) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/databases/%s/tables/%s/content", databaseID, tableID), nil)
+}
+
+// DisableContentMode hides the editorial tools again. Nothing is deleted.
+func (s *DatabasesService) DisableContentMode(databaseID, tableID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", fmt.Sprintf("/databases/%s/tables/%s/content", databaseID, tableID), nil)
+}
+
+// PublishRow publishes an entry.
+func (s *DatabasesService) PublishRow(databaseID, tableID, rowID string) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/databases/%s/tables/%s/rows/%s/publish", databaseID, tableID, rowID), nil)
+}
+
+// UnpublishRow returns an entry to draft.
+func (s *DatabasesService) UnpublishRow(databaseID, tableID, rowID string) (map[string]interface{}, error) {
+	return s.client.call("POST", fmt.Sprintf("/databases/%s/tables/%s/rows/%s/unpublish", databaseID, tableID, rowID), nil)
+}
+
+// ListRowVersions returns an entry's version snapshots, newest first.
+func (s *DatabasesService) ListRowVersions(databaseID, tableID, rowID string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables/%s/rows/%s/versions", databaseID, tableID, rowID), nil)
 }
 
 func (s *DatabasesService) GetColumnPermissions(databaseID, tableID, key string) (map[string]interface{}, error) {

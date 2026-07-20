@@ -33,7 +33,6 @@ const FlagsPage = named(() => import('./features/flags/FlagsPage'), 'FlagsPage')
 const SettingsPage = named(() => import('./features/settings/SettingsPage'), 'SettingsPage');
 const ApiKeyDetailPage = named(() => import('./features/settings/ApiKeyDetailPage'), 'ApiKeyDetailPage');
 const WorkflowsPage = named(() => import('./features/workflows/WorkflowsPage'), 'WorkflowsPage');
-const ContentPage = named(() => import('./features/content/ContentPage'), 'ContentPage');
 const SitesPage = named(() => import('./features/sites/SitesPage'), 'SitesPage');
 const ContainersPage = named(() => import('./features/containers/ContainersPage'), 'ContainersPage');
 const MobilePage = named(() => import('./features/mobile/MobilePage'), 'MobilePage');
@@ -99,7 +98,6 @@ const shellSegments: [string, string][] = [
   ['functions', 'Functions'],
   ['storage', 'Storage'],
   ['messaging', 'Messaging'],
-  ['content', 'Content'],
   ['realtime', 'Realtime'],
   ['workflows', 'Workflows'],
   ['flags', 'Feature Flags'],
@@ -137,7 +135,6 @@ const FEATURE_ELEMENTS: Record<string, React.ReactNode> = {
   settings: <SettingsPage />,
   'settings/keys/:keyId': <ApiKeyDetailPage />,
   workflows: <WorkflowsPage />,
-  content: <ContentPage />,
   sites: <SitesPage />,
   containers: <ContainersPage />,
   mobile: <MobilePage />,

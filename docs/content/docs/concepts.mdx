@@ -22,6 +22,34 @@ bucket namespace, users, functions and API keys, and is served at
 | Realtime | WebSocket subscriptions to database changes and events |
 | Deploy | Ship sites and containers from git, with previews and rollbacks |
 
+## Content mode
+
+There is no separate CMS. Any Databases table can be turned into an editorial
+collection instead, so content and application data share one storage engine and
+one API.
+
+Turn it on for a table and its rows gain:
+
+- a **draft / published** workflow, with a `published_at` timestamp
+- a **slug** and a **locale**, so the same entry can exist in several languages
+- **version snapshots** on every write, so you can see what changed
+- the **richtext** and **media** column types for bodies and images
+
+The rows API is unchanged, with a few editorial additions:
+
+```bash
+# only published English entries
+GET  /v1/databases/{db}/tables/{table}/rows?status=published&locale=en
+
+POST /v1/databases/{db}/tables/{table}/rows/{row}/publish
+POST /v1/databases/{db}/tables/{table}/rows/{row}/unpublish
+GET  /v1/databases/{db}/tables/{table}/rows/{row}/versions
+```
+
+In the console the table gains an **Entries** tab for editing, alongside the raw
+row grid. Turning content mode off only hides the editorial tools — nothing is
+deleted.
+
 ## API keys
 
 Server-to-server access uses **API keys** scoped to a project. Client apps use session
