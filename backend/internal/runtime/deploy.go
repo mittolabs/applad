@@ -9,6 +9,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +23,9 @@ type DeployConfig struct {
 	Port         string            // port the app listens on (default "3000")
 	Image        string            // image to pull (for container type)
 	Env          map[string]string // environment variables
+	SourceDir    string            // checked-out source to build from
+	OutputDir    string            // directory of build artefacts to serve (static sites)
+	Subdomain    string            // <sub>.applad.dev this app is served on
 }
 
 // ParseDeployConfig extracts a DeployConfig from the raw config map.
@@ -30,8 +35,21 @@ func ParseDeployConfig(raw map[string]interface{}) DeployConfig {
 	if v, ok := raw["dockerfile"].(string); ok {
 		cfg.Dockerfile = v
 	}
+	// The release worker sends "buildCmd"; accept both spellings.
 	if v, ok := raw["buildCommand"].(string); ok {
 		cfg.BuildCommand = v
+	}
+	if v, ok := raw["buildCmd"].(string); ok && v != "" {
+		cfg.BuildCommand = v
+	}
+	if v, ok := raw["sourceDir"].(string); ok {
+		cfg.SourceDir = v
+	}
+	if v, ok := raw["outputDir"].(string); ok {
+		cfg.OutputDir = v
+	}
+	if v, ok := raw["subdomain"].(string); ok {
+		cfg.Subdomain = v
 	}
 	if v, ok := raw["port"].(string); ok && v != "" {
 		cfg.Port = v
@@ -72,10 +90,26 @@ func NewDeployExecutor() *DeployExecutor {
 func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID string, cfg DeployConfig) error {
 	imageName := fmt.Sprintf("applad-deploy-%s", deploymentID)
 
-	// Build the Dockerfile
+	// Does the checked-out source ship its own Dockerfile?
+	repoDockerfile := false
+	if cfg.SourceDir != "" {
+		if _, err := os.Stat(filepath.Join(cfg.SourceDir, "Dockerfile")); err == nil {
+			repoDockerfile = true
+		}
+	}
+
+	// Decide how to containerise the app:
+	//   1. an explicit Dockerfile in the config wins
+	//   2. otherwise the repo's own Dockerfile is used as-is
+	//   3. otherwise a build command implies a Node app
+	//   4. otherwise it's a static site — serve it with nginx
 	dockerfile := cfg.Dockerfile
-	if dockerfile == "" && cfg.BuildCommand != "" {
-		// Generate a minimal Dockerfile from the build command
+	switch {
+	case dockerfile != "":
+		// use as provided
+	case repoDockerfile:
+		// leave empty; the repo's Dockerfile is already in the build context
+	case cfg.BuildCommand != "":
 		dockerfile = fmt.Sprintf(`FROM node:20-alpine
 WORKDIR /app
 COPY . .
@@ -83,15 +117,41 @@ RUN %s
 EXPOSE %s
 CMD ["node", "server.js"]
 `, cfg.BuildCommand, cfg.Port)
-	}
-	if dockerfile == "" {
-		return fmt.Errorf("deploy: web deployment requires a dockerfile or buildCommand in config")
+	default:
+		root := strings.Trim(cfg.OutputDir, "/ ")
+		if root == "" || root == "." {
+			root = "."
+		}
+		// The generated Dockerfile sits in the build context root, so strip it
+		// (and any VCS/config leftovers) back out of the served web root.
+		dockerfile = fmt.Sprintf(`FROM nginx:alpine
+COPY %s/ /usr/share/nginx/html/
+RUN rm -f /usr/share/nginx/html/Dockerfile /usr/share/nginx/html/.gitignore \
+    /usr/share/nginx/html/.env
+EXPOSE 80
+`, root)
+		cfg.Port = "80"
 	}
 
-	// Build a tar context with just the Dockerfile
+	if cfg.SourceDir == "" && dockerfile == "" {
+		return fmt.Errorf("deploy: web deployment requires a source, dockerfile or buildCommand")
+	}
+
+	// Build a tar context from the checked-out source plus the Dockerfile.
+	// Without the source the image would be built from an empty context and
+	// every COPY would silently produce nothing.
 	tarBuf := new(bytes.Buffer)
 	tw := tar.NewWriter(tarBuf)
-	addToTar(tw, "Dockerfile", []byte(dockerfile))
+	if cfg.SourceDir != "" {
+		skipDockerfile := dockerfile != ""
+		if err := addDirToTar(tw, cfg.SourceDir, skipDockerfile); err != nil {
+			tw.Close()
+			return fmt.Errorf("deploy: build context: %w", err)
+		}
+	}
+	if dockerfile != "" {
+		addToTar(tw, "Dockerfile", []byte(dockerfile))
+	}
 	tw.Close()
 
 	log.Printf("deploy: building image %s for deployment %s", imageName, deploymentID)
@@ -101,6 +161,50 @@ CMD ["node", "server.js"]
 
 	// Start the container
 	return d.startContainer(ctx, deploymentID, projectID, imageName, cfg)
+}
+
+// addDirToTar walks a source directory into a Docker build context. Version
+// control and dependency directories are skipped: they bloat the context and
+// are never needed to build. Set skipDockerfile when a generated Dockerfile
+// will be written separately, so the two don't collide.
+func addDirToTar(tw *tar.Writer, dir string, skipDockerfile bool) error {
+	skipDirs := map[string]bool{".git": true, "node_modules": true, ".next": true, "vendor/bundle": true}
+
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil || rel == "." {
+			return nil
+		}
+		if info.IsDir() {
+			if skipDirs[info.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil // skip symlinks, sockets, devices
+		}
+		if skipDockerfile && rel == "Dockerfile" {
+			return nil
+		}
+
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if err := tw.WriteHeader(&tar.Header{
+			Name: filepath.ToSlash(rel),
+			Mode: int64(info.Mode().Perm()),
+			Size: int64(len(data)),
+		}); err != nil {
+			return err
+		}
+		_, err = tw.Write(data)
+		return err
+	})
 }
 
 // DeployContainer pulls (or uses) the specified image and starts a container.
@@ -155,7 +259,13 @@ func (d *DeployExecutor) startContainer(ctx context.Context, deploymentID, proje
 	// Stop any existing container for this deployment
 	d.StopDeployment(ctx, deploymentID)
 
+	// Apps are addressed by subdomain: the ingress proxies
+	// <sub>.applad.dev -> applad-site-<sub>, so the container name IS the route.
+	// Without a subdomain fall back to the deployment id (not routable).
 	containerName := fmt.Sprintf("applad-deploy-%s", deploymentID)
+	if cfg.Subdomain != "" {
+		containerName = fmt.Sprintf("applad-site-%s", cfg.Subdomain)
+	}
 
 	// Build environment variables
 	var env []string
@@ -201,6 +311,14 @@ func (d *DeployExecutor) startContainer(ctx context.Context, deploymentID, proje
 func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image, port string, env []string, labels map[string]string) (string, error) {
 	exposedPort := port + "/tcp"
 
+	// Deployed apps must sit on the same user-defined network as the proxy, so
+	// the ingress can reach them by container name via Docker's embedded DNS.
+	// The default bridge has no name resolution, which makes apps unroutable.
+	network := os.Getenv("APPLAD_DEPLOY_NETWORK")
+	if network == "" {
+		network = "applad_default"
+	}
+
 	body := map[string]interface{}{
 		"Image":  image,
 		"Env":    env,
@@ -211,18 +329,24 @@ func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image,
 		"HostConfig": map[string]interface{}{
 			"PublishAllPorts": true,
 			"Memory":          int64(512 * 1024 * 1024), // 512MB for deployments
-			"NanoCPUs":        int64(2e9),                // 2 CPUs
-			"NetworkMode":     "bridge",
+			"NanoCPUs":        int64(2e9),               // 2 CPUs
+			"NetworkMode":     network,
+			// Deployed apps are long-lived: they must come back after a host or
+			// Docker daemon restart, not just after a crash.
 			"RestartPolicy": map[string]interface{}{
-				"Name":              "on-failure",
-				"MaximumRetryCount": 3,
+				"Name": "unless-stopped",
+			},
+		},
+		"NetworkingConfig": map[string]interface{}{
+			"EndpointsConfig": map[string]interface{}{
+				network: map[string]interface{}{"Aliases": []string{name}},
 			},
 		},
 	}
 
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(d.docker.baseURL + "/v1.44/containers/create?name=%s", name),
+		fmt.Sprintf(d.docker.baseURL+"/v1.44/containers/create?name=%s", name),
 		bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -262,7 +386,7 @@ func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image,
 // pullImage pulls a Docker image from a registry.
 func (d *DeployExecutor) pullImage(ctx context.Context, image string) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(d.docker.baseURL + "/v1.44/images/create?fromImage=%s", image), nil)
+		fmt.Sprintf(d.docker.baseURL+"/v1.44/images/create?fromImage=%s", image), nil)
 	if err != nil {
 		return err
 	}
@@ -292,7 +416,7 @@ func (d *DeployExecutor) pullImage(ctx context.Context, image string) error {
 func (d *DeployExecutor) findContainerByName(ctx context.Context, name string) string {
 	filter := fmt.Sprintf(`{"name":["%s"]}`, name)
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf(d.docker.baseURL + "/v1.44/containers/json?all=true&filters=%s", filter), nil)
+		fmt.Sprintf(d.docker.baseURL+"/v1.44/containers/json?all=true&filters=%s", filter), nil)
 	if err != nil {
 		return ""
 	}

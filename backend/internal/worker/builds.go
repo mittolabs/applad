@@ -1,19 +1,24 @@
 package worker
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/deploy"
 	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/runtime"
@@ -198,6 +203,64 @@ func cloneToSource(ctx context.Context, repository, branch string) (string, erro
 	return dir, nil
 }
 
+// extractUploadedSource unpacks the tarball uploaded for a pipeline
+// (POST /deploy/pipelines/{id}/source) into a temp dir the builder can use.
+// The API and this worker share the storage volume.
+func extractUploadedSource(pipelineID string) (string, error) {
+	archive := deploy.SourceArchivePath(pipelineID)
+	f, err := os.Open(archive)
+	if err != nil {
+		return "", fmt.Errorf("no uploaded source for this pipeline — upload one to /deploy/pipelines/%s/source", pipelineID)
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return "", fmt.Errorf("uploaded source is not a gzipped tar: %w", err)
+	}
+	defer gz.Close()
+
+	dir, err := os.MkdirTemp("", "applad-upload-*")
+	if err != nil {
+		return "", err
+	}
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			os.RemoveAll(dir)
+			return "", fmt.Errorf("read source archive: %w", err)
+		}
+		// Refuse paths that escape the extraction root (zip-slip).
+		target := filepath.Join(dir, filepath.Clean("/"+hdr.Name))
+		if !strings.HasPrefix(target, filepath.Clean(dir)+string(os.PathSeparator)) {
+			continue
+		}
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			os.MkdirAll(target, 0o755) //nolint:errcheck
+		case tar.TypeReg:
+			os.MkdirAll(filepath.Dir(target), 0o755) //nolint:errcheck
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+			if err != nil {
+				os.RemoveAll(dir)
+				return "", err
+			}
+			if _, err := io.Copy(out, tr); err != nil { //nolint:gosec
+				out.Close()
+				os.RemoveAll(dir)
+				return "", err
+			}
+			out.Close()
+		}
+	}
+	return dir, nil
+}
+
 func (w *Builds) updateExecution(ctx context.Context, id, status, output, errors string, duration float64) {
 	if _, err := w.db.ExecContext(ctx,
 		"UPDATE function_executions SET status = ?, output = ?, errors = ?, duration = ? WHERE id = ?",
@@ -294,18 +357,20 @@ func (w *Builds) updateDeployStatusWithError(ctx context.Context, id, projectID,
 
 // pipelineConfig holds the fields we need from deploy_pipelines + deploy_targets.
 type pipelineConfig struct {
-	pipelineID  string
-	targetID    string
-	projectID   string
-	sourceType  string // "git" | "upload"
-	sourceURL   string
-	branch      string
-	buildCmd    string
-	outputDir   string
-	targetType  string // "serverless" | "web" | "container"
-	runtime     string
-	entrypoint  string
-	timeoutMs   int
+	pipelineID string
+	targetID   string
+	projectID  string
+	sourceType string // "git" | "upload"
+	sourceURL  string
+	branch     string
+	buildCmd   string
+	outputDir  string
+	targetType string // "serverless" | "web" | "container"
+	runtime    string
+	entrypoint string
+	timeoutMs  int
+	targetName string
+	subdomain  string // <sub>.applad.dev this app is served on
 }
 
 func (w *Builds) loadPipelineConfig(ctx context.Context, pipelineID, targetID, projectID string) (*pipelineConfig, error) {
@@ -314,18 +379,56 @@ func (w *Builds) loadPipelineConfig(ctx context.Context, pipelineID, targetID, p
 	cfg.targetID = targetID
 	cfg.projectID = projectID
 
+	var sourceURL, branch, buildCmd, outputDir, runtimeName, entrypoint, domain sql.NullString
 	err := w.db.QueryRowContext(ctx,
 		`SELECT dp.source_type, dp.source_url, dp.branch, dp.build_cmd, dp.output_dir,
-		        dt.type, dt.runtime, dt.entrypoint, dp.timeout_ms
+		        dt.type, dt.runtime, dt.entrypoint, dp.timeout_ms, dt.domain, dt.name
 		 FROM deploy_pipelines dp
 		 JOIN deploy_targets dt ON dt.id = dp.target_id
-		 WHERE dp.id = ? AND dp.project_id = ?`, pipelineID, projectID,
-	).Scan(&cfg.sourceType, &cfg.sourceURL, &cfg.branch, &cfg.buildCmd, &cfg.outputDir,
-		&cfg.targetType, &cfg.runtime, &cfg.entrypoint, &cfg.timeoutMs)
+		 WHERE dp.id = $1 AND dp.project_id = $2`, pipelineID, projectID,
+	).Scan(&cfg.sourceType, &sourceURL, &branch, &buildCmd, &outputDir,
+		&cfg.targetType, &runtimeName, &entrypoint, &cfg.timeoutMs, &domain, &cfg.targetName)
 	if err != nil {
 		return nil, fmt.Errorf("load pipeline config: %w", err)
 	}
+	cfg.sourceURL, cfg.branch = sourceURL.String, branch.String
+	cfg.buildCmd, cfg.outputDir = buildCmd.String, outputDir.String
+	cfg.runtime, cfg.entrypoint = runtimeName.String, entrypoint.String
+
+	// The subdomain a deployed app is served on: <sub>.applad.dev. Prefer an
+	// explicit domain on the target, else slugify its name.
+	cfg.subdomain = subdomainSlug(domain.String)
+	if cfg.subdomain == "" {
+		cfg.subdomain = subdomainSlug(cfg.targetName)
+	}
 	return &cfg, nil
+}
+
+// subdomainSlug reduces a name or domain to a DNS-safe label ("The Range" ->
+// "the-range", "the-range.applad.dev" -> "the-range").
+func subdomainSlug(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" {
+		return ""
+	}
+	if i := strings.Index(v, "."); i > 0 {
+		v = v[:i] // keep only the first label of a full domain
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range v {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if b.Len() > 0 && !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func (w *Builds) updateReleaseStatus(ctx context.Context, releaseID, status, buildLog, releaseErr string, durationMs int64) {
@@ -366,7 +469,8 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	}
 
 	var sourceDir string
-	if cfg.sourceType == "git" && cfg.sourceURL != "" {
+	switch {
+	case cfg.sourceType == "git" && cfg.sourceURL != "":
 		cloned, err := cloneToSource(ctx, cfg.sourceURL, cfg.branch)
 		if err != nil {
 			w.updateReleaseStatus(ctx, releaseID, "failed", err.Error(), "", time.Since(start).Milliseconds())
@@ -374,6 +478,16 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 			return err
 		}
 		sourceDir = cloned
+		defer os.RemoveAll(sourceDir)
+
+	case cfg.sourceType == "upload":
+		extracted, err := extractUploadedSource(pipelineID)
+		if err != nil {
+			w.updateReleaseStatus(ctx, releaseID, "failed", "", err.Error(), time.Since(start).Milliseconds())
+			w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Source unavailable")
+			return err
+		}
+		sourceDir = extracted
 		defer os.RemoveAll(sourceDir)
 	}
 
@@ -385,6 +499,7 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		"runtime":    cfg.runtime,
 		"entrypoint": cfg.entrypoint,
 		"sourceDir":  sourceDir,
+		"subdomain":  cfg.subdomain,
 	})
 
 	var deployErr error
@@ -566,4 +681,3 @@ func truncateStr(s string, max int) string {
 	}
 	return s[:max]
 }
-

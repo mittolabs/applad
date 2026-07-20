@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -54,6 +56,7 @@ func Routes(h *Handler) http.Handler {
 		r.Put("/{pipelineId}", h.updatePipeline)
 		r.Delete("/{pipelineId}", h.deletePipeline)
 		r.Post("/{pipelineId}/trigger", h.triggerPipeline)
+		r.Post("/{pipelineId}/source", h.uploadSource)
 	})
 
 	// Releases
@@ -420,6 +423,66 @@ func (h *Handler) deletePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// SourceDir returns the directory uploaded pipeline sources are stored in. The
+// API and the builds worker share this volume, so the worker can read what was
+// uploaded here.
+func SourceDir() string {
+	base := os.Getenv("STORAGE_PATH")
+	if base == "" {
+		base = "/var/applad/storage"
+	}
+	return filepath.Join(base, "deploy-sources")
+}
+
+// SourceArchivePath is where a given pipeline's uploaded source tarball lives.
+func SourceArchivePath(pipelineID string) string {
+	return filepath.Join(SourceDir(), pipelineID+".tar.gz")
+}
+
+// uploadSource accepts a gzipped tar of the app's source for pipelines with
+// sourceType "upload" (the default). Deploying from a local folder needs no git
+// remote this way.
+func (h *Handler) uploadSource(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	pipelineID := chi.URLParam(r, "pipelineId")
+
+	// Confirm the pipeline belongs to this project before writing anything.
+	if _, err := h.svc.GetPipeline(r.Context(), pipelineID, projectID); err != nil {
+		apperr.NotFound(w, "pipeline")
+		return
+	}
+
+	if err := os.MkdirAll(SourceDir(), 0o755); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	dest := SourceArchivePath(pipelineID)
+	f, err := os.Create(dest)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	defer f.Close()
+
+	// 512MB ceiling so a bad upload can't fill the volume.
+	written, err := io.Copy(f, io.LimitReader(r.Body, 512<<20))
+	if err != nil {
+		os.Remove(dest)
+		apperr.Internal(w, err)
+		return
+	}
+	if written == 0 {
+		os.Remove(dest)
+		apperr.BadRequest(w, "empty source archive")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"pipelineId": pipelineID,
+		"bytes":      written,
+	})
 }
 
 func (h *Handler) triggerPipeline(w http.ResponseWriter, r *http.Request) {

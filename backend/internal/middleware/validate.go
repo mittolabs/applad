@@ -33,6 +33,20 @@ func SanitizeString(s string, maxLen int) string {
 	return s
 }
 
+// isBulkUploadPath reports whether a path carries file content rather than a
+// JSON body, and so must not be capped by the global request-body limit.
+func isBulkUploadPath(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/v1/storage/"):
+		return true
+	case strings.HasPrefix(path, "/v1/deploy/pipelines/") && strings.HasSuffix(path, "/source"):
+		return true
+	case strings.HasPrefix(path, "/v1/functions/") && strings.HasSuffix(path, "/deployments"):
+		return true
+	}
+	return false
+}
+
 // MaxBodySize limits the request body size. Default 10 MB.
 // When the body exceeds the limit it responds with a JSON 413 error.
 func MaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
@@ -41,6 +55,12 @@ func MaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isBulkUploadPath(r.URL.Path) {
+				// File and source-archive uploads are legitimately larger than
+				// the JSON-body cap; those handlers enforce their own limits.
+				next.ServeHTTP(w, r)
+				return
+			}
 			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 			next.ServeHTTP(w, r)
 			// http.MaxBytesReader signals an oversize body by setting an error
