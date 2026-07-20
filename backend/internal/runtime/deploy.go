@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -254,6 +255,24 @@ func (d *DeployExecutor) StopDeployment(ctx context.Context, deploymentID string
 	return nil
 }
 
+// StopByName stops and removes a container by its name. Used to tear down a
+// deployed app when its target is deleted, where the deployment ID that
+// created the container is no longer known.
+func (d *DeployExecutor) StopByName(ctx context.Context, name string) error {
+	containerID := d.findContainerByName(ctx, name)
+	if containerID == "" {
+		return nil // nothing running under that name
+	}
+	if err := d.docker.StopContainer(ctx, containerID); err != nil {
+		log.Printf("deploy: stop %s warning: %v", name, err)
+	}
+	if err := d.docker.RemoveContainer(ctx, containerID); err != nil {
+		return fmt.Errorf("deploy: remove container %s: %w", name, err)
+	}
+	log.Printf("deploy: removed container %s", name)
+	return nil
+}
+
 // startContainer creates and starts a container for the given deployment.
 func (d *DeployExecutor) startContainer(ctx context.Context, deploymentID, projectID, imageName string, cfg DeployConfig) error {
 	// Stop any existing container for this deployment
@@ -298,7 +317,7 @@ func (d *DeployExecutor) startContainer(ctx context.Context, deploymentID, proje
 	d.mu.Unlock()
 
 	// Wait briefly for the container to become healthy
-	if err := d.waitForHealthy(ctx, containerID, cfg.Port); err != nil {
+	if err := d.waitForHealthy(ctx, containerName, cfg.Port); err != nil {
 		log.Printf("deploy: container started but health check failed (non-fatal): %v", err)
 	}
 
@@ -414,7 +433,9 @@ func (d *DeployExecutor) pullImage(ctx context.Context, image string) error {
 
 // findContainerByName looks up a container ID by name using the Docker API.
 func (d *DeployExecutor) findContainerByName(ctx context.Context, name string) string {
-	filter := fmt.Sprintf(`{"name":["%s"]}`, name)
+	// The filter must be URL-encoded: sent raw, Docker parses it as an empty
+	// filter set and the lookup silently matches nothing.
+	filter := url.QueryEscape(fmt.Sprintf(`{"name":["%s"]}`, name))
 	req, err := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf(d.docker.baseURL+"/v1.44/containers/json?all=true&filters=%s", filter), nil)
 	if err != nil {
@@ -447,30 +468,26 @@ func (d *DeployExecutor) findContainerByName(ctx context.Context, name string) s
 }
 
 // waitForHealthy polls the container until it responds to an HTTP request.
-func (d *DeployExecutor) waitForHealthy(ctx context.Context, containerID, port string) error {
+func (d *DeployExecutor) waitForHealthy(ctx context.Context, containerName, port string) error {
+	// Probe the container over the shared Docker network by its name alias.
+	// Probing localhost:<published port> only works from the Docker host; from
+	// inside this worker container "localhost" is the worker itself, so the
+	// check timed out on every single deploy.
+	addr := fmt.Sprintf("http://%s:%s/", containerName, port)
+
 	deadline := time.After(30 * time.Second)
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 
+	client := &http.Client{Timeout: 2 * time.Second}
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline:
-			return fmt.Errorf("timeout waiting for deployment container to become healthy")
+			return fmt.Errorf("timeout waiting for %s to respond on port %s", containerName, port)
 		case <-tick.C:
-			hostPort, err := d.docker.GetContainerPort(ctx, containerID)
-			if err != nil {
-				continue
-			}
-
-			addr := "http://localhost:" + hostPort
-			if len(hostPort) > 5 {
-				addr = "http://" + hostPort
-			}
-
-			client := &http.Client{Timeout: 1 * time.Second}
-			resp, err := client.Get(addr + "/")
+			resp, err := client.Get(addr)
 			if err != nil {
 				continue
 			}

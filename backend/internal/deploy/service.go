@@ -225,8 +225,56 @@ func (s *Service) UpdateTarget(ctx context.Context, id, projectID, name, targetT
 
 // DeleteTarget removes a target and its related pipelines, releases, and executions.
 func (s *Service) DeleteTarget(ctx context.Context, id, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM deploy_targets WHERE id = $1 AND project_id = $2", id, projectID)
-	return err
+	// Read what the target is serving BEFORE the row (and its cascaded
+	// pipelines) disappear. Deleting only the row would leave the app's
+	// container running and still reachable on its subdomain.
+	var name string
+	var domain sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT t.name, MIN(d.domain)
+		   FROM deploy_targets t
+		   LEFT JOIN custom_domains d ON d.target_id = t.id
+		  WHERE t.id = $1 AND t.project_id = $2
+		  GROUP BY t.name`, id, projectID).Scan(&name, &domain); err != nil {
+		// Without a name we cannot derive the subdomain, so the container would
+		// survive the delete. Surface it rather than silently orphaning an app.
+		return fmt.Errorf("deploy: resolve target before delete: %w", err)
+	}
+
+	var pipelineIDs []string
+	if rows, err := s.db.QueryContext(ctx,
+		"SELECT id FROM deploy_pipelines WHERE target_id = $1 AND project_id = $2", id, projectID); err == nil {
+		for rows.Next() {
+			var pid string
+			if rows.Scan(&pid) == nil {
+				pipelineIDs = append(pipelineIDs, pid)
+			}
+		}
+		rows.Close()
+	}
+
+	if _, err := s.db.ExecContext(ctx,
+		"DELETE FROM deploy_targets WHERE id = $1 AND project_id = $2", id, projectID); err != nil {
+		return err
+	}
+
+	// The API container has no Docker socket, so teardown runs on the builds
+	// worker, which does.
+	if s.queue != nil {
+		s.queue.Push(ctx, "builds", queue.Job{ //nolint:errcheck
+			ID:   uid.New("unique()"),
+			Type: "deploy_teardown",
+			Payload: map[string]interface{}{
+				"targetId":    id,
+				"projectId":   projectID,
+				"targetName":  name,
+				"domain":      domain.String,
+				"pipelineIds": pipelineIDs,
+			},
+			CreatedAt: time.Now().UTC(),
+		})
+	}
+	return nil
 }
 
 // ── Pipeline CRUD ──
@@ -354,6 +402,9 @@ func (s *Service) UpdatePipeline(ctx context.Context, id, projectID, targetID, n
 // DeletePipeline removes a pipeline.
 func (s *Service) DeletePipeline(ctx context.Context, id, projectID string) error {
 	_, err := s.db.ExecContext(ctx, "DELETE FROM deploy_pipelines WHERE id = $1 AND project_id = $2", id, projectID)
+	if err == nil {
+		os.Remove(SourceArchivePath(id)) //nolint:errcheck
+	}
 	return err
 }
 
@@ -599,12 +650,12 @@ func (s *Service) RollbackRelease(ctx context.Context, releaseID, projectID, act
 			ID:   id,
 			Type: "deploy_rollback",
 			Payload: map[string]interface{}{
-				"releaseId":        id,
+				"releaseId":         id,
 				"originalReleaseId": releaseID,
-				"pipelineId":       orig.PipelineID,
-				"targetId":         orig.TargetID,
-				"projectId":        projectID,
-				"artifactPath":     orig.ArtifactPath,
+				"pipelineId":        orig.PipelineID,
+				"targetId":          orig.TargetID,
+				"projectId":         projectID,
+				"artifactPath":      orig.ArtifactPath,
 			},
 			CreatedAt: now,
 		})
@@ -1236,10 +1287,10 @@ type DetailedStatsBucket struct {
 
 // DetailedStats holds detailed time-series statistics for a target.
 type DetailedStats struct {
-	TargetID   string                `json:"targetId"`
-	Range      string                `json:"range"`
-	Granularity string               `json:"granularity"`
-	Buckets    []DetailedStatsBucket `json:"buckets"`
+	TargetID    string                `json:"targetId"`
+	Range       string                `json:"range"`
+	Granularity string                `json:"granularity"`
+	Buckets     []DetailedStatsBucket `json:"buckets"`
 }
 
 // GetTargetDetailedStats returns time-series execution statistics for a target,
@@ -1790,17 +1841,17 @@ func (s *Service) CreateDefaultEnvironments(ctx context.Context, projectID strin
 
 // gitPushPayload is the subset of a GitHub/GitLab push event we care about.
 type gitPushPayload struct {
-	Ref        string `json:"ref"`    // "refs/heads/main"
-	After      string `json:"after"`  // commit SHA (GitHub)
+	Ref         string `json:"ref"`          // "refs/heads/main"
+	After       string `json:"after"`        // commit SHA (GitHub)
 	CheckoutSHA string `json:"checkout_sha"` // commit SHA (GitLab)
-	HeadCommit struct {
+	HeadCommit  struct {
 		ID string `json:"id"`
 	} `json:"head_commit"`
 	Pusher struct {
 		Name string `json:"name"`
 	} `json:"pusher"`
 	// GitLab pusher info
-	UserName string `json:"user_name"`
+	UserName   string `json:"user_name"`
 	Repository struct {
 		FullName string `json:"full_name"` // GitHub: "owner/repo"
 		Homepage string `json:"homepage"`  // GitLab: "https://gitlab.com/owner/repo"
@@ -1809,8 +1860,8 @@ type gitPushPayload struct {
 
 // gitPRPayload is the subset of a GitHub pull_request event we care about.
 type gitPRPayload struct {
-	Action string `json:"action"` // opened, synchronize, closed, reopened
-	Number int    `json:"number"`
+	Action      string `json:"action"` // opened, synchronize, closed, reopened
+	Number      int    `json:"number"`
 	PullRequest struct {
 		Head struct {
 			SHA string `json:"sha"`

@@ -91,6 +91,8 @@ func (w *Builds) process(ctx context.Context, job *queue.Job) error {
 		return w.processRelease(ctx, job)
 	case "deploy_rollback":
 		return w.processRollback(ctx, job)
+	case "deploy_teardown":
+		return w.processTeardown(ctx, job)
 	default:
 		return w.processDeployment(ctx, job)
 	}
@@ -201,6 +203,37 @@ func cloneToSource(ctx context.Context, repository, branch string) (string, erro
 		return "", err
 	}
 	return dir, nil
+}
+
+// processTeardown removes everything a deleted deploy target left behind.
+// Deleting the database row alone used to leave the app's container running
+// and still served on its subdomain.
+func (w *Builds) processTeardown(ctx context.Context, job *queue.Job) error {
+	targetName, _ := job.Payload["targetName"].(string)
+	domain, _ := job.Payload["domain"].(string)
+
+	sub := subdomainSlug(domain)
+	if sub == "" {
+		sub = subdomainSlug(targetName)
+	}
+	if sub != "" && w.deployExecutor != nil {
+		if err := w.deployExecutor.StopByName(ctx, "applad-site-"+sub); err != nil {
+			slog.Warn("teardown: stop site container", "subdomain", sub, "error", err)
+		}
+	}
+
+	// Uploaded source archives live on the shared storage volume and are keyed
+	// by pipeline; the cascaded row delete does not touch them.
+	if ids, ok := job.Payload["pipelineIds"].([]interface{}); ok {
+		for _, v := range ids {
+			pid, _ := v.(string)
+			if pid == "" {
+				continue
+			}
+			os.Remove(deploy.SourceArchivePath(pid)) //nolint:errcheck
+		}
+	}
+	return nil
 }
 
 // extractUploadedSource unpacks the tarball uploaded for a pipeline
