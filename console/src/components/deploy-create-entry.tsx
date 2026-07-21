@@ -229,7 +229,9 @@ function TemplatesView({
         <div className="py-8 text-center text-[length:var(--text-body)] text-text-muted">Loading…</div>
       ) : filtered.length === 0 ? (
         <div className="py-8 text-center text-[length:var(--text-body)] text-text-muted">
-          {templates.length === 0 ? 'No templates available' : 'No templates match your search'}
+          {templates.length === 0
+            ? 'No templates yet — deploy from a repository or an upload instead.'
+            : 'No templates match your search'}
         </div>
       ) : (
         <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto">
