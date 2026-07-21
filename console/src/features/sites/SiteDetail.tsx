@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { Fragment, type ReactNode, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
@@ -273,7 +273,20 @@ function SummaryCard({
 
 // ── Logs ────────────────────────────────────────────────────────────────────
 
+function LogField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <span className="shrink-0 text-text-subtle">{label}</span>
+      <span className="min-w-0 break-all font-[family-name:var(--font-mono)] text-text-secondary">
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function LogsTab({ siteId }: { siteId: string }) {
+  // Which row is opened out. Only one at a time keeps the table readable.
+  const [expanded, setExpanded] = useState<string | null>(null);
   const logs = useQuery({
     queryKey: ['site-logs', siteId],
     queryFn: async () => (await api.get(`/deploy/targets/${siteId}/logs`)).data as Record<string, unknown>,
@@ -313,8 +326,14 @@ function LogsTab({ siteId }: { siteId: string }) {
             <tbody>
               {rows.map((log) => {
                 const code = Math.trunc(asNumber(log['statusCode']));
+                const id = rowId(log);
+                const open = expanded === id;
                 return (
-                  <tr key={rowId(log)} className="border-b border-border last:border-0">
+                  <Fragment key={id}>
+                  <tr
+                    onClick={() => setExpanded(open ? null : id)}
+                    className="cursor-pointer border-b border-border last:border-0 hover:bg-fill-hover"
+                  >
                     <td className="px-4 py-2.5">
                       <IdText id={rowId(log)} fontSize={12} />
                     </td>
@@ -332,6 +351,22 @@ function LogsTab({ siteId }: { siteId: string }) {
                       {formatTimestamp(log['$createdAt'] ?? log['createdAt'])}
                     </td>
                   </tr>
+                  {open && (
+                    <tr className="border-b border-border bg-surface-alt last:border-0">
+                      <td colSpan={6} className="px-4 py-3">
+                        {/* Everything the log line carried. It was parsed all
+                            along and thrown away at the table's edge. */}
+                        <div className="grid gap-x-8 gap-y-1.5 text-[length:var(--text-caption)] sm:grid-cols-2">
+                          <LogField label="Client IP" value={String(log['ip'] ?? '--')} />
+                          <LogField label="Response size" value={formatBytes(log['bytes'])} />
+                          <LogField label="Referer" value={String(log['referer'] || '--')} />
+                          <LogField label="User agent" value={String(log['userAgent'] || '--')} />
+                          {log['raw'] ? <LogField label="Raw" value={String(log['raw'])} /> : null}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>

@@ -80,14 +80,17 @@ type Pipeline struct {
 
 // Release represents a single build+deploy run of a pipeline.
 type Release struct {
-	ID           string     `json:"$id"`
-	ProjectID    string     `json:"projectId"`
-	PipelineID   string     `json:"pipelineId"`
-	TargetID     string     `json:"targetId"`
-	Status       string     `json:"status"` // pending, building, deploying, success, failed, rolled_back, destroyed
-	TriggerType  string     `json:"triggerType"`
-	TriggerActor string     `json:"triggerActor"`
-	CommitSHA    string     `json:"commitSha,omitempty"`
+	ID           string `json:"$id"`
+	ProjectID    string `json:"projectId"`
+	PipelineID   string `json:"pipelineId"`
+	TargetID     string `json:"targetId"`
+	Status       string `json:"status"` // pending, building, deploying, success, failed, rolled_back, destroyed
+	TriggerType  string `json:"triggerType"`
+	TriggerActor string `json:"triggerActor"`
+	CommitSHA    string `json:"commitSha,omitempty"`
+	// SizeBytes is the image the deploy produced, recorded so a deployment can
+	// be judged by what it shipped rather than showing a dash.
+	SizeBytes    int64      `json:"sizeBytes"`
 	BuildLog     string     `json:"buildLog,omitempty"`
 	DeployLog    string     `json:"deployLog,omitempty"`
 	ArtifactPath string     `json:"artifactPath,omitempty"`
@@ -610,12 +613,12 @@ func (s *Service) GetRelease(ctx context.Context, id, projectID string) (*Releas
 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor,
-		        commit_sha, build_log, deploy_log, artifact_path, duration_ms, error,
+		        commit_sha, size_bytes, build_log, deploy_log, artifact_path, duration_ms, error,
 		        started_at, completed_at, created_at,
 		        is_preview, preview_url, pr_number, pr_branch
 		 FROM deploy_releases WHERE id = $1 AND project_id = $2`, id, projectID,
 	).Scan(&r.ID, &r.ProjectID, &r.PipelineID, &r.TargetID, &r.Status,
-		&r.TriggerType, &r.TriggerActor, &commitSHA, &buildLog, &deployLog,
+		&r.TriggerType, &r.TriggerActor, &commitSHA, &r.SizeBytes, &buildLog, &deployLog,
 		&artifactPath, &r.DurationMs, &errStr, &startedAt, &completedAt, &r.CreatedAt,
 		&r.IsPreview, &previewURL, &prNumber, &prBranch)
 	if err == sql.ErrNoRows {
@@ -647,7 +650,7 @@ func (s *Service) GetRelease(ctx context.Context, id, projectID string) (*Releas
 func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targetID, status string, previewOnly ...bool) ([]*Release, int, error) {
 	n := 1
 	query := `SELECT id, project_id, pipeline_id, target_id, status, trigger_type, trigger_actor,
-	                 commit_sha, build_log, deploy_log, artifact_path, duration_ms, error,
+	                 commit_sha, size_bytes, build_log, deploy_log, artifact_path, duration_ms, error,
 	                 started_at, completed_at, created_at,
 	                 is_preview, preview_url, pr_number, pr_branch
 	          FROM deploy_releases WHERE project_id = $1`
@@ -686,7 +689,7 @@ func (s *Service) ListReleases(ctx context.Context, projectID, pipelineID, targe
 		var prNumber sql.NullInt64
 		var startedAt, completedAt sql.NullTime
 		if err := rows.Scan(&r.ID, &r.ProjectID, &r.PipelineID, &r.TargetID, &r.Status,
-			&r.TriggerType, &r.TriggerActor, &commitSHA, &buildLog, &deployLog,
+			&r.TriggerType, &r.TriggerActor, &commitSHA, &r.SizeBytes, &buildLog, &deployLog,
 			&artifactPath, &r.DurationMs, &errStr, &startedAt, &completedAt, &r.CreatedAt,
 			&r.IsPreview, &previewURL, &prNumber, &prBranch); err != nil {
 			return nil, 0, err

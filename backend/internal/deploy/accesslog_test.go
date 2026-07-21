@@ -45,3 +45,20 @@ func TestHandlesAMissingByteCount(t *testing.T) {
 		t.Errorf("parsed = %+v", got[0])
 	}
 }
+
+// The generated nginx config appends request timing, because the default
+// format carries none and every request therefore reported 0ms.
+func TestParsesRequestTiming(t *testing.T) {
+	line := `10.0.0.1 - - [21/Jul/2026:12:00:00 +0000] "GET / HTTP/1.1" 200 512 "-" "curl/8" rt=0.042`
+	got := ParseAccessLog([]string{line}, "log-")
+	if got[0].Duration != 42 {
+		t.Errorf("duration = %dms, want 42", got[0].Duration)
+	}
+	// A line without timing is still a valid request.
+	plain := ParseAccessLog([]string{
+		`10.0.0.1 - - [21/Jul/2026:12:00:00 +0000] "GET / HTTP/1.1" 200 512 "-" "curl/8"`,
+	}, "log-")
+	if plain[0].StatusCode != 200 || plain[0].Duration != 0 {
+		t.Errorf("parsed = %+v", plain[0])
+	}
+}

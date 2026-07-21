@@ -79,7 +79,7 @@ func (e *Executor) Build(ctx context.Context, req ExecRequest) (string, error) {
 		tarBuf = buildTarContext(dockerfile, req.Source, req.Runtime, req.Entrypoint)
 	}
 
-	if err := e.docker.BuildImage(ctx, imageName, tarBuf); err != nil {
+	if _, err := e.docker.BuildImage(ctx, imageName, tarBuf); err != nil {
 		return "", err
 	}
 

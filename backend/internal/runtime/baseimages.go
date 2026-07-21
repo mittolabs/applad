@@ -71,7 +71,8 @@ func BuildBaseImage(ctx context.Context, docker *Client, runtimeID string) error
 	addToTar(tw, "Dockerfile", []byte(dockerfile))
 	tw.Close()
 
-	return docker.BuildImage(ctx, bi.Name, tarBuf)
+	_, buildErr := docker.BuildImage(ctx, bi.Name, tarBuf)
+	return buildErr
 }
 
 // GetBaseImageName returns the base image name for a runtime, or empty string

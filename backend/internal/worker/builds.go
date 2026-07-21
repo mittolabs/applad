@@ -573,10 +573,10 @@ func (w *Builds) processDeployment(ctx context.Context, job *queue.Job) error {
 	switch deployType {
 	case "web":
 		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
-		deployErr = w.deployExecutor.DeployWeb(ctx, deploymentID, projectID, cfg)
+		_, deployErr = w.deployExecutor.DeployWeb(ctx, deploymentID, projectID, cfg)
 	case "container":
 		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
-		deployErr = w.deployExecutor.DeployContainer(ctx, deploymentID, projectID, cfg)
+		_, deployErr = w.deployExecutor.DeployContainer(ctx, deploymentID, projectID, cfg)
 	case "function":
 		runtimeName, _ := deployCfg["runtime"].(string)
 		entrypoint, _ := deployCfg["entrypoint"].(string)
@@ -588,7 +588,7 @@ func (w *Builds) processDeployment(ctx context.Context, job *queue.Job) error {
 		_, deployErr = w.executor.Build(ctx, req)
 	default:
 		w.updateDeployStatus(ctx, deploymentID, projectID, "deploying")
-		deployErr = w.deployExecutor.DeployWeb(ctx, deploymentID, projectID, cfg)
+		_, deployErr = w.deployExecutor.DeployWeb(ctx, deploymentID, projectID, cfg)
 	}
 	if deployErr != nil {
 		w.updateDeployStatusWithError(ctx, deploymentID, projectID, "failed", deployErr.Error())
@@ -789,6 +789,7 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	})
 
 	var deployErr error
+	var buildLog string
 	switch cfg.targetType {
 	case "serverless", "function":
 		req := runtime.ExecRequest{
@@ -798,9 +799,9 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		}
 		_, deployErr = w.executor.Build(ctx, req)
 	case "container":
-		deployErr = w.deployExecutor.DeployContainer(ctx, releaseID, projectID, deployConfig)
+		buildLog, deployErr = w.deployExecutor.DeployContainer(ctx, releaseID, projectID, deployConfig)
 	default: // "web" and unknown
-		deployErr = w.deployExecutor.DeployWeb(ctx, releaseID, projectID, deployConfig)
+		buildLog, deployErr = w.deployExecutor.DeployWeb(ctx, releaseID, projectID, deployConfig)
 	}
 
 	durationMs := time.Since(start).Milliseconds()
@@ -821,12 +822,16 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		}
 	}
 	if deployErr != nil {
-		w.updateReleaseStatus(ctx, releaseID, "failed", "", deployErr.Error(), durationMs)
+		// The log matters most when it failed, so it is stored alongside the
+		// error rather than folded into it.
+		w.updateReleaseStatus(ctx, releaseID, "failed", buildLog, deployErr.Error(), durationMs)
 		w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Deploy failed")
 		return deployErr
 	}
 
-	w.updateReleaseStatus(ctx, releaseID, "success", "", "", durationMs)
+	// Kept whether or not it succeeded: the log of a deploy that worked is
+	// what the next one gets compared against.
+	w.updateReleaseStatus(ctx, releaseID, "success", buildLog, "", durationMs)
 	w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "success", "Deployed successfully")
 	slog.Info("builds worker: release complete", "release_id", releaseID, "duration_ms", durationMs)
 	return nil
@@ -862,9 +867,9 @@ func (w *Builds) processRollback(ctx context.Context, job *queue.Job) error {
 	var deployErr error
 	switch cfg.targetType {
 	case "container":
-		deployErr = w.deployExecutor.DeployContainer(ctx, releaseID, projectID, deployConfig)
+		_, deployErr = w.deployExecutor.DeployContainer(ctx, releaseID, projectID, deployConfig)
 	default:
-		deployErr = w.deployExecutor.DeployWeb(ctx, releaseID, projectID, deployConfig)
+		_, deployErr = w.deployExecutor.DeployWeb(ctx, releaseID, projectID, deployConfig)
 	}
 
 	durationMs := time.Since(start).Milliseconds()

@@ -96,7 +96,7 @@ func (d *DeployExecutor) RunTests(ctx context.Context, runID string, cfg TestRun
 
 	imageName := fmt.Sprintf("applad-test-%s", runID)
 	log.Printf("testrun: building image %s", imageName)
-	if err := d.docker.BuildImage(ctx, imageName, tarBuf); err != nil {
+	if _, err := d.docker.BuildImage(ctx, imageName, tarBuf); err != nil {
 		return nil, fmt.Errorf("testrun: image build failed: %w", err)
 	}
 	defer d.docker.RemoveImage(context.Background(), imageName) //nolint:errcheck

@@ -61,7 +61,8 @@ func (d *DeployExecutor) ensureBrowserImage(ctx context.Context, image string) e
 	addToTar(tw, "Dockerfile", []byte(studioDockerfile))
 	tw.Close()
 
-	return d.docker.BuildImage(ctx, image, tarBuf)
+	_, err := d.docker.BuildImage(ctx, image, tarBuf)
+	return err
 }
 
 // StartBrowser launches a browser and returns its container and the DevTools

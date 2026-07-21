@@ -1,3 +1,4 @@
+import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Play, RefreshCw, Rocket } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
@@ -45,10 +46,12 @@ export function DeploymentsPanel({
 }) {
   const query = useReleases(targetId);
   const releases = (query.data?.['releases'] as Row[] | undefined) ?? [];
+  // Which deployment is opened out to its build log.
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const total = releases.length;
-  const successful = releases.filter(
-    (r) => r['status'] === 'ready' || r['status'] === 'active',
+  const successful = releases.filter((r) =>
+    ['success', 'ready', 'active'].includes(String(r['status'])),
   ).length;
   const failed = releases.filter((r) => r['status'] === 'failed').length;
   const totalDuration = releases.reduce(
@@ -56,7 +59,7 @@ export function DeploymentsPanel({
     0,
   );
   const avgDuration = total > 0 ? Math.round(totalDuration / total) : 0;
-  const totalSize = releases.reduce((s, r) => s + asNumber(r['totalSize']), 0);
+  const totalSize = releases.reduce((s, r) => s + asNumber(r['sizeBytes'] ?? r['totalSize']), 0);
 
   const trigger = async () => {
     try {
@@ -121,8 +124,17 @@ export function DeploymentsPanel({
               </tr>
             </thead>
             <tbody>
-              {releases.map((r) => (
-                <tr key={String(r['$id'] ?? r['id'])} className="border-b border-border last:border-0">
+              {releases.map((r) => {
+                const id = String(r['$id'] ?? r['id'] ?? '');
+                const open = expanded === id;
+                const log = String(r['buildLog'] ?? '');
+                const error = String(r['error'] ?? '');
+                return (
+                <Fragment key={id}>
+                <tr
+                  onClick={() => setExpanded(open ? null : id)}
+                  className="cursor-pointer border-b border-border last:border-0 hover:bg-fill-hover"
+                >
                   <Td>
                     <IdText id={String(r['$id'] ?? r['id'] ?? '')} fontSize={12} />
                   </Td>
@@ -132,15 +144,47 @@ export function DeploymentsPanel({
                   <Td className="text-text-primary">
                     {formatDuration(r['durationMs'] ?? r['buildDuration'])}
                   </Td>
-                  <Td className="text-text-primary">{formatBytes(r['totalSize'])}</Td>
+                  <Td className="text-text-primary">{formatBytes(r['sizeBytes'] ?? r['totalSize'])}</Td>
                   <Td className="text-text-muted">
                     {String(r['triggerType'] ?? r['sourceType'] ?? r['source'] ?? 'git')}
                   </Td>
                   <Td className="text-text-muted">
-                    {formatTimestamp(r['$updatedAt'] ?? r['updatedAt'])}
+                    {/* A release records when it finished, not when its row was
+                        touched, which is why this read N/A. */}
+                    {formatTimestamp(r['completedAt'] ?? r['$createdAt'] ?? r['createdAt'])}
                   </Td>
                 </tr>
-              ))}
+                {open && (
+                  <tr className="border-b border-border bg-surface-alt last:border-0">
+                    <td colSpan={6} className="px-4 py-3">
+                      {/* The build's own output. It used to be discarded on
+                          success and folded into the error on failure, so
+                          there was nowhere to see what a deploy actually did. */}
+                      {error && (
+                        <div
+                          className="mb-2 rounded-[var(--radius)] p-2.5 text-[length:var(--text-caption)]"
+                          style={{ backgroundColor: '#EF444411', color: '#F87171' }}
+                        >
+                          {error}
+                        </div>
+                      )}
+                      {log ? (
+                        <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap rounded-[var(--radius)] bg-surface p-3 font-[family-name:var(--font-mono)] text-[length:var(--text-caption)] text-text-muted">
+                          {log}
+                        </pre>
+                      ) : (
+                        !error && (
+                          <span className="text-[length:var(--text-caption)] text-text-subtle">
+                            No build output recorded for this deployment.
+                          </span>
+                        )
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

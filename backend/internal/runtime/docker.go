@@ -78,35 +78,39 @@ func NewClient() *Client {
 // --- Image operations ---
 
 // BuildImage builds a Docker image from a tar context (Dockerfile + source).
-// Returns the image ID.
-func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io.Reader) error {
+//
+// The build output is returned whether or not the build succeeded. Discarding
+// it on success meant a deploy that worked left no record of what it did, so
+// there was nothing to compare against when the next one behaved differently.
+func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io.Reader) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST",
 		fmt.Sprintf(c.baseURL+"/v1.44/build?t=%s&rm=true&forcerm=true", imageName),
 		tarContext)
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-tar")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("docker build: %w", err)
+		return "", fmt.Errorf("docker build: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Read build output to completion
 	output, _ := io.ReadAll(resp.Body)
+	log := buildStreamText(output)
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("docker build failed (%d): %s", resp.StatusCode, string(output))
+		return log, fmt.Errorf("docker build failed (%d): %s", resp.StatusCode, log)
 	}
 
 	// Check for error in build stream
 	if bytes.Contains(output, []byte(`"error"`)) {
-		return fmt.Errorf("build failed:\n%s", buildStreamText(output))
+		return log, fmt.Errorf("build failed:\n%s", log)
 	}
 
-	return nil
+	return log, nil
 }
 
 // RemoveImage removes a Docker image.

@@ -20,17 +20,23 @@ import (
 var combined = regexp.MustCompile(
 	`^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+)[^"]*" (\d{3}) (\d+|-)(?: "([^"]*)" "([^"]*)")?`)
 
+// requestTime matches the timing our generated nginx config appends. Without
+// it every request reported a duration of zero.
+var requestTime = regexp.MustCompile(`rt=([0-9.]+)`)
+
 // AccessEntry is one request, in the shape the console renders.
 type AccessEntry struct {
-	ID         string    `json:"$id"`
-	IP         string    `json:"ip"`
-	Method     string    `json:"method"`
-	Path       string    `json:"path"`
-	StatusCode int       `json:"statusCode"`
-	Bytes      int64     `json:"bytes"`
-	UserAgent  string    `json:"userAgent,omitempty"`
-	Referer    string    `json:"referer,omitempty"`
-	CreatedAt  time.Time `json:"$createdAt"`
+	ID         string `json:"$id"`
+	IP         string `json:"ip"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	StatusCode int    `json:"statusCode"`
+	Bytes      int64  `json:"bytes"`
+	UserAgent  string `json:"userAgent,omitempty"`
+	// Duration is in milliseconds, as the console renders it.
+	Duration  int64     `json:"duration"`
+	Referer   string    `json:"referer,omitempty"`
+	CreatedAt time.Time `json:"$createdAt"`
 	// Raw is kept for anything the pattern does not understand, so a line is
 	// never silently dropped.
 	Raw string `json:"raw,omitempty"`
@@ -56,6 +62,11 @@ func ParseAccessLog(lines []string, idPrefix string) []AccessEntry {
 			e.Bytes, _ = strconv.ParseInt(m[6], 10, 64)
 		}
 		e.Referer, e.UserAgent = m[7], m[8]
+		if rt := requestTime.FindStringSubmatch(line); rt != nil {
+			if secs, err := strconv.ParseFloat(rt[1], 64); err == nil {
+				e.Duration = int64(secs * 1000)
+			}
+		}
 		if t, err := time.Parse("02/Jan/2006:15:04:05 -0700", m[2]); err == nil {
 			e.CreatedAt = t
 		}

@@ -96,7 +96,7 @@ func NewDeployExecutor() *DeployExecutor {
 // DeployWeb builds a Docker image from the deployment config and starts a container.
 // This is used for "web" type deployments where the user provides a Dockerfile or
 // build command. The image is tagged as applad-deploy-{deploymentID}.
-func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID string, cfg DeployConfig) error {
+func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID string, cfg DeployConfig) (string, error) {
 	imageName := fmt.Sprintf("applad-deploy-%s", deploymentID)
 
 	// Does the checked-out source ship its own Dockerfile?
@@ -113,6 +113,9 @@ func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID 
 	//   3. otherwise a build command implies a Node app
 	//   4. otherwise it's a static site — serve it with nginx
 	dockerfile := cfg.Dockerfile
+	// Set when the generated image expects our nginx log config in the build
+	// context.
+	nginxConf := false
 	switch {
 	case dockerfile != "":
 		// use as provided
@@ -151,7 +154,12 @@ CMD ["node", "server.js"]
 		}
 		// The generated Dockerfile sits in the build context root, so strip it
 		// (and any VCS/config leftovers) back out of the served web root.
+		// The log config is copied in as a file rather than echoed by a RUN.
+		// Escaping nginx's own $variables through a shell inside a Dockerfile
+		// is how the first attempt broke the build.
+		nginxConf = true
 		dockerfile = fmt.Sprintf(`FROM nginx:alpine
+COPY applad-log.conf /etc/nginx/conf.d/applad-log.conf
 COPY %s/ /usr/share/nginx/html/
 RUN rm -f /usr/share/nginx/html/Dockerfile /usr/share/nginx/html/.gitignore \
     /usr/share/nginx/html/.env
@@ -161,7 +169,7 @@ EXPOSE 80
 	}
 
 	if cfg.SourceDir == "" && dockerfile == "" {
-		return fmt.Errorf("deploy: web deployment requires a source, dockerfile or buildCommand")
+		return "", fmt.Errorf("deploy: web deployment requires a source, dockerfile or buildCommand")
 	}
 
 	// Build a tar context from the checked-out source plus the Dockerfile.
@@ -173,22 +181,33 @@ EXPOSE 80
 		skipDockerfile := dockerfile != ""
 		if err := addDirToTar(tw, cfg.SourceDir, skipDockerfile); err != nil {
 			tw.Close()
-			return fmt.Errorf("deploy: build context: %w", err)
+			return "", fmt.Errorf("deploy: build context: %w", err)
 		}
 	}
 	if dockerfile != "" {
 		addToTar(tw, "Dockerfile", []byte(dockerfile))
 	}
+	if nginxConf {
+		addToTar(tw, "applad-log.conf", []byte(accessLogConf))
+	}
 	tw.Close()
 
 	log.Printf("deploy: building image %s for deployment %s", imageName, deploymentID)
-	if err := d.docker.BuildImage(ctx, imageName, tarBuf); err != nil {
-		return fmt.Errorf("deploy: image build failed: %w", err)
+	buildLog, err := d.docker.BuildImage(ctx, imageName, tarBuf)
+	if err != nil {
+		return buildLog, fmt.Errorf("deploy: image build failed: %w", err)
 	}
 
 	// Start the container
-	return d.startContainer(ctx, deploymentID, projectID, imageName, cfg)
+	return buildLog, d.startContainer(ctx, deploymentID, projectID, imageName, cfg)
 }
+
+// accessLogConf keeps nginx's combined format and appends the request time,
+// which the default format omits — the reason every request reported 0ms.
+const accessLogConf = `log_format applad '$remote_addr - $remote_user [$time_local] ` +
+	`"$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time';
+access_log /dev/stdout applad;
+`
 
 // nodeTag picks the Node base image tag, defaulting when the project does not
 // pin one. A project that declares engines.node or ships an .nvmrc usually
@@ -253,7 +272,7 @@ func addDirToTar(tw *tar.Writer, dir string, skipDockerfile bool) error {
 // DeployContainer pulls (or uses) the specified image and starts a container.
 // This is used for "container" type deployments where the user specifies a
 // pre-built image to run.
-func (d *DeployExecutor) DeployContainer(ctx context.Context, deploymentID, projectID string, cfg DeployConfig) error {
+func (d *DeployExecutor) DeployContainer(ctx context.Context, deploymentID, projectID string, cfg DeployConfig) (string, error) {
 	image := cfg.Image
 	if image == "" {
 		// Fall back to the applad-deploy image if no external image specified
@@ -262,11 +281,11 @@ func (d *DeployExecutor) DeployContainer(ctx context.Context, deploymentID, proj
 		// Pull the image
 		log.Printf("deploy: pulling image %s for deployment %s", image, deploymentID)
 		if err := d.pullImage(ctx, image); err != nil {
-			return fmt.Errorf("deploy: image pull failed: %w", err)
+			return "", fmt.Errorf("deploy: image pull failed: %w", err)
 		}
 	}
 
-	return d.startContainer(ctx, deploymentID, projectID, image, cfg)
+	return "", d.startContainer(ctx, deploymentID, projectID, image, cfg)
 }
 
 // StopDeployment stops and removes the container for a deployment.
