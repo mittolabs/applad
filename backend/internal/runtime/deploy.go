@@ -204,6 +204,16 @@ EXPOSE 80
 	}
 	tw.Close()
 
+	// Every deployed site answers on 80, whatever it is built from.
+	//
+	// The ingress proxies <sub>.applad.dev to applad-site-<sub>:80, so a site
+	// listening anywhere else is unreachable no matter how well it built. A
+	// Next.js app served on 3000 was "active", passed its health check on
+	// 3000, and served the platform's placeholder page to every visitor.
+	// PORT is passed to the container, and both Caddy and every Node
+	// framework we generate for honour it.
+	cfg.Port = "80"
+
 	log.Printf("deploy: building image %s for deployment %s", imageName, deploymentID)
 	buildLog, err := d.docker.BuildImage(ctx, imageName, tarBuf)
 	if err != nil {
@@ -495,9 +505,14 @@ func (d *DeployExecutor) startContainer(ctx context.Context, deploymentID, proje
 	d.containers[deploymentID] = containerID
 	d.mu.Unlock()
 
-	// Wait briefly for the container to become healthy
+	// A site that never answers is not a deploy that worked.
+	//
+	// This was logged and ignored, so a container that started and served
+	// nothing at the advertised address was reported as a success, and the
+	// console showed it as active while visitors got a placeholder.
 	if err := d.waitForHealthy(ctx, containerName, cfg.Port); err != nil {
-		log.Printf("deploy: container started but health check failed (non-fatal): %v", err)
+		return fmt.Errorf("the build succeeded but the site never answered on port %s: %w\n"+
+			"Check that it listens on the port given in $PORT and binds 0.0.0.0 rather than localhost", cfg.Port, err)
 	}
 
 	log.Printf("deploy: container %s started for deployment %s", containerID[:12], deploymentID)
@@ -654,7 +669,9 @@ func (d *DeployExecutor) waitForHealthy(ctx context.Context, containerName, port
 	// check timed out on every single deploy.
 	addr := fmt.Sprintf("http://%s:%s/", containerName, port)
 
-	deadline := time.After(30 * time.Second)
+	// Long enough for a slow framework to boot; short enough that a site
+	// which will never answer is reported rather than waited on.
+	deadline := time.After(60 * time.Second)
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 
@@ -671,6 +688,9 @@ func (d *DeployExecutor) waitForHealthy(ctx context.Context, containerName, port
 				continue
 			}
 			resp.Body.Close()
+			// 5xx is the app answering that it is broken, which is still the
+			// app answering — a deploy is not the place to judge it. Anything
+			// that connects at all clears this bar.
 			return nil
 		}
 	}
