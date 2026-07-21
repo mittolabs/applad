@@ -748,8 +748,10 @@ function SettingsTab({
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title="Delete site"
-        message={`Are you sure you want to delete "${String(site['name'] ?? '')}"? This will remove all deployments, domains, and data. This action cannot be undone.`}
+        title={`Delete ${String(site['name'] ?? 'site')}?`}
+        message="This cannot be undone. The site stops being served immediately, and its deployments, domains and history are removed."
+        // A live site is exactly the thing worth being sure about.
+        confirmText={String(site['name'] ?? '')}
         loading={deleting}
         onConfirm={del}
       />

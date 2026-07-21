@@ -62,6 +62,8 @@ export function TablesPanel({
           await api.delete(`/databases/${dbId}/tables/${str(row['$id'])}`);
           qc.invalidateQueries({ queryKey: ['db-tables', dbId] });
         }}
+        requireTypedConfirm
+        deleteMessage="This cannot be undone. The table and every row in it are permanently deleted."
         createLabel="Create table"
         onCreate={() => setCreating(true)}
         searchHint="Search by name or ID"

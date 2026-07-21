@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Dialog,
   DialogBody,
@@ -104,6 +104,8 @@ export function ConfirmDialog({
   onConfirm,
   loading,
   destructive = true,
+  confirmText,
+  confirmTextLabel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -114,7 +116,25 @@ export function ConfirmDialog({
   onConfirm: () => void;
   loading?: boolean;
   destructive?: boolean;
+  /**
+   * When set, the name must be typed before the action is allowed.
+   *
+   * Reserved for things that cannot be undone and that other people depend
+   * on — a live site, a database. Asking for it everywhere would train people
+   * to type without reading, which is the opposite of the point.
+   */
+  confirmText?: string;
+  confirmTextLabel?: string;
 }) {
+  const [typed, setTyped] = useState('');
+
+  // Clearing on open stops a previous confirmation from arming the next one.
+  useEffect(() => {
+    if (open) setTyped('');
+  }, [open]);
+
+  const armed = !confirmText || typed.trim() === confirmText;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent width={400}>
@@ -125,6 +145,29 @@ export function ConfirmDialog({
           <div className="text-[length:var(--text-body)] text-text-secondary">
             {message}
           </div>
+
+          {confirmText && (
+            <div className="mt-4 flex flex-col gap-1.5">
+              <label className="text-[length:var(--text-label)] text-text-secondary">
+                {confirmTextLabel ?? 'Type'}{' '}
+                <span className="font-[family-name:var(--font-mono)] text-text-primary">
+                  {confirmText}
+                </span>{' '}
+                to confirm
+              </label>
+              <input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && armed && !loading) onConfirm();
+                }}
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                className="h-9 rounded-[var(--radius)] border border-field-border bg-field-fill px-3 font-[family-name:var(--font-mono)] text-[length:var(--text-body)] text-text-primary outline-none focus:border-[var(--color-accent)]"
+              />
+            </div>
+          )}
         </DialogBody>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -133,6 +176,7 @@ export function ConfirmDialog({
           <Button
             variant={destructive ? 'destructive' : 'primary'}
             loading={loading}
+            disabled={!armed}
             onClick={onConfirm}
           >
             {confirmLabel}

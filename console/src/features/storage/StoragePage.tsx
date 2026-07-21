@@ -125,6 +125,8 @@ function BucketsTab({
           await api.delete(`/storage/buckets/${row['$id']}`);
           list.refetch();
         }}
+        requireTypedConfirm
+        deleteMessage="This cannot be undone. The bucket and every file in it are permanently deleted."
         gridCard={(row) => <BucketGridCard bucket={row} />}
         persistKey="storage-buckets"
         createLabel="Create bucket"

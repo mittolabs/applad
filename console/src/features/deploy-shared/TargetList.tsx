@@ -55,6 +55,10 @@ export function TargetList({
         await api.delete(`/deploy/targets/${String(row['$id'] ?? row['id'] ?? '')}`);
         onDeleted();
       }}
+      // Deleting one of these stops something the public is reaching, so the
+      // name has to be typed.
+      requireTypedConfirm
+      deleteMessage="This cannot be undone. The site stops being served immediately, and its deployments and history are removed."
       createLabel={createLabel}
       onCreate={onCreate}
       searchHint={searchHint}

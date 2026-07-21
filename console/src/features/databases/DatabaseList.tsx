@@ -58,6 +58,8 @@ export function DatabaseList({
           await api.delete(`/databases/${str(row['$id'])}`);
           list.refetch();
         }}
+        requireTypedConfirm
+        deleteMessage="This cannot be undone. Every table in this database and all their rows are permanently deleted."
         createLabel="Create database"
         onCreate={() => setCreating(true)}
         searchHint="Search by name or ID"

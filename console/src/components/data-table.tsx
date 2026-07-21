@@ -66,6 +66,16 @@ export interface DataTableProps {
   deleteTitle?: string;
   /** Body copy of the delete-confirm dialog. Falls back to a generic warning. */
   deleteMessage?: string;
+  /**
+   * Which field names the row, used to say what is being deleted and — when
+   * requireTypedConfirm is set — what has to be typed to allow it.
+   */
+  deleteNameKey?: string;
+  /**
+   * Require the row's name to be typed. For rows whose deletion takes
+   * something down that other people are using.
+   */
+  requireTypedConfirm?: boolean;
 
   createLabel?: string;
   onCreate?: () => void;
@@ -115,8 +125,10 @@ export function DataTable(props: DataTableProps) {
     rowIconColor,
     onRowClick,
     onDeleteRow,
-    deleteTitle = 'Delete item',
-    deleteMessage = 'This action cannot be undone. Are you sure you want to delete this item?',
+    deleteTitle,
+    deleteMessage,
+    deleteNameKey = 'name',
+    requireTypedConfirm = false,
     createLabel,
     onCreate,
     createWidget,
@@ -182,6 +194,8 @@ export function DataTable(props: DataTableProps) {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
+
+  const pendingDeleteName = pendingDelete ? String(pendingDelete[deleteNameKey] ?? '') : '';
 
   const confirmDelete = async () => {
     if (!pendingDelete || !onDeleteRow) return;
@@ -367,8 +381,16 @@ export function DataTable(props: DataTableProps) {
       <ConfirmDialog
         open={pendingDelete !== null}
         onOpenChange={(o) => !o && setPendingDelete(null)}
-        title={deleteTitle}
-        message={deleteMessage}
+        // Naming the row beats "this item": a confirmation nobody reads is
+        // one that stops nothing.
+        title={deleteTitle ?? `Delete ${pendingDeleteName || itemLabel || 'item'}?`}
+        message={
+          deleteMessage ??
+          `This cannot be undone. ${
+            pendingDeleteName ? `"${pendingDeleteName}"` : 'This item'
+          } and everything belonging to it will be removed.`
+        }
+        confirmText={requireTypedConfirm && pendingDeleteName ? pendingDeleteName : undefined}
         loading={deleting}
         onConfirm={confirmDelete}
       />
