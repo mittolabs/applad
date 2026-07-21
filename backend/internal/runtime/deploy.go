@@ -227,6 +227,12 @@ func addDirToTar(tw *tar.Writer, dir string, skipDockerfile bool) error {
 		if skipDockerfile && rel == "Dockerfile" {
 			return nil
 		}
+		// macOS tar writes an AppleDouble sidecar (._name) next to every file.
+		// They are not source, and a test runner that globs *.test.js will try
+		// to execute them and report a failure nobody wrote.
+		if strings.HasPrefix(info.Name(), "._") || info.Name() == ".DS_Store" {
+			return nil
+		}
 
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {

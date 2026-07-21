@@ -43,6 +43,7 @@ import (
 	"github.com/mittolabs/applad/internal/status"
 	"github.com/mittolabs/applad/internal/storage"
 	"github.com/mittolabs/applad/internal/teams"
+	"github.com/mittolabs/applad/internal/testlab"
 	"github.com/mittolabs/applad/internal/trace"
 	"github.com/mittolabs/applad/internal/usage"
 	"github.com/mittolabs/applad/internal/vectors"
@@ -144,6 +145,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	// Deploy handler — created here so it can be shared between the public webhook
 	// route (no auth) and the authenticated /deploy mount below.
 	deployHandler := deploy.NewHandler(deploySvc)
+	testlabHandler := testlab.NewHandler(testlab.NewService(database, deployQueue))
 
 	// Console auth
 	consoleSvc := console.NewService(database, cfg.JWTSecret)
@@ -285,6 +287,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/deploy", deploy.Routes(deployHandler))
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))
+				r.Mount("/tests", testlab.Routes(testlabHandler))
 
 				// Migrations
 				migrationQueue := queue.New(cacheClient.Client())

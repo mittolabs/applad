@@ -23,6 +23,7 @@ import (
 	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/runtime"
+	"github.com/mittolabs/applad/internal/testlab"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -94,6 +95,8 @@ func (w *Builds) process(ctx context.Context, job *queue.Job) error {
 		return w.processRollback(ctx, job)
 	case "deploy_teardown":
 		return w.processTeardown(ctx, job)
+	case "test_run":
+		return w.processTestRun(ctx, job)
 	default:
 		return w.processDeployment(ctx, job)
 	}
@@ -244,6 +247,81 @@ func extractZip(archive, dir string) error {
 		}
 	}
 	return nil
+}
+
+// processTestRun executes a project's own test suite and records what it
+// found. A suite that fails is a normal outcome recorded as results; only the
+// run itself failing to execute is an error.
+func (w *Builds) processTestRun(ctx context.Context, job *queue.Job) error {
+	runID, _ := job.Payload["runId"].(string)
+	suiteID, _ := job.Payload["suiteId"].(string)
+	projectID, _ := job.Payload["projectId"].(string)
+	start := time.Now()
+
+	svc := testlab.NewService(w.db, w.queue)
+	suite, err := svc.GetSuite(ctx, suiteID, projectID)
+	if err != nil {
+		svc.RecordResults(ctx, runID, projectID, nil, "", "suite no longer exists", 0) //nolint:errcheck
+		return err
+	}
+	svc.MarkRunning(ctx, runID)
+
+	sourceDir, err := w.testSource(ctx, suite)
+	if err != nil {
+		svc.RecordResults(ctx, runID, projectID, nil, "", err.Error(), time.Since(start).Milliseconds()) //nolint:errcheck
+		return err
+	}
+	defer os.RemoveAll(sourceDir)
+
+	result, runErr := w.deployExecutor.RunTests(ctx, runID, runtime.TestRunConfig{
+		SourceDir:  sourceDir,
+		Image:      suite.Image,
+		SetupCmd:   suite.SetupCmd,
+		Command:    suite.Command,
+		ReportPath: suite.ReportPath,
+		Env:        suite.EnvVars,
+		TimeoutMs:  suite.TimeoutMs,
+	})
+	durationMs := time.Since(start).Milliseconds()
+
+	if runErr != nil {
+		logOut := ""
+		if result != nil {
+			logOut = result.Log
+		}
+		svc.RecordResults(ctx, runID, projectID, nil, logOut, runErr.Error(), durationMs) //nolint:errcheck
+		return runErr
+	}
+
+	cases, parseErr := testlab.ParseJUnit(bytes.NewReader(result.Report))
+	if parseErr != nil {
+		// No readable report. If the command itself succeeded this is a
+		// misconfiguration worth naming; if it failed, the log already says
+		// why and the missing report is a consequence.
+		msg := fmt.Sprintf("no test report at %s: %v", suite.ReportPath, parseErr)
+		if result.ExitCode != 0 {
+			msg = fmt.Sprintf("tests exited %d and left no report at %s", result.ExitCode, suite.ReportPath)
+		}
+		svc.RecordResults(ctx, runID, projectID, nil, result.Log, msg, durationMs) //nolint:errcheck
+		slog.Warn("builds worker: test run produced no report", "run_id", runID, "error", parseErr)
+		return nil
+	}
+
+	if err := svc.RecordResults(ctx, runID, projectID, cases, result.Log, "", durationMs); err != nil {
+		return err
+	}
+	summary := testlab.Summarise(cases)
+	slog.Info("builds worker: test run complete", "run_id", runID,
+		"total", summary.Total, "failed", summary.Failed, "duration_ms", durationMs)
+	return nil
+}
+
+// testSource materialises the project under test, from git or from an upload.
+func (w *Builds) testSource(ctx context.Context, suite *testlab.Suite) (string, error) {
+	if suite.SourceType == "git" && suite.SourceURL != "" {
+		return cloneToSource(ctx, suite.SourceURL, suite.Branch)
+	}
+	return extractUploadedSource(suite.ID)
 }
 
 // processTeardown removes everything a deleted deploy target left behind.

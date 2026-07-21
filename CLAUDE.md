@@ -108,6 +108,7 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 - `console` — system-level admin auth: signup/login/me, name/email/password update, account deletion, signup-enabled config
 - `health` — health check endpoints
 - `workflows` — native DAG workflow engine: definitions, topological executor, 6 node types, execution history
+- `testlab` — runs a project's own test suite in a container and records per-case results, read from the JUnit XML the suite writes
 - `cronx` — cron expression parsing and validation (standard 5-field, ranges, lists, names, descriptors, `CRON_TZ=` prefix)
 - `worker` — 11 background workers (all fully implemented)
 
@@ -245,6 +246,18 @@ On login the API sets two cookies: the HttpOnly session, and
 "Get started" for "Go to console". Their scope is derived from the console's
 own hostname, so `console.applad.io` shares them with `applad.io` and a
 self-hosted console on an IP keeps them host-only.
+
+### Test
+
+A suite says how a project runs its tests — base image, setup command, test
+command, and where it leaves a JUnit XML report. That report is the interchange
+format, so Applad supports a new framework by configuration rather than code.
+
+Runs execute on the builds worker: an image is built from the source (git or
+upload), run to completion, and the report copied out of the stopped container.
+Results are stored per case in `test_cases`, which is the addressable unit —
+history and flakiness read across runs by (suite_name, name), and `spec_ref` is
+reserved for the Spec module to attach a specification example to a case.
 
 ### Scheduling
 
