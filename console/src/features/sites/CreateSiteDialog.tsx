@@ -183,7 +183,7 @@ export function CreateSiteDialog({
             <div className="flex flex-col gap-4">
               <TextField label="Site name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-awesome-site" autoFocus />
               <FormField label="Framework">
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   {FRAMEWORKS.map((f) => {
                     const selected = f.id === framework;
                     return (
@@ -191,7 +191,7 @@ export function CreateSiteDialog({
                         key={f.id}
                         type="button"
                         onClick={() => setFramework(f.id)}
-                        className="group flex w-[100px] flex-col items-center gap-1.5 rounded-[var(--radius)] border py-3 text-[length:var(--text-caption)] transition-colors"
+                        className="group flex flex-col items-center gap-1.5 rounded-[var(--radius)] border py-3 text-[length:var(--text-caption)] transition-colors"
                         style={
                           selected
                             ? {
