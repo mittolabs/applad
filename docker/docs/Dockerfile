@@ -5,6 +5,14 @@ WORKDIR /app
 # Copy the whole app first so the fumadocs-mdx postinstall (which reads
 # content/docs + source.config.ts to generate .source) has everything it needs.
 COPY docs/ ./
+
+# Cross-site links (site, console) are baked in at build time by Next. Local
+# dev passes the .localhost variants; production uses the defaults.
+ARG NEXT_PUBLIC_SITE_URL
+ARG NEXT_PUBLIC_CONSOLE_URL
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_CONSOLE_URL=$NEXT_PUBLIC_CONSOLE_URL
+
 RUN npm install && npm run build
 
 FROM node:22-alpine AS runner

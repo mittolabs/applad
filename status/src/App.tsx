@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 
-const SITE_URL = 'http://applad.io.localhost';
+// Local dev mirrors production with `.localhost` appended, so derive the host
+// rather than hardcoding one and breaking the other.
+const SITE_URL =
+  typeof window !== 'undefined' && window.location.hostname.endsWith('.localhost')
+    ? 'http://applad.io.localhost'
+    : 'https://applad.io';
 
 type Level = 'operational' | 'degraded' | 'down';
 

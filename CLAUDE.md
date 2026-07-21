@@ -201,7 +201,7 @@ Feature pages: `console/src/features/`:
 
 | Service | Port | Notes |
 |---|---|---|
-| `proxy` (openresty) | 80 | Routes `/v1/` → api, `/` → console |
+| `proxy` (openresty) | 80 | Name-based vhosts (see below); unknown hosts fall back to the console |
 | `api` | 8080 (internal) | Go API server |
 | `console` | 3000 (internal) | React + Vite static bundle, served by nginx with SPA fallback |
 | `postgres` | internal | Primary store |
@@ -210,6 +210,32 @@ Feature pages: `console/src/features/`:
 | `clamav` | — | Off by default; enable with `--profile antivirus` |
 
 Root-level `docker-compose.yml` — run from repo root with `docker compose up -d`.
+
+### Hosts
+
+Two domains, deliberately separated: everything of ours is on `applad.io`,
+while deployed customer apps get `applad.dev` to themselves. Deployed apps run
+arbitrary customer code, so sharing a registrable domain with the console
+would let one of them set cookies the console receives and make every app
+same-site with it.
+
+| Production | Local | Serves |
+|---|---|---|
+| `applad.io` | `applad.io.localhost` | Marketing site |
+| `console.applad.io` | `console.applad.io.localhost` | Admin console (+ same-origin `/v1`) |
+| `api.applad.io` | `api.applad.io.localhost` | Public API for SDKs |
+| `docs.applad.io` | `docs.applad.io.localhost` | Documentation |
+| `status.applad.io` | `status.applad.io.localhost` | Status page |
+| `<app>.applad.dev` | `<app>.applad.dev.localhost` | Deployed apps |
+| `applad.dev` | `applad.dev.localhost` | Redirects to the marketing site |
+
+Any other host (an IP, `localhost`) falls back to the console, which is how a
+self-hosted install is reached. Local names need no `/etc/hosts` entry:
+browsers resolve every `*.localhost` name to `127.0.0.1`.
+
+On login the API sets two cookies scoped to `SESSION_COOKIE_DOMAIN`: the
+HttpOnly session, and `applad_session=1`, a token-free marker the marketing
+site reads to swap "Get started" for "Go to console".
 
 ### Environment variables
 
@@ -222,6 +248,7 @@ Root-level `docker-compose.yml` — run from repo root with `docker compose up -
 | `APP_ENV` | `development` | `development` or `production` |
 | `PORT` | `8080` | API server port |
 | `CONSOLE_SIGNUP_ENABLED` | `auto` | `auto` (disabled after first user), `true`, or `false` |
+| `SESSION_COOKIE_DOMAIN` | (empty) | Parent domain for console session cookies, e.g. `.applad.io`, so the marketing site can detect a signed-in visitor |
 | `SMTP_HOST/PORT/USER/PASS/FROM` | (empty) | SMTP config for email |
 | `OAUTH_GOOGLE_CLIENT_ID/SECRET` | (empty) | Google OAuth2 |
 | `OAUTH_GITHUB_CLIENT_ID/SECRET` | (empty) | GitHub OAuth2 |

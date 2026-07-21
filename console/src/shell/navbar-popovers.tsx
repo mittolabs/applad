@@ -262,7 +262,7 @@ function SupportPanelBody() {
     <>
       <SupportCard icon={MessagesSquare} title="Discord" subtitle="Chat with the community" href="https://discord.gg/applad" />
       <SupportCard icon={Github} title="GitHub" subtitle="Open an issue" href="https://github.com/mittolabs/applad/issues" />
-      <SupportCard icon={BookOpen} title="Docs" subtitle="Read the documentation" href="https://docs.applad.dev" />
+      <SupportCard icon={BookOpen} title="Docs" subtitle="Read the documentation" href="https://docs.applad.io" />
     </>
   );
 }

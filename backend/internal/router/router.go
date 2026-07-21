@@ -153,6 +153,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		User: cfg.SMTPUser,
 		Pass: cfg.SMTPPass,
 		From: cfg.SMTPFrom,
+	}, console.CookieConfig{
+		Domain: cfg.SessionCookieDomain,
+		Secure: cfg.AppEnv == "production",
 	})
 
 	// Console OAuth providers (Google, GitHub, SSO) — for admin console login only.

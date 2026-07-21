@@ -30,11 +30,78 @@ type Handler struct {
 	signupSetting string // "auto", "true", or "false"
 	providers     map[string]*oauthpkg.Provider
 	smtp          SMTPConfig
+	cookies       CookieConfig
 }
 
+// CookieConfig controls how console cookies are scoped.
+type CookieConfig struct {
+	// Domain scopes cookies to a parent domain, e.g. ".applad.io" so the
+	// marketing site can see that someone is signed in. Empty keeps them
+	// host-only.
+	Domain string
+	// Secure marks cookies HTTPS-only. Off in development, where the console
+	// is served over plain http and a Secure cookie would simply be dropped.
+	Secure bool
+}
+
+// SessionHintCookie is a deliberately non-sensitive marker that someone is
+// signed in. It carries no token — it exists so pages on the parent domain
+// (the marketing site) can render "Go to console" instead of "Get started".
+// Readable by JavaScript by design; the real session never is.
+const SessionHintCookie = "applad_session"
+
 // NewHandler creates a new console auth Handler.
-func NewHandler(svc *Service, signupSetting string, smtpCfg SMTPConfig) *Handler {
-	return &Handler{svc: svc, signupSetting: signupSetting, providers: map[string]*oauthpkg.Provider{}, smtp: smtpCfg}
+func NewHandler(svc *Service, signupSetting string, smtpCfg SMTPConfig, cookies CookieConfig) *Handler {
+	return &Handler{
+		svc:           svc,
+		signupSetting: signupSetting,
+		providers:     map[string]*oauthpkg.Provider{},
+		smtp:          smtpCfg,
+		cookies:       cookies,
+	}
+}
+
+// setSignedIn writes both the session cookie and the public hint cookie.
+func (h *Handler) setSignedIn(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "a_session_console",
+		Value:    token,
+		Path:     "/",
+		Domain:   h.cookies.Domain,
+		HttpOnly: true,
+		Secure:   h.cookies.Secure,
+		// Lax rather than Strict: the console is reached by following a link
+		// from the marketing site, and Strict would withhold the cookie on
+		// that first navigation.
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   8 * 3600,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     SessionHintCookie,
+		Value:    "1",
+		Path:     "/",
+		Domain:   h.cookies.Domain,
+		HttpOnly: false, // the marketing site reads this from JavaScript
+		Secure:   h.cookies.Secure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   8 * 3600,
+	})
+}
+
+// clearSignedIn expires both cookies.
+func (h *Handler) clearSignedIn(w http.ResponseWriter) {
+	for _, name := range []string{"a_session_console", SessionHintCookie} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			Domain:   h.cookies.Domain,
+			HttpOnly: name == "a_session_console",
+			Secure:   h.cookies.Secure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	}
 }
 
 // SetProviders registers OAuth providers available for console login.
@@ -143,15 +210,7 @@ func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "a_session_console",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   8 * 3600, // 8 hours
-	})
+	h.setSignedIn(w, token)
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"user":  user,
@@ -185,15 +244,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "a_session_console",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   8 * 3600, // 8 hours
-	})
+	h.setSignedIn(w, token)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user":  user,
@@ -202,16 +253,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	// Clear the session cookie.
-	http.SetCookie(w, &http.Cookie{
-		Name:     "a_session_console",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   -1,
-	})
+	h.clearSignedIn(w)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
 }
 
@@ -298,15 +340,7 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "a_session_console",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   8 * 3600,
-	})
+	h.setSignedIn(w, token)
 
 	// Pass the token via query param so the Flutter SPA can capture it,
 	// store in localStorage, and complete the login without a round-trip.

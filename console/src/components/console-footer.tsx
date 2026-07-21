@@ -36,9 +36,9 @@ export function ConsoleFooter({ className }: { className?: string }) {
       <span className="text-text-subtle">v{VERSION}</span>
       <div className="ml-auto flex items-center gap-4">
         {[
-          ['Docs', 'https://docs.applad.dev'],
-          ['Terms', 'https://applad.dev/terms'],
-          ['Privacy', 'https://applad.dev/privacy'],
+          ['Docs', 'https://docs.applad.io'],
+          ['Terms', 'https://applad.io/terms'],
+          ['Privacy', 'https://applad.io/privacy'],
         ].map(([label, href]) => (
           <a
             key={label}

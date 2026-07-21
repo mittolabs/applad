@@ -38,7 +38,7 @@ services:
       context: ./backend
       dockerfile: ../docker/api/Dockerfile
     # Not published to the host — reached only through the proxy at
-    # applad.dev.localhost/v1. (Expose 8080 here if you need direct access.)
+    # api.applad.io.localhost. (Expose 8080 here if you need direct access.)
     expose:
       - "8080"
     environment:
@@ -48,6 +48,10 @@ services:
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
       STORAGE_PATH: "/var/applad/storage"
       APP_ENV: "${APP_ENV:-development}"
+      # Scopes the console's session cookies to the parent domain, so the
+      # marketing site can tell that someone is signed in. Production:
+      # ".applad.io".
+      SESSION_COOKIE_DOMAIN: "${SESSION_COOKIE_DOMAIN:-.applad.io.localhost}"
       STORAGE_DRIVER: "${STORAGE_DRIVER:-local}"
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_BUCKET: "${S3_BUCKET:-}"
@@ -67,7 +71,7 @@ services:
     restart: unless-stopped
 
   # React + Vite admin console (served as a static bundle by nginx).
-  # Reached through the proxy at applad.dev.localhost — not published directly.
+  # Reached through the proxy at console.applad.io.localhost — not published directly.
   console:
     build:
       context: .
@@ -90,6 +94,9 @@ services:
     build:
       context: .
       dockerfile: docker/docs/Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: "http://applad.io.localhost"
+        NEXT_PUBLIC_CONSOLE_URL: "http://console.applad.io.localhost"
     expose:
       - "80"
     restart: unless-stopped

@@ -25,10 +25,24 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-const CONSOLE_URL = 'http://applad.dev.localhost';
-const DOCS_URL = 'http://docs.applad.io.localhost';
-const STATUS_URL = 'http://status.applad.io.localhost';
+import { CONSOLE_URL as consoleUrl, DOCS_URL as docsUrl, STATUS_URL as statusUrl, isSignedIn } from './lib/urls';
+
+// Resolved once at module load; the host cannot change under a loaded page.
+const CONSOLE_URL = consoleUrl();
+const DOCS_URL = docsUrl();
+const STATUS_URL = statusUrl();
 const GITHUB_URL = 'https://github.com/mittolabs/applad';
+
+/*
+ * Whether the visitor already has a console session. Read after mount rather
+ * than during render: the site is served from a CDN and a signed-in variant
+ * must never end up in a shared cache.
+ */
+function useSignedIn(): boolean {
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => setSignedIn(isSignedIn()), []);
+  return signedIn;
+}
 const ACCENT = '#3472a4';
 
 export function App() {
@@ -49,6 +63,7 @@ export function App() {
 
 function Nav() {
   const [scrolled, setScrolled] = useState(false);
+  const signedIn = useSignedIn();
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
@@ -73,9 +88,11 @@ function Nav() {
           <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-text">GitHub</a>
         </nav>
         <div className="ml-auto flex items-center gap-3">
-          <a href={CONSOLE_URL} className="hidden text-sm text-muted transition-colors hover:text-text sm:block">Sign in</a>
+          {!signedIn && (
+            <a href={CONSOLE_URL} className="hidden text-sm text-muted transition-colors hover:text-text sm:block">Sign in</a>
+          )}
           <a href={CONSOLE_URL} className="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
-            Open console
+            {signedIn ? 'Go to console' : 'Open console'}
           </a>
         </div>
       </div>
@@ -84,6 +101,7 @@ function Nav() {
 }
 
 function Hero() {
+  const signedIn = useSignedIn();
   return (
     <section className="relative overflow-hidden">
       <div className="pointer-events-none absolute inset-0" style={{ background: `radial-gradient(760px circle at 50% -6%, ${ACCENT}2e, transparent 60%)` }} />
@@ -104,7 +122,7 @@ function Hero() {
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <a href={CONSOLE_URL} className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
-              Get started
+              {signedIn ? 'Go to console' : 'Get started'}
               <ArrowRight size={16} />
             </a>
             <a href={DOCS_URL} className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-text transition-colors hover:bg-surface">
@@ -412,6 +430,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 function CTA() {
+  const signedIn = useSignedIn();
   return (
     <section className="relative overflow-hidden">
       <div
@@ -427,7 +446,7 @@ function CTA() {
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <a href={CONSOLE_URL} className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
-            Open the console
+            {signedIn ? 'Go to console' : 'Open the console'}
             <ArrowRight size={16} />
           </a>
           <a href={DOCS_URL} className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-text transition-colors hover:bg-surface">

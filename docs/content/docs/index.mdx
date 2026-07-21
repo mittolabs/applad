@@ -19,15 +19,23 @@ and admin console, running from a single `docker compose up`.
 
 | Surface | URL |
 | --- | --- |
-| Admin console | `applad.dev` |
-| Your deployed apps | `<project>.applad.dev` |
 | Marketing site | `applad.io` |
+| Admin console | `console.applad.io` |
+| API (what your SDKs talk to) | `api.applad.io` |
 | These docs | `docs.applad.io` |
+| Your deployed apps | `<app>.applad.dev` |
+
+<Callout title="Why two domains">
+  Everything of ours lives on `applad.io`; deployed apps get `applad.dev` to
+  themselves. Since deployed apps run your code, keeping them on a separate
+  registrable domain means one app can never set cookies the console would
+  read, or count as same-site with it.
+</Callout>
 
 <Callout title="Local development">
   Locally the same hosts are used with a `.localhost` suffix (e.g.
-  `applad.dev.localhost`), which every Chromium browser resolves to `127.0.0.1`
-  automatically.
+  `console.applad.io.localhost`), which every Chromium browser resolves to
+  `127.0.0.1` automatically.
 </Callout>
 
 Head to [Getting started](/getting-started) to bring the stack up.

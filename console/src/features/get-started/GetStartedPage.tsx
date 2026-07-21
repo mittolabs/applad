@@ -169,8 +169,8 @@ export function GetStartedPage() {
           Keep exploring
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <ResourceLink icon={BookOpen} title="Documentation" subtitle="Guides & concepts" href="https://docs.applad.dev" />
-          <ResourceLink icon={Terminal} title="API reference" subtitle="Every endpoint" href="https://docs.applad.dev/api" />
+          <ResourceLink icon={BookOpen} title="Documentation" subtitle="Guides & concepts" href="https://docs.applad.io" />
+          <ResourceLink icon={Terminal} title="API reference" subtitle="Every endpoint" href="https://docs.applad.io/api" />
           <ResourceLink icon={Rocket} title="Deploy" subtitle="Ship to production" onClick={() => go('deploy')} />
           <ResourceLink icon={MessagesSquare} title="Community" subtitle="Join our Discord" href="https://discord.gg/applad" />
         </div>
