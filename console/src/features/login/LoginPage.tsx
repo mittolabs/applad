@@ -44,7 +44,9 @@ export function LoginPage() {
   const signup = useAuthStore((s) => s.signup);
   const loginWithToken = useAuthStore((s) => s.loginWithToken);
 
-  const [mode, setMode] = useState<Mode>('login');
+  // ?mode=signup lets the marketing site link straight to account creation.
+  // If signup turns out to be disabled, the effect below drops back to login.
+  const [mode, setMode] = useState<Mode>(params.get('mode') === 'signup' ? 'signup' : 'login');
   const [oauthLoading, setOauthLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -215,12 +217,14 @@ export function LoginPage() {
         <div className="relative z-10 flex flex-col justify-center pb-12 pl-[120px] pr-14 pt-12">
           <LogoRow size={52} wordmark={28} />
           <h1 className="mt-12 text-[52px] font-bold leading-[1.15] tracking-[-0.01em] text-white/[0.88]">
-            {isSignup ? 'Your backend,' : 'Go from idea'}
+            {isSignup ? 'Build products,' : 'Go from idea'}
             <br />
-            {isSignup ? 'your rules.' : 'to production today.'}
+            {isSignup ? 'not infrastructure.' : 'to production today.'}
           </h1>
           <p className="mt-4 text-[15px] leading-[1.5] text-white/[0.35]">
-            Everything your app needs, without compromise.
+            {isSignup
+              ? 'Plan, build, test, deploy and monitor in one platform.'
+              : 'Everything your app needs, without compromise.'}
           </p>
         </div>
       </div>

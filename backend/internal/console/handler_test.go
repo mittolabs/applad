@@ -11,10 +11,12 @@ import (
 // someone is signed in. It must be scoped to that parent domain, carry no
 // token, and stay readable by JavaScript — unlike the real session cookie.
 func TestSignedInCookies(t *testing.T) {
-	h := &Handler{cookies: CookieConfig{Domain: ".applad.io", Secure: true}}
+	h := &Handler{cookies: CookieConfig{Domain: ".applad.io"}}
 
 	rec := httptest.NewRecorder()
-	h.setSignedIn(rec, "jwt-value-here")
+	req := httptest.NewRequest("POST", "/console/login", nil)
+	req.Header.Set("X-Forwarded-Proto", "https") // as our proxy sets it
+	h.setSignedIn(rec, req, "jwt-value-here")
 
 	var session, hint *http.Cookie
 	for _, c := range rec.Result().Cookies() {
@@ -56,7 +58,7 @@ func TestSignedInCookies(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	h.clearSignedIn(rec)
+	h.clearSignedIn(rec, req)
 	for _, c := range rec.Result().Cookies() {
 		if c.MaxAge >= 0 {
 			t.Errorf("%s should be expired on logout, MaxAge = %d", c.Name, c.MaxAge)
@@ -64,15 +66,59 @@ func TestSignedInCookies(t *testing.T) {
 	}
 }
 
-// Development serves the console over plain http, where a Secure cookie is
-// silently dropped and nobody can stay signed in.
-func TestCookiesNotSecureInDevelopment(t *testing.T) {
-	h := &Handler{cookies: CookieConfig{Domain: "", Secure: false}}
+// A Secure cookie sent over plain http is silently dropped and nobody stays
+// signed in. This must follow the request scheme, not the environment: a
+// self-hosted install runs APP_ENV=production over http on a bare VPS.
+func TestCookiesFollowRequestScheme(t *testing.T) {
+	h := &Handler{cookies: CookieConfig{}}
+
 	rec := httptest.NewRecorder()
-	h.setSignedIn(rec, "token")
+	h.setSignedIn(rec, httptest.NewRequest("POST", "/console/login", nil), "token")
 	for _, c := range rec.Result().Cookies() {
 		if c.Secure {
-			t.Errorf("%s must not be Secure in development", c.Name)
+			t.Errorf("%s must not be Secure over plain http", c.Name)
 		}
+	}
+
+	rec = httptest.NewRecorder()
+	tls := httptest.NewRequest("POST", "/console/login", nil)
+	tls.Header.Set("X-Forwarded-Proto", "https")
+	h.setSignedIn(rec, tls, "token")
+	for _, c := range rec.Result().Cookies() {
+		if !c.Secure {
+			t.Errorf("%s must be Secure behind TLS", c.Name)
+		}
+	}
+}
+
+// A console at console.<parent> must share cookies with <parent>, or the
+// marketing site cannot tell that anyone is signed in. Anything reached by IP
+// or bare hostname — a self-hosted install — must stay host-only, so no
+// configuration is needed there.
+func TestCookieDomainDerivedFromHost(t *testing.T) {
+	h := &Handler{}
+	tests := map[string]string{
+		"console.applad.io":           ".applad.io",
+		"console.applad.io.localhost": ".applad.io.localhost",
+		"console.example.com:8080":    ".example.com",
+		"applad.io":                   "", // not the console host
+		"localhost":                   "",
+		"192.168.1.10":                "",
+		"console.localhost":           "", // no parent domain to share with
+	}
+	for host, want := range tests {
+		r := httptest.NewRequest("POST", "/console/login", nil)
+		r.Host = host
+		if got := h.cookieDomain(r); got != want {
+			t.Errorf("cookieDomain(%q) = %q, want %q", host, got, want)
+		}
+	}
+
+	// An explicit setting always wins.
+	forced := &Handler{cookies: CookieConfig{Domain: ".override.test"}}
+	r := httptest.NewRequest("POST", "/console/login", nil)
+	r.Host = "console.applad.io"
+	if got := forced.cookieDomain(r); got != ".override.test" {
+		t.Errorf("configured domain = %q, want .override.test", got)
 	}
 }

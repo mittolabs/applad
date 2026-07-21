@@ -48,10 +48,12 @@ services:
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
       STORAGE_PATH: "/var/applad/storage"
       APP_ENV: "${APP_ENV:-development}"
-      # Scopes the console's session cookies to the parent domain, so the
-      # marketing site can tell that someone is signed in. Production:
-      # ".applad.io".
-      SESSION_COOKIE_DOMAIN: "${SESSION_COOKIE_DOMAIN:-.applad.io.localhost}"
+      # auto (disabled once the first admin exists), true, or false.
+      CONSOLE_SIGNUP_ENABLED: "${CONSOLE_SIGNUP_ENABLED:-auto}"
+      # Optional. Cookie scope is derived from the console's own hostname
+      # (console.<parent> shares cookies with <parent>); set this only to
+      # override that.
+      SESSION_COOKIE_DOMAIN: "${SESSION_COOKIE_DOMAIN:-}"
       STORAGE_DRIVER: "${STORAGE_DRIVER:-local}"
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_BUCKET: "${S3_BUCKET:-}"

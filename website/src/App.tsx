@@ -29,6 +29,8 @@ import { CONSOLE_URL as consoleUrl, DOCS_URL as docsUrl, STATUS_URL as statusUrl
 
 // Resolved once at module load; the host cannot change under a loaded page.
 const CONSOLE_URL = consoleUrl();
+const SIGNIN_URL = `${CONSOLE_URL}/login`;
+const SIGNUP_URL = `${CONSOLE_URL}/login?mode=signup`;
 const DOCS_URL = docsUrl();
 const STATUS_URL = statusUrl();
 const GITHUB_URL = 'https://github.com/mittolabs/applad';
@@ -89,10 +91,14 @@ function Nav() {
         </nav>
         <div className="ml-auto flex items-center gap-3">
           {!signedIn && (
-            <a href={CONSOLE_URL} className="hidden text-sm text-muted transition-colors hover:text-text sm:block">Sign in</a>
+            <a href={SIGNIN_URL} className="hidden text-sm text-muted transition-colors hover:text-text sm:block">Sign in</a>
           )}
-          <a href={CONSOLE_URL} className="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
-            {signedIn ? 'Go to console' : 'Open console'}
+          <a
+            href={signedIn ? CONSOLE_URL : SIGNUP_URL}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            style={{ background: ACCENT }}
+          >
+            {signedIn ? 'Go to console' : 'Sign up'}
           </a>
         </div>
       </div>
@@ -121,7 +127,7 @@ function Hero() {
             test, deploy and monitor in one platform, with SDKs that reach every part of it.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <a href={CONSOLE_URL} className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
+            <a href={signedIn ? CONSOLE_URL : SIGNUP_URL} className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
               {signedIn ? 'Go to console' : 'Get started'}
               <ArrowRight size={16} />
             </a>
@@ -445,8 +451,8 @@ function CTA() {
           Create a project, ask the assistant to scaffold it, and connect your app with one of the SDKs.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <a href={CONSOLE_URL} className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
-            {signedIn ? 'Go to console' : 'Open the console'}
+          <a href={signedIn ? CONSOLE_URL : SIGNUP_URL} className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
+            {signedIn ? 'Go to console' : 'Create an account'}
             <ArrowRight size={16} />
           </a>
           <a href={DOCS_URL} className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-text transition-colors hover:bg-surface">
@@ -481,8 +487,8 @@ function Footer() {
     {
       title: 'Company',
       links: [
-        { label: 'Sign in', href: CONSOLE_URL },
-        { label: 'Get started', href: CONSOLE_URL },
+        { label: 'Sign in', href: SIGNIN_URL },
+        { label: 'Get started', href: SIGNUP_URL },
       ],
     },
   ];

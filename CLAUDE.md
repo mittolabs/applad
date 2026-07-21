@@ -233,9 +233,11 @@ Any other host (an IP, `localhost`) falls back to the console, which is how a
 self-hosted install is reached. Local names need no `/etc/hosts` entry:
 browsers resolve every `*.localhost` name to `127.0.0.1`.
 
-On login the API sets two cookies scoped to `SESSION_COOKIE_DOMAIN`: the
-HttpOnly session, and `applad_session=1`, a token-free marker the marketing
-site reads to swap "Get started" for "Go to console".
+On login the API sets two cookies: the HttpOnly session, and
+`applad_session=1`, a token-free marker the marketing site reads to swap
+"Get started" for "Go to console". Their scope is derived from the console's
+own hostname, so `console.applad.io` shares them with `applad.io` and a
+self-hosted console on an IP keeps them host-only.
 
 ### Environment variables
 
@@ -248,7 +250,7 @@ site reads to swap "Get started" for "Go to console".
 | `APP_ENV` | `development` | `development` or `production` |
 | `PORT` | `8080` | API server port |
 | `CONSOLE_SIGNUP_ENABLED` | `auto` | `auto` (disabled after first user), `true`, or `false` |
-| `SESSION_COOKIE_DOMAIN` | (empty) | Parent domain for console session cookies, e.g. `.applad.io`, so the marketing site can detect a signed-in visitor |
+| `SESSION_COOKIE_DOMAIN` | (empty) | Overrides console cookie scope. Normally derived from the host: `console.<parent>` shares cookies with `<parent>` |
 | `SMTP_HOST/PORT/USER/PASS/FROM` | (empty) | SMTP config for email |
 | `OAUTH_GOOGLE_CLIENT_ID/SECRET` | (empty) | Google OAuth2 |
 | `OAUTH_GITHUB_CLIENT_ID/SECRET` | (empty) | GitHub OAuth2 |
