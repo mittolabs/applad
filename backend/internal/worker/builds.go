@@ -1182,11 +1182,19 @@ func railpackConfigFor(d deploy.Detection) string {
 	if out == "" {
 		out = "build/web"
 	}
+	// The first input of a step must be an image or another step, carrying no
+	// filters; the source comes in after it. Without that first layer the
+	// build has no toolchain, and with the source missing it has nothing to
+	// build — the two ways this failed before.
 	return fmt.Sprintf(`{
   "$schema": "https://schema.railpack.com",
   "packages": { "flutter": "latest" },
   "steps": {
     "build": {
+      "inputs": [
+        { "step": "packages:mise" },
+        { "local": true, "include": ["."] }
+      ],
       "commands": [%q, %q]
     }
   },
