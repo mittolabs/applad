@@ -502,7 +502,12 @@ func deployNarrative(cfg *pipelineConfig, rawBuildLog string, durationMs, sizeBy
 		b.WriteString("\n")
 		b.WriteString(output)
 		b.WriteString("\n\n")
-	} else {
+	} else if served {
+		// Only a deploy that worked can claim there was nothing to build. A
+		// failed one produced no output because it never got that far, and
+		// saying "the files are served as they are" of a site that is not
+		// served at all is the sort of confident falsehood this log exists to
+		// avoid.
 		b.WriteString("No build step — the files are served as they are\n")
 	}
 
@@ -903,6 +908,7 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	startCmd, outputDir := cfg.startCmd, cfg.outputDir
 	serveMode, nodeVersion := "", ""
 	packageManagerPin := ""
+	railpackConfig, platform := "", ""
 
 	if sourceDir != "" {
 		d := deploy.DetectDir(sourceDir)
@@ -914,6 +920,8 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		}
 		serveMode, nodeVersion = d.ServeMode, d.NodeVersion
 		packageManagerPin = d.PackageManagerPin
+		railpackConfig = railpackConfigFor(d)
+		platform = buildPlatformFor(d)
 		slog.Info("builds worker: build plan", "release_id", releaseID,
 			"framework", d.Framework, "reason", d.Reason,
 			"install", installCmd, "build", buildCmd, "start", startCmd, "output", outputDir)
@@ -927,6 +935,8 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		"buildCmd":          buildCmd,
 		"startCmd":          startCmd,
 		"packageManagerPin": packageManagerPin,
+		"railpackConfig":    railpackConfig,
+		"platform":          platform,
 		"outputDir":         outputDir,
 		"serveMode":         serveMode,
 		"nodeVersion":       nodeVersion,
@@ -1153,6 +1163,50 @@ func firstNonEmpty(values ...string) string {
 		if strings.TrimSpace(v) != "" {
 			return v
 		}
+	}
+	return ""
+}
+
+// railpackConfigFor describes a build the builder has no provider for.
+//
+// Railpack covers Node, Python, Go, PHP, Java and Ruby. Flutter is not among
+// them, so a Flutter app failed with "no start command detected" — accurately,
+// since without the SDK there is nothing to detect. mise can install the SDK,
+// and the result is a directory of files, so the finished app is served by
+// Caddy rather than by carrying a 1GB toolchain into production.
+func railpackConfigFor(d deploy.Detection) string {
+	if d.Framework != "flutter_web" {
+		return ""
+	}
+	out := d.OutputDir
+	if out == "" {
+		out = "build/web"
+	}
+	return fmt.Sprintf(`{
+  "$schema": "https://schema.railpack.com",
+  "packages": { "flutter": "latest" },
+  "steps": {
+    "build": {
+      "commands": [%q, %q]
+    }
+  },
+  "deploy": {
+    "base": { "image": "caddy:2-alpine" },
+    "startCommand": "caddy file-server --listen :80 --root /app/%s",
+    "inputs": [{ "step": "build", "include": [%q] }]
+  }
+}`, d.InstallCommand, d.BuildCommand, out, out)
+}
+
+// buildPlatformFor pins an architecture when the toolchain ships for only one.
+//
+// Flutter publishes linux-x64 and no linux-arm64, so on an arm64 machine mise
+// fails outright with "No URL for platform linux-arm64". Targeting amd64 is
+// native on the x86 servers these apps are deployed to, and emulated on an
+// Apple Silicon laptop.
+func buildPlatformFor(d deploy.Detection) string {
+	if d.Framework == "flutter_web" {
+		return "linux/amd64"
 	}
 	return ""
 }

@@ -34,6 +34,13 @@ type DeployConfig struct {
 	// PackageManagerPin is package.json's own "packageManager" field, used so
 	// the build runs the version the project chose rather than the newest.
 	PackageManagerPin string
+	// Platform forces the build architecture when a toolchain ships for only
+	// one. Empty means the machine's own.
+	Platform string
+
+	// RailpackConfig describes the build for a project the builder has no
+	// provider for — Flutter, so far.
+	RailpackConfig string
 }
 
 // ParseDeployConfig extracts a DeployConfig from the raw config map.
@@ -58,6 +65,12 @@ func ParseDeployConfig(raw map[string]interface{}) DeployConfig {
 	}
 	if v, ok := raw["packageManagerPin"].(string); ok {
 		cfg.PackageManagerPin = v
+	}
+	if v, ok := raw["railpackConfig"].(string); ok {
+		cfg.RailpackConfig = v
+	}
+	if v, ok := raw["platform"].(string); ok {
+		cfg.Platform = v
 	}
 	if v, ok := raw["sourceDir"].(string); ok {
 		cfg.SourceDir = v
@@ -145,6 +158,8 @@ func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID 
 			BuildCmd:   cfg.BuildCommand,
 			StartCmd:   cfg.StartCommand,
 			CacheKey:   cfg.Subdomain,
+			Config:     cfg.RailpackConfig,
+			Platform:   cfg.Platform,
 			Env:        cfg.Env,
 		})
 		if err != nil {

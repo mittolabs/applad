@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -51,6 +52,22 @@ type RailpackBuild struct {
 	// rebuild of the same site hits everything it populated last time.
 	CacheKey string
 
+	// Platform forces the build architecture.
+	//
+	// Flutter publishes no linux-arm64 SDK, so a Flutter app cannot build
+	// natively on an arm64 machine at all. Targeting amd64 is native on the
+	// servers these apps run on and emulated on an Apple Silicon laptop.
+	Platform string
+
+	// Config is a railpack.json to write beside the source when the builder
+	// has no provider for this kind of project.
+	//
+	// RAILPACK_PACKAGES alone cannot rescue an undetected project: packages
+	// augment a provider that already matched, and with none matched the plan
+	// comes back with no steps at all. A config file is the supported way to
+	// describe a build the builder does not know.
+	Config string
+
 	// Env is passed to the build, for build-time configuration a framework
 	// reads (NEXT_PUBLIC_*, VITE_*, and the like).
 	Env map[string]string
@@ -63,7 +80,21 @@ func (d *DeployExecutor) BuildWithRailpack(ctx context.Context, b RailpackBuild)
 		return "", fmt.Errorf("railpack is not installed in this worker: %w", err)
 	}
 
+	// A generated config never overwrites one the project wrote: somebody who
+	// committed a railpack.json meant it.
+	if b.Config != "" {
+		path := filepath.Join(b.SourceDir, "railpack.json")
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			if err := os.WriteFile(path, []byte(b.Config), 0o644); err != nil {
+				return "", fmt.Errorf("write railpack config: %w", err)
+			}
+		}
+	}
+
 	args := []string{"build", b.SourceDir, "--name", b.ImageName, "--progress", "plain"}
+	if b.Platform != "" {
+		args = append(args, "--platform", b.Platform)
+	}
 	if b.BuildCmd != "" {
 		args = append(args, "--build-cmd", b.BuildCmd)
 	}
@@ -109,6 +140,7 @@ func railpackEnv(b RailpackBuild) []string {
 	if b.InstallCmd != "" {
 		env = append(env, "RAILPACK_INSTALL_CMD="+b.InstallCmd)
 	}
+
 	for k, v := range b.Env {
 		// Railpack's own namespace is reserved; a project variable that
 		// collided with it would silently rewrite the build plan.
