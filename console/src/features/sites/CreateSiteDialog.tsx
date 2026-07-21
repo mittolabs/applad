@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { GitBranch, Upload, Info } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { api, friendlyError } from '@/api/client';
 import {
   Dialog,
@@ -11,7 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { FormField, TextField } from '@/components/form-dialog';
+import { FormField, SelectField, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
 import { ChoiceChip } from './SiteDetail';
 import { FRAMEWORKS, frameworkById } from '../deploy-shared/frameworks';
@@ -49,7 +50,10 @@ export function CreateSiteDialog({
   const [framework, setFramework] = useState('nextjs');
   const [sourceType, setSourceType] = useState<'git' | 'upload'>('git');
   const [repository, setRepository] = useState('');
-  const [branch, setBranch] = useState('main');
+  // Empty until the repository says what it has. Defaulting to "main" is
+  // what made a deploy fail at clone time on a repository whose default
+  // branch is anything else.
+  const [branch, setBranch] = useState('');
   const [installCommand, setInstallCommand] = useState('');
   const [buildCommand, setBuildCommand] = useState('');
   const [outputDirectory, setOutputDirectory] = useState('');
@@ -235,7 +239,7 @@ export function CreateSiteDialog({
               {sourceType === 'git' ? (
                 <>
                   <TextField label="Repository URL" value={repository} onChange={(e) => setRepository(e.target.value)} placeholder="https://github.com/user/repo" />
-                  <TextField label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
+                  <BranchField repository={repository} value={branch} onChange={setBranch} />
                 </>
               ) : (
                 <SourceDropzone
@@ -306,5 +310,72 @@ export function CreateSiteDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/*
+ * Which branch to deploy.
+ *
+ * A branch is a fact about the repository, so it is chosen from the branches
+ * that exist rather than typed and hoped for. When Applad cannot see the
+ * repository — a URL pasted for something it has no access to — this falls
+ * back to a text box rather than blocking the deploy.
+ */
+function BranchField({
+  repository,
+  value,
+  onChange,
+}: {
+  repository: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const repo = repository.trim();
+
+  const { data, isFetching } = useQuery({
+    queryKey: ['git-branches', repo],
+    enabled: repo.includes('github.com'),
+    queryFn: async () =>
+      (
+        await api.get('/deploy/git/github/branches', { params: { repo } })
+      ).data as { available: boolean; branches: string[]; defaultBranch?: string },
+  });
+
+  // Once the repository has told us its default, take it — unless somebody
+  // has already chosen.
+  useEffect(() => {
+    if (!value && data?.available && data.defaultBranch) onChange(data.defaultBranch);
+  }, [data, value, onChange]);
+
+  // GitHub reports a default branch for a repository with no commits, so an
+  // empty one looks deployable until git says "Remote branch main not found".
+  const empty = data?.available && data.branches.length === 0;
+
+  if (data?.available && data.branches.length > 0) {
+    return (
+      <SelectField
+        label="Branch"
+        value={value || undefined}
+        onChange={onChange}
+        options={data.branches.map((b) => ({ value: b, label: b }))}
+        placeholder={isFetching ? 'Loading branches…' : 'Select a branch'}
+      />
+    );
+  }
+
+  return (
+    <TextField
+      label="Branch"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={isFetching ? 'Loading branches…' : 'e.g. main'}
+      hint={
+        empty
+          ? 'This repository has no commits yet, so there is nothing to deploy.'
+          : data && !data.available && repo
+            ? 'Applad cannot list this repository\'s branches, so type the one to deploy.'
+            : undefined
+      }
+    />
   );
 }

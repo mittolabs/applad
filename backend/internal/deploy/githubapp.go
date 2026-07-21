@@ -156,6 +156,42 @@ func (s *Service) CloneTokenForRepo(ctx context.Context, projectID, repoURL stri
 	return s.github.InstallationToken(ctx, installationID)
 }
 
+// BranchesForRepo lists a repository's branches and names its default.
+//
+// The console offered a text box that defaulted to "main", so deploying a
+// repository whose default branch is anything else failed at clone time with
+// git's own message. A branch is a fact about the repository; it should be
+// chosen from what exists.
+func (s *Service) BranchesForRepo(ctx context.Context, projectID, repoURL string) ([]githubapp.Branch, string, error) {
+	if s.github == nil {
+		return nil, "", githubapp.ErrNotConfigured
+	}
+	owner, repo, ok := githubapp.ParseRepoURL(repoURL)
+	if !ok {
+		return nil, "", fmt.Errorf("deploy: not a GitHub repository: %s", repoURL)
+	}
+
+	inst, err := s.github.InstallationForRepo(ctx, owner, repo)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Same gate as cloning: the project must have connected this installation,
+	// or it could enumerate a private repository it has no claim to.
+	installationID := strconv.FormatInt(inst.ID, 10)
+	var connected int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM git_connections WHERE project_id = $1 AND installation_id = $2`,
+		projectID, installationID).Scan(&connected); err != nil {
+		return nil, "", err
+	}
+	if connected == 0 {
+		return nil, "", ErrInstallNotForProject
+	}
+
+	return s.github.ListBranches(ctx, installationID, owner, repo)
+}
+
 // ConnectionByInstallation finds the connections an inbound webhook belongs to.
 //
 // The app has a single webhook URL for every installation, so a delivery

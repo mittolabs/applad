@@ -57,7 +57,7 @@ export function SitesPage() {
         name: String(t['name'] ?? ''),
         framework: String(t['framework'] ?? 'nextjs'),
         repository: String(t['repository'] ?? ''),
-        branch: 'main',
+        branch: '',
         sourceType: 'git',
         templateId: t['$id'] as string | undefined,
       });
@@ -67,11 +67,11 @@ export function SitesPage() {
         name: String(c['name'] ?? ''),
         framework: 'nextjs',
         repository: String(c['cloneUrl'] ?? c['url'] ?? ''),
-        branch: String(c['defaultBranch'] ?? 'main'),
+        branch: String(c['defaultBranch'] ?? ''),
         sourceType: 'git',
       });
     } else {
-      setPrefill({ name: '', framework: 'nextjs', repository: '', branch: 'main', sourceType: 'upload' });
+      setPrefill({ name: '', framework: 'nextjs', repository: '', branch: '', sourceType: 'upload' });
     }
   };
 

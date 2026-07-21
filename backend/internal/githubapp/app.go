@@ -405,3 +405,64 @@ func FromConfig(c *config.Config) (*App, error) {
 		PrivateKey:    c.GitHubAppPrivateKey,
 	})
 }
+
+// Branch is one branch of a repository.
+type Branch struct {
+	Name      string `json:"name"`
+	Protected bool   `json:"protected"`
+}
+
+// ListBranches returns a repository's branches and which one is its default.
+//
+// Typed by hand, a branch is a guess that fails at clone time — "Remote branch
+// main not found in upstream origin" for a repository whose default is
+// something else entirely.
+func (a *App) ListBranches(ctx context.Context, installationID, owner, repo string) ([]Branch, string, error) {
+	token, err := a.InstallationToken(ctx, installationID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var meta struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := a.get(ctx, token, fmt.Sprintf("/repos/%s/%s", url.PathEscape(owner), url.PathEscape(repo)), &meta); err != nil {
+		return nil, "", err
+	}
+
+	var branches []Branch
+	for page := 1; page <= 10; page++ {
+		var batch []Branch
+		if err := a.get(ctx, token,
+			fmt.Sprintf("/repos/%s/%s/branches?per_page=100&page=%d", url.PathEscape(owner), url.PathEscape(repo), page),
+			&batch); err != nil {
+			return nil, "", err
+		}
+		branches = append(branches, batch...)
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return branches, meta.DefaultBranch, nil
+}
+
+// get performs a request authenticated as an installation.
+func (a *App) get(ctx context.Context, token, path string, out interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", apiBase+path, nil)
+	if err != nil {
+		return err
+	}
+	setHeaders(req, "Bearer "+token)
+
+	resp, err := a.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("github app: GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return apiError("GET "+path, resp.StatusCode, body)
+	}
+	return json.Unmarshal(body, out)
+}

@@ -29,6 +29,7 @@ import (
 func gitHubAppRoutes(r chi.Router, h *Handler) {
 	r.Get("/git/github/install-url", h.gitHubInstallURL)
 	r.Post("/git/github/installations", h.gitHubCompleteInstall)
+	r.Get("/git/github/branches", h.gitHubBranches)
 }
 
 // gitHubInstallURL hands back where to send somebody to install the app.
@@ -83,6 +84,38 @@ func (h *Handler) gitHubCompleteInstall(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusCreated, conn)
+}
+
+// gitHubBranches lists the branches of a repository the project may reach.
+func (h *Handler) gitHubBranches(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	repoURL := r.URL.Query().Get("repo")
+	if repoURL == "" {
+		apperr.BadRequest(w, "repo is required")
+		return
+	}
+
+	branches, defaultBranch, err := h.svc.BranchesForRepo(r.Context(), projectID, repoURL)
+	if err != nil {
+		// Not fatal to the page: the form falls back to a text box for a
+		// repository Applad cannot see, rather than blocking the deploy.
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"available": false,
+			"reason":    err.Error(),
+			"branches":  []string{},
+		})
+		return
+	}
+
+	names := make([]string, 0, len(branches))
+	for _, b := range branches {
+		names = append(names, b.Name)
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"available":     true,
+		"branches":      names,
+		"defaultBranch": defaultBranch,
+	})
 }
 
 // handleGitHubAppWebhook receives every delivery for the app.
