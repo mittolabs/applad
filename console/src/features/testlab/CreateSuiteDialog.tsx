@@ -75,7 +75,7 @@ export function CreateSuiteDialog({
   const create = async () => {
     setBusy(true);
     try {
-      const res = await api.post('/tests/suites', {
+      const res = await api.post('/tests/runners', {
         name: name.trim(),
         sourceType,
         sourceUrl: sourceType === 'git' ? sourceUrl.trim() : '',
@@ -85,7 +85,7 @@ export function CreateSuiteDialog({
         command: command.trim(),
         reportPath: reportPath.trim(),
       });
-      const suiteId = (res.data as { $id: string }).$id;
+      const runnerId = (res.data as { $id: string }).$id;
 
       if (sourceType === 'upload' && source) {
         let body: Blob;
@@ -100,7 +100,7 @@ export function CreateSuiteDialog({
           );
           body = await buildTarGz(entries);
         }
-        await api.post(`/tests/suites/${suiteId}/source`, body, {
+        await api.post(`/tests/runners/${runnerId}/source`, body, {
           headers: { 'Content-Type': 'application/octet-stream' },
         });
       }
@@ -118,8 +118,8 @@ export function CreateSuiteDialog({
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="New test suite"
-      subtitle="How this project runs its tests."
+      title="New runner"
+      subtitle="The image and command that execute a body of tests."
       submitLabel="Create"
       loading={busy}
       submitDisabled={!name.trim() || !command.trim() || (sourceType === 'upload' ? !source : !sourceUrl.trim())}

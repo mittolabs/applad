@@ -69,7 +69,8 @@ type Flow struct {
 	Platform  string `json:"platform"`
 	Target    string `json:"target"`
 	Steps     []Step `json:"steps"`
-	SuiteID   string `json:"suiteId,omitempty"`
+	RunnerID  string `json:"runnerId,omitempty"`
+	TestID    string `json:"testId,omitempty"`
 }
 
 // locator renders a target as a Playwright locator, preferring the strategy

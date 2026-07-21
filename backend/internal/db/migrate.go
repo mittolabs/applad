@@ -32,10 +32,18 @@ func (db *DB) Migrate() error {
 	// Bootstrap the tracking table before anything else so the version check
 	// below never hits a "table doesn't exist" error on a fresh database.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		version    VARCHAR(32) NOT NULL PRIMARY KEY,
+		version    VARCHAR(128) NOT NULL PRIMARY KEY,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`); err != nil {
 		return fmt.Errorf("migrate: bootstrap: %w", err)
+	}
+	// Widen an existing ledger. The column started at 32 characters, which a
+	// descriptive migration filename outgrew — and the failure landed on
+	// recording the migration, after its statements had already run, which is
+	// the worst place to discover a limit like this.
+	if _, err := db.Exec(
+		"ALTER TABLE schema_migrations ALTER COLUMN version TYPE VARCHAR(128)"); err != nil {
+		return fmt.Errorf("migrate: widen ledger: %w", err)
 	}
 
 	files, err := fs.Glob(migrationsFS, "migrations/*.sql")

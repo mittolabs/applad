@@ -125,16 +125,16 @@ func (w *Usage) aggregateAll(ctx context.Context) error {
 
 func (w *Usage) collectStats(ctx context.Context, projectID string) projectStats {
 	s := projectStats{ProjectID: projectID}
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&s.Users)             //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = ?", projectID).Scan(&s.Sessions)       //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM databases WHERE project_id = ?", projectID).Scan(&s.Databases)     //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tables WHERE project_id = ?", projectID).Scan(&s.Tables)           //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = ?", projectID).Scan(&s.Buckets)         //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = ?", projectID).Scan(&s.Files)             //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id = ?", projectID).Scan(&s.Users)                      //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE project_id = ?", projectID).Scan(&s.Sessions)                //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM databases WHERE project_id = ?", projectID).Scan(&s.Databases)              //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tables WHERE project_id = ?", projectID).Scan(&s.Tables)                    //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM buckets WHERE project_id = ?", projectID).Scan(&s.Buckets)                  //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files WHERE project_id = ?", projectID).Scan(&s.Files)                      //nolint:errcheck
 	w.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size), 0) FROM files WHERE project_id = ?", projectID).Scan(&s.StorageBytes) //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM teams WHERE project_id = ?", projectID).Scan(&s.Teams)             //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflows WHERE project_id = ?", projectID).Scan(&s.Workflows)     //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflow_executions WHERE project_id = ?", projectID).Scan(&s.Executions) //nolint:errcheck
-	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM deployments WHERE project_id = ?", projectID).Scan(&s.Deployments) //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM teams WHERE project_id = ?", projectID).Scan(&s.Teams)                      //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflows WHERE project_id = ?", projectID).Scan(&s.Workflows)              //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM workflow_executions WHERE project_id = ?", projectID).Scan(&s.Executions)   //nolint:errcheck
+	w.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM deployments WHERE project_id = ?", projectID).Scan(&s.Deployments)          //nolint:errcheck
 	return s
 }

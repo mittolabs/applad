@@ -66,36 +66,36 @@ func (w *Deletes) process(ctx context.Context, job *queue.Job) error {
 	var err error
 	switch resourceType {
 	case "user":
-		w.db.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ? AND project_id = ?", resourceID, projectID)     //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM memberships WHERE user_id = ?", resourceID)                                  //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ? AND project_id = ?", resourceID, projectID) //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM memberships WHERE user_id = ?", resourceID)                            //nolint:errcheck
 		_, err = w.db.ExecContext(ctx, "DELETE FROM users WHERE id = ? AND project_id = ?", resourceID, projectID)
 	case "project":
-		w.db.ExecContext(ctx, "DELETE FROM workflow_executions WHERE project_id = ?", projectID)                         //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM workflows WHERE project_id = ?", projectID)                                   //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM sessions WHERE project_id = ?", projectID)                                    //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM users WHERE project_id = ?", projectID)                                       //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM workflow_executions WHERE project_id = ?", projectID)                                                                                                                       //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM workflows WHERE project_id = ?", projectID)                                                                                                                                 //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM sessions WHERE project_id = ?", projectID)                                                                                                                                  //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM users WHERE project_id = ?", projectID)                                                                                                                                     //nolint:errcheck
 		w.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE table_id IN (SELECT id FROM tables WHERE project_id = ?) OR related_table IN (SELECT id FROM tables WHERE project_id = ?)", projectID, projectID) //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id IN (SELECT id FROM tables WHERE project_id = ?)", projectID)   //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id IN (SELECT id FROM tables WHERE project_id = ?)", projectID)   //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM tables WHERE project_id = ?", projectID)                                      //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM databases WHERE project_id = ?", projectID)                                   //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM files WHERE project_id = ?", projectID)                                       //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM buckets WHERE project_id = ?", projectID)                                     //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM teams WHERE project_id = ?", projectID)                                       //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM api_keys WHERE project_id = ?", projectID)                                    //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id IN (SELECT id FROM tables WHERE project_id = ?)", projectID)                                                                                         //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id IN (SELECT id FROM tables WHERE project_id = ?)", projectID)                                                                                         //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM tables WHERE project_id = ?", projectID)                                                                                                                                    //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM databases WHERE project_id = ?", projectID)                                                                                                                                 //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM files WHERE project_id = ?", projectID)                                                                                                                                     //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM buckets WHERE project_id = ?", projectID)                                                                                                                                   //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM teams WHERE project_id = ?", projectID)                                                                                                                                     //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM api_keys WHERE project_id = ?", projectID)                                                                                                                                  //nolint:errcheck
 		_, err = w.db.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", projectID)
 	case "database":
 		dbID := resourceID
 		w.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE table_id IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?) OR related_table IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?)", dbID, projectID, dbID, projectID) //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?)", dbID, projectID) //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?)", dbID, projectID) //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM tables WHERE database_id = ? AND project_id = ?", dbID, projectID)           //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?)", dbID, projectID)                                                                                                                   //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id IN (SELECT id FROM tables WHERE database_id = ? AND project_id = ?)", dbID, projectID)                                                                                                                   //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM tables WHERE database_id = ? AND project_id = ?", dbID, projectID)                                                                                                                                                              //nolint:errcheck
 		_, err = w.db.ExecContext(ctx, "DELETE FROM databases WHERE id = ? AND project_id = ?", dbID, projectID)
 	case "table":
 		tableID := resourceID
 		w.db.ExecContext(ctx, "DELETE FROM table_relationships WHERE table_id = ? OR related_table = ?", tableID, tableID) //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id = ?", tableID)                                             //nolint:errcheck
-		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id = ?", tableID)                                             //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM indexes WHERE table_id = ?", tableID)                                           //nolint:errcheck
+		w.db.ExecContext(ctx, "DELETE FROM columns WHERE table_id = ?", tableID)                                           //nolint:errcheck
 		_, err = w.db.ExecContext(ctx, "DELETE FROM tables WHERE id = ?", tableID)
 	case "bucket":
 		bucketID := resourceID

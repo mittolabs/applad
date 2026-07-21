@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mittolabs/applad/internal/db"
@@ -22,8 +23,9 @@ func NewService(database *db.DB, q *queue.Queue) *Service {
 	return &Service{db: database, queue: q}
 }
 
-// Suite is a project's configuration for running its tests.
-type Suite struct {
+// Runner is how a body of tests is executed: the image, the commands, and
+// where results and evidence land. A project usually has one or two.
+type Runner struct {
 	ID         string `json:"$id"`
 	ProjectID  string `json:"projectId"`
 	Name       string `json:"name"`
@@ -47,7 +49,11 @@ type Suite struct {
 type Run struct {
 	ID           string     `json:"$id"`
 	ProjectID    string     `json:"projectId"`
-	SuiteID      string     `json:"suiteId"`
+	RunnerID     string     `json:"runnerId"`
+	SuiteID      string     `json:"suiteId,omitempty"`
+	TargetURL    string     `json:"targetUrl,omitempty"`
+	Flaky        int        `json:"flaky"`
+	Quarantined  int        `json:"quarantined"`
 	Status       string     `json:"status"`
 	Target       string     `json:"target"`
 	TriggerType  string     `json:"triggerType"`
@@ -81,7 +87,7 @@ type CaseResult struct {
 
 // ── Suites ──
 
-func (s *Service) CreateSuite(ctx context.Context, projectID string, in Suite) (*Suite, error) {
+func (s *Service) CreateRunner(ctx context.Context, projectID string, in Runner) (*Runner, error) {
 	if in.ReportPath == "" {
 		in.ReportPath = "junit.xml"
 	}
@@ -99,20 +105,20 @@ func (s *Service) CreateSuite(ctx context.Context, projectID string, in Suite) (
 	id := uid.New("unique()")
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO test_suites (id, project_id, name, source_type, source_url, branch, image,
+		`INSERT INTO test_runners (id, project_id, name, source_type, source_url, branch, image,
 		                          setup_cmd, command, report_path, artifacts_path, env_vars, timeout_ms, created_at, updated_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 		id, projectID, in.Name, in.SourceType, in.SourceURL, in.Branch, in.Image,
 		in.SetupCmd, in.Command, in.ReportPath, in.ArtifactsPath, envJSON, in.TimeoutMs, now, now)
 	if err != nil {
-		return nil, fmt.Errorf("testlab: create suite: %w", err)
+		return nil, fmt.Errorf("testlab: create runner: %w", err)
 	}
 
 	in.ID, in.ProjectID, in.CreatedAt, in.UpdatedAt = id, projectID, now, now
 	return &in, nil
 }
 
-func (s *Service) UpdateSuite(ctx context.Context, id, projectID string, in Suite) (*Suite, error) {
+func (s *Service) UpdateRunner(ctx context.Context, id, projectID string, in Runner) (*Runner, error) {
 	if in.ReportPath == "" {
 		in.ReportPath = "junit.xml"
 	}
@@ -125,50 +131,50 @@ func (s *Service) UpdateSuite(ctx context.Context, id, projectID string, in Suit
 	envJSON, _ := json.Marshal(in.EnvVars)
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE test_suites SET name=$1, source_type=$2, source_url=$3, branch=$4, image=$5,
+		`UPDATE test_runners SET name=$1, source_type=$2, source_url=$3, branch=$4, image=$5,
 		        setup_cmd=$6, command=$7, report_path=$8, artifacts_path=$9, env_vars=$10, timeout_ms=$11
 		  WHERE id=$12 AND project_id=$13`,
 		in.Name, in.SourceType, in.SourceURL, in.Branch, in.Image,
 		in.SetupCmd, in.Command, in.ReportPath, in.ArtifactsPath, envJSON, in.TimeoutMs, id, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("testlab: update suite: %w", err)
+		return nil, fmt.Errorf("testlab: update runner: %w", err)
 	}
-	return s.GetSuite(ctx, id, projectID)
+	return s.GetRunner(ctx, id, projectID)
 }
 
-func (s *Service) GetSuite(ctx context.Context, id, projectID string) (*Suite, error) {
+func (s *Service) GetRunner(ctx context.Context, id, projectID string) (*Runner, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, source_type, COALESCE(source_url,''), COALESCE(branch,''),
 		        COALESCE(image,''), COALESCE(setup_cmd,''), command, report_path, artifacts_path,
 		        COALESCE(env_vars,'{}'), timeout_ms, created_at, updated_at
-		   FROM test_suites WHERE id = $1 AND project_id = $2`, id, projectID)
-	return scanSuite(row)
+		   FROM test_runners WHERE id = $1 AND project_id = $2`, id, projectID)
+	return scanRunner(row)
 }
 
-func (s *Service) ListSuites(ctx context.Context, projectID string) ([]*Suite, int, error) {
+func (s *Service) ListRunners(ctx context.Context, projectID string) ([]*Runner, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, source_type, COALESCE(source_url,''), COALESCE(branch,''),
 		        COALESCE(image,''), COALESCE(setup_cmd,''), command, report_path, artifacts_path,
 		        COALESCE(env_vars,'{}'), timeout_ms, created_at, updated_at
-		   FROM test_suites WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+		   FROM test_runners WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("testlab: list suites: %w", err)
+		return nil, 0, fmt.Errorf("testlab: list runners: %w", err)
 	}
 	defer rows.Close()
 
-	var out []*Suite
+	var out []*Runner
 	for rows.Next() {
-		suite, err := scanSuite(rows)
+		runner, err := scanRunner(rows)
 		if err != nil {
 			return nil, 0, err
 		}
-		out = append(out, suite)
+		out = append(out, runner)
 	}
 	return out, len(out), nil
 }
 
-func (s *Service) DeleteSuite(ctx context.Context, id, projectID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM test_suites WHERE id = $1 AND project_id = $2", id, projectID)
+func (s *Service) DeleteRunner(ctx context.Context, id, projectID string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM test_runners WHERE id = $1 AND project_id = $2", id, projectID)
 	return err
 }
 
@@ -176,8 +182,8 @@ type scanner interface {
 	Scan(dest ...interface{}) error
 }
 
-func scanSuite(row scanner) (*Suite, error) {
-	var s Suite
+func scanRunner(row scanner) (*Runner, error) {
+	var s Runner
 	var envJSON []byte
 	if err := row.Scan(&s.ID, &s.ProjectID, &s.Name, &s.SourceType, &s.SourceURL, &s.Branch,
 		&s.Image, &s.SetupCmd, &s.Command, &s.ReportPath, &s.ArtifactsPath, &envJSON, &s.TimeoutMs,
@@ -193,11 +199,41 @@ func scanSuite(row scanner) (*Suite, error) {
 
 // Trigger queues a run of the suite. The work happens on the builds worker,
 // which has the Docker socket.
-func (s *Service) Trigger(ctx context.Context, suiteID, projectID, triggerType, actor string) (*Run, error) {
-	// Confirms the suite exists and belongs to this project before a run row
-	// is created for it.
-	if _, err := s.GetSuite(ctx, suiteID, projectID); err != nil {
-		return nil, fmt.Errorf("testlab: suite not found")
+func (s *Service) Trigger(ctx context.Context, runnerID, projectID, triggerType, actor string, opts TriggerOptions) (*Run, error) {
+	runner, err := s.GetRunner(ctx, runnerID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("testlab: runner not found")
+	}
+
+	// A selection narrows what runs; a target says what it runs against. Both
+	// belong to the run rather than the runner, which is what lets one suite
+	// be pointed at main and at a branch.
+	var selection *Selection
+	if opts.SuiteID != "" {
+		selection, err = s.GetSelection(ctx, opts.SuiteID, projectID)
+		if err != nil {
+			return nil, fmt.Errorf("testlab: suite not found")
+		}
+		if opts.Target == "" {
+			opts.Target = selection.DefaultTarget
+		}
+	}
+	if opts.Target == "" {
+		opts.Target = runner.EnvVars["BASE_URL"]
+	}
+
+	// The flows are the source of truth and the generated project is derived
+	// from them, so it is rebuilt before it runs rather than being kept in
+	// step by every path that could change a recording.
+	if runner.SourceType == "generated" {
+		if err := s.regenerateRecordedProject(ctx, projectID, runner.ID); err != nil {
+			return nil, err
+		}
+	}
+
+	names, err := s.SelectedNames(ctx, projectID, selection)
+	if err != nil {
+		return nil, err
 	}
 
 	id := uid.New("unique()")
@@ -206,10 +242,11 @@ func (s *Service) Trigger(ctx context.Context, suiteID, projectID, triggerType, 
 		triggerType = "manual"
 	}
 
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO test_runs (id, project_id, suite_id, status, target, trigger_type, trigger_actor, created_at)
-		 VALUES ($1,$2,$3,'queued','container',$4,$5,$6)`,
-		id, projectID, suiteID, triggerType, actor, now)
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO test_runs (id, project_id, runner_id, suite_id, status, target, target_url,
+		                        trigger_type, trigger_actor, created_at)
+		 VALUES ($1,$2,$3,NULLIF($4,''),'queued','container',$5,$6,$7,$8)`,
+		id, projectID, runnerID, opts.SuiteID, opts.Target, triggerType, actor, now)
 	if err != nil {
 		return nil, fmt.Errorf("testlab: create run: %w", err)
 	}
@@ -219,40 +256,51 @@ func (s *Service) Trigger(ctx context.Context, suiteID, projectID, triggerType, 
 			ID:   id,
 			Type: "test_run",
 			Payload: map[string]interface{}{
-				"runId": id, "suiteId": suiteID, "projectId": projectID,
+				"runId": id, "runnerId": runnerID, "projectId": projectID,
+				"target": opts.Target, "grep": grepFor(names),
 			},
 			CreatedAt: now,
 		})
 	}
 
 	return &Run{
-		ID: id, ProjectID: projectID, SuiteID: suiteID, Status: "queued",
-		Target: "container", TriggerType: triggerType, TriggerActor: actor,
-		CreatedAt: now,
+		ID: id, ProjectID: projectID, RunnerID: runnerID, SuiteID: opts.SuiteID,
+		Status: "queued", Target: "container", TargetURL: opts.Target,
+		TriggerType: triggerType, TriggerActor: actor, CreatedAt: now,
 	}, nil
+}
+
+// TriggerOptions are the things that vary per run rather than per runner.
+type TriggerOptions struct {
+	// SuiteID narrows the run to a selection.
+	SuiteID string
+	// Target overrides what the tests run against — a branch rather than main.
+	Target string
 }
 
 func (s *Service) GetRun(ctx context.Context, id, projectID string) (*Run, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, suite_id, status, target, trigger_type, COALESCE(trigger_actor,''),
-		        COALESCE(commit_sha,''), total, passed, failed, skipped, duration_ms,
+		`SELECT id, project_id, runner_id, COALESCE(suite_id,''), status, target, COALESCE(target_url,''),
+		        trigger_type, COALESCE(trigger_actor,''), COALESCE(commit_sha,''),
+		        total, passed, failed, skipped, flaky, quarantined, duration_ms,
 		        COALESCE(log,''), COALESCE(error,''), started_at, finished_at, created_at
 		   FROM test_runs WHERE id = $1 AND project_id = $2`, id, projectID)
 	return scanRun(row)
 }
 
-func (s *Service) ListRuns(ctx context.Context, projectID, suiteID string, limit int) ([]*Run, int, error) {
+func (s *Service) ListRuns(ctx context.Context, projectID, runnerID string, limit int) ([]*Run, int, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	query := `SELECT id, project_id, suite_id, status, target, trigger_type, COALESCE(trigger_actor,''),
-	                 COALESCE(commit_sha,''), total, passed, failed, skipped, duration_ms,
+	query := `SELECT id, project_id, runner_id, COALESCE(suite_id,''), status, target, COALESCE(target_url,''),
+	                 trigger_type, COALESCE(trigger_actor,''), COALESCE(commit_sha,''),
+	                 total, passed, failed, skipped, flaky, quarantined, duration_ms,
 	                 '', COALESCE(error,''), started_at, finished_at, created_at
 	            FROM test_runs WHERE project_id = $1`
 	args := []interface{}{projectID}
-	if suiteID != "" {
-		query += " AND suite_id = $2"
-		args = append(args, suiteID)
+	if runnerID != "" {
+		query += " AND runner_id = $2"
+		args = append(args, runnerID)
 	}
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", limit)
 
@@ -276,9 +324,9 @@ func (s *Service) ListRuns(ctx context.Context, projectID, suiteID string, limit
 func scanRun(row scanner) (*Run, error) {
 	var r Run
 	var started, finished sql.NullTime
-	if err := row.Scan(&r.ID, &r.ProjectID, &r.SuiteID, &r.Status, &r.Target, &r.TriggerType,
-		&r.TriggerActor, &r.CommitSHA, &r.Total, &r.Passed, &r.Failed, &r.Skipped,
-		&r.DurationMs, &r.Log, &r.Error, &started, &finished, &r.CreatedAt); err != nil {
+	if err := row.Scan(&r.ID, &r.ProjectID, &r.RunnerID, &r.SuiteID, &r.Status, &r.Target, &r.TargetURL,
+		&r.TriggerType, &r.TriggerActor, &r.CommitSHA, &r.Total, &r.Passed, &r.Failed, &r.Skipped,
+		&r.Flaky, &r.Quarantined, &r.DurationMs, &r.Log, &r.Error, &started, &finished, &r.CreatedAt); err != nil {
 		return nil, err
 	}
 	if started.Valid {
@@ -320,14 +368,43 @@ func (s *Service) ListCases(ctx context.Context, runID, projectID string) ([]*Ca
 
 // RecordResults stores a finished run's cases and its verdict, in one
 // transaction so a run is never half-recorded.
-func (s *Service) RecordResults(ctx context.Context, runID, projectID string, cases []Case, log, runErr string, durationMs int64) error {
+func (s *Service) RecordResults(ctx context.Context, runID, projectID, runnerID string, cases []Case, log, runErr string, durationMs int64) error {
+	now := time.Now().UTC()
+
+	// Discovery: every test a run reports becomes a catalogue entry, which is
+	// how authored tests gain a history without anybody registering them.
+	testIDs, err := s.RecordDiscovered(ctx, projectID, runnerID, cases, now)
+	if err != nil {
+		return err
+	}
+	quarantined, err := s.QuarantinedNames(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
 	summary := Summarise(cases)
+	blocking, flaky, quarantinedCount := 0, 0, 0
+	for _, c := range cases {
+		if c.Flaky {
+			flaky++
+		}
+		if c.Status == CasePassed || c.Status == CaseSkipped {
+			continue
+		}
+		// A quarantined failure is reported but does not decide the run: that
+		// is the whole point of quarantining rather than deleting.
+		if quarantined[c.SuiteName+"\x00"+c.Name] {
+			quarantinedCount++
+			continue
+		}
+		blocking++
+	}
 
 	status := "passed"
 	switch {
 	case runErr != "":
 		status = "errored"
-	case summary.Failed > 0:
+	case blocking > 0:
 		status = "failed"
 	}
 
@@ -337,23 +414,23 @@ func (s *Service) RecordResults(ctx context.Context, runID, projectID string, ca
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	now := time.Now().UTC()
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE test_runs SET status=$1, total=$2, passed=$3, failed=$4, skipped=$5,
-		        duration_ms=$6, log=$7, error=NULLIF($8,''), finished_at=$9
-		  WHERE id=$10 AND project_id=$11`,
+		        flaky=$6, quarantined=$7, duration_ms=$8, log=$9, error=NULLIF($10,''), finished_at=$11
+		  WHERE id=$12 AND project_id=$13`,
 		status, summary.Total, summary.Passed, summary.Failed, summary.Skipped,
-		durationMs, log, runErr, now, runID, projectID); err != nil {
+		flaky, quarantinedCount, durationMs, log, runErr, now, runID, projectID); err != nil {
 		return fmt.Errorf("testlab: record results: %w", err)
 	}
 
 	for _, c := range cases {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO test_cases (id, run_id, project_id, suite_name, name, status,
-			                         duration_ms, failure_message, failure_details, created_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''),$10)`,
-			uid.New("unique()"), runID, projectID, c.SuiteName, c.Name, string(c.Status),
-			c.DurationMs, c.FailureMessage, c.FailureDetails, now); err != nil {
+			`INSERT INTO test_cases (id, run_id, project_id, test_id, suite_name, name, status,
+			                         duration_ms, failure_message, failure_details, flaky, retries, created_at)
+			 VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,NULLIF($9,''),NULLIF($10,''),$11,$12,$13)`,
+			uid.New("unique()"), runID, projectID, testIDs[c.SuiteName+"\x00"+c.Name],
+			c.SuiteName, c.Name, string(c.Status), c.DurationMs,
+			c.FailureMessage, c.FailureDetails, c.Flaky, c.Retries, now); err != nil {
 			return fmt.Errorf("testlab: record case: %w", err)
 		}
 	}
@@ -381,43 +458,107 @@ func (s *Service) SaveFlow(ctx context.Context, projectID string, f Flow) (*Flow
 		f.Platform = "web"
 	}
 
-	spec := CompilePlaywright(f)
-	suite, err := s.CreateSuite(ctx, projectID, Suite{
-		Name:          f.Name,
+	// Every recording shares one runner. Giving each its own is what made a
+	// recording appear twice — once as a flow, once as a suite — and made
+	// "suite" mean "a single test".
+	runner, err := s.RecordedRunner(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	f.RunnerID = runner.ID
+
+	stepsJSON, _ := json.Marshal(f.Steps)
+	now := time.Now().UTC()
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO test_flows (id, project_id, name, platform, target, steps, runner_id, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+		f.ID, projectID, f.Name, f.Platform, f.Target, stepsJSON, runner.ID, now); err != nil {
+		return nil, fmt.Errorf("testlab: save flow: %w", err)
+	}
+
+	// A recorded test is known before it ever runs, so it joins the catalogue
+	// immediately rather than waiting to be discovered.
+	var testID string
+	if err := s.db.QueryRowContext(ctx,
+		`INSERT INTO tests (id, project_id, runner_id, suite_name, name, source, flow_id, created_at, updated_at)
+		 VALUES ($1,$2,$3,'recorded',$4,'recorded',$5,$6,$6)
+		 ON CONFLICT (project_id, runner_id, suite_name, name) DO UPDATE SET flow_id = EXCLUDED.flow_id
+		 RETURNING id`,
+		uid.New("unique()"), projectID, runner.ID, f.Name, f.ID, now).Scan(&testID); err != nil {
+		return nil, fmt.Errorf("testlab: catalogue recorded test: %w", err)
+	}
+	s.db.ExecContext(ctx, "UPDATE test_flows SET test_id = $1 WHERE id = $2", testID, f.ID) //nolint:errcheck
+
+	// The generated project holds every recording, so a selection can run one
+	// of them or all of them.
+	if err := s.regenerateRecordedProject(ctx, projectID, runner.ID); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+// RecordedRunner returns the single runner recordings compile into, creating
+// it the first time something is recorded.
+func (s *Service) RecordedRunner(ctx context.Context, projectID string) (*Runner, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM test_runners WHERE project_id = $1 AND source_type = 'generated' LIMIT 1",
+		projectID).Scan(&id)
+	if err == nil {
+		return s.GetRunner(ctx, id, projectID)
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("testlab: find recorded runner: %w", err)
+	}
+
+	return s.CreateRunner(ctx, projectID, Runner{
+		Name:          "Recorded flows",
 		SourceType:    "generated",
 		Image:         browserTestImage(),
 		SetupCmd:      "npm install --no-audit --no-fund @playwright/test@1.49.0",
 		Command:       "npx playwright test",
 		ReportPath:    "junit.xml",
 		ArtifactsPath: "test-results",
-		EnvVars:       map[string]string{"BASE_URL": f.Target},
 		TimeoutMs:     900000,
 	})
-	if err != nil {
-		return nil, err
-	}
-	f.SuiteID = suite.ID
+}
 
-	// The suite's source is the recording, written where the runner expects an
-	// uploaded project.
-	if err := writeGeneratedProject(suite.ID, f.Name, spec); err != nil {
-		return nil, fmt.Errorf("testlab: write generated suite: %w", err)
-	}
-
-	stepsJSON, _ := json.Marshal(f.Steps)
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO test_flows (id, project_id, name, platform, target, steps, suite_id, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
-		f.ID, projectID, f.Name, f.Platform, f.Target, stepsJSON, f.SuiteID, time.Now().UTC())
+// regenerateRecordedProject rewrites the generated project from every flow, so
+// adding or discarding one keeps the runnable source in step with the
+// catalogue.
+func (s *Service) regenerateRecordedProject(ctx context.Context, projectID, runnerID string) error {
+	flows, err := s.ListFlows(ctx, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("testlab: save flow: %w", err)
+		return err
 	}
-	return &f, nil
+	specs := map[string]string{}
+	for _, f := range flows {
+		specs[specFileName(f.Name)] = CompilePlaywright(*f)
+	}
+	if err := writeGeneratedProject(runnerID, specs); err != nil {
+		return fmt.Errorf("testlab: write generated project: %w", err)
+	}
+	return nil
+}
+
+// specFileName turns a flow's name into a file name that stays readable in a
+// stack trace.
+func specFileName(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-") + ".spec.js"
 }
 
 func (s *Service) ListFlows(ctx context.Context, projectID string) ([]*Flow, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, platform, target, steps, COALESCE(suite_id,'')
+		`SELECT id, project_id, name, platform, target, steps, COALESCE(runner_id,'')
 		   FROM test_flows WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("testlab: list flows: %w", err)
@@ -437,7 +578,7 @@ func (s *Service) ListFlows(ctx context.Context, projectID string) ([]*Flow, err
 
 func (s *Service) GetFlow(ctx context.Context, id, projectID string) (*Flow, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, platform, target, steps, COALESCE(suite_id,'')
+		`SELECT id, project_id, name, platform, target, steps, COALESCE(runner_id,'')
 		   FROM test_flows WHERE id = $1 AND project_id = $2`, id, projectID)
 	return scanFlow(row)
 }
@@ -455,7 +596,7 @@ func (s *Service) DeleteFlow(ctx context.Context, id, projectID string) error {
 		return err
 	}
 	if suiteID != "" {
-		return s.DeleteSuite(ctx, suiteID, projectID)
+		return s.DeleteRunner(ctx, suiteID, projectID)
 	}
 	return nil
 }
@@ -463,7 +604,7 @@ func (s *Service) DeleteFlow(ctx context.Context, id, projectID string) error {
 func scanFlow(row scanner) (*Flow, error) {
 	var f Flow
 	var stepsJSON []byte
-	if err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Platform, &f.Target, &stepsJSON, &f.SuiteID); err != nil {
+	if err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Platform, &f.Target, &stepsJSON, &f.RunnerID); err != nil {
 		return nil, err
 	}
 	json.Unmarshal(stepsJSON, &f.Steps) //nolint:errcheck

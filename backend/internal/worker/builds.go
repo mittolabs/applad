@@ -260,34 +260,53 @@ func extractZip(archive, dir string) error {
 // run itself failing to execute is an error.
 func (w *Builds) processTestRun(ctx context.Context, job *queue.Job) error {
 	runID, _ := job.Payload["runId"].(string)
-	suiteID, _ := job.Payload["suiteId"].(string)
+	runnerID, _ := job.Payload["runnerId"].(string)
 	projectID, _ := job.Payload["projectId"].(string)
+	target, _ := job.Payload["target"].(string)
+	grep, _ := job.Payload["grep"].(string)
 	start := time.Now()
 
 	svc := testlab.NewService(w.db, w.queue)
-	suite, err := svc.GetSuite(ctx, suiteID, projectID)
+	runner, err := svc.GetRunner(ctx, runnerID, projectID)
 	if err != nil {
-		svc.RecordResults(ctx, runID, projectID, nil, "", "suite no longer exists", 0) //nolint:errcheck
+		svc.RecordResults(ctx, runID, projectID, runnerID, nil, "", "runner no longer exists", 0) //nolint:errcheck
 		return err
 	}
 	svc.MarkRunning(ctx, runID)
 
-	sourceDir, err := w.testSource(ctx, suite)
+	sourceDir, err := w.testSource(ctx, runner)
 	if err != nil {
-		svc.RecordResults(ctx, runID, projectID, nil, "", err.Error(), time.Since(start).Milliseconds()) //nolint:errcheck
+		svc.RecordResults(ctx, runID, projectID, runnerID, nil, "", err.Error(), time.Since(start).Milliseconds()) //nolint:errcheck
 		return err
 	}
 	defer os.RemoveAll(sourceDir)
 
+	// The target belongs to the run, not the runner, so testing a branch and
+	// testing main is the same configuration pointed somewhere else.
+	env := map[string]string{}
+	for k, v := range runner.EnvVars {
+		env[k] = v
+	}
+	if target != "" {
+		env["BASE_URL"] = target
+	}
+
+	command := runner.Command
+	if grep != "" {
+		// A selection is passed to the runner as a name filter rather than by
+		// rewriting the project, which keeps the runner ignorant of selections.
+		command += " --grep " + shellQuote(grep)
+	}
+
 	result, runErr := w.deployExecutor.RunTests(ctx, runID, runtime.TestRunConfig{
 		SourceDir:     sourceDir,
-		Image:         suite.Image,
-		SetupCmd:      suite.SetupCmd,
-		Command:       suite.Command,
-		ReportPath:    suite.ReportPath,
-		ArtifactsPath: suite.ArtifactsPath,
-		Env:           suite.EnvVars,
-		TimeoutMs:     suite.TimeoutMs,
+		Image:         runner.Image,
+		SetupCmd:      runner.SetupCmd,
+		Command:       command,
+		ReportPath:    runner.ReportPath,
+		ArtifactsPath: runner.ArtifactsPath,
+		Env:           env,
+		TimeoutMs:     runner.TimeoutMs,
 	})
 	durationMs := time.Since(start).Milliseconds()
 
@@ -296,45 +315,51 @@ func (w *Builds) processTestRun(ctx context.Context, job *queue.Job) error {
 		if result != nil {
 			logOut = result.Log
 		}
-		svc.RecordResults(ctx, runID, projectID, nil, logOut, runErr.Error(), durationMs) //nolint:errcheck
+		svc.RecordResults(ctx, runID, projectID, runnerID, nil, logOut, runErr.Error(), durationMs) //nolint:errcheck
 		return runErr
 	}
 
 	cases, parseErr := testlab.ParseJUnit(bytes.NewReader(result.Report))
 	if parseErr != nil {
-		// No readable report. If the command itself succeeded this is a
-		// misconfiguration worth naming; if it failed, the log already says
-		// why and the missing report is a consequence.
-		msg := fmt.Sprintf("no test report at %s: %v", suite.ReportPath, parseErr)
+		msg := fmt.Sprintf("no test report at %s: %v", runner.ReportPath, parseErr)
 		if result.ExitCode != 0 {
-			msg = fmt.Sprintf("tests exited %d and left no report at %s", result.ExitCode, suite.ReportPath)
+			msg = fmt.Sprintf("tests exited %d and left no report at %s", result.ExitCode, runner.ReportPath)
 		}
-		svc.RecordResults(ctx, runID, projectID, nil, result.Log, msg, durationMs) //nolint:errcheck
+		svc.RecordResults(ctx, runID, projectID, runnerID, nil, result.Log, msg, durationMs) //nolint:errcheck
 		slog.Warn("builds worker: test run produced no report", "run_id", runID, "error", parseErr)
 		return nil
 	}
 
-	if err := svc.RecordResults(ctx, runID, projectID, cases, result.Log, "", durationMs); err != nil {
+	// Attempts at the same test are one result, and one that failed then
+	// passed is flaky rather than failing.
+	cases = testlab.MergeRetries(cases)
+
+	if err := svc.RecordResults(ctx, runID, projectID, runnerID, cases, result.Log, "", durationMs); err != nil {
 		return err
 	}
-
-	// Stored after the cases exist, so a recording named after a test can be
-	// attached to it.
 	if err := svc.StoreArtifacts(ctx, runID, projectID, result.Artifacts); err != nil {
 		slog.Warn("builds worker: storing test artifacts failed", "run_id", runID, "error", err)
 	}
+
 	summary := testlab.Summarise(cases)
 	slog.Info("builds worker: test run complete", "run_id", runID,
-		"total", summary.Total, "failed", summary.Failed, "duration_ms", durationMs)
+		"total", summary.Total, "failed", summary.Failed, "flaky", summary.Flaky,
+		"duration_ms", durationMs)
 	return nil
 }
 
+// shellQuote makes a value safe inside the single-quoted command the runner
+// executes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // testSource materialises the project under test, from git or from an upload.
-func (w *Builds) testSource(ctx context.Context, suite *testlab.Suite) (string, error) {
-	if suite.SourceType == "git" && suite.SourceURL != "" {
-		return cloneToSource(ctx, suite.SourceURL, suite.Branch)
+func (w *Builds) testSource(ctx context.Context, runner *testlab.Runner) (string, error) {
+	if runner.SourceType == "git" && runner.SourceURL != "" {
+		return cloneToSource(ctx, runner.SourceURL, runner.Branch)
 	}
-	return extractUploadedSource(suite.ID)
+	return extractUploadedSource(runner.ID)
 }
 
 // processStudioStart opens a browser for a recording session.
@@ -758,6 +783,14 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	}
 
 	durationMs := time.Since(start).Milliseconds()
+	if deployErr == nil && cfg.subdomain != "" {
+		// What just shipped is what gets checked.
+		svc := testlab.NewService(w.db, w.queue)
+		if n, err := svc.TriggerOnDeploy(ctx, projectID,
+			"http://applad-site-"+cfg.subdomain, "deploy:"+releaseID); err == nil && n > 0 {
+			slog.Info("builds worker: triggered tests after deploy", "release_id", releaseID, "suites", n)
+		}
+	}
 	if deployErr != nil {
 		w.updateReleaseStatus(ctx, releaseID, "failed", "", deployErr.Error(), durationMs)
 		w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Deploy failed")

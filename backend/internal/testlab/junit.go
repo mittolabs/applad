@@ -37,6 +37,10 @@ type Case struct {
 	DurationMs     int64
 	FailureMessage string
 	FailureDetails string
+	// Flaky is set when the test failed and then passed within the same run.
+	// Retrying is what turns "sometimes red" from a mystery into a fact.
+	Flaky   bool
+	Retries int
 }
 
 // Summary counts the outcomes of a parsed report.
@@ -45,6 +49,7 @@ type Summary struct {
 	Passed     int
 	Failed     int
 	Skipped    int
+	Flaky      int
 	DurationMs int64
 }
 
@@ -202,6 +207,45 @@ func secondsToMs(v string) int64 {
 	return int64(f * 1000)
 }
 
+// MergeRetries collapses repeated attempts at the same test into one result.
+//
+// A runner told to retry reports each attempt, so the same name appears more
+// than once. The last attempt is the outcome; a test that failed and then
+// passed is flaky, which is a fact worth keeping rather than a red run worth
+// arguing about.
+func MergeRetries(cases []Case) []Case {
+	order := make([]string, 0, len(cases))
+	byName := map[string]*Case{}
+
+	for i := range cases {
+		c := cases[i]
+		key := c.SuiteName + "\x00" + c.Name
+		prev, seen := byName[key]
+		if !seen {
+			copied := c
+			byName[key] = &copied
+			order = append(order, key)
+			continue
+		}
+		prev.Retries++
+		// The later attempt stands, but a pass after a failure is remembered.
+		if prev.Status != CasePassed && c.Status == CasePassed {
+			prev.Flaky = true
+		}
+		prev.Status = c.Status
+		prev.DurationMs += c.DurationMs
+		if c.Status != CasePassed {
+			prev.FailureMessage, prev.FailureDetails = c.FailureMessage, c.FailureDetails
+		}
+	}
+
+	out := make([]Case, 0, len(order))
+	for _, key := range order {
+		out = append(out, *byName[key])
+	}
+	return out
+}
+
 // Summarise counts outcomes for a run.
 func Summarise(cases []Case) Summary {
 	s := Summary{Total: len(cases)}
@@ -210,6 +254,9 @@ func Summarise(cases []Case) Summary {
 		switch c.Status {
 		case CasePassed:
 			s.Passed++
+			if c.Flaky {
+				s.Flaky++
+			}
 		case CaseSkipped:
 			s.Skipped++
 		default:

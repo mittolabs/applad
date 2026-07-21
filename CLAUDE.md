@@ -255,9 +255,23 @@ format, so Applad supports a new framework by configuration rather than code.
 
 Runs execute on the builds worker: an image is built from the source (git or
 upload), run to completion, and the report copied out of the stopped container.
-Results are stored per case in `test_cases`, which is the addressable unit —
-history and flakiness read across runs by (suite_name, name), and `spec_ref` is
-reserved for the Spec module to attach a specification example to a case.
+Four objects, because conflating them is what made the first cut unusable:
+
+| | |
+|---|---|
+| **runner** | how tests execute — image, setup, command, report path |
+| **test** | one behaviour, recorded or discovered by running. Tagged, quarantinable, carries history |
+| **suite** | a selection of tests by tag, plus triggers: on deploy, on a schedule |
+| **run** | a suite executed against a target, at a moment |
+
+The target belongs to the run, not the test, so one suite checks main and a
+branch rather than being duplicated per environment. Recordings share a single
+generated runner; giving each its own is what listed every recording twice.
+
+Retries are on, and a test that fails then passes within a run is recorded as
+flaky rather than failing it. A quarantined test still runs and still reports
+but no longer decides the verdict, which is how a known-flaky test stops
+blocking deploys without being deleted and forgotten.
 
 A suite may also name an `artifactsPath`; that directory is copied out of the
 container and stored under `STORAGE_PATH/test-artifacts/<runId>`. Where a

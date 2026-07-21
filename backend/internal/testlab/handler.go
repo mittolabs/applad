@@ -37,14 +37,30 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func Routes(h *Handler) http.Handler {
 	r := chi.NewRouter()
 
-	r.Route("/suites", func(r chi.Router) {
+	r.Route("/runners", func(r chi.Router) {
 		r.Post("/", h.createSuite)
 		r.Get("/", h.listSuites)
-		r.Get("/{suiteId}", h.getSuite)
-		r.Put("/{suiteId}", h.updateSuite)
-		r.Delete("/{suiteId}", h.deleteSuite)
-		r.Post("/{suiteId}/source", h.uploadSource)
-		r.Post("/{suiteId}/run", h.triggerRun)
+		r.Get("/{runnerId}", h.getSuite)
+		r.Put("/{runnerId}", h.updateSuite)
+		r.Delete("/{runnerId}", h.deleteSuite)
+		r.Post("/{runnerId}/source", h.uploadSource)
+		r.Post("/{runnerId}/run", h.triggerRun)
+	})
+
+	// The catalogue: one entry per behaviour, however it got there.
+	r.Route("/tests", func(r chi.Router) {
+		r.Get("/", h.listTests)
+		r.Put("/{testId}/tags", h.setTags)
+		r.Put("/{testId}/quarantine", h.setQuarantine)
+	})
+
+	// Selections: which tests, run when.
+	r.Route("/suites", func(r chi.Router) {
+		r.Post("/", h.createSelection)
+		r.Get("/", h.listSelections)
+		r.Put("/{suiteId}", h.updateSelection)
+		r.Delete("/{suiteId}", h.deleteSelection)
+		r.Post("/{suiteId}/run", h.runSelection)
 	})
 
 	r.Route("/runs", func(r chi.Router) {
@@ -65,7 +81,7 @@ func Routes(h *Handler) http.Handler {
 
 func (h *Handler) createSuite(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
-	var body Suite
+	var body Runner
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
 		return
@@ -79,40 +95,40 @@ func (h *Handler) createSuite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	suite, err := h.svc.CreateSuite(r.Context(), projectID, body)
+	runner, err := h.svc.CreateRunner(r.Context(), projectID, body)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, suite)
+	writeJSON(w, http.StatusCreated, runner)
 }
 
 func (h *Handler) listSuites(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
-	suites, total, err := h.svc.ListSuites(r.Context(), projectID)
+	runners, total, err := h.svc.ListRunners(r.Context(), projectID)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	if suites == nil {
-		suites = []*Suite{}
+	if runners == nil {
+		runners = []*Runner{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "suites": suites})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "runners": runners})
 }
 
 func (h *Handler) getSuite(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
-	suite, err := h.svc.GetSuite(r.Context(), chi.URLParam(r, "suiteId"), projectID)
+	runner, err := h.svc.GetRunner(r.Context(), chi.URLParam(r, "runnerId"), projectID)
 	if err != nil {
-		apperr.NotFound(w, "suite")
+		apperr.NotFound(w, "runner")
 		return
 	}
-	writeJSON(w, http.StatusOK, suite)
+	writeJSON(w, http.StatusOK, runner)
 }
 
 func (h *Handler) updateSuite(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
-	var body Suite
+	var body Runner
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
 		return
@@ -121,23 +137,23 @@ func (h *Handler) updateSuite(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "command is required")
 		return
 	}
-	suite, err := h.svc.UpdateSuite(r.Context(), chi.URLParam(r, "suiteId"), projectID, body)
+	runner, err := h.svc.UpdateRunner(r.Context(), chi.URLParam(r, "runnerId"), projectID, body)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, suite)
+	writeJSON(w, http.StatusOK, runner)
 }
 
 func (h *Handler) deleteSuite(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
-	suiteID := chi.URLParam(r, "suiteId")
-	if err := h.svc.DeleteSuite(r.Context(), suiteID, projectID); err != nil {
+	runnerID := chi.URLParam(r, "runnerId")
+	if err := h.svc.DeleteRunner(r.Context(), runnerID, projectID); err != nil {
 		apperr.Internal(w, err)
 		return
 	}
 	// The uploaded source is keyed by suite and nothing else refers to it.
-	os.Remove(deploy.SourceArchivePath(suiteID)) //nolint:errcheck
+	os.Remove(deploy.SourceArchivePath(runnerID)) //nolint:errcheck
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -146,9 +162,9 @@ func (h *Handler) deleteSuite(w http.ResponseWriter, r *http.Request) {
 // since the build worker extracts both the same way.
 func (h *Handler) uploadSource(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
-	suiteID := chi.URLParam(r, "suiteId")
+	runnerID := chi.URLParam(r, "runnerId")
 
-	if _, err := h.svc.GetSuite(r.Context(), suiteID, projectID); err != nil {
+	if _, err := h.svc.GetRunner(r.Context(), runnerID, projectID); err != nil {
 		apperr.NotFound(w, "suite")
 		return
 	}
@@ -157,7 +173,7 @@ func (h *Handler) uploadSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dest := deploy.SourceArchivePath(suiteID)
+	dest := deploy.SourceArchivePath(runnerID)
 	f, err := os.Create(dest)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -176,7 +192,7 @@ func (h *Handler) uploadSource(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "empty source archive")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]interface{}{"suiteId": suiteID, "bytes": written})
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"runnerId": runnerID, "bytes": written})
 }
 
 // ── Runs ──
@@ -186,12 +202,145 @@ func (h *Handler) triggerRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TriggerType string `json:"triggerType"`
 		Actor       string `json:"actor"`
+		SuiteID     string `json:"suiteId"`
+		Target      string `json:"target"`
 	}
 	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
 
-	run, err := h.svc.Trigger(r.Context(), chi.URLParam(r, "suiteId"), projectID, body.TriggerType, body.Actor)
+	run, err := h.svc.Trigger(r.Context(), chi.URLParam(r, "runnerId"), projectID,
+		body.TriggerType, body.Actor, TriggerOptions{SuiteID: body.SuiteID, Target: body.Target})
+	if err != nil {
+		apperr.NotFound(w, "runner")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (h *Handler) listTests(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	tests, err := h.svc.ListTests(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if tests == nil {
+		tests = []*Test{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(tests), "tests": tests})
+}
+
+func (h *Handler) setTags(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if err := h.svc.SetTags(r.Context(), chi.URLParam(r, "testId"), projectID, body.Tags); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) setQuarantine(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body struct {
+		Quarantined bool `json:"quarantined"`
+	}
+	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+	if err := h.svc.SetQuarantined(r.Context(), chi.URLParam(r, "testId"), projectID, body.Quarantined); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) createSelection(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body Selection
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+		apperr.BadRequest(w, "name is required")
+		return
+	}
+	sel, err := h.svc.CreateSelection(r.Context(), projectID, body)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, sel)
+}
+
+func (h *Handler) listSelections(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	sels, err := h.svc.ListSelections(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if sels == nil {
+		sels = []*Selection{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(sels), "suites": sels})
+}
+
+func (h *Handler) updateSelection(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var body Selection
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	sel, err := h.svc.UpdateSelection(r.Context(), chi.URLParam(r, "suiteId"), projectID, body)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sel)
+}
+
+func (h *Handler) deleteSelection(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	if err := h.svc.DeleteSelection(r.Context(), chi.URLParam(r, "suiteId"), projectID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// runSelection runs a suite, optionally against a target other than its
+// default — which is how the same suite checks main and a branch.
+func (h *Handler) runSelection(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	suiteID := chi.URLParam(r, "suiteId")
+
+	var body struct {
+		Target string `json:"target"`
+		Actor  string `json:"actor"`
+	}
+	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+
+	sel, err := h.svc.GetSelection(r.Context(), suiteID, projectID)
 	if err != nil {
 		apperr.NotFound(w, "suite")
+		return
+	}
+	runnerID := sel.RunnerID
+	if runnerID == "" {
+		runner, err := h.svc.RecordedRunner(r.Context(), projectID)
+		if err != nil {
+			apperr.Internal(w, err)
+			return
+		}
+		runnerID = runner.ID
+	}
+
+	run, err := h.svc.Trigger(r.Context(), runnerID, projectID, "manual", body.Actor,
+		TriggerOptions{SuiteID: suiteID, Target: body.Target})
+	if err != nil {
+		apperr.Internal(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, run)
@@ -200,7 +349,7 @@ func (h *Handler) triggerRun(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	runs, total, err := h.svc.ListRuns(r.Context(), projectID, r.URL.Query().Get("suiteId"), limit)
+	runs, total, err := h.svc.ListRuns(r.Context(), projectID, r.URL.Query().Get("runnerId"), limit)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

@@ -16,7 +16,8 @@ import { type Row } from '@/components/data-table';
 import { CreateSuiteDialog } from './CreateSuiteDialog';
 import { StudioView } from './StudioView';
 import { RecordDialog, type StudioSession } from './RecordDialog';
-import { FlowsTab } from './FlowsTab';
+import { TestsTab } from './TestsTab';
+import { SuitesTab } from './SuitesTab';
 import { shortDate } from '../deploy-shared/format';
 
 /*
@@ -28,7 +29,7 @@ import { shortDate } from '../deploy-shared/format';
  * red run is read by looking at what broke.
  */
 
-const LIST_TABS = ['Flows', 'Suites', 'Runs'];
+const LIST_TABS = ['Tests', 'Suites', 'Runs', 'Runners'];
 
 export function TestPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -68,13 +69,10 @@ export function TestPage() {
 
       <PageTabs tabs={LIST_TABS} selected={tab} onChange={setTab} />
 
-      {tab === 0 && (
-        <FlowsTab key={flowsKey} projectId={projectId} onRecord={() => setRecording(true)} />
-      )}
-      {tab === 1 && (
-        <SuitesTab projectId={projectId} creating={creating} setCreating={setCreating} />
-      )}
+      {tab === 0 && <TestsTab key={flowsKey} projectId={projectId} onRecord={() => setRecording(true)} />}
+      {tab === 1 && <SuitesTab projectId={projectId} />}
       {tab === 2 && <RunsTab projectId={projectId} onOpen={setOpenRun} />}
+      {tab === 3 && <RunnersTab projectId={projectId} creating={creating} setCreating={setCreating} />}
 
       <RecordDialog open={recording} onOpenChange={setRecording} onStarted={setSession} />
     </div>
@@ -83,7 +81,9 @@ export function TestPage() {
 
 // ── Suites ──
 
-function SuitesTab({
+// Runners are the execution detail — an image and a command. Most projects
+// have one and never look at it again, so it sits last.
+function RunnersTab({
   projectId,
   creating,
   setCreating,
@@ -93,13 +93,13 @@ function SuitesTab({
   setCreating: (v: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const list = useResourceList<Row>({ endpoint: '/tests/suites', itemsKey: 'suites', scope: [projectId] });
+  const list = useResourceList<Row>({ endpoint: '/tests/runners', itemsKey: 'runners', scope: [projectId] });
   const [running, setRunning] = useState<string | null>(null);
 
-  const run = async (suiteId: string) => {
-    setRunning(suiteId);
+  const run = async (runnerId: string) => {
+    setRunning(runnerId);
     try {
-      await api.post(`/tests/suites/${suiteId}/run`, { triggerType: 'manual', actor: 'console' });
+      await api.post(`/tests/runners/${runnerId}/run`, { triggerType: 'manual', actor: 'console' });
       toast.success('Test run queued');
       qc.invalidateQueries({ queryKey: ['resource-list', '/tests/runs'] });
     } catch (e) {
@@ -119,15 +119,15 @@ function SuitesTab({
         trailing={
           <Button onClick={() => setCreating(true)}>
             <Plus size={14} />
-            New suite
+            New runner
           </Button>
         }
       />
 
       {list.rows.length === 0 ? (
         <EmptyState
-          title="No test suites yet"
-          subtitle="A suite is a command that runs your tests and leaves a JUnit report behind."
+          title="No runners yet"
+          subtitle="A runner is the image and command that executes your tests and leaves a JUnit report behind."
         />
       ) : (
         <div className="flex flex-col gap-2">

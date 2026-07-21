@@ -12,6 +12,13 @@ func rebind(query string) string {
 	if !strings.Contains(query, "?") {
 		return query
 	}
+	// A query already written with $N placeholders is positional, so any ? in
+	// it belongs to a JSONB operator — ?, ?| and ?& all test for keys.
+	// Rewriting those produces a query that is silently wrong rather than one
+	// that fails loudly, so they are left alone.
+	if strings.Contains(query, "$1") {
+		return query
+	}
 	var b strings.Builder
 	b.Grow(len(query) + 10)
 	n := 1

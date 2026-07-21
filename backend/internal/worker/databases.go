@@ -80,7 +80,7 @@ func (w *Databases) processAttributeCreate(ctx context.Context, job *queue.Job) 
 		return nil
 	}
 	w.db.ExecContext(ctx, "UPDATE columns SET status = 'processing' WHERE id = ?", attributeID) //nolint:errcheck
-	w.db.ExecContext(ctx, "UPDATE columns SET status = 'available' WHERE id = ?", attributeID) //nolint:errcheck
+	w.db.ExecContext(ctx, "UPDATE columns SET status = 'available' WHERE id = ?", attributeID)  //nolint:errcheck
 	slog.Info("databases worker: column available", "column_id", attributeID)
 	return nil
 }

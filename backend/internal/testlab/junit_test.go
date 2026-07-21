@@ -164,3 +164,54 @@ func TestMissingTimeIsNotAnError(t *testing.T) {
 		t.Errorf("case = %+v", cases[0])
 	}
 }
+
+// A runner told to retry reports every attempt. The last one is the outcome,
+// and a test that failed and then passed is flaky — a fact worth recording
+// rather than a red run worth arguing about.
+func TestRetriesCollapseIntoOneFlakyResult(t *testing.T) {
+	cases := []Case{
+		{SuiteName: "cart", Name: "checkout", Status: CaseFailed, FailureMessage: "timeout", DurationMs: 900},
+		{SuiteName: "cart", Name: "checkout", Status: CasePassed, DurationMs: 400},
+		{SuiteName: "cart", Name: "total", Status: CasePassed, DurationMs: 10},
+	}
+
+	merged := MergeRetries(cases)
+	if len(merged) != 2 {
+		t.Fatalf("got %d results, want 2 — attempts at one test are one result", len(merged))
+	}
+	if merged[0].Status != CasePassed {
+		t.Errorf("status = %s, want the final attempt to stand", merged[0].Status)
+	}
+	if !merged[0].Flaky {
+		t.Error("a test that failed then passed must be marked flaky")
+	}
+	if merged[0].Retries != 1 {
+		t.Errorf("retries = %d, want 1", merged[0].Retries)
+	}
+	if merged[0].DurationMs != 1300 {
+		t.Errorf("duration = %d, want both attempts counted", merged[0].DurationMs)
+	}
+	if merged[1].Flaky {
+		t.Error("a test that passed first time is not flaky")
+	}
+
+	// Flaky passes are still passes; the run is green with a caveat.
+	s := Summarise(merged)
+	if s.Passed != 2 || s.Failed != 0 || s.Flaky != 1 {
+		t.Errorf("summary = %+v, want 2 passed with 1 flaky", s)
+	}
+}
+
+// A test that fails every attempt is simply failing.
+func TestRepeatedFailureIsNotFlaky(t *testing.T) {
+	merged := MergeRetries([]Case{
+		{SuiteName: "s", Name: "t", Status: CaseFailed, FailureMessage: "first"},
+		{SuiteName: "s", Name: "t", Status: CaseFailed, FailureMessage: "again"},
+	})
+	if merged[0].Flaky {
+		t.Error("consistently failing is not flaky")
+	}
+	if merged[0].FailureMessage != "again" {
+		t.Errorf("message = %q, want the last attempt's", merged[0].FailureMessage)
+	}
+}
