@@ -1169,6 +1169,11 @@ func firstNonEmpty(values ...string) string {
 
 // railpackConfigFor describes a build the builder has no provider for.
 //
+// The finished app is a directory of files, so it is served by Caddy — taken
+// from mise rather than from a caddy base image, because every Caddy tag is
+// Alpine and railpack's start wrapper needs a shell those images do not have.
+// The default runtime image has one.
+//
 // Railpack covers Node, Python, Go, PHP, Java and Ruby. Flutter is not among
 // them, so a Flutter app failed with "no start command detected" — accurately,
 // since without the SDK there is nothing to detect. mise can install the SDK,
@@ -1188,7 +1193,7 @@ func railpackConfigFor(d deploy.Detection) string {
 	// build — the two ways this failed before.
 	return fmt.Sprintf(`{
   "$schema": "https://schema.railpack.com",
-  "packages": { "flutter": "latest" },
+  "packages": { "flutter": "latest", "caddy": "latest" },
   "steps": {
     "build": {
       "inputs": [
@@ -1199,9 +1204,11 @@ func railpackConfigFor(d deploy.Detection) string {
     }
   },
   "deploy": {
-    "base": { "image": "caddy:2" },
-    "startCommand": "caddy file-server --listen :80 --root /app/%s",
-    "inputs": [{ "step": "build", "include": [%q] }]
+    "inputs": [
+      { "step": "packages:mise", "include": ["/mise/shims", "/mise/installs", "/usr/local/bin/mise", "/etc/mise/config.toml", "/root/.local/state/mise"] },
+      { "step": "build", "include": ["/app/%s"] }
+    ],
+    "startCommand": "caddy file-server --listen :80 --root /app/%s"
   }
 }`, d.InstallCommand, d.BuildCommand, out, out)
 }
