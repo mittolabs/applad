@@ -201,17 +201,6 @@ func clientIP(r *http.Request) string {
 }
 
 func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
-	// Check if signup is enabled
-	enabled, err := h.svc.SignupEnabled(r.Context(), h.signupSetting)
-	if err != nil {
-		apperr.Internal(w, err)
-		return
-	}
-	if !enabled {
-		apperr.Write(w, http.StatusForbidden, "signup_disabled", "Signup is disabled. Contact your administrator.")
-		return
-	}
-
 	var body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -227,6 +216,20 @@ func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(body.Password) < 8 {
 		apperr.BadRequest(w, "password must be at least 8 characters")
+		return
+	}
+
+	// Checked per address, not globally: a closed instance still has to let an
+	// invited colleague register, since the invite needs an account to attach
+	// to.
+	allowed, err := h.svc.SignupAllowedFor(r.Context(), body.Email, h.signupSetting)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if !allowed {
+		apperr.Write(w, http.StatusForbidden, "signup_disabled",
+			"This instance is private. Ask an administrator to invite you.")
 		return
 	}
 
@@ -405,8 +408,19 @@ func (h *Handler) signupStatus(w http.ResponseWriter, r *http.Request) {
 		apperr.Internal(w, err)
 		return
 	}
+	firstRun, err := h.svc.FirstRun(r.Context())
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"signupEnabled": enabled,
+		// No accounts yet: whoever registers next owns this instance. The
+		// console opens on account creation and says so.
+		"firstRun": firstRun,
+		// Signup is closed, but an invited address can still register. The
+		// console offers that instead of a dead end.
+		"inviteOnly": !enabled && !firstRun,
 	})
 }
 

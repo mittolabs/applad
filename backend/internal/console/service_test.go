@@ -257,3 +257,54 @@ func TestCountUsers(t *testing.T) {
 		t.Errorf("expected 5, got %d", count)
 	}
 }
+
+// Self-hosted instances close signup behind the first account. An invited
+// colleague must still be able to register, because accepting an invite
+// requires an account to attach it to — otherwise a self-hosted team is
+// permanently stuck at one person.
+func TestSignupAllowedForInvitedAddress(t *testing.T) {
+	svc, mock := newMockService(t)
+
+	// "auto" with an existing account: signup is closed.
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("organization_members").WithArgs("invited@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	allowed, err := svc.SignupAllowedFor(context.Background(), "invited@example.com", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !allowed {
+		t.Error("an invited address must be able to register on a closed instance")
+	}
+
+	// Same instance, an address nobody invited.
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("organization_members").WithArgs("stranger@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	allowed, err = svc.SignupAllowedFor(context.Background(), "stranger@example.com", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allowed {
+		t.Error("an uninvited address must not be able to register on a closed instance")
+	}
+}
+
+// The hosted service runs with signup open, where no invite is needed and no
+// invite lookup should happen.
+func TestSignupAllowedForOpenInstance(t *testing.T) {
+	svc, mock := newMockService(t)
+
+	allowed, err := svc.SignupAllowedFor(context.Background(), "anyone@example.com", "true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !allowed {
+		t.Error("open signup must allow any address")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("open signup should not query the database: %v", err)
+	}
+}

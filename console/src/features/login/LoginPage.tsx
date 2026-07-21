@@ -64,13 +64,28 @@ export function LoginPage() {
 
   const isSignup = mode === 'signup';
 
-  const { data: signupEnabled = true } = useQuery({
+  /*
+   * How this instance handles new accounts. The hosted service runs with
+   * signup open; a self-hosted one closes it behind the first account, which
+   * is the "auto" default. firstRun means nobody has registered yet, so the
+   * next account owns the instance. inviteOnly means signup is closed but an
+   * invited address can still register.
+   */
+  const { data: signupStatus } = useQuery({
     queryKey: ['signup-status'],
     queryFn: async () => {
       const res = await api.get('/console/signup-status');
-      return Boolean((res.data as { signupEnabled?: boolean }).signupEnabled ?? true);
+      const d = res.data as { signupEnabled?: boolean; firstRun?: boolean; inviteOnly?: boolean };
+      return {
+        signupEnabled: Boolean(d.signupEnabled ?? true),
+        firstRun: Boolean(d.firstRun),
+        inviteOnly: Boolean(d.inviteOnly),
+      };
     },
   });
+  const signupEnabled = signupStatus?.signupEnabled ?? true;
+  const firstRun = signupStatus?.firstRun ?? false;
+  const inviteOnly = signupStatus?.inviteOnly ?? false;
   const { data: providers = [] } = useQuery({
     queryKey: ['auth-providers'],
     queryFn: async () => {
@@ -79,10 +94,17 @@ export function LoginPage() {
     },
   });
 
-  // If signup is disabled, never sit in signup mode (mirrors Flutter).
+  // A fresh instance opens on account creation: that first account owns it.
   useEffect(() => {
-    if (mode === 'signup' && !signupEnabled) setMode('login');
-  }, [mode, signupEnabled]);
+    if (firstRun) setMode('signup');
+  }, [firstRun]);
+
+  // Closed instances stay on sign-in, but an invited address may still
+  // register — so signup mode is left reachable rather than forced away, and
+  // the form explains the rule.
+  useEffect(() => {
+    if (mode === 'signup' && !signupEnabled && !inviteOnly) setMode('login');
+  }, [mode, signupEnabled, inviteOnly]);
 
   // Handle OAuth / reset callbacks once on mount.
   useEffect(() => {
@@ -271,6 +293,8 @@ export function LoginPage() {
               <LoginSignupForm
                 isSignup={isSignup}
                 signupEnabled={signupEnabled}
+                firstRun={firstRun}
+                inviteOnly={inviteOnly}
                 providers={providers}
                 name={name}
                 setName={setName}
@@ -302,6 +326,8 @@ export function LoginPage() {
 function LoginSignupForm({
   isSignup,
   signupEnabled,
+  firstRun,
+  inviteOnly,
   providers,
   name,
   setName,
@@ -321,6 +347,8 @@ function LoginSignupForm({
 }: {
   isSignup: boolean;
   signupEnabled: boolean;
+  firstRun: boolean;
+  inviteOnly: boolean;
   providers: string[];
   name: string;
   setName: (v: string) => void;
@@ -342,7 +370,19 @@ function LoginSignupForm({
   return (
     <form onSubmit={onSubmit} className="flex flex-col">
       <LogoRow className="mb-7 min-[900px]:hidden" size={48} wordmark={24} />
-      <Heading>{isSignup ? 'Sign up' : 'Sign in'}</Heading>
+      <Heading>{isSignup ? (firstRun ? 'Create the owner account' : 'Sign up') : 'Sign in'}</Heading>
+      {firstRun && isSignup && (
+        <p className="mt-2 text-[13px] leading-[1.5] text-text-muted">
+          Nobody has signed in to this instance yet. This first account owns it, and you can invite
+          the rest of your team afterwards.
+        </p>
+      )}
+      {inviteOnly && isSignup && (
+        <p className="mt-2 text-[13px] leading-[1.5] text-text-muted">
+          This instance is private. Use the address you were invited on, or ask an administrator for
+          an invite.
+        </p>
+      )}
       <div className="h-8" />
 
       {!isSignup && (
@@ -410,13 +450,13 @@ function LoginSignupForm({
       {/* Links row */}
       <div className="flex items-center justify-center">
         {!isSignup && <TextLink onClick={() => onMode('forgot')}>Forgot password?</TextLink>}
-        {!isSignup && signupEnabled && <span className="px-3 text-text-subtle">|</span>}
-        {signupEnabled &&
+        {!isSignup && (signupEnabled || inviteOnly) && <span className="px-3 text-text-subtle">|</span>}
+        {(signupEnabled || inviteOnly) &&
           (isSignup ? (
             <TextLink onClick={() => onMode('login')}>Already got an account? Sign in</TextLink>
           ) : (
             <TextLink primary onClick={() => onMode('signup')}>
-              Sign up
+              {inviteOnly ? 'Got an invite?' : 'Sign up'}
             </TextLink>
           ))}
       </div>

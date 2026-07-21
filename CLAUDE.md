@@ -239,6 +239,26 @@ On login the API sets two cookies: the HttpOnly session, and
 own hostname, so `console.applad.io` shares them with `applad.io` and a
 self-hosted console on an IP keeps them host-only.
 
+### Hosted vs self-hosted
+
+The same build serves both, and `CONSOLE_SIGNUP_ENABLED` is what separates
+them:
+
+| | Hosted (Mittolabs Cloud) | Self-hosted |
+|---|---|---|
+| Setting | `true` | `auto` (default) |
+| Who can register | anyone | the first account, then invitees only |
+| First run | normal signup | "Create the owner account" |
+
+On a closed instance an invited address can still register: accepting an
+organization invite needs an account to attach it to, so `SignupAllowedFor`
+checks for a pending invite before refusing. Without that exception a
+self-hosted team would be stuck at one person forever.
+
+`GET /console/signup-status` returns `signupEnabled`, `firstRun` and
+`inviteOnly` so the login page can say which of these applies rather than
+silently dropping people onto the sign-in form.
+
 ### Environment variables
 
 | Variable | Default | Description |
@@ -249,7 +269,7 @@ self-hosted console on an IP keeps them host-only.
 | `STORAGE_PATH` | `/var/applad/storage` | Local file storage path |
 | `APP_ENV` | `development` | `development` or `production` |
 | `PORT` | `8080` | API server port |
-| `CONSOLE_SIGNUP_ENABLED` | `auto` | `auto` (disabled after first user), `true`, or `false` |
+| `CONSOLE_SIGNUP_ENABLED` | `auto` | `auto` (self-hosted: closes after the first account), `true` (hosted), or `false` |
 | `SESSION_COOKIE_DOMAIN` | (empty) | Overrides console cookie scope. Normally derived from the host: `console.<parent>` shares cookies with `<parent>` |
 | `SMTP_HOST/PORT/USER/PASS/FROM` | (empty) | SMTP config for email |
 | `OAUTH_GOOGLE_CLIENT_ID/SECRET` | (empty) | Google OAuth2 |

@@ -188,6 +188,48 @@ func (s *Service) SignupEnabled(ctx context.Context, setting string) (bool, erro
 	}
 }
 
+// FirstRun reports whether this instance has no console users yet, meaning the
+// next account created owns it.
+func (s *Service) FirstRun(ctx context.Context) (bool, error) {
+	count, err := s.CountUsers(ctx)
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}
+
+// HasPendingInvite reports whether someone has been invited to an organization
+// at this address but has no account yet.
+func (s *Service) HasPendingInvite(ctx context.Context, email string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM organization_members
+		  WHERE lower(email) = lower($1) AND status = 'pending' AND invite_token IS NOT NULL`,
+		email).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("console: check invite: %w", err)
+	}
+	return n > 0, nil
+}
+
+// SignupAllowedFor reports whether this specific address may create an account.
+//
+// Open signup ("true") is how the hosted service runs. Self-hosted instances
+// default to "auto", which closes signup behind the first account — but an
+// invited colleague still needs to register, since accepting an invite
+// requires an account to attach it to. Without this exception a self-hosted
+// team is permanently stuck at one person.
+func (s *Service) SignupAllowedFor(ctx context.Context, email, setting string) (bool, error) {
+	enabled, err := s.SignupEnabled(ctx, setting)
+	if err != nil {
+		return false, err
+	}
+	if enabled {
+		return true, nil
+	}
+	return s.HasPendingInvite(ctx, email)
+}
+
 // LoginOrCreateByOAuth finds an existing console user by email or creates one
 // if signup is currently enabled. OAuth users have no password.
 func (s *Service) LoginOrCreateByOAuth(ctx context.Context, email, name, provider, signupSetting string) (*ConsoleUser, string, error) {
