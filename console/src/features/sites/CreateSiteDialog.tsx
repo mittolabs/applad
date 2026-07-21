@@ -16,6 +16,7 @@ import { toast } from '@/components/toast';
 import { ChoiceChip } from './SiteDetail';
 import { FRAMEWORKS, frameworkById } from '../deploy-shared/frameworks';
 import { SourceDropzone, type PickedSource } from '../deploy-shared/SourceDropzone';
+import { FrameworkLogo } from '../deploy-shared/FrameworkLogo';
 import { buildTarGz } from '@/lib/targz';
 
 /* Multi-step "Create site" form — ports _showCreateSiteForm in sites_page.dart
@@ -184,14 +185,13 @@ export function CreateSiteDialog({
               <FormField label="Framework">
                 <div className="flex flex-wrap gap-2">
                   {FRAMEWORKS.map((f) => {
-                    const Icon = f.icon;
                     const selected = f.id === framework;
                     return (
                       <button
                         key={f.id}
                         type="button"
                         onClick={() => setFramework(f.id)}
-                        className="flex w-[100px] flex-col items-center gap-1.5 rounded-[var(--radius)] border py-3 text-[length:var(--text-caption)] transition-colors"
+                        className="group flex w-[100px] flex-col items-center gap-1.5 rounded-[var(--radius)] border py-3 text-[length:var(--text-caption)] transition-colors"
                         style={
                           selected
                             ? {
@@ -202,7 +202,7 @@ export function CreateSiteDialog({
                             : { borderColor: 'var(--border)', color: 'var(--text-muted)' }
                         }
                       >
-                        <Icon size={24} />
+                        <FrameworkLogo framework={f.id} size={24} active={selected} />
                         {f.label}
                       </button>
                     );

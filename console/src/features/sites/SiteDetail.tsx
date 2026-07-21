@@ -30,6 +30,7 @@ import type { Row } from '@/components/data-table';
 import { TargetDetailScaffold } from '../deploy-shared/TargetDetailScaffold';
 import { DeploymentsPanel, useReleases } from '../deploy-shared/DeploymentsPanel';
 import { frameworkById } from '../deploy-shared/frameworks';
+import { FrameworkLogo } from '../deploy-shared/FrameworkLogo';
 import {
   asNumber,
   formatBytes,
@@ -125,7 +126,11 @@ function OverviewTab({ site, siteId, onGoTab }: { site: Row; siteId: string; onG
     }
   };
 
-  const FrameworkIcon = framework.icon;
+  // Render the real brand mark, already coloured — this is a detail header,
+  // not a grid, so there is nothing to hover.
+  const FrameworkIcon = ({ size, className }: { size?: number; className?: string }) => (
+    <FrameworkLogo framework={framework.id} size={size} active className={className} />
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -189,7 +194,15 @@ function OverviewTab({ site, siteId, onGoTab }: { site: Row; siteId: string; onG
   );
 }
 
-function InfoRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+function InfoRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon | ((props: { size?: number; className?: string }) => JSX.Element);
+  label: string;
+  value: string;
+}) {
   return (
     <div className="flex items-start gap-2">
       <Icon size={14} className="mt-0.5 text-text-subtle" />
