@@ -68,8 +68,9 @@ export function LoginPage() {
    * How this instance handles new accounts. The hosted service runs with
    * signup open; a self-hosted one closes it behind the first account, which
    * is the "auto" default. firstRun means nobody has registered yet, so the
-   * next account owns the instance. inviteOnly means signup is closed but an
-   * invited address can still register.
+   * next account owns the instance. inviteOnly means registration is closed
+   * and new accounts come from an invite link, which is redeemed at
+   * /invite/:token rather than through this form.
    */
   const { data: signupStatus } = useQuery({
     queryKey: ['signup-status'],
@@ -85,7 +86,6 @@ export function LoginPage() {
   });
   const signupEnabled = signupStatus?.signupEnabled ?? true;
   const firstRun = signupStatus?.firstRun ?? false;
-  const inviteOnly = signupStatus?.inviteOnly ?? false;
   const { data: providers = [] } = useQuery({
     queryKey: ['auth-providers'],
     queryFn: async () => {
@@ -294,7 +294,6 @@ export function LoginPage() {
                 isSignup={isSignup}
                 signupEnabled={signupEnabled}
                 firstRun={firstRun}
-                inviteOnly={inviteOnly}
                 providers={providers}
                 name={name}
                 setName={setName}
@@ -327,7 +326,6 @@ function LoginSignupForm({
   isSignup,
   signupEnabled,
   firstRun,
-  inviteOnly,
   providers,
   name,
   setName,
@@ -348,7 +346,6 @@ function LoginSignupForm({
   isSignup: boolean;
   signupEnabled: boolean;
   firstRun: boolean;
-  inviteOnly: boolean;
   providers: string[];
   name: string;
   setName: (v: string) => void;
@@ -455,12 +452,6 @@ function LoginSignupForm({
             </TextLink>
           ))}
       </div>
-
-      {inviteOnly && !isSignup && (
-        <p className="mt-4 text-center text-[12px] leading-[1.5] text-text-subtle">
-          This instance is private. New accounts are created from an invite link.
-        </p>
-      )}
 
       {!isSignup && (
         <p className="mt-4 text-center text-[12px] leading-[1.5] text-text-subtle">
