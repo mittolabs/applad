@@ -4,8 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
+
+// PreviewPath is where a site's screenshot is kept. The API serves it and the
+// builds worker writes it, so it lives on the volume they share.
+func PreviewPath(targetID string) string {
+	base := os.Getenv("STORAGE_PATH")
+	if base == "" {
+		base = "/var/applad/storage"
+	}
+	return filepath.Join(base, "site-previews", targetID+".png")
+}
 
 // ErrSubdomainTaken is returned when a name resolves to an address another
 // site already answers on. Callers turn it into a conflict rather than a

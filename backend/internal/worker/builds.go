@@ -485,6 +485,39 @@ func deployNarrative(cfg *pipelineConfig, rawBuildLog string, durationMs, sizeBy
 	return b.String()
 }
 
+// captureSitePreview photographs a site once it is serving.
+//
+// Taken at deploy time rather than on demand: the console asking for a
+// screenshot would mean starting a browser while somebody waits, and a site
+// looks the way it looked when it shipped.
+func (w *Builds) captureSitePreview(ctx context.Context, targetID, subdomain string) {
+	url := fmt.Sprintf("http://applad-site-%s", subdomain)
+
+	sessionID := "preview-" + targetID
+	containerID, wsURL, err := w.deployExecutor.StartBrowser(ctx, sessionID, runtime.StudioBrowserImage())
+	if err != nil {
+		slog.Warn("builds worker: preview browser failed to start", "target_id", targetID, "error", err)
+		return
+	}
+	defer w.deployExecutor.StopBrowser(context.Background(), containerID) //nolint:errcheck
+
+	png, err := testlab.Screenshot(ctx, wsURL, url, 1280, 800)
+	if err != nil {
+		slog.Warn("builds worker: preview capture failed", "target_id", targetID, "error", err)
+		return
+	}
+
+	path := deploy.PreviewPath(targetID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	if err := os.WriteFile(path, png, 0o644); err != nil {
+		slog.Warn("builds worker: preview write failed", "target_id", targetID, "error", err)
+		return
+	}
+	slog.Info("builds worker: captured site preview", "target_id", targetID, "bytes", len(png))
+}
+
 // processTeardown removes everything a deleted deploy target left behind.
 // Deleting the database row alone used to leave the app's container running
 // and still served on its subdomain.
@@ -507,6 +540,10 @@ func (w *Builds) processTeardown(ctx context.Context, job *queue.Job) error {
 
 	// Uploaded source archives live on the shared storage volume and are keyed
 	// by pipeline; the cascaded row delete does not touch them.
+	if targetID, _ := job.Payload["targetId"].(string); targetID != "" {
+		os.Remove(deploy.PreviewPath(targetID)) //nolint:errcheck
+	}
+
 	if ids, ok := job.Payload["pipelineIds"].([]interface{}); ok {
 		for _, v := range ids {
 			pid, _ := v.(string)
@@ -863,6 +900,9 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		}
 	}
 	if deployErr == nil && cfg.subdomain != "" {
+		// A picture of what shipped, taken now rather than promised later.
+		w.captureSitePreview(ctx, targetID, cfg.subdomain)
+
 		// What just shipped is what gets checked.
 		svc := testlab.NewService(w.db, w.queue)
 		if n, err := svc.TriggerOnDeploy(ctx, projectID,

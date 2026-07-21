@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTabIndex } from '@/hooks/use-tab-param';
 import {
@@ -142,21 +142,7 @@ function OverviewTab({ site, siteId, onGoTab }: { site: Row; siteId: string; onG
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="flex h-[200px] w-full max-w-[340px] flex-col items-center justify-center gap-3 rounded-[var(--radius)] border border-border bg-surface">
-          <Globe size={36} className="text-text-subtle" />
-          {url ? (
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener"
-              className="px-4 text-center font-mono text-[length:var(--text-caption)] text-[var(--color-accent)] hover:underline"
-            >
-              {url.replace(/^https?:\/\//, '')}
-            </a>
-          ) : (
-            <span className="text-[length:var(--text-label)] text-text-subtle">Not deployed yet</span>
-          )}
-        </div>
+        <SitePreview siteId={siteId} url={url} />
 
         <div className="flex flex-1 flex-col gap-3">
           <InfoRow
@@ -276,6 +262,64 @@ function SummaryCard({
 }
 
 // ── Logs ────────────────────────────────────────────────────────────────────
+
+/*
+ * The screenshot taken when the site last deployed.
+ *
+ * Fetched through the API client rather than pointed at by an <img>: a plain
+ * browser request carries neither the bearer token nor the project header, so
+ * the image would come back 401.
+ */
+function SitePreview({ siteId, url }: { siteId: string; url: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    api
+      .get(`/deploy/targets/${siteId}/preview`, { responseType: 'blob' })
+      .then((res) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(res.data as Blob);
+        setSrc(objectUrl);
+      })
+      .catch(() => !cancelled && setMissing(true));
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [siteId]);
+
+  const host = url.replace(/^https?:\/\//, '');
+
+  return (
+    <a
+      href={url || undefined}
+      target="_blank"
+      rel="noopener"
+      className="group relative flex h-[200px] w-full max-w-[340px] items-center justify-center overflow-hidden rounded-[var(--radius)] border border-border bg-surface"
+    >
+      {src ? (
+        <>
+          {/* Anchored to the top: a site's identity is in its header, not its
+              middle. */}
+          <img src={src} alt={`${host} as it last deployed`} className="h-full w-full object-cover object-top" />
+          <span className="absolute bottom-0 w-full truncate bg-black/60 px-2 py-1 text-center font-mono text-[length:var(--text-caption)] text-white/80">
+            {host}
+          </span>
+        </>
+      ) : (
+        <div className="flex flex-col items-center gap-3">
+          <Globe size={36} className="text-text-subtle" />
+          <span className="px-4 text-center font-mono text-[length:var(--text-caption)] text-text-subtle">
+            {missing ? (url ? host : 'Not deployed yet') : 'Loading preview...'}
+          </span>
+        </div>
+      )}
+    </a>
+  );
+}
 
 function LogField({ label, value }: { label: string; value: string }) {
   return (

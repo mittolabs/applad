@@ -48,6 +48,7 @@ func Routes(h *Handler) http.Handler {
 		r.Get("/{targetId}/stats", h.getTargetStats)
 		r.Get("/{targetId}/stats/detailed", h.getTargetDetailedStats)
 		r.Get("/{targetId}/logs", h.getTargetLogs)
+		r.Get("/{targetId}/preview", h.getPreview)
 	})
 
 	// Pipelines
@@ -670,6 +671,30 @@ func (h *Handler) getTargetLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// getPreview serves the screenshot taken when the site last deployed.
+func (h *Handler) getPreview(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	targetID := chi.URLParam(r, "targetId")
+
+	if _, err := h.svc.GetTarget(r.Context(), targetID, projectID); err != nil {
+		apperr.NotFound(w, "target")
+		return
+	}
+
+	f, err := os.Open(PreviewPath(targetID))
+	if err != nil {
+		// A site deployed before previews existed, or one that failed to load,
+		// simply has none.
+		apperr.NotFound(w, "preview")
+		return
+	}
+	defer f.Close()
+
+	stat, _ := f.Stat()
+	w.Header().Set("Content-Type", "image/png")
+	http.ServeContent(w, r, "preview.png", stat.ModTime(), f)
 }
 
 // ── Custom domain handlers (web deploy targets) ──
