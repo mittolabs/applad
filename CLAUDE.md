@@ -152,7 +152,13 @@ API and internal code use tables/rows/columns terminology only. User data lives 
 - `/account` — profile page (NO sidebar): name/email/password update, MFA toggle, delete account
 - `/overview`, `/databases`, `/storage`, `/auth`, `/deploy`, `/functions`, `/messaging`, `/workflows`, `/settings` — project-scoped pages (WITH sidebar)
 
-**Sidebar** (220px, labeled): Org dropdown at top → Get started / Overview → BUILD section (Auth, Databases, Functions, Messaging, Storage) → DEPLOY section (Deploy) → WORKFLOWS section (Workflows) → Settings pinned to bottom.
+**Sidebar**: 68px icon rail + 220px labelled panel. Groups: Overview → Build
+(Auth, Databases, Functions, Storage, Messaging, Realtime, Feature Flags) →
+Platforms (Sites, Containers, Mobile, Desktop) → Automate (Workflows) →
+Observe (8 routes) → Settings pinned to bottom. The order mirrors the
+lifecycle the marketing site sells: Build, Deploy, Automate, Monitor.
+Workflows sits at rail level rather than inside Build because it composes the
+other primitives rather than being one.
 
 **Shared widgets**: `PageTabs` (horizontal tab bar), `SearchListHeader` (search + total + trailing button), `SearchListFooter` (per-page dropdown + pagination).
 

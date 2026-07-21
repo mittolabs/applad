@@ -25,6 +25,7 @@ import {
   Smartphone,
   Users,
   Workflow,
+  Zap,
 } from 'lucide-react';
 
 /* Nav model — ports shell.dart _buildGroups(). `route` is relative to
@@ -57,7 +58,6 @@ export const navGroups: NavGroup[] = [
       { label: 'Storage', route: 'storage', icon: FolderOpen },
       { label: 'Messaging', route: 'messaging', icon: Mail },
       { label: 'Realtime', route: 'realtime', icon: Radio },
-      { label: 'Workflows', route: 'workflows', icon: Workflow },
       { label: 'Feature Flags', route: 'flags', icon: Flag },
     ],
   },
@@ -71,6 +71,12 @@ export const navGroups: NavGroup[] = [
       { label: 'Mobile', route: 'mobile', icon: Smartphone },
       { label: 'Desktop', route: 'desktop', icon: Monitor },
     ],
+  },
+  {
+    id: 'automate',
+    label: 'Automate',
+    icon: Zap,
+    children: [{ label: 'Workflows', route: 'workflows', icon: Workflow }],
   },
   {
     id: 'observe',
