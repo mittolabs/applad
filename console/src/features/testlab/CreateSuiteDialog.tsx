@@ -124,6 +124,7 @@ export function CreateSuiteDialog({
       loading={busy}
       submitDisabled={!name.trim() || !command.trim() || (sourceType === 'upload' ? !source : !sourceUrl.trim())}
       onSubmit={create}
+      width={540}
     >
       <TextField
         label="Name"

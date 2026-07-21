@@ -366,3 +366,106 @@ func (s *Service) MarkRunning(ctx context.Context, runID string) {
 	s.db.ExecContext(ctx, //nolint:errcheck
 		"UPDATE test_runs SET status='running', started_at=$1 WHERE id=$2", time.Now().UTC(), runID)
 }
+
+// ── Flows ──
+
+// SaveFlow stores a recording and creates the suite that runs it.
+//
+// The generated project is a complete Playwright package, so what gets saved
+// is something the existing runner can execute unchanged and a person can read
+// and edit. A recording that cannot be run is a demo, not a test.
+func (s *Service) SaveFlow(ctx context.Context, projectID string, f Flow) (*Flow, error) {
+	f.ID = uid.New("unique()")
+	f.ProjectID = projectID
+	if f.Platform == "" {
+		f.Platform = "web"
+	}
+
+	spec := CompilePlaywright(f)
+	suite, err := s.CreateSuite(ctx, projectID, Suite{
+		Name:          f.Name,
+		SourceType:    "generated",
+		Image:         browserTestImage(),
+		SetupCmd:      "npm install --no-audit --no-fund @playwright/test@1.49.0",
+		Command:       "npx playwright test",
+		ReportPath:    "junit.xml",
+		ArtifactsPath: "test-results",
+		EnvVars:       map[string]string{"BASE_URL": f.Target},
+		TimeoutMs:     900000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	f.SuiteID = suite.ID
+
+	// The suite's source is the recording, written where the runner expects an
+	// uploaded project.
+	if err := writeGeneratedProject(suite.ID, f.Name, spec); err != nil {
+		return nil, fmt.Errorf("testlab: write generated suite: %w", err)
+	}
+
+	stepsJSON, _ := json.Marshal(f.Steps)
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO test_flows (id, project_id, name, platform, target, steps, suite_id, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+		f.ID, projectID, f.Name, f.Platform, f.Target, stepsJSON, f.SuiteID, time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("testlab: save flow: %w", err)
+	}
+	return &f, nil
+}
+
+func (s *Service) ListFlows(ctx context.Context, projectID string) ([]*Flow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, name, platform, target, steps, COALESCE(suite_id,'')
+		   FROM test_flows WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("testlab: list flows: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*Flow
+	for rows.Next() {
+		f, err := scanFlow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+func (s *Service) GetFlow(ctx context.Context, id, projectID string) (*Flow, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, name, platform, target, steps, COALESCE(suite_id,'')
+		   FROM test_flows WHERE id = $1 AND project_id = $2`, id, projectID)
+	return scanFlow(row)
+}
+
+func (s *Service) DeleteFlow(ctx context.Context, id, projectID string) error {
+	// The suite generated from the flow goes with it: keeping a test whose
+	// recording was discarded leaves something nobody can explain.
+	var suiteID string
+	s.db.QueryRowContext(ctx, //nolint:errcheck
+		"SELECT COALESCE(suite_id,'') FROM test_flows WHERE id = $1 AND project_id = $2",
+		id, projectID).Scan(&suiteID)
+
+	if _, err := s.db.ExecContext(ctx,
+		"DELETE FROM test_flows WHERE id = $1 AND project_id = $2", id, projectID); err != nil {
+		return err
+	}
+	if suiteID != "" {
+		return s.DeleteSuite(ctx, suiteID, projectID)
+	}
+	return nil
+}
+
+func scanFlow(row scanner) (*Flow, error) {
+	var f Flow
+	var stepsJSON []byte
+	if err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Platform, &f.Target, &stepsJSON, &f.SuiteID); err != nil {
+		return nil, err
+	}
+	json.Unmarshal(stepsJSON, &f.Steps) //nolint:errcheck
+	return &f, nil
+}

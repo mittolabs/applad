@@ -17,11 +17,12 @@ import (
 
 // Handler serves the test lab API.
 type Handler struct {
-	svc *Service
+	svc    *Service
+	studio *Studio
 }
 
 func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+	return &Handler{svc: svc, studio: NewStudio(svc)}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

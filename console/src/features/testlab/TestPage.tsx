@@ -38,10 +38,10 @@ export function TestPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6 p-6 md:p-8">
       <div>
         <h1 className="text-[length:var(--text-h1)] font-semibold text-text-primary">Test</h1>
-        <p className="mt-1 text-[length:var(--text-body)] text-text-muted">
+        <p className="mt-1 text-[length:var(--text-body)] text-text-secondary">
           Run your suite and see every case it covered
         </p>
       </div>
@@ -208,7 +208,7 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
   });
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6 p-6 md:p-8">
       <button
         onClick={onBack}
         className="flex w-fit items-center gap-1 text-[length:var(--text-label)] text-text-muted transition-colors hover:text-text-primary"

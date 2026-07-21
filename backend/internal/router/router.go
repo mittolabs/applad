@@ -288,6 +288,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))
 				r.Mount("/tests", testlab.Routes(testlabHandler))
+				r.Mount("/studio", testlab.StudioRoutes(testlabHandler))
 
 				// Migrations
 				migrationQueue := queue.New(cacheClient.Client())
