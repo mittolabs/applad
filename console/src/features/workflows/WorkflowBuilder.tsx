@@ -555,7 +555,7 @@ function BuilderInner({
       const execData: Record<string, ExecEntry> = {};
       for (const log of logs) {
         const nid = log.nodeId ?? '';
-        statuses.set(nid, log.status ?? 'completed');
+        statuses.set(nid, log.status ?? 'unknown');
         if (log.input !== undefined || log.output !== undefined) {
           execData[nid] = { input: log.input, output: log.output };
         }
@@ -617,7 +617,7 @@ function BuilderInner({
       const execData: Record<string, ExecEntry> = {};
       for (const log of logs) {
         const nid = log.nodeId ?? '';
-        statuses.set(nid, log.status ?? 'completed');
+        statuses.set(nid, log.status ?? 'unknown');
         if (log.input !== undefined || log.output !== undefined) {
           execData[nid] = { input: log.input, output: log.output };
         }

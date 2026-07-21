@@ -717,9 +717,11 @@ function SettingsTab({
   const framework = frameworkById(String(site['framework'] ?? 'static'));
   const [name, setName] = useState(String(site['name'] ?? ''));
   const [repository, setRepository] = useState(String(site['repository'] ?? ''));
-  const [installCommand, setInstallCommand] = useState(String(site['installCommand'] ?? ''));
-  const [buildCommand, setBuildCommand] = useState(String(site['buildCommand'] ?? ''));
-  const [outputDirectory, setOutputDirectory] = useState(String(site['outputDirectory'] ?? ''));
+  // The names the API actually uses. These read as blank boxes for as long as
+  // they were spelled differently on each side.
+  const [installCommand, setInstallCommand] = useState(String(site['installCmd'] ?? ''));
+  const [buildCommand, setBuildCommand] = useState(String(site['buildCmd'] ?? ''));
+  const [outputDirectory, setOutputDirectory] = useState(String(site['outputDir'] ?? ''));
   const [cron, setCron] = useState(String(site['cron'] ?? ''));
   const initialEnv = (site['environmentVariables'] as Record<string, unknown> | undefined) ?? {};
   const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>(
@@ -737,11 +739,11 @@ function SettingsTab({
       const res = await api.put(`/deploy/targets/${siteId}`, {
         name,
         repository,
-        buildCommand,
-        outputDirectory,
-        installCommand,
+        installCmd: installCommand,
+        buildCmd: buildCommand,
+        outputDir: outputDirectory,
         cron: cron.trim(),
-        environmentVariables: envMap,
+        envVars: envMap,
       });
       onChange(res.data as Row);
       toast.success('Changes saved');

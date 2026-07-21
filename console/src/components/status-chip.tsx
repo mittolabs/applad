@@ -13,6 +13,20 @@ add('success', ['verified', 'active', 'completed', 'success', 'deployed', 'publi
 add('warning', ['unverified', 'pending', 'draft', 'paused', 'idle', 'scheduled', 'warning']);
 add('danger', ['disabled', 'failed', 'error', 'suspended', 'banned', 'inactive', 'deleted', 'offline', 'unhealthy']);
 add('info', ['running', 'processing', 'building', 'deploying', 'queued', 'info', 'pending_review']);
+// A target that has never deployed is not idle or broken — it is simply not
+// there yet, and saying so is the whole point of not defaulting to "active".
+add('neutral', ['never_deployed', 'not deployed', 'unknown']);
+
+/** Words that read badly as a raw status value. */
+const LABELS: Record<string, string> = {
+  never_deployed: 'Not deployed',
+};
+
+/** Renders a status value as the phrase a person would say. */
+export function statusLabel(status: string): string {
+  const key = status.trim().toLowerCase();
+  return LABELS[key] ?? status;
+}
 
 /** Map an arbitrary status string to a variant (defaults to neutral). */
 export function statusVariant(status: string): StatusVariant {
@@ -37,6 +51,7 @@ export function StatusChip({
   className?: string;
 }) {
   const v = variant ?? statusVariant(label);
+  const text = statusLabel(label);
   const color = COLOR_VAR[v];
   return (
     <span
@@ -53,7 +68,7 @@ export function StatusChip({
         className="h-[5px] w-[5px] rounded-full"
         style={{ backgroundColor: color }}
       />
-      {label.replace(/_/g, ' ')}
+      {text.replace(/_/g, ' ')}
     </span>
   );
 }

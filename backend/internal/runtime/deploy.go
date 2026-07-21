@@ -19,16 +19,21 @@ import (
 
 // DeployConfig holds the configuration extracted from a deployment's config map.
 type DeployConfig struct {
-	Dockerfile   string            // Dockerfile content (for web type)
-	BuildCommand string            // build command to run inside the image
-	Port         string            // port the app listens on (default "3000")
-	Image        string            // image to pull (for container type)
-	Env          map[string]string // environment variables
-	SourceDir    string            // checked-out source to build from
-	OutputDir    string            // directory of build artefacts to serve (static sites)
-	Subdomain    string            // <sub>.applad.dev this app is served on
-	ServeMode    string            // "static" (serve OutputDir) or "node" (run a server)
-	NodeVersion  string            // major Node version for the build image
+	Dockerfile     string            // Dockerfile content (for web type)
+	InstallCommand string            // dependency install, run before the build
+	BuildCommand   string            // build command to run inside the image
+	StartCommand   string            // long-lived process, for ServeMode "node"
+	Port           string            // port the app listens on (default "3000")
+	Image          string            // image to pull (for container type)
+	Env            map[string]string // environment variables
+	SourceDir      string            // checked-out source to build from
+	OutputDir      string            // directory of build artefacts to serve (static sites)
+	Subdomain      string            // <sub>.applad.dev this app is served on
+	ServeMode      string            // "static" (serve OutputDir) or "node" (run a server)
+	NodeVersion    string            // major Node version for the build image
+	// PackageManagerPin is package.json's own "packageManager" field, used so
+	// the build runs the version the project chose rather than the newest.
+	PackageManagerPin string
 }
 
 // ParseDeployConfig extracts a DeployConfig from the raw config map.
@@ -44,6 +49,15 @@ func ParseDeployConfig(raw map[string]interface{}) DeployConfig {
 	}
 	if v, ok := raw["buildCmd"].(string); ok && v != "" {
 		cfg.BuildCommand = v
+	}
+	if v, ok := raw["installCmd"].(string); ok {
+		cfg.InstallCommand = v
+	}
+	if v, ok := raw["startCmd"].(string); ok {
+		cfg.StartCommand = v
+	}
+	if v, ok := raw["packageManagerPin"].(string); ok {
+		cfg.PackageManagerPin = v
 	}
 	if v, ok := raw["sourceDir"].(string); ok {
 		cfg.SourceDir = v
@@ -121,7 +135,7 @@ func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID 
 		// use as provided
 	case repoDockerfile:
 		// leave empty; the repo's Dockerfile is already in the build context
-	case cfg.BuildCommand != "" && cfg.ServeMode != "node":
+	case (cfg.BuildCommand != "" || cfg.InstallCommand != "") && cfg.ServeMode != "node":
 		// Most frameworks build to a directory of static files. Build in Node,
 		// then serve the output with nginx: the result is a ~50MB image with no
 		// runtime, instead of dragging the whole toolchain into production.
@@ -131,22 +145,20 @@ func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID 
 		}
 		dockerfile = fmt.Sprintf(`FROM node:%s-alpine AS build
 WORKDIR /app
-COPY . .
-RUN %s
+%s
 FROM nginx:alpine
 COPY --from=build /app/%s/ /usr/share/nginx/html/
 EXPOSE 80
-`, nodeTag(cfg.NodeVersion), cfg.BuildCommand, out)
+`, nodeTag(cfg.NodeVersion), buildPhases(cfg), out)
 		cfg.Port = "80"
 
-	case cfg.BuildCommand != "":
+	case cfg.BuildCommand != "" || cfg.InstallCommand != "":
 		dockerfile = fmt.Sprintf(`FROM node:%s-alpine
 WORKDIR /app
-COPY . .
-RUN %s
+%s
 EXPOSE %s
-CMD ["node", "server.js"]
-`, nodeTag(cfg.NodeVersion), cfg.BuildCommand, cfg.Port)
+CMD %s
+`, nodeTag(cfg.NodeVersion), buildPhases(cfg), cfg.Port, startCommand(cfg))
 	default:
 		root := strings.Trim(cfg.OutputDir, "/ ")
 		if root == "" || root == "." {
@@ -204,6 +216,103 @@ EXPOSE 80
 	return buildLog, d.startContainer(ctx, deploymentID, projectID, imageName, cfg)
 }
 
+// buildPhases writes the install and build steps as separate layers.
+//
+// The manifest is copied and dependencies installed before the source is
+// copied in, so a change to the source reuses the cached install rather than
+// reinstalling every dependency on every deploy. It also fixes the reason a
+// build could fail outright: a single conflated command meant naming a build
+// step replaced the install that has to precede it, and `next build` ran in a
+// tree with no node_modules.
+func buildPhases(cfg DeployConfig) string {
+	var b strings.Builder
+
+	// Setup: the base image ships npm and nothing else, so a project using
+	// pnpm or yarn needs its package manager put there first. Corepack is how
+	// Node distributes them, and it reads the version from packageManager in
+	// package.json, so the build uses what the project pinned.
+	if pm := packageManagerOf(cfg.InstallCommand); pm != "" && pm != "npm" {
+		b.WriteString("ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0\n")
+		// A pinned version is used exactly; an unpinned one is pinned here
+		// rather than resolved to "latest" at build time. Letting corepack
+		// pick the newest release means a project that has not changed starts
+		// failing the day that tool changes a default — which it did: pnpm 11
+		// turned unapproved dependency build scripts into an error.
+		if pin := strings.TrimSpace(cfg.PackageManagerPin); pin != "" {
+			fmt.Fprintf(&b, "RUN corepack prepare %s --activate\n", pin)
+		} else if fallback := defaultPackageManagerVersion[pm]; fallback != "" {
+			fmt.Fprintf(&b, "RUN corepack prepare %s --activate\n", fallback)
+		} else {
+			b.WriteString("RUN corepack enable\n")
+		}
+		b.WriteString("RUN corepack enable\n")
+	}
+
+	if cfg.InstallCommand != "" {
+		// Only the manifest and lockfile, so this layer survives source edits.
+		// package.json is always present when there is something to install;
+		// the rest are globs because a project has exactly one of them, and
+		// Docker only requires that some source matches.
+		b.WriteString("COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./\n")
+		fmt.Fprintf(&b, "RUN %s\n", cfg.InstallCommand)
+	}
+
+	b.WriteString("COPY . .\n")
+	if cfg.BuildCommand != "" {
+		fmt.Fprintf(&b, "RUN %s\n", cfg.BuildCommand)
+	}
+	return b.String()
+}
+
+// defaultPackageManagerVersion is what a project gets when it pins nothing.
+//
+// Chosen rather than inferred: "latest" is not a version, it is a moving
+// target that turns somebody else's release into our outage.
+var defaultPackageManagerVersion = map[string]string{
+	"pnpm": "pnpm@10.18.3",
+	"yarn": "yarn@4.10.3",
+}
+
+// packageManagerOf reads the tool out of an install command.
+//
+// Taken from the command rather than passed alongside it: the command is what
+// actually runs, so anything derived from something else can disagree with it.
+func packageManagerOf(installCmd string) string {
+	fields := strings.Fields(strings.TrimSpace(installCmd))
+	if len(fields) == 0 {
+		return ""
+	}
+	switch fields[0] {
+	case "pnpm", "yarn", "bun", "npm":
+		return fields[0]
+	}
+	return ""
+}
+
+// startCommand is what the image runs when it is a server rather than a
+// directory of files.
+//
+// Previously hardcoded to `node server.js`, which is not how any framework
+// with a start script is launched — a Next.js app died at boot regardless of
+// how well it built.
+func startCommand(cfg DeployConfig) string {
+	cmd := strings.TrimSpace(cfg.StartCommand)
+	if cmd == "" {
+		cmd = "node server.js"
+	}
+	// Exec form where we can, so the process gets signals directly; a command
+	// with shell syntax in it has to go through a shell.
+	if strings.ContainsAny(cmd, "&|;><$") {
+		return fmt.Sprintf("[\"/bin/sh\", \"-c\", %q]", cmd)
+	}
+	parts := strings.Fields(cmd)
+	quoted := make([]string, 0, len(parts))
+	for _, p := range parts {
+		quoted = append(quoted, fmt.Sprintf("%q", p))
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
 // accessLogConf keeps nginx's combined format and appends the request time,
 // which the default format omits — the reason every request reported 0ms.
 const accessLogConf = `log_format applad '$remote_addr - $remote_user [$time_local] ` +
@@ -214,9 +323,16 @@ access_log /dev/stdout applad;
 // nodeTag picks the Node base image tag, defaulting when the project does not
 // pin one. A project that declares engines.node or ships an .nvmrc usually
 // means it.
+// nodeTag picks the Node image, defaulting to the current LTS.
+//
+// It defaulted to 20, which corepack then outgrew: with no version pinned in
+// package.json it fetches the newest pnpm, and pnpm 11 uses builtins Node 20
+// does not have — so an unpinned project failed with ERR_UNKNOWN_BUILTIN_MODULE
+// before installing anything. A project that states its own version still gets
+// exactly that.
 func nodeTag(version string) string {
 	if version == "" {
-		return "20"
+		return "22"
 	}
 	return version
 }

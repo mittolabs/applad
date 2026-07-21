@@ -775,7 +775,9 @@ type pipelineConfig struct {
 	sourceType string // "git" | "upload"
 	sourceURL  string
 	branch     string
+	installCmd string
 	buildCmd   string
+	startCmd   string
 	outputDir  string
 	targetType string // "serverless" | "web" | "container"
 	runtime    string
@@ -791,20 +793,24 @@ func (w *Builds) loadPipelineConfig(ctx context.Context, pipelineID, targetID, p
 	cfg.targetID = targetID
 	cfg.projectID = projectID
 
-	var sourceURL, branch, buildCmd, outputDir, runtimeName, entrypoint, domain, storedSub sql.NullString
+	var sourceURL, branch, installCmd, buildCmd, startCmd, outputDir sql.NullString
+	var runtimeName, entrypoint, domain, storedSub sql.NullString
 	err := w.db.QueryRowContext(ctx,
-		`SELECT dp.source_type, dp.source_url, dp.branch, dp.build_cmd, dp.output_dir,
+		`SELECT dp.source_type, dp.source_url, dp.branch,
+		        dp.install_cmd, dp.build_cmd, dp.start_cmd, dp.output_dir,
 		        dt.type, dt.runtime, dt.entrypoint, dp.timeout_ms, dt.domain, dt.name, dt.subdomain
 		 FROM deploy_pipelines dp
 		 JOIN deploy_targets dt ON dt.id = dp.target_id
 		 WHERE dp.id = $1 AND dp.project_id = $2`, pipelineID, projectID,
-	).Scan(&cfg.sourceType, &sourceURL, &branch, &buildCmd, &outputDir,
+	).Scan(&cfg.sourceType, &sourceURL, &branch,
+		&installCmd, &buildCmd, &startCmd, &outputDir,
 		&cfg.targetType, &runtimeName, &entrypoint, &cfg.timeoutMs, &domain, &cfg.targetName, &storedSub)
 	if err != nil {
 		return nil, fmt.Errorf("load pipeline config: %w", err)
 	}
 	cfg.sourceURL, cfg.branch = sourceURL.String, branch.String
-	cfg.buildCmd, cfg.outputDir = buildCmd.String, outputDir.String
+	cfg.installCmd, cfg.buildCmd = installCmd.String, buildCmd.String
+	cfg.startCmd, cfg.outputDir = startCmd.String, outputDir.String
 	cfg.runtime, cfg.entrypoint = runtimeName.String, entrypoint.String
 
 	// The subdomain a deployed app is served on: <sub>.applad.dev.
@@ -882,33 +888,48 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 
 	w.updateReleaseStatus(ctx, releaseID, "deploying", "", "", 0)
 
-	// A pipeline with no build configuration gets it inferred from the source.
-	// The console prefills the same values from the same detector, so this is
-	// the fallback for API-created pipelines and for git sources, which have
-	// nothing to inspect until the clone lands here.
-	buildCmd, outputDir, serveMode, nodeVersion := cfg.buildCmd, cfg.outputDir, "", ""
-	if sourceDir != "" && buildCmd == "" && (outputDir == "" || outputDir == ".") {
+	// Each phase is settled on its own: what the pipeline states wins, and
+	// anything it leaves blank is inferred from the source.
+	//
+	// This used to be all-or-nothing — detection ran only when the build
+	// command was empty — so naming a build command silently discarded the
+	// install that has to precede it, and the build died with `next: not
+	// found`. Filling in the form was enough to break it.
+	installCmd, buildCmd := cfg.installCmd, cfg.buildCmd
+	startCmd, outputDir := cfg.startCmd, cfg.outputDir
+	serveMode, nodeVersion := "", ""
+	packageManagerPin := ""
+
+	if sourceDir != "" {
 		d := deploy.DetectDir(sourceDir)
-		buildCmd, outputDir, serveMode, nodeVersion = d.BuildCommand, d.OutputDir, d.ServeMode, d.NodeVersion
-		if d.InstallCommand != "" && buildCmd != "" {
-			buildCmd = d.InstallCommand + " && " + buildCmd
+		installCmd = firstNonEmpty(installCmd, d.InstallCommand)
+		buildCmd = firstNonEmpty(buildCmd, d.BuildCommand)
+		startCmd = firstNonEmpty(startCmd, d.StartCommand)
+		if outputDir == "" || outputDir == "." {
+			outputDir = firstNonEmpty(d.OutputDir, outputDir)
 		}
-		slog.Info("builds worker: detected framework", "release_id", releaseID,
-			"framework", d.Framework, "reason", d.Reason, "build", buildCmd, "output", outputDir)
+		serveMode, nodeVersion = d.ServeMode, d.NodeVersion
+		packageManagerPin = d.PackageManagerPin
+		slog.Info("builds worker: build plan", "release_id", releaseID,
+			"framework", d.Framework, "reason", d.Reason,
+			"install", installCmd, "build", buildCmd, "start", startCmd, "output", outputDir)
 		// Recorded on the target so the console can name what this is.
 		w.db.ExecContext(ctx, //nolint:errcheck
 			"UPDATE deploy_targets SET framework = $1 WHERE id = $2", d.Framework, targetID)
 	}
 
 	deployConfig := runtime.ParseDeployConfig(map[string]interface{}{
-		"buildCmd":    buildCmd,
-		"outputDir":   outputDir,
-		"serveMode":   serveMode,
-		"nodeVersion": nodeVersion,
-		"runtime":     cfg.runtime,
-		"entrypoint":  cfg.entrypoint,
-		"sourceDir":   sourceDir,
-		"subdomain":   cfg.subdomain,
+		"installCmd":        installCmd,
+		"buildCmd":          buildCmd,
+		"startCmd":          startCmd,
+		"packageManagerPin": packageManagerPin,
+		"outputDir":         outputDir,
+		"serveMode":         serveMode,
+		"nodeVersion":       nodeVersion,
+		"runtime":           cfg.runtime,
+		"entrypoint":        cfg.entrypoint,
+		"sourceDir":         sourceDir,
+		"subdomain":         cfg.subdomain,
 	})
 
 	var deployErr error
@@ -1117,4 +1138,17 @@ func truncateStr(s string, max int) string {
 		return s
 	}
 	return s[:max]
+}
+
+// firstNonEmpty returns the first value that was actually set.
+//
+// The order is the policy: what somebody wrote down beats what was inferred,
+// per phase rather than for the build as a whole.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

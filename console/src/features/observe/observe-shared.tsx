@@ -37,9 +37,33 @@ export function levelColor(level: string): string {
 }
 
 export function apdexColor(v: unknown): string {
-  const d = typeof v === 'number' ? v : 1.0;
-  if (d >= 0.9) return OB_GREEN;
-  if (d >= 0.7) return OB_ORANGE;
+  // No score is not a perfect score. Defaulting to 1.0 painted "no data" the
+  // same green as "everything is fine", which is the one thing a monitoring
+  // page must never do.
+  if (typeof v !== 'number') return OB_SLATE;
+  if (v >= 0.9) return OB_GREEN;
+  if (v >= 0.7) return OB_ORANGE;
+  return OB_RED;
+}
+
+/*
+ * Rendering a measurement that may not exist.
+ *
+ * The observe pages defaulted uptime, crash-free rate and apdex to their
+ * perfect values, so an instance with no data reported 100.00% uptime and a
+ * 1.00 apdex in green. A number nobody measured is shown as absent.
+ */
+export function metric(v: unknown, opts: { suffix?: string; digits?: number } = {}): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '—';
+  const { suffix = '', digits } = opts;
+  return (digits == null ? String(v) : v.toFixed(digits)) + suffix;
+}
+
+/** The colour for a percentage where higher is better, grey when unmeasured. */
+export function healthColor(v: unknown, good = 99.9, fair = 99): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return OB_SLATE;
+  if (v >= good) return OB_GREEN;
+  if (v >= fair) return OB_ORANGE;
   return OB_RED;
 }
 

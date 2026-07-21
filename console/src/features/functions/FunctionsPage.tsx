@@ -104,7 +104,7 @@ function FunctionsTab({
             case 'runtime':
               return String(row['runtime'] ?? '');
             case 'status':
-              return String(row['status'] ?? 'active');
+              return String(row['status'] ?? 'unknown');
             case 'updatedAt':
               return shortDate(row['updatedAt']);
             default:
@@ -112,7 +112,7 @@ function FunctionsTab({
           }
         }}
         cellRender={(row, key) => {
-          if (key === 'status') return <StatusChip label={String(row['status'] ?? 'active')} />;
+          if (key === 'status') return <StatusChip label={String(row['status'] ?? 'unknown')} />;
           if (key === 'runtime') return runtimeById(String(row['runtime'] ?? 'custom')).label;
           return undefined;
         }}

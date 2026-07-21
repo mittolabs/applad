@@ -34,7 +34,9 @@ export function BucketSettings({
   const name = (bucket?.['name'] as string) ?? '';
   const enabled = (bucket?.['enabled'] as boolean) ?? true;
   const fileSecurity = (bucket?.['fileSecurity'] as boolean) ?? false;
-  const encryption = (bucket?.['encryption'] as boolean) ?? true;
+  // Unknown is not encrypted: this claimed data was encrypted before the
+  // bucket had loaded, while its neighbours default to the safe side.
+  const encryption = (bucket?.['encryption'] as boolean) ?? false;
   const antivirus = (bucket?.['antivirus'] as boolean) ?? false;
   const compression = (bucket?.['compression'] as string) ?? 'none';
   const maxSize = (bucket?.['maximumFileSize'] as number) ?? 0;

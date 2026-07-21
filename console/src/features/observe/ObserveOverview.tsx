@@ -16,11 +16,14 @@ import {
   OB_ORANGE,
   OB_PURPLE,
   OB_RED,
+  OB_SLATE,
   ObSectionTitle,
   apdexColor,
   asRecord,
   asRows,
+  healthColor,
   levelColor,
+  metric,
   num,
   obFmtNum,
   obTimeAgo,
@@ -63,19 +66,19 @@ export function ObserveOverview({ projectId }: { projectId?: string }) {
         />
         <StatCard
           label="P95 Latency"
-          value={`${num(stats.p95Ms)}ms`}
+          value={metric(stats.p95Ms, { suffix: 'ms' })}
           color={OB_ACCENT}
           icon={Timer}
         />
         <StatCard
           label="Uptime"
-          value={`${num(stats.uptimePct, 100)}%`}
-          color={OB_GREEN}
+          value={metric(stats.uptimePct, { suffix: '%' })}
+          color={healthColor(stats.uptimePct)}
           icon={HeartPulse}
         />
         <StatCard
           label="Apdex"
-          value={num(stats.apdex, 1.0).toFixed(2)}
+          value={metric(stats.apdex, { digits: 2 })}
           color={apdexColor(stats.apdex)}
           icon={Gauge}
         />
@@ -120,7 +123,7 @@ export function ObserveOverview({ projectId }: { projectId?: string }) {
       </div>
 
       {/* Recent errors */}
-      <RecentErrors projectId={projectId} errors={recentErrors} />
+      <RecentErrors projectId={projectId} errors={recentErrors} failed={!!errorsQ.error} />
     </div>
   );
 }
@@ -172,15 +175,17 @@ const WEB_VITALS: VitalSpec[] = [
 ];
 
 function vitalColor(spec: VitalSpec, value: unknown): string {
-  const v = typeof value === 'number' ? value : 0;
-  if (v <= spec.good) return OB_GREEN;
-  if (v <= spec.poor) return OB_ORANGE;
+  // Absent is not good. Treating a missing vital as 0 made it the best
+  // possible score, so a card reading "—" wore a green "Good" badge.
+  if (typeof value !== 'number' || !Number.isFinite(value)) return OB_SLATE;
+  if (value <= spec.good) return OB_GREEN;
+  if (value <= spec.poor) return OB_ORANGE;
   return OB_RED;
 }
 function vitalRating(spec: VitalSpec, value: unknown): string {
-  const v = typeof value === 'number' ? value : 0;
-  if (v <= spec.good) return 'Good';
-  if (v <= spec.poor) return 'Needs improvement';
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'No data';
+  if (value <= spec.good) return 'Good';
+  if (value <= spec.poor) return 'Needs improvement';
   return 'Poor';
 }
 function vitalDisplay(spec: VitalSpec, value: unknown): string {
@@ -220,13 +225,15 @@ function VitalCard({ spec, value }: { spec: VitalSpec; value: unknown }) {
 }
 
 function ServiceCard({ service }: { service: Record<string, unknown> }) {
-  const status = String(service.status ?? 'healthy');
+  const status = String(service.status ?? 'unknown');
   const map: Record<string, [string, string]> = {
     healthy: [OB_GREEN, 'Healthy'],
     degraded: [OB_ORANGE, 'Degraded'],
     down: [OB_RED, 'Down'],
   };
-  const [dot, label] = map[status] ?? [OB_GREEN, 'Unknown'];
+  // A status we do not recognise was labelled Unknown and painted green,
+  // which is the label telling the truth and the colour contradicting it.
+  const [dot, label] = map[status] ?? [OB_SLATE, 'Unknown'];
   return (
     <div className="w-[180px] rounded-[var(--radius)] border border-border bg-surface p-3.5">
       <div className="flex items-center gap-1.5">
@@ -248,9 +255,13 @@ function ServiceCard({ service }: { service: Record<string, unknown> }) {
 function RecentErrors({
   projectId,
   errors,
+  // An empty list and a failed request look identical from here, and only one
+  // of them deserves congratulating.
+  failed,
 }: {
   projectId?: string;
   errors: Record<string, unknown>[];
+  failed?: boolean;
 }) {
   const navigate = useNavigate();
   return (
@@ -272,8 +283,12 @@ function RecentErrors({
         {errors.length === 0 ? (
           <EmptyState
             icon={CheckCircle2}
-            title="No errors — great job!"
-            subtitle="Errors captured by the Applad SDK will appear here."
+            title={failed ? 'Could not load errors' : 'No errors — great job!'}
+            subtitle={
+              failed
+                ? 'The error list could not be fetched, so this is not a clean bill of health.'
+                : 'Errors captured by the Applad SDK will appear here.'
+            }
           />
         ) : (
           <div className="flex flex-col gap-1.5">

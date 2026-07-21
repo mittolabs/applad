@@ -18,6 +18,8 @@ import {
   ObMetaBadge,
   ObSectionTitle,
   asRows,
+  healthColor,
+  metric,
   num,
   obTimeAgo,
   useObserveResource,
@@ -68,7 +70,7 @@ export function ObserveReleases({ projectId }: { projectId?: string }) {
             case 'version':
               return String(row.version ?? '');
             case 'crashFree':
-              return `${num(row.crashFreeSessionsPct, 100).toFixed(2)}%`;
+              return metric(row.crashFreeSessionsPct, { suffix: '%', digits: 2 });
             case 'newIssues':
               return String(row.newIssues ?? 0);
             case 'regressed':
@@ -101,11 +103,14 @@ export function ObserveReleases({ projectId }: { projectId?: string }) {
             );
           }
           if (key === 'crashFree') {
-            const pct = num(row.crashFreeSessionsPct, 100);
-            const c = pct >= 99 ? OB_GREEN : pct >= 95 ? OB_ORANGE : OB_RED;
+            // A release with no crash data is not a crash-free release, and
+            // this is the number people decide to ship on.
             return (
-              <span className="text-[length:var(--text-label)] font-semibold" style={{ color: c }}>
-                {pct.toFixed(2)}%
+              <span
+                className="text-[length:var(--text-label)] font-semibold"
+                style={{ color: healthColor(row.crashFreeSessionsPct, 99, 95) }}
+              >
+                {metric(row.crashFreeSessionsPct, { suffix: '%', digits: 2 })}
               </span>
             );
           }

@@ -38,7 +38,12 @@ type Detection struct {
 	// their build command is identical.
 	ServeMode      string `json:"serveMode"`
 	PackageManager string `json:"packageManager"`
-	NodeVersion    string `json:"nodeVersion"`
+	// PackageManagerPin is package.json's own "packageManager" field, when it
+	// has one. Without it, a build that shells out to corepack gets the
+	// newest release of that tool — which is how an unchanged project starts
+	// failing the day pnpm changes a default.
+	PackageManagerPin string `json:"packageManagerPin"`
+	NodeVersion       string `json:"nodeVersion"`
 	// Reason states the signal that decided it, so the console can show
 	// "Detected Next.js from package.json" rather than an unexplained guess.
 	Reason string `json:"reason"`
@@ -129,6 +134,10 @@ func detectNode(pkgJSON string, in DetectInput, files map[string]bool) (Detectio
 		Engines      struct {
 			Node string `json:"node"`
 		} `json:"engines"`
+		// The version the project pinned, e.g. "pnpm@9.1.0". Corepack reads
+		// this too; carrying it means the build can pin something sensible
+		// when it is absent instead of fetching whatever is newest.
+		PackageManager string `json:"packageManager"`
 	}
 	if err := json.Unmarshal([]byte(pkgJSON), &pkg); err != nil {
 		return Detection{}, false
@@ -155,15 +164,16 @@ func detectNode(pkgJSON string, in DetectInput, files map[string]bool) (Detectio
 			continue
 		}
 		d := Detection{
-			Framework:      fw.framework,
-			InstallCommand: install,
-			BuildCommand:   scriptOr(pkg.Scripts, "build", fw.build, pm),
-			OutputDir:      fw.outputDir,
-			ServeMode:      fw.serveMode,
-			StartCommand:   fw.start,
-			PackageManager: pm,
-			NodeVersion:    nodeVersion,
-			Reason:         fmt.Sprintf("%q in package.json dependencies", fw.dep),
+			Framework:         fw.framework,
+			InstallCommand:    install,
+			BuildCommand:      scriptOr(pkg.Scripts, "build", fw.build, pm),
+			OutputDir:         fw.outputDir,
+			ServeMode:         fw.serveMode,
+			StartCommand:      fw.start,
+			PackageManager:    pm,
+			PackageManagerPin: pkg.PackageManager,
+			NodeVersion:       nodeVersion,
+			Reason:            fmt.Sprintf("%q in package.json dependencies", fw.dep),
 		}
 		// Vite writes to dist regardless of the UI library on top of it.
 		if deps["vite"] && (fw.framework == "react" || fw.framework == "vue") {
@@ -180,26 +190,28 @@ func detectNode(pkgJSON string, in DetectInput, files map[string]bool) (Detectio
 	// a guessed output directory would be worse than running the app.
 	if _, ok := pkg.Scripts["build"]; ok {
 		return Detection{
-			Framework:      "node",
-			InstallCommand: install,
-			BuildCommand:   withPackageManager("npm run build", pm),
-			OutputDir:      firstExisting(files, "dist", "build", "public", "."),
-			ServeMode:      "static",
-			PackageManager: pm,
-			NodeVersion:    nodeVersion,
-			Reason:         "build script in package.json",
+			Framework:         "node",
+			InstallCommand:    install,
+			BuildCommand:      withPackageManager("npm run build", pm),
+			OutputDir:         firstExisting(files, "dist", "build", "public", "."),
+			ServeMode:         "static",
+			PackageManager:    pm,
+			PackageManagerPin: pkg.PackageManager,
+			NodeVersion:       nodeVersion,
+			Reason:            "build script in package.json",
 		}, true
 	}
 
 	if _, ok := pkg.Scripts["start"]; ok {
 		return Detection{
-			Framework:      "node",
-			InstallCommand: install,
-			StartCommand:   withPackageManager("npm run start", pm),
-			ServeMode:      "node",
-			PackageManager: pm,
-			NodeVersion:    nodeVersion,
-			Reason:         "start script in package.json",
+			Framework:         "node",
+			InstallCommand:    install,
+			StartCommand:      withPackageManager("npm run start", pm),
+			ServeMode:         "node",
+			PackageManager:    pm,
+			PackageManagerPin: pkg.PackageManager,
+			NodeVersion:       nodeVersion,
+			Reason:            "start script in package.json",
 		}, true
 	}
 

@@ -123,6 +123,10 @@ export function CreateSiteDialog({
         sourceType,
         sourceUrl: sourceType === 'git' ? repository.trim() : '',
         branch: sourceType === 'git' ? branch.trim() : '',
+        // Sent as phases. The install command was collected here and dropped
+        // on the way out, so a framework needing dependencies built without
+        // them and died with "next: not found".
+        installCmd: installCommand.trim(),
         buildCmd: buildCommand.trim(),
         outputDir: outputDirectory.trim() || '.',
       });

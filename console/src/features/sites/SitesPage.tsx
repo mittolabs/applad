@@ -107,7 +107,9 @@ export function SitesPage() {
               case 'framework':
                 return frameworkById(String(row['framework'] ?? 'static')).label;
               case 'status':
-                return String(row['status'] ?? 'active');
+                // Never a default: an unknown state is reported as unknown,
+                // not as the happy one.
+                return String(row['status'] ?? 'never_deployed');
               case 'updatedAt':
                 return shortDate(row['updatedAt'] ?? row['$updatedAt']);
               default:
@@ -115,7 +117,9 @@ export function SitesPage() {
             }
           }}
           cellRender={(row, key) =>
-            key === 'status' ? <StatusChip label={String(row['status'] ?? 'active')} /> : undefined
+            key === 'status' ? (
+            <StatusChip label={String(row['status'] ?? 'never_deployed')} />
+          ) : undefined
           }
           rowIcon={() => Globe}
           onRowClick={open}

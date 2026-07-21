@@ -95,7 +95,7 @@ function MobileList({
             case 'buildType':
               return String(row['buildType'] ?? '');
             case 'status':
-              return String(row['status'] ?? 'active');
+              return String(row['status'] ?? 'never_deployed');
             case 'updatedAt':
               return fmtDate(row['updatedAt'] ?? row['$updatedAt']);
             default:
@@ -103,7 +103,7 @@ function MobileList({
           }
         }}
         cellRender={(row, key) =>
-          key === 'status' ? <StatusChip label={String(row['status'] ?? 'active')} /> : undefined
+          key === 'status' ? <StatusChip label={String(row['status'] ?? 'never_deployed')} /> : undefined
         }
         rowIcon={(row) => (String(row['buildType'] ?? '') === 'ipa' ? Tablet : Smartphone)}
         onRowClick={(row) => onOpen(String(row['$id'] ?? row['id'] ?? ''))}

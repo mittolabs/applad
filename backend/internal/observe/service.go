@@ -21,28 +21,28 @@ import (
 // ── Models ───────────────────────────────────────────────────────────────────
 
 type Error struct {
-	ID            string                 `json:"$id"`
-	ProjectID     string                 `json:"projectId"`
-	Title         string                 `json:"title"`
-	ErrorType     string                 `json:"errorType"`
-	Level         string                 `json:"level"`
-	Status        string                 `json:"status"`
-	Fingerprint   string                 `json:"fingerprint"`
-	StackTrace    string                 `json:"stackTrace"`
-	Breadcrumbs   []map[string]any       `json:"breadcrumbs"`
-	UserContext   map[string]any         `json:"userContext"`
-	RequestCtx    map[string]any         `json:"requestContext"`
-	RuntimeCtx    map[string]any         `json:"runtimeContext"`
-	Tags          map[string]any         `json:"tags"`
-	Environment   string                 `json:"environment"`
-	Release       string                 `json:"release"`
-	Count         int64                  `json:"count"`
-	AffectedUsers int64                  `json:"affectedUsers"`
-	Priority      string                 `json:"priority"`
-	Assignee      string                 `json:"assignee"`
-	Activity      []map[string]any       `json:"activity,omitempty"`
-	FirstSeen     time.Time              `json:"firstSeen"`
-	LastSeen      time.Time              `json:"lastSeen"`
+	ID            string           `json:"$id"`
+	ProjectID     string           `json:"projectId"`
+	Title         string           `json:"title"`
+	ErrorType     string           `json:"errorType"`
+	Level         string           `json:"level"`
+	Status        string           `json:"status"`
+	Fingerprint   string           `json:"fingerprint"`
+	StackTrace    string           `json:"stackTrace"`
+	Breadcrumbs   []map[string]any `json:"breadcrumbs"`
+	UserContext   map[string]any   `json:"userContext"`
+	RequestCtx    map[string]any   `json:"requestContext"`
+	RuntimeCtx    map[string]any   `json:"runtimeContext"`
+	Tags          map[string]any   `json:"tags"`
+	Environment   string           `json:"environment"`
+	Release       string           `json:"release"`
+	Count         int64            `json:"count"`
+	AffectedUsers int64            `json:"affectedUsers"`
+	Priority      string           `json:"priority"`
+	Assignee      string           `json:"assignee"`
+	Activity      []map[string]any `json:"activity,omitempty"`
+	FirstSeen     time.Time        `json:"firstSeen"`
+	LastSeen      time.Time        `json:"lastSeen"`
 }
 
 type LogEntry struct {
@@ -88,56 +88,59 @@ type WebVitals struct {
 }
 
 type Release struct {
-	ID                   string         `json:"$id"`
-	ProjectID            string         `json:"projectId"`
-	Version              string         `json:"version"`
-	Environment          string         `json:"environment"`
-	CommitCount          int            `json:"commitCount"`
+	ID                   string           `json:"$id"`
+	ProjectID            string           `json:"projectId"`
+	Version              string           `json:"version"`
+	Environment          string           `json:"environment"`
+	CommitCount          int              `json:"commitCount"`
 	Commits              []map[string]any `json:"commits"`
-	CrashFreeSessionsPct float64        `json:"crashFreeSessionsPct"`
-	NewIssues            int            `json:"newIssues"`
-	RegressedIssues      int            `json:"regressedIssues"`
-	FixedIssues          int            `json:"fixedIssues"`
-	CreatedAt            time.Time      `json:"$createdAt"`
-	DeployedAt           *time.Time     `json:"deployedAt"`
+	CrashFreeSessionsPct float64          `json:"crashFreeSessionsPct"`
+	NewIssues            int              `json:"newIssues"`
+	RegressedIssues      int              `json:"regressedIssues"`
+	FixedIssues          int              `json:"fixedIssues"`
+	CreatedAt            time.Time        `json:"$createdAt"`
+	DeployedAt           *time.Time       `json:"deployedAt"`
 }
 
 type Replay struct {
-	ID           string         `json:"$id"`
-	ProjectID    string         `json:"projectId"`
-	SessionID    string         `json:"sessionId"`
-	UserID       string         `json:"userId"`
-	User         string         `json:"user"`
-	URL          string         `json:"url"`
-	Browser      string         `json:"browser"`
-	OS           string         `json:"os"`
-	Country      string         `json:"country"`
-	DurationSecs int            `json:"durationSecs"`
-	ErrorCount   int            `json:"errorCount"`
-	HasRageClick bool           `json:"hasRageClick"`
-	HasDeadClick bool           `json:"hasDeadClick"`
+	ID           string           `json:"$id"`
+	ProjectID    string           `json:"projectId"`
+	SessionID    string           `json:"sessionId"`
+	UserID       string           `json:"userId"`
+	User         string           `json:"user"`
+	URL          string           `json:"url"`
+	Browser      string           `json:"browser"`
+	OS           string           `json:"os"`
+	Country      string           `json:"country"`
+	DurationSecs int              `json:"durationSecs"`
+	ErrorCount   int              `json:"errorCount"`
+	HasRageClick bool             `json:"hasRageClick"`
+	HasDeadClick bool             `json:"hasDeadClick"`
 	Events       []map[string]any `json:"events,omitempty"`
 	Network      []map[string]any `json:"network,omitempty"`
 	Console      []map[string]any `json:"console,omitempty"`
-	StartedAt    time.Time      `json:"startedAt"`
-	EndedAt      *time.Time     `json:"endedAt"`
+	StartedAt    time.Time        `json:"startedAt"`
+	EndedAt      *time.Time       `json:"endedAt"`
 }
 
 type UptimeMonitor struct {
-	ID           string     `json:"$id"`
-	ProjectID    string     `json:"projectId"`
-	Name         string     `json:"name"`
-	URL          string     `json:"url"`
-	CheckType    string     `json:"checkType"`
-	IntervalSecs int        `json:"intervalSecs"`
-	Keyword      string     `json:"keyword"`
-	Status       string     `json:"status"`
-	Enabled      bool       `json:"enabled"`
-	UptimePct    float64    `json:"uptimePct"`
-	LatencyMs    int        `json:"latencyMs"`
-	LastChecked  *time.Time `json:"lastChecked"`
-	History      []string   `json:"history"`
-	CreatedAt    time.Time  `json:"$createdAt"`
+	ID           string `json:"$id"`
+	ProjectID    string `json:"projectId"`
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	CheckType    string `json:"checkType"`
+	IntervalSecs int    `json:"intervalSecs"`
+	Keyword      string `json:"keyword"`
+	Status       string `json:"status"`
+	Enabled      bool   `json:"enabled"`
+	// Nil until the first check: a monitor that has never run has no uptime,
+	// and 100.0 is not a safe stand-in for "unknown".
+	UptimePct *float64 `json:"uptimePct"`
+	// Nil for the same reason as UptimePct: 0ms is a measurement, not a gap.
+	LatencyMs   *int       `json:"latencyMs"`
+	LastChecked *time.Time `json:"lastChecked"`
+	History     []string   `json:"history"`
+	CreatedAt   time.Time  `json:"$createdAt"`
 }
 
 type CronMonitor struct {
@@ -157,28 +160,28 @@ type CronMonitor struct {
 }
 
 type AlertRule struct {
-	ID         string     `json:"$id"`
-	ProjectID  string     `json:"projectId"`
-	Name       string     `json:"name"`
-	Metric     string     `json:"metric"`
-	Operator   string     `json:"operator"`
-	Threshold  float64    `json:"threshold"`
-	Window     string     `json:"window"`
-	Severity   string     `json:"severity"`
-	Channel    string     `json:"channel"`
-	Enabled    bool       `json:"enabled"`
-	LastFired  *time.Time `json:"lastFired"`
-	CreatedAt  time.Time  `json:"$createdAt"`
+	ID        string     `json:"$id"`
+	ProjectID string     `json:"projectId"`
+	Name      string     `json:"name"`
+	Metric    string     `json:"metric"`
+	Operator  string     `json:"operator"`
+	Threshold float64    `json:"threshold"`
+	Window    string     `json:"window"`
+	Severity  string     `json:"severity"`
+	Channel   string     `json:"channel"`
+	Enabled   bool       `json:"enabled"`
+	LastFired *time.Time `json:"lastFired"`
+	CreatedAt time.Time  `json:"$createdAt"`
 }
 
 type AlertIncident struct {
-	ID         string    `json:"$id"`
-	RuleID     string    `json:"ruleId"`
-	ProjectID  string    `json:"projectId"`
-	RuleName   string    `json:"ruleName"`
-	Severity   string    `json:"severity"`
-	Value      float64   `json:"value"`
-	FiredAt    time.Time `json:"firedAt"`
+	ID         string     `json:"$id"`
+	RuleID     string     `json:"ruleId"`
+	ProjectID  string     `json:"projectId"`
+	RuleName   string     `json:"ruleName"`
+	Severity   string     `json:"severity"`
+	Value      float64    `json:"value"`
+	FiredAt    time.Time  `json:"firedAt"`
 	ResolvedAt *time.Time `json:"resolvedAt"`
 }
 
@@ -582,12 +585,24 @@ WHERE project_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'`, projectID)
 		Scan(&lcp, &fid, &cls, &ttfb, &fcp, &inp)
 
 	vitals := map[string]any{}
-	if lcp.Valid { vitals["lcp"] = lcp.Float64 }
-	if fid.Valid { vitals["fid"] = fid.Float64 }
-	if cls.Valid { vitals["cls"] = cls.Float64 }
-	if ttfb.Valid { vitals["ttfb"] = ttfb.Float64 }
-	if fcp.Valid { vitals["fcp"] = fcp.Float64 }
-	if inp.Valid { vitals["inp"] = inp.Float64 }
+	if lcp.Valid {
+		vitals["lcp"] = lcp.Float64
+	}
+	if fid.Valid {
+		vitals["fid"] = fid.Float64
+	}
+	if cls.Valid {
+		vitals["cls"] = cls.Float64
+	}
+	if ttfb.Valid {
+		vitals["ttfb"] = ttfb.Float64
+	}
+	if fcp.Valid {
+		vitals["fcp"] = fcp.Float64
+	}
+	if inp.Valid {
+		vitals["inp"] = inp.Float64
+	}
 
 	return map[string]any{
 		"metrics": map[string]any{
@@ -641,42 +656,58 @@ WHERE project_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'`, projectID)
 	_ = s.db.QueryRowContext(ctx, `
 SELECT AVG(uptime_pct) FROM observe_uptime_monitors
 WHERE project_id = $1 AND enabled = TRUE`, projectID).Scan(&avgUptime)
-	uptimePct := 100.0
-	if avgUptime.Valid {
-		uptimePct = avgUptime.Float64
-	}
 
 	p95 := 0.0
 	if avgP95.Valid {
 		p95 = avgP95.Float64
 	}
-	apdex := 1.0
+
+	vitals := map[string]any{}
+	if lcp.Valid {
+		vitals["lcp"] = lcp.Float64
+	}
+	if fid.Valid {
+		vitals["fid"] = fid.Float64
+	}
+	if cls.Valid {
+		vitals["cls"] = cls.Float64
+	}
+	if ttfb.Valid {
+		vitals["ttfb"] = ttfb.Float64
+	}
+	if fcp.Valid {
+		vitals["fcp"] = fcp.Float64
+	}
+	if inp.Valid {
+		vitals["inp"] = inp.Float64
+	}
+
+	// A statistic nobody has measured is left out rather than sent as its
+	// perfect value. An instance with no monitors reported 100% uptime and a
+	// 1.00 apdex, which are the two numbers people read as proof.
+	stats := map[string]any{
+		"errorsToday":  errorsToday,
+		"logsLastHour": logsLastHour,
+	}
+	if avgP95.Valid {
+		stats["p95Ms"] = p95
+	}
+	if avgUptime.Valid {
+		stats["uptimePct"] = avgUptime.Float64
+	}
 	if p95 > 0 {
-		if p95 <= 500 {
-			apdex = 1.0
-		} else if p95 <= 2000 {
-			apdex = 0.75
-		} else {
-			apdex = 0.5
+		switch {
+		case p95 <= 500:
+			stats["apdex"] = 1.0
+		case p95 <= 2000:
+			stats["apdex"] = 0.75
+		default:
+			stats["apdex"] = 0.5
 		}
 	}
 
-	vitals := map[string]any{}
-	if lcp.Valid { vitals["lcp"] = lcp.Float64 }
-	if fid.Valid { vitals["fid"] = fid.Float64 }
-	if cls.Valid { vitals["cls"] = cls.Float64 }
-	if ttfb.Valid { vitals["ttfb"] = ttfb.Float64 }
-	if fcp.Valid { vitals["fcp"] = fcp.Float64 }
-	if inp.Valid { vitals["inp"] = inp.Float64 }
-
 	return map[string]any{
-		"stats": map[string]any{
-			"errorsToday":  errorsToday,
-			"logsLastHour": logsLastHour,
-			"p95Ms":        p95,
-			"uptimePct":    uptimePct,
-			"apdex":        apdex,
-		},
+		"stats":    stats,
 		"vitals":   vitals,
 		"services": []any{},
 	}, nil
@@ -837,7 +868,9 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 	return &UptimeMonitor{
 		ID: id, ProjectID: projectID, Name: req.Name, URL: req.URL,
 		CheckType: req.CheckType, IntervalSecs: req.IntervalSecs,
-		Status: "up", Enabled: true, UptimePct: 100.0, CreatedAt: now,
+		// Never checked yet: saying "up" here is a guess that happens to be
+		// about a URL nobody has fetched.
+		Status: "pending", Enabled: true, CreatedAt: now,
 	}, nil
 }
 

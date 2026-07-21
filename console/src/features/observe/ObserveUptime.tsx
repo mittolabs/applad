@@ -11,7 +11,8 @@ import {
   OB_SLATE,
   asRows,
   cap,
-  num,
+  healthColor,
+  metric,
   obTimeAgo,
   useObserveResource,
 } from './observe-shared';
@@ -48,7 +49,7 @@ export function ObserveUptime({ projectId }: { projectId?: string }) {
         !String(m.url ?? '').toLowerCase().includes(q)
       )
         return false;
-      if (filters.status && String(m.status ?? 'up') !== filters.status) return false;
+      if (filters.status && String(m.status ?? 'unknown') !== filters.status) return false;
       return true;
     });
   }, [allMonitors, search, filters]);
@@ -61,15 +62,15 @@ export function ObserveUptime({ projectId }: { projectId?: string }) {
         getCellValue={(row, key) => {
           switch (key) {
             case 'status':
-              return String(row.status ?? 'up');
+              return String(row.status ?? 'unknown');
             case 'name':
               return String(row.name ?? '');
             case 'url':
               return String(row.url ?? '');
             case 'uptime':
-              return `${num(row.uptimePct, 100).toFixed(2)}%`;
+              return metric(row.uptimePct, { suffix: '%', digits: 2 });
             case 'latency':
-              return `${num(row.latencyMs)}ms`;
+              return metric(row.latencyMs, { suffix: 'ms' });
             case 'checked':
               return obTimeAgo(row.lastChecked);
             default:
@@ -78,7 +79,7 @@ export function ObserveUptime({ projectId }: { projectId?: string }) {
         }}
         cellRender={(row, key) => {
           if (key === 'status') {
-            const s = String(row.status ?? 'up');
+            const s = String(row.status ?? 'unknown');
             const c = statusColor(s);
             return (
               <span className="inline-flex items-center gap-1.5" style={{ color: c }}>
@@ -88,18 +89,20 @@ export function ObserveUptime({ projectId }: { projectId?: string }) {
             );
           }
           if (key === 'uptime') {
-            const pct = num(row.uptimePct, 100);
-            const c = pct >= 99.9 ? OB_GREEN : pct >= 99.0 ? OB_ORANGE : OB_RED;
+            // An unmeasured monitor showed 100.00% in green — a fabricated SLA.
             return (
-              <span className="text-[length:var(--text-body)] font-semibold" style={{ color: c }}>
-                {pct.toFixed(2)}%
+              <span
+                className="text-[length:var(--text-body)] font-semibold"
+                style={{ color: healthColor(row.uptimePct) }}
+              >
+                {metric(row.uptimePct, { suffix: '%', digits: 2 })}
               </span>
             );
           }
           return undefined;
         }}
         rowIcon={() => HeartPulse}
-        rowIconColor={(row) => statusColor(String(row.status ?? 'up'))}
+        rowIconColor={(row) => statusColor(String(row.status ?? 'unknown'))}
         onDeleteRow={async (row) => {
           try {
             await api.delete(`/observe/uptime/${row.$id}`);

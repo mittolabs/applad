@@ -98,11 +98,11 @@ export function ContainersPage() {
             case 'name':
               return String(row['name'] ?? '');
             case 'registryUrl':
-              return String(row['registryUrl'] ?? 'No registry configured');
+              return String(row['registryUrl'] ?? '—');
             case 'tagStrategy':
               return String(row['tagStrategy'] ?? 'latest');
             case 'status':
-              return String(row['status'] ?? 'active');
+              return String(row['status'] ?? 'never_deployed');
             case 'updatedAt':
               return shortDate(row['updatedAt'] ?? row['$updatedAt']);
             default:
@@ -110,7 +110,9 @@ export function ContainersPage() {
           }
         }}
         cellRender={(row, key) =>
-          key === 'status' ? <StatusChip label={String(row['status'] ?? 'active')} /> : undefined
+          key === 'status' ? (
+            <StatusChip label={String(row['status'] ?? 'never_deployed')} />
+          ) : undefined
         }
         rowIcon={() => Box}
         onRowClick={(row) => selection.select(String(row['$id'] ?? row['id'] ?? ''))}

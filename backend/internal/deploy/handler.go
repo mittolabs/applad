@@ -224,6 +224,14 @@ func (h *Handler) updateTarget(w http.ResponseWriter, r *http.Request) {
 		EnvVars     map[string]string `json:"envVars"`
 		Permissions json.RawMessage   `json:"permissions"`
 		Cron        string            `json:"cron"`
+		// The build plan lives on the pipeline; the settings form edits it
+		// here, so it is accepted here and written through.
+		InstallCmd string `json:"installCmd"`
+		BuildCmd   string `json:"buildCmd"`
+		StartCmd   string `json:"startCmd"`
+		OutputDir  string `json:"outputDir"`
+		Repository string `json:"repository"`
+		Branch     string `json:"branch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -238,6 +246,14 @@ func (h *Handler) updateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := cronx.Validate(body.Cron); err != nil {
 		apperr.BadRequest(w, err.Error())
+		return
+	}
+
+	if err := h.svc.UpdateTargetBuild(r.Context(), id, projectID, PipelineInput{
+		InstallCmd: body.InstallCmd, BuildCmd: body.BuildCmd, StartCmd: body.StartCmd,
+		OutputDir: body.OutputDir, SourceURL: body.Repository, Branch: body.Branch,
+	}); err != nil {
+		apperr.Internal(w, err)
 		return
 	}
 
@@ -336,21 +352,40 @@ func (h *Handler) getTargetStats(w http.ResponseWriter, r *http.Request) {
 
 // ── Pipeline handlers ──
 
+// pipelineBody is the wire shape for creating and updating a pipeline.
+//
+// Named and shared rather than declared twice: the install command existed in
+// the console and in the detector but in neither of these structs, and two
+// copies of a request shape is where a field goes missing quietly.
+type pipelineBody struct {
+	TargetID   string            `json:"targetId"`
+	Name       string            `json:"name"`
+	SourceType string            `json:"sourceType"`
+	SourceURL  string            `json:"sourceUrl"`
+	Branch     string            `json:"branch"`
+	InstallCmd string            `json:"installCmd"`
+	BuildCmd   string            `json:"buildCmd"`
+	StartCmd   string            `json:"startCmd"`
+	OutputDir  string            `json:"outputDir"`
+	EnvVars    map[string]string `json:"envVars"`
+	TriggerOn  json.RawMessage   `json:"triggerOn"`
+	CacheDirs  json.RawMessage   `json:"cacheDirs"`
+	TimeoutMs  int               `json:"timeoutMs"`
+}
+
+func pipelineInputFrom(b pipelineBody) PipelineInput {
+	return PipelineInput{
+		TargetID: b.TargetID, Name: b.Name, SourceType: b.SourceType,
+		SourceURL: b.SourceURL, Branch: b.Branch,
+		InstallCmd: b.InstallCmd, BuildCmd: b.BuildCmd, StartCmd: b.StartCmd,
+		OutputDir: b.OutputDir, EnvVars: b.EnvVars, TriggerOn: b.TriggerOn,
+		CacheDirs: b.CacheDirs, TimeoutMs: b.TimeoutMs,
+	}
+}
+
 func (h *Handler) createPipeline(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
-	var body struct {
-		TargetID   string            `json:"targetId"`
-		Name       string            `json:"name"`
-		SourceType string            `json:"sourceType"`
-		SourceURL  string            `json:"sourceUrl"`
-		Branch     string            `json:"branch"`
-		BuildCmd   string            `json:"buildCmd"`
-		OutputDir  string            `json:"outputDir"`
-		EnvVars    map[string]string `json:"envVars"`
-		TriggerOn  json.RawMessage   `json:"triggerOn"`
-		CacheDirs  json.RawMessage   `json:"cacheDirs"`
-		TimeoutMs  int               `json:"timeoutMs"`
-	}
+	var body pipelineBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
 		return
@@ -366,9 +401,7 @@ func (h *Handler) createPipeline(w http.ResponseWriter, r *http.Request) {
 		body.TimeoutMs = 300000
 	}
 
-	p, err := h.svc.CreatePipeline(r.Context(), projectID, body.TargetID, body.Name, body.SourceType,
-		body.SourceURL, body.Branch, body.BuildCmd, body.OutputDir, body.EnvVars,
-		body.TriggerOn, body.CacheDirs, body.TimeoutMs)
+	p, err := h.svc.CreatePipeline(r.Context(), projectID, pipelineInputFrom(body))
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -406,19 +439,7 @@ func (h *Handler) getPipeline(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) updatePipeline(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	id := chi.URLParam(r, "pipelineId")
-	var body struct {
-		TargetID   string            `json:"targetId"`
-		Name       string            `json:"name"`
-		SourceType string            `json:"sourceType"`
-		SourceURL  string            `json:"sourceUrl"`
-		Branch     string            `json:"branch"`
-		BuildCmd   string            `json:"buildCmd"`
-		OutputDir  string            `json:"outputDir"`
-		EnvVars    map[string]string `json:"envVars"`
-		TriggerOn  json.RawMessage   `json:"triggerOn"`
-		CacheDirs  json.RawMessage   `json:"cacheDirs"`
-		TimeoutMs  int               `json:"timeoutMs"`
-	}
+	var body pipelineBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
 		return
@@ -432,9 +453,7 @@ func (h *Handler) updatePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.svc.UpdatePipeline(r.Context(), id, projectID, body.TargetID, body.Name, body.SourceType,
-		body.SourceURL, body.Branch, body.BuildCmd, body.OutputDir, body.EnvVars,
-		body.TriggerOn, body.CacheDirs, body.TimeoutMs)
+	p, err := h.svc.UpdatePipeline(r.Context(), id, projectID, pipelineInputFrom(body))
 	if err != nil {
 		apperr.Internal(w, err)
 		return

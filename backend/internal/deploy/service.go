@@ -48,12 +48,22 @@ type Target struct {
 	// its last deploy produced all live in other tables; the console needs
 	// them together, and asking it to stitch four calls per row would be
 	// worse than filling them here.
-	Subdomain      string     `json:"subdomain,omitempty"`
-	URL            string     `json:"url,omitempty"`
-	SourceType     string     `json:"source,omitempty"`
-	Repository     string     `json:"repository,omitempty"`
-	Branch         string     `json:"branch,omitempty"`
-	Framework      string     `json:"framework,omitempty"`
+	Subdomain  string `json:"subdomain,omitempty"`
+	URL        string `json:"url,omitempty"`
+	SourceType string `json:"source,omitempty"`
+	Repository string `json:"repository,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+	Framework  string `json:"framework,omitempty"`
+	// Status is what the site is right now — derived, never stored, because a
+	// stored one goes stale the moment a deploy fails.
+	Status string `json:"status,omitempty"`
+	// The build plan, read from and written through to the newest pipeline.
+	// The settings form edited these against an endpoint that ignored them,
+	// so saving reported success and changed nothing.
+	InstallCmd     string     `json:"installCmd"`
+	BuildCmd       string     `json:"buildCmd"`
+	StartCmd       string     `json:"startCmd"`
+	OutputDir      string     `json:"outputDir"`
 	LastDeployedAt *time.Time `json:"lastDeployedAt,omitempty"`
 	LastStatus     string     `json:"lastStatus,omitempty"`
 	BuildMs        int64      `json:"buildMs,omitempty"`
@@ -62,14 +72,19 @@ type Target struct {
 
 // Pipeline represents a build/deploy pipeline tied to a target.
 type Pipeline struct {
-	ID         string            `json:"$id"`
-	ProjectID  string            `json:"projectId"`
-	TargetID   string            `json:"targetId"`
-	Name       string            `json:"name"`
-	SourceType string            `json:"sourceType"` // upload, git
-	SourceURL  string            `json:"sourceUrl"`
-	Branch     string            `json:"branch"`
+	ID         string `json:"$id"`
+	ProjectID  string `json:"projectId"`
+	TargetID   string `json:"targetId"`
+	Name       string `json:"name"`
+	SourceType string `json:"sourceType"` // upload, git
+	SourceURL  string `json:"sourceUrl"`
+	Branch     string `json:"branch"`
+	// The build in phases. Empty means "infer this one from the source" —
+	// per phase, so naming a build command no longer silently drops the
+	// install that has to precede it.
+	InstallCmd string            `json:"installCmd"`
 	BuildCmd   string            `json:"buildCmd"`
+	StartCmd   string            `json:"startCmd"`
 	OutputDir  string            `json:"outputDir"`
 	EnvVars    map[string]string `json:"envVars"`
 	TriggerOn  json.RawMessage   `json:"triggerOn"`
@@ -167,13 +182,17 @@ func (s *Service) enrich(ctx context.Context, t *Target) {
 		t.URL = fmt.Sprintf("%s://%s.%s", scheme, t.Subdomain, s.deployDomainOr())
 	}
 
-	// The newest pipeline says where the code comes from.
+	// The newest pipeline says where the code comes from and how it is built.
 	var sourceType, sourceURL, branch sql.NullString
+	var installCmd, buildCmd, startCmd, outputDir sql.NullString
 	s.db.QueryRowContext(ctx, //nolint:errcheck
-		`SELECT source_type, source_url, branch FROM deploy_pipelines
+		`SELECT source_type, source_url, branch, install_cmd, build_cmd, start_cmd, output_dir
+		   FROM deploy_pipelines
 		  WHERE target_id = $1 ORDER BY created_at DESC LIMIT 1`, t.ID).
-		Scan(&sourceType, &sourceURL, &branch)
+		Scan(&sourceType, &sourceURL, &branch, &installCmd, &buildCmd, &startCmd, &outputDir)
 	t.SourceType, t.Repository, t.Branch = sourceType.String, sourceURL.String, branch.String
+	t.InstallCmd, t.BuildCmd = installCmd.String, buildCmd.String
+	t.StartCmd, t.OutputDir = startCmd.String, outputDir.String
 
 	// The framework detected at build time, so the console names what this
 	// actually is rather than defaulting to static.
@@ -182,19 +201,52 @@ func (s *Service) enrich(ctx context.Context, t *Target) {
 		"SELECT framework FROM deploy_targets WHERE id = $1", t.ID).Scan(&framework)
 	t.Framework = framework.String
 
-	// The newest finished release says what it produced.
+	// The newest finished release says what it produced, and whether any
+	// release ever succeeded says whether anything is serving at all.
 	var status sql.NullString
 	var finished sql.NullTime
 	var durationMs, sizeBytes sql.NullInt64
+	var everDeployed bool
 	s.db.QueryRowContext(ctx, //nolint:errcheck
-		`SELECT status, completed_at, duration_ms, size_bytes FROM deploy_releases
-		  WHERE target_id = $1 ORDER BY created_at DESC LIMIT 1`, t.ID).
-		Scan(&status, &finished, &durationMs, &sizeBytes)
+		`SELECT r.status, r.completed_at, r.duration_ms, r.size_bytes,
+		        EXISTS (SELECT 1 FROM deploy_releases
+		                 WHERE target_id = $1 AND status = 'success')
+		   FROM deploy_releases r
+		  WHERE r.target_id = $1 ORDER BY r.created_at DESC LIMIT 1`, t.ID).
+		Scan(&status, &finished, &durationMs, &sizeBytes, &everDeployed)
 	t.LastStatus = status.String
 	if finished.Valid {
 		t.LastDeployedAt = &finished.Time
 	}
 	t.BuildMs, t.SizeBytes = durationMs.Int64, sizeBytes.Int64
+	t.Status = targetStatus(status.String, everDeployed)
+}
+
+// targetStatus says what a site is, as opposed to what its last build did.
+//
+// The two differ, and conflating them is how a site with one failed build came
+// to be labelled Active: the console had no status to read and defaulted to
+// the happy one. A build that fails does not take down what is already
+// serving, so a failed release on a site that deployed before leaves it
+// active — with lastStatus saying the newest build failed.
+func targetStatus(lastRelease string, everDeployed bool) string {
+	switch lastRelease {
+	case "":
+		return "never_deployed"
+	case "pending", "queued", "building", "deploying":
+		if everDeployed {
+			// Still serving the previous deploy while the next one builds.
+			return "deploying"
+		}
+		return "building"
+	case "success":
+		return "active"
+	default: // failed, cancelled, errored
+		if everDeployed {
+			return "active"
+		}
+		return "failed"
+	}
 }
 
 // ── Target CRUD ──
@@ -298,6 +350,37 @@ func (s *Service) ListTargets(ctx context.Context, projectID string) ([]*Target,
 	return targets, len(targets), nil
 }
 
+// UpdateTargetBuild writes build settings through to the target's newest
+// pipeline, which is where they actually live.
+//
+// The console's settings form has always sent these to the target endpoint,
+// which accepted none of them and answered 200 — so "Changes saved" was true
+// of the name and of nothing else.
+func (s *Service) UpdateTargetBuild(ctx context.Context, targetID, projectID string, in PipelineInput) error {
+	var pipelineID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM deploy_pipelines WHERE target_id = $1 AND project_id = $2
+		  ORDER BY created_at DESC LIMIT 1`, targetID, projectID).Scan(&pipelineID)
+	if err == sql.ErrNoRows {
+		// Nothing to build yet; the first pipeline will carry these.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE deploy_pipelines
+		    SET install_cmd = $1, build_cmd = $2, start_cmd = $3, output_dir = $4,
+		        source_url = COALESCE(NULLIF($5, ''), source_url),
+		        branch = COALESCE(NULLIF($6, ''), branch),
+		        updated_at = NOW()
+		  WHERE id = $7`,
+		in.InstallCmd, in.BuildCmd, in.StartCmd, in.OutputDir,
+		in.SourceURL, in.Branch, pipelineID)
+	return err
+}
+
 // UpdateTarget updates a deploy target.
 func (s *Service) UpdateTarget(ctx context.Context, id, projectID, name, targetType, runtime, entrypoint string, timeoutMs, memoryMB int, envVars map[string]string, permissions json.RawMessage, cron string) (*Target, error) {
 	if envVars == nil {
@@ -388,35 +471,62 @@ func (s *Service) DeleteTarget(ctx context.Context, id, projectID string) error 
 
 // ── Pipeline CRUD ──
 
+// PipelineInput is everything a pipeline is created or updated from.
+//
+// A struct rather than a positional list: the install command was collected by
+// the console and never sent, and a fifteen-argument call is exactly where
+// that hides.
+type PipelineInput struct {
+	TargetID   string
+	Name       string
+	SourceType string
+	SourceURL  string
+	Branch     string
+	InstallCmd string
+	BuildCmd   string
+	StartCmd   string
+	OutputDir  string
+	EnvVars    map[string]string
+	TriggerOn  json.RawMessage
+	CacheDirs  json.RawMessage
+	TimeoutMs  int
+}
+
+func (in *PipelineInput) normalise() []byte {
+	if in.EnvVars == nil {
+		in.EnvVars = map[string]string{}
+	}
+	if in.TriggerOn == nil {
+		in.TriggerOn = json.RawMessage("[]")
+	}
+	if in.CacheDirs == nil {
+		in.CacheDirs = json.RawMessage("[]")
+	}
+	envJSON, _ := json.Marshal(in.EnvVars)
+	return envJSON
+}
+
 // CreatePipeline creates a new pipeline.
-func (s *Service) CreatePipeline(ctx context.Context, projectID, targetID, name, sourceType, sourceURL, branch, buildCmd, outputDir string, envVars map[string]string, triggerOn, cacheDirs json.RawMessage, timeoutMs int) (*Pipeline, error) {
+func (s *Service) CreatePipeline(ctx context.Context, projectID string, in PipelineInput) (*Pipeline, error) {
 	id := uid.New("unique()")
 	now := time.Now().UTC()
-
-	if envVars == nil {
-		envVars = map[string]string{}
-	}
-	if triggerOn == nil {
-		triggerOn = json.RawMessage("[]")
-	}
-	if cacheDirs == nil {
-		cacheDirs = json.RawMessage("[]")
-	}
-
-	envJSON, _ := json.Marshal(envVars)
+	envJSON := in.normalise()
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO deploy_pipelines (id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-		id, projectID, targetID, name, sourceType, sourceURL, branch, buildCmd, outputDir, envJSON, triggerOn, cacheDirs, timeoutMs, now, now)
+		`INSERT INTO deploy_pipelines (id, project_id, target_id, name, source_type, source_url, branch,
+		    install_cmd, build_cmd, start_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+		id, projectID, in.TargetID, in.Name, in.SourceType, in.SourceURL, in.Branch,
+		in.InstallCmd, in.BuildCmd, in.StartCmd, in.OutputDir, envJSON, in.TriggerOn, in.CacheDirs, in.TimeoutMs, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: create pipeline: %w", err)
 	}
 	return &Pipeline{
-		ID: id, ProjectID: projectID, TargetID: targetID, Name: name,
-		SourceType: sourceType, SourceURL: sourceURL, Branch: branch,
-		BuildCmd: buildCmd, OutputDir: outputDir, EnvVars: envVars,
-		TriggerOn: triggerOn, CacheDirs: cacheDirs, TimeoutMs: timeoutMs,
+		ID: id, ProjectID: projectID, TargetID: in.TargetID, Name: in.Name,
+		SourceType: in.SourceType, SourceURL: in.SourceURL, Branch: in.Branch,
+		InstallCmd: in.InstallCmd, BuildCmd: in.BuildCmd, StartCmd: in.StartCmd,
+		OutputDir: in.OutputDir, EnvVars: in.EnvVars,
+		TriggerOn: in.TriggerOn, CacheDirs: in.CacheDirs, TimeoutMs: in.TimeoutMs,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
@@ -427,11 +537,13 @@ func (s *Service) GetPipeline(ctx context.Context, id, projectID string) (*Pipel
 	var envJSON []byte
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
+		`SELECT id, project_id, target_id, name, source_type, source_url, branch,
+		        COALESCE(install_cmd,''), build_cmd, COALESCE(start_cmd,''), output_dir,
+		        env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
 		 FROM deploy_pipelines WHERE id = $1 AND project_id = $2`, id, projectID,
 	).Scan(&p.ID, &p.ProjectID, &p.TargetID, &p.Name, &p.SourceType, &p.SourceURL,
-		&p.Branch, &p.BuildCmd, &p.OutputDir, &envJSON, &p.TriggerOn, &p.CacheDirs,
-		&p.TimeoutMs, &p.CreatedAt, &p.UpdatedAt)
+		&p.Branch, &p.InstallCmd, &p.BuildCmd, &p.StartCmd, &p.OutputDir, &envJSON,
+		&p.TriggerOn, &p.CacheDirs, &p.TimeoutMs, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("pipeline not found")
 	}
@@ -454,7 +566,9 @@ func (s *Service) GetPipeline(ctx context.Context, id, projectID string) (*Pipel
 // ListPipelines returns all pipelines for a project.
 func (s *Service) ListPipelines(ctx context.Context, projectID string) ([]*Pipeline, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
+		`SELECT id, project_id, target_id, name, source_type, source_url, branch,
+		        COALESCE(install_cmd,''), build_cmd, COALESCE(start_cmd,''), output_dir,
+		        env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
 		 FROM deploy_pipelines WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
@@ -466,7 +580,8 @@ func (s *Service) ListPipelines(ctx context.Context, projectID string) ([]*Pipel
 		var p Pipeline
 		var envJSON []byte
 		if err := rows.Scan(&p.ID, &p.ProjectID, &p.TargetID, &p.Name, &p.SourceType, &p.SourceURL,
-			&p.Branch, &p.BuildCmd, &p.OutputDir, &envJSON, &p.TriggerOn, &p.CacheDirs,
+			&p.Branch, &p.InstallCmd, &p.BuildCmd, &p.StartCmd, &p.OutputDir,
+			&envJSON, &p.TriggerOn, &p.CacheDirs,
 			&p.TimeoutMs, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
@@ -486,22 +601,17 @@ func (s *Service) ListPipelines(ctx context.Context, projectID string) ([]*Pipel
 }
 
 // UpdatePipeline updates a pipeline.
-func (s *Service) UpdatePipeline(ctx context.Context, id, projectID, targetID, name, sourceType, sourceURL, branch, buildCmd, outputDir string, envVars map[string]string, triggerOn, cacheDirs json.RawMessage, timeoutMs int) (*Pipeline, error) {
-	if envVars == nil {
-		envVars = map[string]string{}
-	}
-	if triggerOn == nil {
-		triggerOn = json.RawMessage("[]")
-	}
-	if cacheDirs == nil {
-		cacheDirs = json.RawMessage("[]")
-	}
-	envJSON, _ := json.Marshal(envVars)
+func (s *Service) UpdatePipeline(ctx context.Context, id, projectID string, in PipelineInput) (*Pipeline, error) {
+	envJSON := in.normalise()
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE deploy_pipelines SET target_id=$1, name=$2, source_type=$3, source_url=$4, branch=$5, build_cmd=$6, output_dir=$7, env_vars=$8, trigger_on=$9, cache_dirs=$10, timeout_ms=$11, updated_at=$12
-		 WHERE id=$13 AND project_id=$14`,
-		targetID, name, sourceType, sourceURL, branch, buildCmd, outputDir, envJSON, triggerOn, cacheDirs, timeoutMs, time.Now().UTC(), id, projectID)
+		`UPDATE deploy_pipelines SET target_id=$1, name=$2, source_type=$3, source_url=$4, branch=$5,
+		    install_cmd=$6, build_cmd=$7, start_cmd=$8, output_dir=$9, env_vars=$10, trigger_on=$11,
+		    cache_dirs=$12, timeout_ms=$13, updated_at=$14
+		 WHERE id=$15 AND project_id=$16`,
+		in.TargetID, in.Name, in.SourceType, in.SourceURL, in.Branch,
+		in.InstallCmd, in.BuildCmd, in.StartCmd, in.OutputDir, envJSON, in.TriggerOn,
+		in.CacheDirs, in.TimeoutMs, time.Now().UTC(), id, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -2213,7 +2323,9 @@ func (s *Service) handlePREvent(ctx context.Context, conn *GitConnection, payloa
 // repo and whose branch matches, and whose trigger_on array includes the event type.
 func (s *Service) findMatchingPipelines(ctx context.Context, projectID, repoFullName, branch, event string) ([]*Pipeline, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, target_id, name, source_type, source_url, branch, build_cmd, output_dir, env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
+		`SELECT id, project_id, target_id, name, source_type, source_url, branch,
+		        COALESCE(install_cmd,''), build_cmd, COALESCE(start_cmd,''), output_dir,
+		        env_vars, trigger_on, cache_dirs, timeout_ms, created_at, updated_at
 		 FROM deploy_pipelines
 		 WHERE project_id = $1
 		   AND source_type = 'git'
@@ -2230,7 +2342,8 @@ func (s *Service) findMatchingPipelines(ctx context.Context, projectID, repoFull
 		var p Pipeline
 		var envJSON []byte
 		if err := rows.Scan(&p.ID, &p.ProjectID, &p.TargetID, &p.Name,
-			&p.SourceType, &p.SourceURL, &p.Branch, &p.BuildCmd, &p.OutputDir,
+			&p.SourceType, &p.SourceURL, &p.Branch,
+			&p.InstallCmd, &p.BuildCmd, &p.StartCmd, &p.OutputDir,
 			&envJSON, &p.TriggerOn, &p.CacheDirs, &p.TimeoutMs,
 			&p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
