@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import {
   Activity,
   ArrowRight,
@@ -55,7 +56,9 @@ export function SiteDetail({
   onBack: () => void;
   onDeleted: () => void;
 }) {
-  const [tab, setTab] = useState(0);
+  // Under its own key so it does not fight the list's ?tab, and in the URL so
+  // a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(DETAIL_TABS, undefined, 'view');
   const siteId = rowId(site);
   const name = String(site['name'] ?? 'Untitled');
 

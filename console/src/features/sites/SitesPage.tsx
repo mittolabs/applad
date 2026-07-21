@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { ErrorState } from '@/components/error-state';
 import { Activity, Globe, HardDrive, Plus, Timer } from 'lucide-react';
 import { useResourceList } from '@/hooks/use-resource-list';
 import { useTabIndex } from '@/hooks/use-tab-param';
@@ -24,9 +27,19 @@ const COLUMNS: DataTableColumn[] = [
 ];
 
 export function SitesPage() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const navigate = useNavigate();
   const [tab, setTab] = useTabIndex(LIST_TABS);
-  const [selected, setSelected] = useState<Row | null>(null);
+
+  /*
+   * Which site is open lives in the address, not in component state. Holding
+   * it in state meant a refresh, a shared link or the back button all landed
+   * on the list with no way back to where somebody was.
+   */
+  const open = (row: Row | null) => {
+    const id = row ? String(row['$id'] ?? row['id'] ?? '') : '';
+    navigate(id ? `/project/${projectId}/sites/${id}` : `/project/${projectId}/sites`);
+  };
   const [entryOpen, setEntryOpen] = useState(false);
   const [prefill, setPrefill] = useState<SitePrefill | null>(null);
 
@@ -62,14 +75,15 @@ export function SitesPage() {
     }
   };
 
-  if (selected) {
+  if (siteId) {
+    // Fetched by id rather than looked up in the list: on a refresh the list
+    // may not have loaded, and the site may not be on the current page.
     return (
-      <SiteDetail
-        site={selected}
-        onChange={setSelected}
-        onBack={() => setSelected(null)}
+      <SiteDetailRoute
+        siteId={siteId}
+        onBack={() => open(null)}
         onDeleted={() => {
-          setSelected(null);
+          open(null);
           list.refetch();
         }}
       />
@@ -104,7 +118,7 @@ export function SitesPage() {
             key === 'status' ? <StatusChip label={String(row['status'] ?? 'active')} /> : undefined
           }
           rowIcon={() => Globe}
-          onRowClick={setSelected}
+          onRowClick={open}
           onDeleted={() => list.refetch()}
           createLabel="Create site"
           onCreate={() => setEntryOpen(true)}
@@ -153,4 +167,39 @@ function UsageTab() {
       </div>
     </div>
   );
+}
+
+/*
+ * Resolves a site from the address.
+ *
+ * SiteDetail wants the whole record, and the address carries only an id, so
+ * it is fetched here. That is what makes a refresh, a bookmark or a shared
+ * link land on the site somebody was actually looking at.
+ */
+function SiteDetailRoute({
+  siteId,
+  onBack,
+  onDeleted,
+}: {
+  siteId: string;
+  onBack: () => void;
+  onDeleted: () => void;
+}) {
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['site', siteId],
+    queryFn: async () => (await api.get(`/deploy/targets/${siteId}`)).data as Row,
+  });
+
+  if (isLoading) {
+    return <div className="p-6 text-[length:var(--text-body)] text-text-muted md:p-8">Loading...</div>;
+  }
+  if (error || !data) {
+    return (
+      <div className="p-6 md:p-8">
+        <ErrorState error={error} onRetry={() => refetch()} />
+      </div>
+    );
+  }
+
+  return <SiteDetail site={data} onChange={() => refetch()} onBack={onBack} onDeleted={onDeleted} />;
 }
