@@ -2,6 +2,7 @@ package worker
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -205,6 +206,46 @@ func cloneToSource(ctx context.Context, repository, branch string) (string, erro
 	return dir, nil
 }
 
+// extractZip unpacks a .zip source archive into dir, refusing entries whose
+// paths escape it.
+func extractZip(archive, dir string) error {
+	zr, err := zip.OpenReader(archive)
+	if err != nil {
+		return fmt.Errorf("uploaded source is not a readable zip: %w", err)
+	}
+	defer zr.Close()
+
+	for _, entry := range zr.File {
+		target := filepath.Join(dir, filepath.Clean("/"+entry.Name))
+		if !strings.HasPrefix(target, filepath.Clean(dir)+string(os.PathSeparator)) {
+			continue
+		}
+		if entry.FileInfo().IsDir() {
+			os.MkdirAll(target, 0o755) //nolint:errcheck
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rc, err := entry.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc) //nolint:gosec
+		out.Close()
+		rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+	}
+	return nil
+}
+
 // processTeardown removes everything a deleted deploy target left behind.
 // Deleting the database row alone used to leave the app's container running
 // and still served on its subdomain.
@@ -247,16 +288,36 @@ func extractUploadedSource(pipelineID string) (string, error) {
 	}
 	defer f.Close()
 
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return "", fmt.Errorf("uploaded source is not a gzipped tar: %w", err)
+	// The console can send either a gzipped tar it built from a dropped folder
+	// or a .zip the user picked. Detect by magic bytes rather than trusting a
+	// filename we control anyway.
+	magic := make([]byte, 4)
+	if _, err := io.ReadFull(f, magic); err != nil {
+		return "", fmt.Errorf("uploaded source is empty or truncated")
 	}
-	defer gz.Close()
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
 
 	dir, err := os.MkdirTemp("", "applad-upload-*")
 	if err != nil {
 		return "", err
 	}
+
+	if bytes.HasPrefix(magic, []byte("PK\x03\x04")) {
+		if err := extractZip(archive, dir); err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+		return dir, nil
+	}
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", fmt.Errorf("uploaded source is not a gzipped tar or zip: %w", err)
+	}
+	defer gz.Close()
 
 	tr := tar.NewReader(gz)
 	for {

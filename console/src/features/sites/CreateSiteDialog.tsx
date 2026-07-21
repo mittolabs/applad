@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GitBranch, Upload, UploadCloud, Info } from 'lucide-react';
+import { GitBranch, Upload, Info } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import {
   Dialog,
@@ -15,6 +15,8 @@ import { FormField, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
 import { ChoiceChip } from './SiteDetail';
 import { FRAMEWORKS, frameworkById } from '../deploy-shared/frameworks';
+import { SourceDropzone, type PickedSource } from '../deploy-shared/SourceDropzone';
+import { buildTarGz } from '@/lib/targz';
 
 /* Multi-step "Create site" form — ports _showCreateSiteForm in sites_page.dart
  * (Configuration → Source → Build). Prefilled from a DeployCreateEntry result. */
@@ -50,7 +52,9 @@ export function CreateSiteDialog({
   const [installCommand, setInstallCommand] = useState('');
   const [buildCommand, setBuildCommand] = useState('');
   const [outputDirectory, setOutputDirectory] = useState('');
+  const [source, setSource] = useState<PickedSource | null>(null);
   const [creating, setCreating] = useState(false);
+  const [progress, setProgress] = useState('');
 
   useEffect(() => {
     if (open && prefill) {
@@ -63,7 +67,9 @@ export function CreateSiteDialog({
       setInstallCommand('');
       setBuildCommand('');
       setOutputDirectory('');
+      setSource(null);
       setCreating(false);
+      setProgress('');
     }
   }, [open, prefill]);
 
@@ -71,10 +77,19 @@ export function CreateSiteDialog({
 
   const goStep = (next: number) => {
     if (next === 2) {
-      // Auto-fill build config from framework when empty.
-      setInstallCommand((v) => v || fw.installCommand);
-      setBuildCommand((v) => v || fw.buildCommand);
-      setOutputDirectory((v) => v || fw.outputDir);
+      if (sourceType === 'upload') {
+        // A manual upload IS the build output. Auto-filling "npm run build"
+        // here fails on anything that isn't a Node project, and is pointless
+        // even when it is one.
+        setInstallCommand('');
+        setBuildCommand('');
+        setOutputDirectory((v) => v || '.');
+      } else {
+        // Auto-fill build config from framework when empty.
+        setInstallCommand((v) => v || fw.installCommand);
+        setBuildCommand((v) => v || fw.buildCommand);
+        setOutputDirectory((v) => v || fw.outputDir);
+      }
     }
     setStep(next);
   };
@@ -82,23 +97,65 @@ export function CreateSiteDialog({
   const create = async () => {
     setCreating(true);
     try {
-      await api.post('/deploy/targets', {
+      // A deployable site is three records: the target (what it is), the
+      // pipeline (how it builds), and a release (an actual build). Creating
+      // only the target left a site that could never deploy.
+      setProgress('Creating site...');
+      const target = await api.post('/deploy/targets', {
         name: name.trim(),
         type: 'web',
-        framework,
-        source: sourceType,
-        repository: repository.trim(),
-        branch: branch.trim(),
-        buildCommand: buildCommand.trim(),
-        outputDirectory: outputDirectory.trim(),
-        installCommand: installCommand.trim(),
-        ...(prefill?.templateId ? { templateId: prefill.templateId } : {}),
       });
+      const targetId = target.data.$id ?? target.data.id;
+
+      setProgress('Configuring build...');
+      const pipeline = await api.post('/deploy/pipelines', {
+        targetId,
+        name: 'production',
+        sourceType,
+        sourceUrl: sourceType === 'git' ? repository.trim() : '',
+        branch: sourceType === 'git' ? branch.trim() : '',
+        buildCmd: buildCommand.trim(),
+        outputDir: outputDirectory.trim() || '.',
+      });
+      const pipelineId = pipeline.data.$id ?? pipeline.data.id;
+
+      if (sourceType === 'upload') {
+        let body: Blob;
+        if (source!.archive) {
+          body = source!.archive;
+        } else {
+          setProgress('Packaging files...');
+          const entries = await Promise.all(
+            source!.files!.map(async (f) => ({
+              path: f.path,
+              data: new Uint8Array(await f.file.arrayBuffer()),
+            })),
+          );
+          body = await buildTarGz(entries);
+        }
+
+        await api.post(`/deploy/pipelines/${pipelineId}/source`, body, {
+          headers: { 'Content-Type': 'application/octet-stream' },
+          onUploadProgress: (e) => {
+            const pct = e.total ? Math.round((e.loaded / e.total) * 100) : 0;
+            setProgress(`Uploading source... ${pct}%`);
+          },
+        });
+      }
+
+      setProgress('Starting deployment...');
+      await api.post(`/deploy/pipelines/${pipelineId}/trigger`, {
+        triggerType: 'manual',
+        actor: 'console',
+      });
+
+      toast.success(`Deploying ${name.trim()}`);
       onOpenChange(false);
       onCreated();
     } catch (e) {
       toast.error(friendlyError(e));
       setCreating(false);
+      setProgress('');
     }
   };
 
@@ -169,14 +226,7 @@ export function CreateSiteDialog({
                   <TextField label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
                 </>
               ) : (
-                <div className="flex h-[120px] flex-col items-center justify-center gap-2 rounded-[var(--radius)] border border-field-border bg-fill text-text-muted">
-                  <UploadCloud size={32} className="text-text-subtle" />
-                  <span className="text-center text-[length:var(--text-label)]">
-                    Drag &amp; drop your build output
-                    <br />
-                    or click to browse
-                  </span>
-                </div>
+                <SourceDropzone value={source} onChange={setSource} />
               )}
             </div>
           )}
@@ -185,7 +235,9 @@ export function CreateSiteDialog({
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-2 rounded-[var(--radius)] border border-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] p-3 text-[length:var(--text-label)] text-[var(--color-accent)]">
                 <Info size={14} />
-                {`Auto-detected from ${fw.label}. Edit if needed.`}
+                {sourceType === 'upload'
+                  ? 'Your upload is served as-is. Add a build command only if you uploaded sources.'
+                  : `Auto-detected from ${fw.label}. Edit if needed.`}
               </div>
               <TextField label="Install command" value={installCommand} onChange={(e) => setInstallCommand(e.target.value)} placeholder="npm install" />
               <TextField label="Build command" value={buildCommand} onChange={(e) => setBuildCommand(e.target.value)} placeholder="npm run build" />
@@ -205,13 +257,28 @@ export function CreateSiteDialog({
             </Button>
           )}
           {step < 2 ? (
-            <Button onClick={() => goStep(step + 1)} disabled={step === 0 && !name.trim()}>
+            <Button
+              onClick={() => goStep(step + 1)}
+              disabled={
+                (step === 0 && !name.trim()) ||
+                (step === 1 && (sourceType === 'upload' ? !source : !repository.trim()))
+              }
+            >
               Next
             </Button>
           ) : (
-            <Button loading={creating} onClick={create}>
-              Create
-            </Button>
+            <>
+              {progress && (
+                <span className="mr-auto text-[length:var(--text-caption)] text-text-muted">{progress}</span>
+              )}
+              <Button
+                loading={creating}
+                onClick={create}
+                disabled={sourceType === 'upload' ? !source : !repository.trim()}
+              >
+                Create
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>

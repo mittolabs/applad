@@ -79,7 +79,7 @@ func NewClient() *Client {
 // Returns the image ID.
 func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io.Reader) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.44/build?t=%s&rm=true&forcerm=true", imageName),
+		fmt.Sprintf(c.baseURL+"/v1.44/build?t=%s&rm=true&forcerm=true", imageName),
 		tarContext)
 	if err != nil {
 		return err
@@ -101,7 +101,7 @@ func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io
 
 	// Check for error in build stream
 	if bytes.Contains(output, []byte(`"error"`)) {
-		return fmt.Errorf("docker build error: %s", string(output))
+		return fmt.Errorf("build failed:\n%s", buildStreamText(output))
 	}
 
 	return nil
@@ -110,7 +110,7 @@ func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io
 // RemoveImage removes a Docker image.
 func (c *Client) RemoveImage(ctx context.Context, imageName string) error {
 	req, err := http.NewRequestWithContext(ctx, "DELETE",
-		fmt.Sprintf(c.baseURL + "/v1.44/images/%s?force=true", imageName), nil)
+		fmt.Sprintf(c.baseURL+"/v1.44/images/%s?force=true", imageName), nil)
 	if err != nil {
 		return err
 	}
@@ -146,14 +146,14 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 		},
 		"HostConfig": map[string]interface{}{
 			"PublishAllPorts": true,
-			"Memory":         int64(256 * 1024 * 1024), // 256MB
-			"MemorySwap":     int64(256 * 1024 * 1024), // no swap
-			"NanoCPUs":       int64(1e9),                // 1 CPU
-			"PidsLimit":      int64(256),                // limit process count
-			"NetworkMode":    "bridge",
-			"ReadonlyRootfs": true,
-			"SecurityOpt":    []string{"no-new-privileges"},
-			"CapDrop":        []string{"ALL"},
+			"Memory":          int64(256 * 1024 * 1024), // 256MB
+			"MemorySwap":      int64(256 * 1024 * 1024), // no swap
+			"NanoCPUs":        int64(1e9),               // 1 CPU
+			"PidsLimit":       int64(256),               // limit process count
+			"NetworkMode":     "bridge",
+			"ReadonlyRootfs":  true,
+			"SecurityOpt":     []string{"no-new-privileges"},
+			"CapDrop":         []string{"ALL"},
 			"Tmpfs": map[string]string{
 				"/tmp": "rw,noexec,nosuid,size=64m",
 			},
@@ -162,7 +162,7 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.44/containers/create?name=%s", name),
+		fmt.Sprintf(c.baseURL+"/v1.44/containers/create?name=%s", name),
 		bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -190,7 +190,7 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 // StartContainer starts an existing container.
 func (c *Client) StartContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/start", containerID), nil)
+		fmt.Sprintf(c.baseURL+"/v1.44/containers/%s/start", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func (c *Client) StartContainer(ctx context.Context, containerID string) error {
 // StopContainer stops a running container.
 func (c *Client) StopContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/stop?t=5", containerID), nil)
+		fmt.Sprintf(c.baseURL+"/v1.44/containers/%s/stop?t=5", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (c *Client) StopContainer(ctx context.Context, containerID string) error {
 // RemoveContainer removes a container.
 func (c *Client) RemoveContainer(ctx context.Context, containerID string) error {
 	req, err := http.NewRequestWithContext(ctx, "DELETE",
-		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s?force=true&v=true", containerID), nil)
+		fmt.Sprintf(c.baseURL+"/v1.44/containers/%s?force=true&v=true", containerID), nil)
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func (c *Client) RemoveContainer(ctx context.Context, containerID string) error 
 // GetContainerPort returns the host-mapped port for a container's internal port.
 func (c *Client) GetContainerPort(ctx context.Context, containerID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/json", containerID), nil)
+		fmt.Sprintf(c.baseURL+"/v1.44/containers/%s/json", containerID), nil)
 	if err != nil {
 		return "", err
 	}
@@ -279,7 +279,7 @@ func (c *Client) GetContainerPort(ctx context.Context, containerID string) (stri
 // ContainerLogs returns the combined stdout/stderr logs of a container.
 func (c *Client) ContainerLogs(ctx context.Context, containerID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/logs?stdout=true&stderr=true", containerID), nil)
+		fmt.Sprintf(c.baseURL+"/v1.44/containers/%s/logs?stdout=true&stderr=true", containerID), nil)
 	if err != nil {
 		return "", err
 	}
@@ -297,7 +297,7 @@ func (c *Client) ContainerLogs(ctx context.Context, containerID string) (string,
 // WaitContainer waits for a container to be in a "not-running" state.
 func (c *Client) WaitContainer(ctx context.Context, containerID string) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf(c.baseURL + "/v1.44/containers/%s/wait", containerID), nil)
+		fmt.Sprintf(c.baseURL+"/v1.44/containers/%s/wait", containerID), nil)
 	if err != nil {
 		return -1, err
 	}
@@ -334,4 +334,49 @@ func stripDockerLogHeaders(data []byte) string {
 		return string(data) // fallback if no headers
 	}
 	return result.String()
+}
+
+// buildStreamText renders Docker's newline-delimited JSON build output as the
+// plain build log a person would see in a terminal. Storing the raw stream
+// made failures unreadable in the console.
+func buildStreamText(output []byte) string {
+	var b strings.Builder
+	for _, line := range bytes.Split(output, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var msg struct {
+			Stream string `json:"stream"`
+			Error  string `json:"error"`
+			Status string `json:"status"`
+		}
+		if json.Unmarshal(line, &msg) != nil {
+			continue
+		}
+		switch {
+		case msg.Error != "":
+			b.WriteString(msg.Error)
+			b.WriteByte('\n')
+		case msg.Stream != "":
+			// Progress noise (layer pulls) carries a status, not a stream.
+			b.WriteString(stripANSI(msg.Stream))
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// stripANSI removes terminal colour codes so logs read cleanly in the console.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
