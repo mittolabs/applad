@@ -7,6 +7,7 @@ x-worker-env: &worker-env
   REDIS_ADDR: "redis:6379"
   STORAGE_PATH: "/var/applad/storage"
   APP_ENV: "${APP_ENV:-development}"
+  APPLAD_DEPLOY_DOMAIN: "${APPLAD_DEPLOY_DOMAIN:-applad.dev.localhost}"
   SMTP_HOST: "${SMTP_HOST:-}"
   SMTP_PORT: "${SMTP_PORT:-587}"
   SMTP_USER: "${SMTP_USER:-}"

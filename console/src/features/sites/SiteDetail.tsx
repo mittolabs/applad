@@ -22,6 +22,7 @@ import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { IdText } from '@/components/id-text';
+import { SearchListFooter } from '@/components/search-list';
 import { EmptyState } from '@/components/empty-state';
 import { ErrorState } from '@/components/error-state';
 import { ConfirmDialog, FormDialog, FormField, TextField } from '@/components/form-dialog';
@@ -291,7 +292,15 @@ function LogsTab({ siteId }: { siteId: string }) {
     queryKey: ['site-logs', siteId],
     queryFn: async () => (await api.get(`/deploy/targets/${siteId}/logs`)).data as Record<string, unknown>,
   });
-  const rows = (logs.data?.['logs'] as Row[] | undefined) ?? [];
+  const allRows = (logs.data?.['logs'] as Row[] | undefined) ?? [];
+
+  // A busy site produces hundreds of lines; showing them all at once makes the
+  // page unreadable and unscrollable.
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
+  const pageCount = Math.max(1, Math.ceil(allRows.length / perPage));
+  const current = Math.min(page, pageCount);
+  const rows = allRows.slice((current - 1) * perPage, current * perPage);
 
   return (
     <div className="flex flex-col gap-4">
@@ -372,6 +381,21 @@ function LogsTab({ siteId }: { siteId: string }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {allRows.length > perPage && (
+        <SearchListFooter
+          total={allRows.length}
+          perPage={perPage}
+          currentPage={current}
+          itemLabel="requests"
+          onPerPageChange={(n) => {
+            setPerPage(n);
+            setPage(1);
+          }}
+          onPrev={() => setPage((p) => Math.max(1, p - 1))}
+          onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
+        />
       )}
     </div>
   );

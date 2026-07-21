@@ -438,6 +438,53 @@ func (w *Builds) processContainerLogs(ctx context.Context, job *queue.Job) error
 	return nil
 }
 
+// deployNarrative describes a deploy in terms of what happened to the
+// project, with the project's own build output in the middle.
+//
+// The raw Docker stream narrates a Dockerfile that Applad wrote, so on its own
+// it tells somebody about plumbing they never asked for.
+func deployNarrative(cfg *pipelineConfig, rawBuildLog string, durationMs, sizeBytes int64) string {
+	var b strings.Builder
+
+	switch {
+	case cfg.sourceType == "git" && cfg.sourceURL != "":
+		fmt.Fprintf(&b, "Cloned %s", cfg.sourceURL)
+		if cfg.branch != "" {
+			fmt.Fprintf(&b, " (%s)", cfg.branch)
+		}
+		b.WriteByte('\n')
+	default:
+		b.WriteString("Using the uploaded source\n")
+	}
+
+	if output := runtime.RenderDeployLog(rawBuildLog); output != "" {
+		b.WriteString("\n")
+		b.WriteString(output)
+		b.WriteString("\n\n")
+	} else {
+		b.WriteString("No build step — the files are served as they are\n")
+	}
+
+	if sizeBytes > 0 {
+		fmt.Fprintf(&b, "Built image (%.1f MB) in %s\n",
+			float64(sizeBytes)/(1024*1024), time.Duration(durationMs)*time.Millisecond)
+	}
+	if cfg.subdomain != "" {
+		// The full address, since "the-range" alone is not something anyone
+		// can open.
+		domain := os.Getenv("APPLAD_DEPLOY_DOMAIN")
+		if domain == "" {
+			domain = "applad.dev.localhost"
+		}
+		scheme := "https"
+		if strings.HasSuffix(domain, ".localhost") {
+			scheme = "http"
+		}
+		fmt.Fprintf(&b, "Serving at %s://%s.%s\n", scheme, cfg.subdomain, domain)
+	}
+	return b.String()
+}
+
 // processTeardown removes everything a deleted deploy target left behind.
 // Deleting the database row alone used to leave the app's container running
 // and still served on its subdomain.
@@ -805,10 +852,12 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	}
 
 	durationMs := time.Since(start).Milliseconds()
+	var imageSize int64
 	if deployErr == nil {
 		// Recorded so the console can show what the deploy produced instead of
 		// a pair of dashes.
 		if size, err := w.deployExecutor.ImageSize(ctx, "applad-deploy-"+releaseID); err == nil && size > 0 {
+			imageSize = size
 			w.db.ExecContext(ctx, //nolint:errcheck
 				"UPDATE deploy_releases SET size_bytes = $1 WHERE id = $2", size, releaseID)
 		}
@@ -824,14 +873,16 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	if deployErr != nil {
 		// The log matters most when it failed, so it is stored alongside the
 		// error rather than folded into it.
-		w.updateReleaseStatus(ctx, releaseID, "failed", buildLog, deployErr.Error(), durationMs)
+		w.updateReleaseStatus(ctx, releaseID, "failed",
+			deployNarrative(cfg, buildLog, durationMs, 0), deployErr.Error(), durationMs)
 		w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Deploy failed")
 		return deployErr
 	}
 
 	// Kept whether or not it succeeded: the log of a deploy that worked is
 	// what the next one gets compared against.
-	w.updateReleaseStatus(ctx, releaseID, "success", buildLog, "", durationMs)
+	w.updateReleaseStatus(ctx, releaseID, "success",
+		deployNarrative(cfg, buildLog, durationMs, imageSize), "", durationMs)
 	w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "success", "Deployed successfully")
 	slog.Info("builds worker: release complete", "release_id", releaseID, "duration_ms", durationMs)
 	return nil
