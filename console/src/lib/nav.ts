@@ -9,6 +9,7 @@ import {
   Container,
   Database,
   Flag,
+  FlaskConical,
   FolderOpen,
   Globe,
   KeyRound,
@@ -60,6 +61,12 @@ export const navGroups: NavGroup[] = [
       { label: 'Realtime', route: 'realtime', icon: Radio },
       { label: 'Feature Flags', route: 'flags', icon: Flag },
     ],
+  },
+  {
+    id: 'test',
+    label: 'Test',
+    icon: FlaskConical,
+    children: [{ label: 'Suites', route: 'tests', icon: FlaskConical }],
   },
   {
     id: 'platforms',
