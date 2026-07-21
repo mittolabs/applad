@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
   GitBranch,
+  Github,
   LayoutTemplate,
   Upload,
   type LucideIcon,
@@ -18,7 +20,9 @@ import {
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { AppBadge } from './app-badge';
-import { api } from '@/api/client';
+import { api, friendlyError } from '@/api/client';
+import { toast } from './toast';
+import { rememberInstall } from '@/features/deploy-shared/GitHubSetup';
 import { cn } from '@/lib/utils';
 
 /* Ports deploy_create_entry.dart — 3-option entry dialog (template / repo /
@@ -278,22 +282,15 @@ function RepoView({ onPick }: { onPick: (r: Record<string, unknown>) => void }) 
     enabled: !!connectionId,
     queryFn: async () => {
       const res = await api.get(`/deploy/git/connections/${connectionId}/repos`);
-      return ((res.data as { repos?: Record<string, unknown>[] }).repos ?? []) as Record<
-        string,
-        unknown
-      >[];
+      // The API returns `repositories`; reading `repos` meant every account
+      // looked like it had none.
+      return ((res.data as { repositories?: Record<string, unknown>[] }).repositories ??
+        []) as Record<string, unknown>[];
     },
   });
 
   if (connections.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-8 text-center">
-        <GitBranch size={22} className="text-text-subtle" />
-        <div className="text-[length:var(--text-body)] text-text-muted">
-          No Git connections. Connect a provider first.
-        </div>
-      </div>
-    );
+    return <ConnectGitHub />;
   }
 
   const query = repoSearch.toLowerCase();
@@ -356,6 +353,75 @@ function RepoView({ onPick }: { onPick: (r: Record<string, unknown>) => void }) 
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/*
+ * Connecting a GitHub account.
+ *
+ * Applad is a GitHub App, so this is not an OAuth login — the account owner
+ * installs it and chooses which repositories it may see. Everything Applad can
+ * reach afterwards is what they picked, and they can change it at any time
+ * from GitHub without telling us.
+ */
+function ConnectGitHub() {
+  const { projectId = '' } = useParams<{ projectId: string }>();
+  const [starting, setStarting] = useState(false);
+
+  const { data: install } = useQuery({
+    queryKey: ['github-install-url', projectId],
+    queryFn: async () =>
+      (await api.get('/deploy/git/github/install-url')).data as {
+        configured: boolean;
+        url?: string;
+        reason?: string;
+      },
+  });
+
+  const start = async () => {
+    if (!install?.url) return;
+    setStarting(true);
+    try {
+      // Where to come back to, since GitHub returns to a fixed URL that knows
+      // nothing about which project or page the flow started from.
+      rememberInstall(projectId, window.location.pathname + window.location.search);
+      window.location.href = install.url;
+    } catch (e) {
+      toast.error(friendlyError(e));
+      setStarting(false);
+    }
+  };
+
+  if (install && !install.configured) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-8 text-center">
+        <GitBranch size={22} className="text-text-subtle" />
+        <div className="text-[length:var(--text-body)] text-text-muted">
+          This Applad instance has no GitHub App configured.
+        </div>
+        <div className="max-w-[320px] text-[length:var(--text-caption)] text-text-subtle">
+          Deploy from a public repository by pasting its URL, or register a GitHub App for this
+          instance to connect private ones.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-8 text-center">
+      <Github size={22} className="text-text-secondary" />
+      <div className="text-[length:var(--text-body)] text-text-primary">
+        Connect a GitHub account
+      </div>
+      <div className="max-w-[320px] text-[length:var(--text-caption)] text-text-subtle">
+        You choose which repositories Applad can see. Private repositories deploy without pasting a
+        token anywhere.
+      </div>
+      <Button onClick={start} disabled={starting || !install?.url} className="mt-1">
+        <Github size={14} />
+        {starting ? 'Opening GitHub…' : 'Connect GitHub'}
+      </Button>
     </div>
   );
 }

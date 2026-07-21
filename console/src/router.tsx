@@ -11,6 +11,7 @@ import { AiChatOverlay } from './features/ai/AiChatOverlay';
 import { Shell } from './shell/Shell';
 import { PlaceholderPage } from './components/placeholder-page';
 import { LoginPage } from './features/login/LoginPage';
+import { GitHubSetupPage } from '@/features/deploy-shared/GitHubSetup';
 import { InvitePage } from './features/login/InvitePage';
 import { ProjectsPage } from './features/projects/ProjectsPage';
 import { AccountPage } from './features/account/AccountPage';
@@ -200,6 +201,9 @@ export const router = createBrowserRouter([
       // Invite redemption stands apart from login: the token is the
       // credential, and it works on instances where signup is closed.
       { path: '/invite/:token', element: <InvitePage /> },
+      // Fixed by the GitHub App's own configuration: GitHub returns everyone
+      // here after an install, whichever project sent them.
+      { path: '/git/setup', element: <GitHubSetupPage /> },
       { path: '/', element: <RootRedirect /> },
       {
         element: <RequireAuth />,

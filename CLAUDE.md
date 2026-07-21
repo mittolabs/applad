@@ -302,6 +302,37 @@ holds the Docker socket. The API reaches the browser over the shared network.
 Chromium binds DevTools to loopback and rejects non-localhost Host headers, so
 the browser image runs a forwarder and every call presents `Host: localhost`.
 
+### GitHub
+
+Deploying from a repository goes through a GitHub App — **Applad Cloud**
+(`github.com/apps/applad-cloud`, owned by `mittolabs`) — rather than a token
+somebody pasted. An app holds a private key, signs a short-lived JWT to prove
+it is itself, and exchanges that for a token scoped to one *installation*: one
+account that installed it, on the repositories they picked. Those tokens last
+an hour and are minted per use, so the key is the only long-lived secret and it
+never reaches the database.
+
+A connection is therefore a record of permission, not a credential:
+`git_connections` stores which installation a project may act through, and
+nothing that can be replayed if the row leaks.
+
+| | |
+|---|---|
+| **Authorisation** | Whose repo may a project clone? The app can reach every repository anyone installed it on, so `CloneTokenForRepo` resolves the installation for the repo and refuses unless a `git_connections` row ties it to the asking project |
+| **Clone** | `x-access-token:<token>@github.com/...`, passed separately from the URL that is quoted in errors — git echoes what it was given, and a failed private clone would otherwise print the token into a build log |
+| **Webhook** | One URL for every installation (`POST /v1/deploy/git/webhook`), verified against the app's single secret, then routed by `installation.id`. The per-connection route (`/webhook/{connectionId}`) stays for GitLab and hand-wired hooks |
+| **Install** | Console → *Connect GitHub* → `github.com/apps/applad-cloud/installations/new?state=…`, where the state is held in Redis against the project that started it, so a link somebody is tricked into following cannot attach their installation elsewhere |
+
+Permissions requested: `contents:read`, `metadata:read`, `statuses:write`,
+`pull_requests:write`. The last is wider than today's use — only PR events are
+read — because adding a permission later makes every existing installation
+re-approve, and commenting a preview URL on a pull request is the next step.
+
+Self-hosted instances have no app. `githubapp.ErrNotConfigured` is a condition,
+not a failure: public repositories still deploy by URL, and the console says so
+instead of offering a button that cannot work. An operator who wants private
+repos registers their own app and sets `GITHUB_APP_*`.
+
 ### Scheduling
 
 `worker-cron` ticks once a minute and fires anything due: workflows with
@@ -352,6 +383,11 @@ dropping people onto the sign-in form.
 | `PORT` | `8080` | API server port |
 | `CONSOLE_SIGNUP_ENABLED` | `auto` | `auto` (self-hosted: closes after the first account), `true` (hosted), or `false` |
 | `SESSION_COOKIE_DOMAIN` | (empty) | Overrides console cookie scope. Normally derived from the host: `console.<parent>` shares cookies with `<parent>` |
+| `GITHUB_APP_ID` | (empty) | Applad Cloud's GitHub App. Absent on self-hosted, where git deploys fall back to public repositories |
+| `GITHUB_APP_SLUG` | `applad` | App name in URLs — `github.com/apps/<slug>` |
+| `GITHUB_APP_PRIVATE_KEY` / `_PATH` | (empty) | The PEM inline (newlines escaped) or a path to it. Prefer the path: an env var is visible to anything that can inspect the container |
+| `GITHUB_APP_WEBHOOK_SECRET` | (empty) | Verifies every inbound delivery for the app |
+| `GITHUB_APP_CLIENT_ID/SECRET` | (empty) | OAuth identity of the app |
 | `SMTP_HOST/PORT/USER/PASS/FROM` | (empty) | SMTP config for email |
 | `OAUTH_GOOGLE_CLIENT_ID/SECRET` | (empty) | Google OAuth2 |
 | `OAUTH_GITHUB_CLIENT_ID/SECRET` | (empty) | GitHub OAuth2 |

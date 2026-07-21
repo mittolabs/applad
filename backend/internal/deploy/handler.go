@@ -108,6 +108,7 @@ func Routes(h *Handler) http.Handler {
 		r.Get("/{connectionId}/repos", h.listRepositories)
 		r.Post("/{connectionId}/webhook-secret", h.generateWebhookSecret)
 	})
+	gitHubAppRoutes(r, h)
 
 	// Preview releases
 	r.Get("/targets/{targetId}/releases/previews", h.listPreviewReleases)
@@ -129,6 +130,10 @@ func Routes(h *Handler) http.Handler {
 // Mounted separately outside the project-auth middleware.
 func WebhookRoutes(h *Handler) http.Handler {
 	r := chi.NewRouter()
+	// The GitHub App has a single webhook URL for every installation, so it
+	// posts to the root. A connection id in the path still identifies a
+	// GitLab hook, or a GitHub repository wired up by hand.
+	r.Post("/", h.handleGitHubAppWebhook)
 	r.Post("/{connectionId}", h.handleGitWebhook)
 	return r
 }

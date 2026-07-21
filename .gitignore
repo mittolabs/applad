@@ -59,3 +59,8 @@ Thumbs.db
 *.o
 *.so
 *.dylib
+
+# App credentials that must never be committed — the GitHub App private key
+# lives here and is mounted into the containers that need it.
+secrets/
+*.pem

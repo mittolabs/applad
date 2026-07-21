@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/githubapp"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/uid"
 	"github.com/redis/go-redis/v9"
@@ -130,6 +131,7 @@ type Service struct {
 	queue        *queue.Queue
 	rdb          *redis.Client
 	deployDomain string
+	github       *githubapp.App
 }
 
 // SetRedis gives the service the connection it uses to ask the builds worker
@@ -1753,12 +1755,18 @@ func (s *Service) DeleteGitConnection(ctx context.Context, connectionID string) 
 	return err
 }
 
-// ListRepositories fetches repositories from the Git provider using the connection's access token.
+// ListRepositories returns the repositories a connection can reach.
+//
+// Through the GitHub App this needs no stored token: the installation is
+// looked up and a fresh one minted for the call. A connection carrying a
+// pasted access token still works, which is how a self-hosted instance with no
+// app of its own gets a repository list.
 func (s *Service) ListRepositories(ctx context.Context, connectionID string) ([]*GitRepository, error) {
-	var accessToken, provider string
+	var accessToken, provider, installationID string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT access_token, provider FROM git_connections WHERE id = $1`, connectionID,
-	).Scan(&accessToken, &provider)
+		`SELECT COALESCE(access_token, ''), provider, COALESCE(installation_id, '')
+		   FROM git_connections WHERE id = $1`, connectionID,
+	).Scan(&accessToken, &provider, &installationID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("git connection not found")
 	}
@@ -1766,11 +1774,26 @@ func (s *Service) ListRepositories(ctx context.Context, connectionID string) ([]
 		return nil, err
 	}
 
+	if s.github != nil && installationID != "" {
+		repos, err := s.github.ListRepositories(ctx, installationID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]*GitRepository, 0, len(repos))
+		for _, r := range repos {
+			out = append(out, &GitRepository{
+				ID: r.ID, Name: r.Name, FullName: r.FullName,
+				Private: r.Private, DefaultBranch: r.DefaultBranch,
+				CloneURL: r.CloneURL, HTMLURL: r.HTMLURL, UpdatedAt: r.UpdatedAt,
+			})
+		}
+		return out, nil
+	}
+
 	if accessToken == "" {
 		return nil, fmt.Errorf("git connection has no access token")
 	}
 
-	// Call GitHub API to list installation repositories
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/installation/repositories", nil)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: list repos: %w", err)
@@ -2048,6 +2071,12 @@ func (s *Service) HandleGitWebhook(ctx context.Context, connectionID, event stri
 		return 0, fmt.Errorf("webhook: signature verification failed")
 	}
 
+	return s.DispatchGitEvent(ctx, conn, event, payload)
+}
+
+// DispatchGitEvent acts on an event whose authenticity has already been
+// established — by the connection's own secret, or by the GitHub App's.
+func (s *Service) DispatchGitEvent(ctx context.Context, conn *GitConnection, event string, payload []byte) (int, error) {
 	switch event {
 	case "push":
 		return s.handlePushEvent(ctx, conn, payload)

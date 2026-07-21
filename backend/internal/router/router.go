@@ -3,7 +3,9 @@ package router
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -28,6 +30,7 @@ import (
 	"github.com/mittolabs/applad/internal/edge"
 	"github.com/mittolabs/applad/internal/flags"
 	"github.com/mittolabs/applad/internal/functions"
+	"github.com/mittolabs/applad/internal/githubapp"
 	"github.com/mittolabs/applad/internal/health"
 	"github.com/mittolabs/applad/internal/jobs"
 	"github.com/mittolabs/applad/internal/locale"
@@ -104,6 +107,15 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	teamSvc := teams.NewService(database)
 	deployQueue := queue.New(cacheClient.Client())
 	deploySvc := deploy.NewService(database, deployQueue)
+	// Git deploys go through the Applad GitHub App where one is configured.
+	// Without it the console offers no "Connect GitHub" button rather than
+	// offering one that cannot work.
+	if ghApp, err := githubapp.FromConfig(cfg); err == nil {
+		deploySvc.SetGitHubApp(ghApp)
+		slog.Info("github app configured", "slug", ghApp.Slug())
+	} else if !errors.Is(err, githubapp.ErrNotConfigured) {
+		slog.Error("github app misconfigured — git deploys will be unavailable", "error", err)
+	}
 	healthHandler := health.NewHandler(database, cacheClient)
 	messagingSvc := messaging.NewService(database, messaging.Config{
 		Host:            cfg.SMTPHost,

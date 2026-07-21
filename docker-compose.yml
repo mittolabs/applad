@@ -23,6 +23,12 @@ x-worker-env: &worker-env
   # DB connection pool
   DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-25}"
   DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
+  # The builds worker clones repositories, so it needs the GitHub App to mint
+  # a token for a private one.
+  GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
+  GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-applad}"
+  GITHUB_APP_PRIVATE_KEY: "${GITHUB_APP_PRIVATE_KEY:-}"
+  GITHUB_APP_PRIVATE_KEY_PATH: "${GITHUB_APP_PRIVATE_KEY_PATH:-/run/secrets/github-app.private-key.pem}"
 
 x-worker-deps: &worker-deps
   pgbouncer:
@@ -51,6 +57,13 @@ services:
       APP_ENV: "${APP_ENV:-development}"
       # auto (disabled once the first admin exists), true, or false.
       CONSOLE_SIGNUP_ENABLED: "${CONSOLE_SIGNUP_ENABLED:-auto}"
+      GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
+      GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-applad}"
+      GITHUB_APP_CLIENT_ID: "${GITHUB_APP_CLIENT_ID:-}"
+      GITHUB_APP_CLIENT_SECRET: "${GITHUB_APP_CLIENT_SECRET:-}"
+      GITHUB_APP_WEBHOOK_SECRET: "${GITHUB_APP_WEBHOOK_SECRET:-}"
+      GITHUB_APP_PRIVATE_KEY: "${GITHUB_APP_PRIVATE_KEY:-}"
+      GITHUB_APP_PRIVATE_KEY_PATH: "${GITHUB_APP_PRIVATE_KEY_PATH:-/run/secrets/github-app.private-key.pem}"
       # Parent domain deployed apps answer on, used to show a site's address.
       APPLAD_DEPLOY_DOMAIN: "${APPLAD_DEPLOY_DOMAIN:-applad.dev.localhost}"
       # Optional. Cookie scope is derived from the console's own hostname
@@ -72,6 +85,9 @@ services:
       AI_BASE_URL: "${AI_BASE_URL:-}"
     volumes:
       - storage_data:/var/applad/storage
+      # Read-only, and absent on an instance with no GitHub App — the app is
+      # optional and every path degrades without it.
+      - ./secrets:/run/secrets:ro
     depends_on: *worker-deps
     restart: unless-stopped
 
@@ -139,6 +155,8 @@ services:
     volumes:
       - storage_data:/var/applad/storage
       - /var/run/docker.sock:/var/run/docker.sock
+      # The builds worker is what clones, so it needs the app's key.
+      - ./secrets:/run/secrets:ro
     depends_on: *worker-deps
     restart: unless-stopped
 

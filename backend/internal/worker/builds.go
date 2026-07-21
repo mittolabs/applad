@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/deploy"
+	"github.com/mittolabs/applad/internal/githubapp"
 	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/runtime"
@@ -35,6 +37,10 @@ type Builds struct {
 	db             *db.DB
 	executor       *runtime.Executor
 	deployExecutor *runtime.DeployExecutor
+	// Consulted only to mint GitHub tokens for a clone; the worker does its
+	// own querying for everything else.
+	deploySvc *deploy.Service
+	github    *githubapp.App
 }
 
 func NewBuilds(cfg *config.Config) *Builds {
@@ -54,6 +60,19 @@ func (w *Builds) Start(ctx context.Context) error {
 
 	w.executor = runtime.NewExecutor()
 	w.deployExecutor = runtime.NewDeployExecutor()
+
+	// The worker clones repositories, so it needs to be able to mint a token
+	// for a private one. An instance with no GitHub App configured carries on
+	// with public repositories only.
+	w.deploySvc = deploy.NewService(database, w.queue)
+	w.deploySvc.SetRedis(rdb)
+	if app, err := githubapp.FromConfig(w.cfg); err == nil {
+		w.github = app
+		w.deploySvc.SetGitHubApp(app)
+		slog.Info("builds worker: github app configured", "slug", app.Slug())
+	} else if !errors.Is(err, githubapp.ErrNotConfigured) {
+		slog.Error("builds worker: github app misconfigured", "error", err)
+	}
 
 	w.queue.StartReaper(ctx, "builds")
 
@@ -129,7 +148,7 @@ func (w *Builds) processFunctionExecution(ctx context.Context, job *queue.Job) e
 	var sourceDir string
 	// For git source, clone the repo to a temp directory
 	if sourceType == "git" && repository != "" {
-		cloned, err := cloneToSource(ctx, repository, branch)
+		cloned, err := w.cloneToSource(ctx, projectID, repository, branch)
 		if err != nil {
 			w.updateExecution(ctx, executionID, "failed", "", err.Error(), 0)
 			return err
@@ -166,6 +185,7 @@ func (w *Builds) processFunctionExecution(ctx context.Context, job *queue.Job) e
 
 func (w *Builds) processFunctionBuild(ctx context.Context, job *queue.Job) error {
 	functionID, _ := job.Payload["functionId"].(string)
+	projectID, _ := job.Payload["projectId"].(string)
 	runtimeName, _ := job.Payload["runtime"].(string)
 	entrypoint, _ := job.Payload["entrypoint"].(string)
 	sourceType, _ := job.Payload["sourceType"].(string)
@@ -177,7 +197,7 @@ func (w *Builds) processFunctionBuild(ctx context.Context, job *queue.Job) error
 	var sourceDir string
 	// For git source, clone the repo to a temp directory
 	if sourceType == "git" && repository != "" {
-		cloned, err := cloneToSource(ctx, repository, branch)
+		cloned, err := w.cloneToSource(ctx, projectID, repository, branch)
 		if err != nil {
 			w.db.ExecContext(ctx, "UPDATE functions SET status = 'failed' WHERE id = ?", functionID) //nolint:errcheck
 			return err
@@ -205,12 +225,29 @@ func (w *Builds) processFunctionBuild(ctx context.Context, job *queue.Job) error
 // cloneToSource shallow-clones a git repository and returns the cloned directory path.
 // The caller is responsible for reading files from it; the directory is left on disk
 // so the executor can tar it up. A temp dir is created under /tmp/applad-git-*.
-func cloneToSource(ctx context.Context, repository, branch string) (string, error) {
+//
+// A private repository is reached with a token minted for the project's own
+// GitHub App installation, which is why the project has to be named: the token
+// is what authorises the fetch, and whose it is decides what may be fetched.
+func (w *Builds) cloneToSource(ctx context.Context, projectID, repository, branch string) (string, error) {
 	dir, err := os.MkdirTemp("", "applad-git-*")
 	if err != nil {
 		return "", fmt.Errorf("git clone: mktemp: %w", err)
 	}
-	if err := runtime.CloneRepo(ctx, repository, branch, dir); err != nil {
+
+	authURL := ""
+	if w.deploySvc != nil && projectID != "" {
+		token, err := w.deploySvc.CloneTokenForRepo(ctx, projectID, repository)
+		if err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+		if token != "" {
+			authURL = githubapp.CloneURL(repository, token)
+		}
+	}
+
+	if err := runtime.CloneRepoAs(ctx, repository, authURL, branch, dir); err != nil {
 		os.RemoveAll(dir)
 		return "", err
 	}
@@ -367,7 +404,7 @@ func shellQuote(s string) string {
 // testSource materialises the project under test, from git or from an upload.
 func (w *Builds) testSource(ctx context.Context, runner *testlab.Runner) (string, error) {
 	if runner.SourceType == "git" && runner.SourceURL != "" {
-		return cloneToSource(ctx, runner.SourceURL, runner.Branch)
+		return w.cloneToSource(ctx, runner.ProjectID, runner.SourceURL, runner.Branch)
 	}
 	return extractUploadedSource(runner.ID)
 }
@@ -823,7 +860,7 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	var sourceDir string
 	switch {
 	case cfg.sourceType == "git" && cfg.sourceURL != "":
-		cloned, err := cloneToSource(ctx, cfg.sourceURL, cfg.branch)
+		cloned, err := w.cloneToSource(ctx, projectID, cfg.sourceURL, cfg.branch)
 		if err != nil {
 			w.updateReleaseStatus(ctx, releaseID, "failed", err.Error(), "", time.Since(start).Milliseconds())
 			w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Clone failed")

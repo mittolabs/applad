@@ -146,6 +146,16 @@ type Config struct {
 	// Console OAuth — for admin console login (separate from per-project OAuth)
 	ConsoleGitHubClientID     string
 	ConsoleGitHubClientSecret string
+
+	// The Applad GitHub App — how git deploys reach a repository. Absent on a
+	// self-hosted instance unless the operator registers their own app, which
+	// is why every path that uses it degrades rather than fails.
+	GitHubAppID               string
+	GitHubAppSlug             string
+	GitHubAppClientID         string
+	GitHubAppClientSecret     string
+	GitHubAppWebhookSecret    string
+	GitHubAppPrivateKey       string
 	ConsoleGoogleClientID     string
 	ConsoleGoogleClientSecret string
 	// Console SSO — generic OIDC for enterprise IdPs (Okta, Auth0, Azure AD, etc.)
@@ -284,6 +294,17 @@ func Load() *Config {
 
 		ConsoleGitHubClientID:     getEnv("CONSOLE_GITHUB_CLIENT_ID", ""),
 		ConsoleGitHubClientSecret: getEnv("CONSOLE_GITHUB_CLIENT_SECRET", ""),
+
+		GitHubAppID:            getEnv("GITHUB_APP_ID", ""),
+		GitHubAppSlug:          getEnv("GITHUB_APP_SLUG", "applad"),
+		GitHubAppClientID:      getEnv("GITHUB_APP_CLIENT_ID", ""),
+		GitHubAppClientSecret:  getEnv("GITHUB_APP_CLIENT_SECRET", ""),
+		GitHubAppWebhookSecret: getEnv("GITHUB_APP_WEBHOOK_SECRET", ""),
+		// Either the PEM itself (newlines escaped) or a path to it, so a
+		// container can mount the key as a file rather than pass it as an env
+		// var that shows up in `docker inspect`.
+		GitHubAppPrivateKey: readKeyMaterial(getEnv("GITHUB_APP_PRIVATE_KEY", ""),
+			getEnv("GITHUB_APP_PRIVATE_KEY_PATH", "")),
 		ConsoleGoogleClientID:     getEnv("CONSOLE_GOOGLE_CLIENT_ID", ""),
 		ConsoleGoogleClientSecret: getEnv("CONSOLE_GOOGLE_CLIENT_SECRET", ""),
 		ConsoleSSOClientID:        getEnv("CONSOLE_SSO_CLIENT_ID", ""),
@@ -312,4 +333,18 @@ func getEnvInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+// readKeyMaterial resolves a private key given either inline or as a path.
+//
+// A key on disk is preferred where it is available: an env var is visible to
+// anything that can inspect the container, and ends up in shell history and
+// process listings.
+func readKeyMaterial(inline, path string) string {
+	if path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			return string(b)
+		}
+	}
+	return inline
 }
