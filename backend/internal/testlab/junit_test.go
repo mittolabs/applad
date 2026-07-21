@@ -215,3 +215,26 @@ func TestRepeatedFailureIsNotFlaky(t *testing.T) {
 		t.Errorf("message = %q, want the last attempt's", merged[0].FailureMessage)
 	}
 }
+
+// Runners shorten long output directory names. Playwright elides the middle
+// and inserts a hash, so an artifact belonging to a test with a long name
+// never matched the whole slug — and the recording was orphaned from the run
+// it documented.
+func TestArtifactMatchesTruncatedDirectoryName(t *testing.T) {
+	testSlug := "a-visitor-lands-on-the-home-page"
+	truncated := "a-visitor-lands-on-the-hom-21f4f-itor-lands-on-the-home-page/video-webm"
+
+	if !matchesCase(truncated, testSlug) {
+		t.Error("a truncated directory name must still match its test")
+	}
+	if !matchesCase("cart-checkout/video-webm", "cart-checkout") {
+		t.Error("an untruncated name must still match")
+	}
+	if matchesCase("some-other-test-entirely/video-webm", testSlug) {
+		t.Error("an unrelated artifact must not be attached")
+	}
+	// Short names carry too little signal to match on an edge alone.
+	if matchesCase("aaaaaaaaaaaaaaaaaaaaaaaa-bbbb/video-webm", "short") {
+		t.Error("a short slug must require a full match")
+	}
+}

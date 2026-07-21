@@ -76,6 +76,29 @@ func slug(s string) string {
 	return strings.Trim(nonWord.ReplaceAllString(strings.ToLower(s), "-"), "-")
 }
 
+// matchesCase decides whether an artifact path belongs to a test.
+//
+// Runners shorten long directory names: Playwright writes
+// "a-visitor-lands-on-the-hom-21f4f-itor-lands-on-the-home-page" for a test
+// called "a visitor lands on the home page", eliding the middle and inserting
+// a hash. Looking for the whole slug therefore matches only short names, so
+// each end is checked instead.
+func matchesCase(haystack, testSlug string) bool {
+	if testSlug == "" {
+		return false
+	}
+	if strings.Contains(haystack, testSlug) {
+		return true
+	}
+	// Long enough to be unlikely to collide, short enough to survive elision.
+	const edge = 20
+	if len(testSlug) <= edge {
+		return false
+	}
+	return strings.Contains(haystack, testSlug[:edge]) ||
+		strings.Contains(haystack, testSlug[len(testSlug)-edge:])
+}
+
 // StoreArtifacts writes a run's files to disk and records them.
 //
 // Runners that record per test name their output directory after the test, so
@@ -129,7 +152,7 @@ func (s *Service) StoreArtifacts(ctx context.Context, runID, projectID string, f
 		var caseID string
 		haystack := slug(name)
 		for _, c := range index {
-			if c.slug != "" && strings.Contains(haystack, c.slug) {
+			if matchesCase(haystack, c.slug) {
 				caseID = c.id
 				break
 			}

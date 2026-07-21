@@ -38,6 +38,9 @@ type TestRunConfig struct {
 	ArtifactsPath string
 	Env           map[string]string
 	TimeoutMs     int
+	// OnLine, when set, receives the suite's output as it is produced, so a
+	// run can be watched rather than waited for.
+	OnLine func(string)
 }
 
 // TestRunResult is what a finished run produced.
@@ -112,6 +115,11 @@ func (d *DeployExecutor) RunTests(ctx context.Context, runID string, cfg TestRun
 
 	if err := d.docker.StartContainer(ctx, containerID); err != nil {
 		return nil, fmt.Errorf("testrun: start container: %w", err)
+	}
+
+	if cfg.OnLine != nil {
+		// Follows in the background; it ends by itself when the container does.
+		go d.docker.FollowContainerLogs(ctx, containerID, cfg.OnLine) //nolint:errcheck
 	}
 
 	timeout := time.Duration(cfg.TimeoutMs) * time.Millisecond

@@ -407,3 +407,49 @@ func (s *Service) ScheduledSuites(ctx context.Context, projectID string) ([]*Sel
 	}
 	return out, nil
 }
+
+// HistoryEntry is one appearance of a test in a run.
+type HistoryEntry struct {
+	RunID          string    `json:"runId"`
+	Status         string    `json:"status"`
+	DurationMs     int64     `json:"durationMs"`
+	Flaky          bool      `json:"flaky"`
+	FailureMessage string    `json:"failureMessage,omitempty"`
+	FailureDetails string    `json:"failureDetails,omitempty"`
+	TargetURL      string    `json:"targetUrl,omitempty"`
+	TriggerType    string    `json:"triggerType,omitempty"`
+	At             time.Time `json:"at"`
+	// VideoID is the recording of this attempt, when the runner left one.
+	VideoID string `json:"videoId,omitempty"`
+}
+
+// TestHistory returns what one test did across runs, newest first, with the
+// recording each run left behind.
+func (s *Service) TestHistory(ctx context.Context, testID, projectID string) ([]*HistoryEntry, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT c.run_id, c.status, c.duration_ms, c.flaky,
+		        COALESCE(c.failure_message,''), COALESCE(c.failure_details,''),
+		        COALESCE(r.target_url,''), r.trigger_type, c.created_at,
+		        COALESCE((SELECT a.id FROM test_artifacts a
+		                   WHERE a.case_id = c.id AND a.kind = 'video' LIMIT 1), '')
+		   FROM test_cases c
+		   JOIN test_runs r ON r.id = c.run_id
+		  WHERE c.test_id = $1 AND c.project_id = $2
+		  ORDER BY c.created_at DESC LIMIT 50`, testID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("testlab: test history: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*HistoryEntry
+	for rows.Next() {
+		var e HistoryEntry
+		if err := rows.Scan(&e.RunID, &e.Status, &e.DurationMs, &e.Flaky,
+			&e.FailureMessage, &e.FailureDetails, &e.TargetURL, &e.TriggerType,
+			&e.At, &e.VideoID); err != nil {
+			return nil, err
+		}
+		out = append(out, &e)
+	}
+	return out, nil
+}

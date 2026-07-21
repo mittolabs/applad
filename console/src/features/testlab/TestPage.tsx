@@ -17,6 +17,7 @@ import { CreateSuiteDialog } from './CreateSuiteDialog';
 import { StudioView } from './StudioView';
 import { RecordDialog, type StudioSession } from './RecordDialog';
 import { TestsTab } from './TestsTab';
+import { TestDetail, LiveRunLog } from './TestDetail';
 import { SuitesTab } from './SuitesTab';
 import { shortDate } from '../deploy-shared/format';
 
@@ -39,6 +40,7 @@ export function TestPage() {
   const [recording, setRecording] = useState(false);
   const [session, setSession] = useState<StudioSession | null>(null);
   const [flowsKey, setFlowsKey] = useState(0);
+  const [openTest, setOpenTest] = useState<{ id: string; name: string } | null>(null);
 
   // A live recording takes the whole page: it is the app under test.
   if (session) {
@@ -52,6 +54,10 @@ export function TestPage() {
         }}
       />
     );
+  }
+
+  if (openTest) {
+    return <TestDetail testId={openTest.id} name={openTest.name} onBack={() => setOpenTest(null)} />;
   }
 
   if (openRun) {
@@ -69,7 +75,14 @@ export function TestPage() {
 
       <PageTabs tabs={LIST_TABS} selected={tab} onChange={setTab} />
 
-      {tab === 0 && <TestsTab key={flowsKey} projectId={projectId} onRecord={() => setRecording(true)} />}
+      {tab === 0 && (
+        <TestsTab
+          key={flowsKey}
+          projectId={projectId}
+          onRecord={() => setRecording(true)}
+          onOpen={setOpenTest}
+        />
+      )}
       {tab === 1 && <SuitesTab projectId={projectId} />}
       {tab === 2 && <RunsTab projectId={projectId} onOpen={setOpenRun} />}
       {tab === 3 && <RunnersTab projectId={projectId} creating={creating} setCreating={setCreating} />}
@@ -246,6 +259,8 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
         {run && <Counts run={run} />}
         <IdText id={runId} />
       </div>
+
+      {run && ['queued', 'running'].includes(String(run.status)) && <LiveRunLog runId={runId} />}
 
       {run?.error ? (
         <div

@@ -34,7 +34,15 @@ const DOT: Record<string, string> = {
   skipped: '#4B5563',
 };
 
-export function TestsTab({ projectId, onRecord }: { projectId?: string; onRecord: () => void }) {
+export function TestsTab({
+  projectId,
+  onRecord,
+  onOpen,
+}: {
+  projectId?: string;
+  onRecord: () => void;
+  onOpen: (t: { id: string; name: string }) => void;
+}) {
   const qc = useQueryClient();
   const [tagging, setTagging] = useState<Test | null>(null);
   const [tagText, setTagText] = useState('');
@@ -106,7 +114,10 @@ export function TestsTab({ projectId, onRecord }: { projectId?: string; onRecord
               style={{ backgroundColor: DOT[t.lastStatus ?? ''] ?? 'var(--text-subtle)' }}
             />
 
-            <div className="min-w-0 flex-1">
+            <button
+              onClick={() => onOpen({ id: t.$id, name: t.name })}
+              className="min-w-0 flex-1 text-left"
+            >
               <div className="flex items-center gap-2">
                 <span className="truncate text-[length:var(--text-body)] text-text-primary">{t.name}</span>
                 {t.quarantined && (
@@ -129,11 +140,15 @@ export function TestsTab({ projectId, onRecord }: { projectId?: string; onRecord
               <div className="mt-0.5 text-[length:var(--text-caption)] text-text-subtle">
                 {t.source === 'recorded' ? 'recorded' : t.suiteName}
               </div>
-            </div>
+            </button>
 
             {/* Ten runs, newest on the right: the shape tells you whether this
                 is broken or merely unreliable. */}
-            <div className="flex shrink-0 items-center gap-[3px]">
+            <button
+              onClick={() => onOpen({ id: t.$id, name: t.name })}
+              title="See every run of this test"
+              className="flex shrink-0 items-center gap-[3px] rounded px-1 py-1 transition-colors hover:bg-fill-hover"
+            >
               {[...(t.history ?? [])].reverse().map((h, i) => (
                 <span
                   key={i}
@@ -142,7 +157,7 @@ export function TestsTab({ projectId, onRecord }: { projectId?: string; onRecord
                   style={{ backgroundColor: DOT[h] ?? 'var(--fill)' }}
                 />
               ))}
-            </div>
+            </button>
 
             <Button
               variant="ghost"

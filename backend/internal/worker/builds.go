@@ -298,7 +298,15 @@ func (w *Builds) processTestRun(ctx context.Context, job *queue.Job) error {
 		command += " --grep " + shellQuote(grep)
 	}
 
+	// Published as it happens, so the console can show a run unfolding rather
+	// than a spinner. Redis is the carrier because the API, which serves the
+	// console, cannot see this container.
+	onLine := func(line string) {
+		w.rdb.Publish(ctx, "applad:testrun:"+runID, line) //nolint:errcheck
+	}
+
 	result, runErr := w.deployExecutor.RunTests(ctx, runID, runtime.TestRunConfig{
+		OnLine:        onLine,
 		SourceDir:     sourceDir,
 		Image:         runner.Image,
 		SetupCmd:      runner.SetupCmd,

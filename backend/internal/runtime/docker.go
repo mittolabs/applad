@@ -13,8 +13,10 @@
 package runtime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -277,6 +279,49 @@ func (c *Client) GetContainerPort(ctx context.Context, containerID string) (stri
 }
 
 // ContainerLogs returns the combined stdout/stderr logs of a container.
+// FollowContainerLogs streams a running container's output line by line until
+// it exits. Waiting for a container to finish before showing anything means
+// staring at nothing for minutes while dependencies install; this is what
+// makes a run watchable while it happens.
+func (c *Client) FollowContainerLogs(ctx context.Context, containerID string, onLine func(string)) error {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		fmt.Sprintf(c.baseURL+"/v1.44/containers/%s/logs?stdout=true&stderr=true&follow=true", containerID), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		// Each frame carries an 8-byte header: stream id, three reserved
+		// bytes, then a big-endian length.
+		var header [8]byte
+		if _, err := io.ReadFull(reader, header[:]); err != nil {
+			return nil // the container exited, or the context was cancelled
+		}
+		size := binary.BigEndian.Uint32(header[4:8])
+		if size == 0 {
+			continue
+		}
+		if size > 1<<20 {
+			size = 1 << 20
+		}
+		payload := make([]byte, size)
+		if _, err := io.ReadFull(reader, payload); err != nil {
+			return nil
+		}
+		for _, line := range strings.Split(strings.TrimRight(string(payload), "\n"), "\n") {
+			if line != "" {
+				onLine(line)
+			}
+		}
+	}
+}
+
 func (c *Client) ContainerLogs(ctx context.Context, containerID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf(c.baseURL+"/v1.44/containers/%s/logs?stdout=true&stderr=true", containerID), nil)

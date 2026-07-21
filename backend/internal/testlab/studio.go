@@ -455,3 +455,42 @@ func tarGzDir(dir, dest string) error {
 		return err
 	})
 }
+
+// StreamRunLogs forwards a run's output to the console as it is produced.
+//
+// The worker publishes each line to Redis because it is the only process that
+// can see the container; the API subscribes and relays. A run that has already
+// finished simply closes, and the stored log is shown instead.
+func (s *Studio) StreamRunLogs(w http.ResponseWriter, r *http.Request, runID string) {
+	if s.rdb == nil {
+		return
+	}
+	conn, err := studioUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
+	defer cancel()
+
+	sub := s.rdb.Subscribe(ctx, "applad:testrun:"+runID)
+	defer sub.Close()
+
+	// Reading from the socket is what notices the console going away.
+	go func() {
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+
+	for msg := range sub.Channel() {
+		payload, _ := json.Marshal(map[string]string{"type": "line", "line": msg.Payload})
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			return
+		}
+	}
+}

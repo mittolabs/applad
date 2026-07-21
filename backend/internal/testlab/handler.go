@@ -52,6 +52,7 @@ func Routes(h *Handler) http.Handler {
 		r.Get("/", h.listTests)
 		r.Put("/{testId}/tags", h.setTags)
 		r.Put("/{testId}/quarantine", h.setQuarantine)
+		r.Get("/{testId}/history", h.testHistory)
 	})
 
 	// Selections: which tests, run when.
@@ -68,6 +69,8 @@ func Routes(h *Handler) http.Handler {
 		r.Get("/{runId}", h.getRun)
 		r.Get("/{runId}/cases", h.listCases)
 		r.Get("/{runId}/artifacts", h.listArtifacts)
+		// Live output while a run is in progress.
+		r.Get("/{runId}/stream", h.streamRun)
 	})
 
 	// Serving evidence: a recording is opened by a media element, so it is a
@@ -344,6 +347,32 @@ func (h *Handler) runSelection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, run)
+}
+
+// testHistory returns what one test has done across runs, newest first, with
+// the evidence each run left. Clicking a bar in the catalogue lands here.
+func (h *Handler) testHistory(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	items, err := h.svc.TestHistory(r.Context(), chi.URLParam(r, "testId"), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if items == nil {
+		items = []*HistoryEntry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(items), "history": items})
+}
+
+// streamRun forwards a run's output while it is still running, then closes.
+func (h *Handler) streamRun(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	runID := chi.URLParam(r, "runId")
+	if _, err := h.svc.GetRun(r.Context(), runID, projectID); err != nil {
+		apperr.NotFound(w, "run")
+		return
+	}
+	h.studio.StreamRunLogs(w, r, runID)
 }
 
 func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
