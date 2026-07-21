@@ -274,13 +274,14 @@ func (w *Builds) processTestRun(ctx context.Context, job *queue.Job) error {
 	defer os.RemoveAll(sourceDir)
 
 	result, runErr := w.deployExecutor.RunTests(ctx, runID, runtime.TestRunConfig{
-		SourceDir:  sourceDir,
-		Image:      suite.Image,
-		SetupCmd:   suite.SetupCmd,
-		Command:    suite.Command,
-		ReportPath: suite.ReportPath,
-		Env:        suite.EnvVars,
-		TimeoutMs:  suite.TimeoutMs,
+		SourceDir:     sourceDir,
+		Image:         suite.Image,
+		SetupCmd:      suite.SetupCmd,
+		Command:       suite.Command,
+		ReportPath:    suite.ReportPath,
+		ArtifactsPath: suite.ArtifactsPath,
+		Env:           suite.EnvVars,
+		TimeoutMs:     suite.TimeoutMs,
 	})
 	durationMs := time.Since(start).Milliseconds()
 
@@ -309,6 +310,12 @@ func (w *Builds) processTestRun(ctx context.Context, job *queue.Job) error {
 
 	if err := svc.RecordResults(ctx, runID, projectID, cases, result.Log, "", durationMs); err != nil {
 		return err
+	}
+
+	// Stored after the cases exist, so a recording named after a test can be
+	// attached to it.
+	if err := svc.StoreArtifacts(ctx, runID, projectID, result.Artifacts); err != nil {
+		slog.Warn("builds worker: storing test artifacts failed", "run_id", runID, "error", err)
 	}
 	summary := testlab.Summarise(cases)
 	slog.Info("builds worker: test run complete", "run_id", runID,

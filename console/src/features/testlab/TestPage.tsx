@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ChevronLeft, MinusCircle, Play, Plus, XCircle, AlertTriangle } from 'lucide-react';
@@ -193,6 +193,13 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
     },
   });
 
+  const { data: artifacts } = useQuery({
+    queryKey: ['test-artifacts', runId],
+    queryFn: async () =>
+      ((await api.get(`/tests/runs/${runId}/artifacts`)).data as { artifacts: Row[] }).artifacts ?? [],
+    enabled: !!run && !['queued', 'running'].includes(String(run.status)),
+  });
+
   const { data: cases } = useQuery({
     queryKey: ['test-cases', runId],
     queryFn: async () =>
@@ -228,8 +235,27 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
       {cases && cases.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {cases.map((c) => (
-            <CaseRow key={String(c.$id)} c={c} />
+            <CaseRow
+              key={String(c.$id)}
+              c={c}
+              artifacts={(artifacts ?? []).filter((a) => a.caseId === c.$id)}
+            />
           ))}
+        </div>
+      )}
+
+      {/* Evidence that could not be traced to one test — a combined report, a
+          trace covering the whole suite. */}
+      {(artifacts ?? []).some((a) => !a.caseId) && (
+        <div>
+          <div className="mb-2 text-[length:var(--text-label)] text-text-secondary">Recordings</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {(artifacts ?? [])
+              .filter((a) => !a.caseId)
+              .map((a) => (
+                <ArtifactView key={String(a.$id)} a={a} />
+              ))}
+          </div>
         </div>
       )}
 
@@ -252,7 +278,64 @@ const CASE_ICON = {
   skipped: { Icon: MinusCircle, color: '#6B7280' },
 } as const;
 
-function CaseRow({ c }: { c: Row }) {
+function ArtifactView({ a }: { a: Row }) {
+  const kind = String(a.kind);
+  const [src, setSrc] = useState<string | null>(null);
+
+  /*
+   * Fetched through the API client rather than pointed at by the media
+   * element: a <video src> is a plain browser request, carrying neither the
+   * bearer token nor the project header, so the file would come back 401.
+   * Recordings are small enough that loading them whole costs nothing.
+   */
+  useEffect(() => {
+    if (kind !== 'video' && kind !== 'screenshot') return;
+    let url: string | null = null;
+    let cancelled = false;
+    api
+      .get(`/tests/artifacts/${String(a.$id)}`, { responseType: 'blob' })
+      .then((res) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(res.data as Blob);
+        setSrc(url);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [a.$id, kind]);
+
+  return (
+    <div className="overflow-hidden rounded-[var(--radius)] border border-border bg-surface-alt">
+      {kind === 'video' && src && (
+        <video src={src} controls preload="metadata" className="w-full bg-black" />
+      )}
+      {kind === 'screenshot' && src && <img src={src} alt={String(a.name)} className="w-full" />}
+      {!src && (kind === 'video' || kind === 'screenshot') && (
+        <div className="flex h-[160px] items-center justify-center text-[length:var(--text-caption)] text-text-subtle">
+          Loading recording...
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <span className="truncate font-mono text-[length:var(--text-caption)] text-text-muted">
+          {String(a.name)}
+        </span>
+        <span className="shrink-0 text-[length:var(--text-caption)] text-text-subtle">
+          {formatBytes(Number(a.sizeBytes ?? 0))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function CaseRow({ c, artifacts = [] }: { c: Row; artifacts?: Row[] }) {
   const status = String(c.status) as keyof typeof CASE_ICON;
   const { Icon, color } = CASE_ICON[status] ?? CASE_ICON.skipped;
   const failure = String(c.failureMessage ?? '');
@@ -262,9 +345,9 @@ function CaseRow({ c }: { c: Row }) {
   return (
     <div className="rounded-[var(--radius)] border border-border bg-surface">
       <button
-        onClick={() => details && setOpen(!open)}
+        onClick={() => (details || artifacts.length > 0) && setOpen(!open)}
         className="flex w-full items-start gap-2.5 px-3 py-2 text-left"
-        style={{ cursor: details ? 'pointer' : 'default' }}
+        style={{ cursor: details || artifacts.length > 0 ? 'pointer' : 'default' }}
       >
         <Icon size={14} style={{ color, marginTop: 2, flexShrink: 0 }} />
         <div className="min-w-0 flex-1">
@@ -286,6 +369,13 @@ function CaseRow({ c }: { c: Row }) {
         <pre className="mx-3 mb-3 overflow-auto whitespace-pre-wrap rounded-[var(--radius-6)] bg-surface-alt p-2.5 font-mono text-[length:var(--text-caption)] text-text-muted">
           {details}
         </pre>
+      )}
+      {artifacts.length > 0 && (
+        <div className="mx-3 mb-3 grid gap-2 md:grid-cols-2">
+          {artifacts.map((a) => (
+            <ArtifactView key={String(a.$id)} a={a} />
+          ))}
+        </div>
       )}
     </div>
   );

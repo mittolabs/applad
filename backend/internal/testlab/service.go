@@ -24,20 +24,23 @@ func NewService(database *db.DB, q *queue.Queue) *Service {
 
 // Suite is a project's configuration for running its tests.
 type Suite struct {
-	ID         string            `json:"$id"`
-	ProjectID  string            `json:"projectId"`
-	Name       string            `json:"name"`
-	SourceType string            `json:"sourceType"`
-	SourceURL  string            `json:"sourceUrl,omitempty"`
-	Branch     string            `json:"branch,omitempty"`
-	Image      string            `json:"image,omitempty"`
-	SetupCmd   string            `json:"setupCmd,omitempty"`
-	Command    string            `json:"command"`
-	ReportPath string            `json:"reportPath"`
-	EnvVars    map[string]string `json:"envVars"`
-	TimeoutMs  int               `json:"timeoutMs"`
-	CreatedAt  time.Time         `json:"$createdAt"`
-	UpdatedAt  time.Time         `json:"$updatedAt"`
+	ID         string `json:"$id"`
+	ProjectID  string `json:"projectId"`
+	Name       string `json:"name"`
+	SourceType string `json:"sourceType"`
+	SourceURL  string `json:"sourceUrl,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+	Image      string `json:"image,omitempty"`
+	SetupCmd   string `json:"setupCmd,omitempty"`
+	Command    string `json:"command"`
+	ReportPath string `json:"reportPath"`
+	// ArtifactsPath is a directory the suite writes recordings and screenshots
+	// into; empty means the suite produces none.
+	ArtifactsPath string            `json:"artifactsPath"`
+	EnvVars       map[string]string `json:"envVars"`
+	TimeoutMs     int               `json:"timeoutMs"`
+	CreatedAt     time.Time         `json:"$createdAt"`
+	UpdatedAt     time.Time         `json:"$updatedAt"`
 }
 
 // Run is one execution of a suite.
@@ -97,10 +100,10 @@ func (s *Service) CreateSuite(ctx context.Context, projectID string, in Suite) (
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO test_suites (id, project_id, name, source_type, source_url, branch, image,
-		                          setup_cmd, command, report_path, env_vars, timeout_ms, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		                          setup_cmd, command, report_path, artifacts_path, env_vars, timeout_ms, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 		id, projectID, in.Name, in.SourceType, in.SourceURL, in.Branch, in.Image,
-		in.SetupCmd, in.Command, in.ReportPath, envJSON, in.TimeoutMs, now, now)
+		in.SetupCmd, in.Command, in.ReportPath, in.ArtifactsPath, envJSON, in.TimeoutMs, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("testlab: create suite: %w", err)
 	}
@@ -123,10 +126,10 @@ func (s *Service) UpdateSuite(ctx context.Context, id, projectID string, in Suit
 
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE test_suites SET name=$1, source_type=$2, source_url=$3, branch=$4, image=$5,
-		        setup_cmd=$6, command=$7, report_path=$8, env_vars=$9, timeout_ms=$10
-		  WHERE id=$11 AND project_id=$12`,
+		        setup_cmd=$6, command=$7, report_path=$8, artifacts_path=$9, env_vars=$10, timeout_ms=$11
+		  WHERE id=$12 AND project_id=$13`,
 		in.Name, in.SourceType, in.SourceURL, in.Branch, in.Image,
-		in.SetupCmd, in.Command, in.ReportPath, envJSON, in.TimeoutMs, id, projectID)
+		in.SetupCmd, in.Command, in.ReportPath, in.ArtifactsPath, envJSON, in.TimeoutMs, id, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("testlab: update suite: %w", err)
 	}
@@ -136,7 +139,7 @@ func (s *Service) UpdateSuite(ctx context.Context, id, projectID string, in Suit
 func (s *Service) GetSuite(ctx context.Context, id, projectID string) (*Suite, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, source_type, COALESCE(source_url,''), COALESCE(branch,''),
-		        COALESCE(image,''), COALESCE(setup_cmd,''), command, report_path,
+		        COALESCE(image,''), COALESCE(setup_cmd,''), command, report_path, artifacts_path,
 		        COALESCE(env_vars,'{}'), timeout_ms, created_at, updated_at
 		   FROM test_suites WHERE id = $1 AND project_id = $2`, id, projectID)
 	return scanSuite(row)
@@ -145,7 +148,7 @@ func (s *Service) GetSuite(ctx context.Context, id, projectID string) (*Suite, e
 func (s *Service) ListSuites(ctx context.Context, projectID string) ([]*Suite, int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, source_type, COALESCE(source_url,''), COALESCE(branch,''),
-		        COALESCE(image,''), COALESCE(setup_cmd,''), command, report_path,
+		        COALESCE(image,''), COALESCE(setup_cmd,''), command, report_path, artifacts_path,
 		        COALESCE(env_vars,'{}'), timeout_ms, created_at, updated_at
 		   FROM test_suites WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
@@ -177,7 +180,7 @@ func scanSuite(row scanner) (*Suite, error) {
 	var s Suite
 	var envJSON []byte
 	if err := row.Scan(&s.ID, &s.ProjectID, &s.Name, &s.SourceType, &s.SourceURL, &s.Branch,
-		&s.Image, &s.SetupCmd, &s.Command, &s.ReportPath, &envJSON, &s.TimeoutMs,
+		&s.Image, &s.SetupCmd, &s.Command, &s.ReportPath, &s.ArtifactsPath, &envJSON, &s.TimeoutMs,
 		&s.CreatedAt, &s.UpdatedAt); err != nil {
 		return nil, err
 	}

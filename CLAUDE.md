@@ -259,6 +259,13 @@ Results are stored per case in `test_cases`, which is the addressable unit —
 history and flakiness read across runs by (suite_name, name), and `spec_ref` is
 reserved for the Spec module to attach a specification example to a case.
 
+A suite may also name an `artifactsPath`; that directory is copied out of the
+container and stored under `STORAGE_PATH/test-artifacts/<runId>`. Where a
+runner names its output after the test, the artifact is attached to that case,
+so a failing browser test shows its own recording. Test containers join the
+deploy network, so a browser suite reaches the app it exercises by container
+name — pass it as `BASE_URL`.
+
 ### Scheduling
 
 `worker-cron` ticks once a minute and fires anything due: workflows with

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -47,7 +48,12 @@ func Routes(h *Handler) http.Handler {
 		r.Get("/", h.listRuns)
 		r.Get("/{runId}", h.getRun)
 		r.Get("/{runId}/cases", h.listCases)
+		r.Get("/{runId}/artifacts", h.listArtifacts)
 	})
+
+	// Serving evidence: a recording is opened by a media element, so it is a
+	// plain file response rather than JSON.
+	r.Get("/artifacts/{artifactId}", h.getArtifact)
 
 	return r
 }
@@ -210,6 +216,40 @@ func (h *Handler) getRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
+}
+
+func (h *Handler) listArtifacts(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	items, err := h.svc.ListArtifacts(r.Context(), chi.URLParam(r, "runId"), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if items == nil {
+		items = []*Artifact{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(items), "artifacts": items})
+}
+
+func (h *Handler) getArtifact(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	path, contentType, name, err := h.svc.OpenArtifact(r.Context(), chi.URLParam(r, "artifactId"), projectID)
+	if err != nil {
+		apperr.NotFound(w, "artifact")
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		apperr.NotFound(w, "artifact")
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "inline; filename=\""+filepath.Base(name)+"\"")
+	// ServeContent gives range requests, which a video player needs to seek.
+	stat, _ := f.Stat()
+	http.ServeContent(w, r, name, stat.ModTime(), f)
 }
 
 func (h *Handler) listCases(w http.ResponseWriter, r *http.Request) {

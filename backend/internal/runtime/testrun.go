@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -32,8 +33,11 @@ type TestRunConfig struct {
 	SetupCmd   string // e.g. npm ci
 	Command    string // e.g. npm test
 	ReportPath string // where the JUnit XML lands, relative to the project
-	Env        map[string]string
-	TimeoutMs  int
+	// ArtifactsPath is a directory the suite writes evidence into — videos,
+	// screenshots, traces. Copied out whole when set.
+	ArtifactsPath string
+	Env           map[string]string
+	TimeoutMs     int
 }
 
 // TestRunResult is what a finished run produced.
@@ -44,6 +48,9 @@ type TestRunResult struct {
 	// fail without producing one — a setup command that dies, say — which is
 	// why the exit code and log are reported separately.
 	Report []byte
+	// Artifacts are the files found under ArtifactsPath, keyed by their path
+	// relative to that directory.
+	Artifacts map[string][]byte
 }
 
 // RunTests builds the suite's image, runs it to completion, and returns the
@@ -126,7 +133,13 @@ func (d *DeployExecutor) RunTests(ctx context.Context, runID string, cfg TestRun
 	out, _ := d.docker.ContainerLogs(ctx, containerID)
 	report, _ := d.copyFromContainer(ctx, containerID, path.Join("/app", cfg.ReportPath))
 
-	return &TestRunResult{ExitCode: exitCode, Log: out, Report: report}, nil
+	var artifacts map[string][]byte
+	if strings.TrimSpace(cfg.ArtifactsPath) != "" {
+		// Best effort: a suite that recorded nothing is not a failed run.
+		artifacts, _ = d.copyDirFromContainer(ctx, containerID, path.Join("/app", cfg.ArtifactsPath))
+	}
+
+	return &TestRunResult{ExitCode: exitCode, Log: out, Report: report, Artifacts: artifacts}, nil
 }
 
 // createTestContainer makes a one-shot container for a suite.
@@ -144,14 +157,23 @@ func (d *DeployExecutor) createTestContainer(ctx context.Context, name, image st
 			"applad.managed": "true",
 			"applad.type":    "test",
 		},
+		// Joined to the deploy network so a browser test can reach the app it
+		// is testing by name, the same way the ingress does.
+		"NetworkingConfig": map[string]interface{}{
+			"EndpointsConfig": map[string]interface{}{
+				deployNetwork(): map[string]interface{}{},
+			},
+		},
 		"HostConfig": map[string]interface{}{
 			"Memory":      int64(2 * 1024 * 1024 * 1024),
 			"MemorySwap":  int64(2 * 1024 * 1024 * 1024),
 			"NanoCPUs":    int64(2e9),
 			"PidsLimit":   int64(2048),
-			"NetworkMode": "bridge",
+			"NetworkMode": deployNetwork(),
 			"SecurityOpt": []string{"no-new-privileges"},
-			"CapDrop":     []string{"ALL"},
+			// Browsers need their sandbox syscalls; dropping every capability
+			// makes Chromium refuse to start.
+			"CapAdd": []string{"SYS_ADMIN"},
 			// One shot: a suite that exits is finished, however it exited.
 			"RestartPolicy": map[string]interface{}{"Name": "no"},
 		},
@@ -180,6 +202,69 @@ func (d *DeployExecutor) createTestContainer(ctx context.Context, name, image st
 	}
 	json.Unmarshal(respBody, &result) //nolint:errcheck
 	return result.ID, nil
+}
+
+// copyDirFromContainer copies a directory out of a stopped container. Docker
+// streams it as a tar, so this unpacks it into a map keyed by the path
+// relative to the directory itself.
+func (d *DeployExecutor) copyDirFromContainer(ctx context.Context, containerID, dirPath string) (map[string][]byte, error) {
+	endpoint := fmt.Sprintf("%s/v1.44/containers/%s/archive?path=%s",
+		d.docker.baseURL, containerID, url.QueryEscape(dirPath))
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := d.docker.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("testrun: nothing at %s", dirPath)
+	}
+
+	base := path.Base(dirPath)
+	out := map[string][]byte{}
+	tr := tar.NewReader(resp.Body)
+	var total int64
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return out, err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		// Entries arrive prefixed with the directory's own name.
+		rel := strings.TrimPrefix(strings.TrimPrefix(hdr.Name, base), "/")
+		if rel == "" {
+			continue
+		}
+		// A whole run's evidence is capped so a runaway recording cannot fill
+		// the volume.
+		if total > 512<<20 {
+			break
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, 128<<20))
+		if err != nil {
+			return out, err
+		}
+		total += int64(len(data))
+		out[rel] = data
+	}
+	return out, nil
+}
+
+// deployNetwork is the Docker network deployed apps and tests share, so a test
+// can address the app it exercises.
+func deployNetwork() string {
+	if n := os.Getenv("APPLAD_DEPLOY_NETWORK"); n != "" {
+		return n
+	}
+	return "applad_default"
 }
 
 // copyFromContainer reads a single file out of a stopped container. Docker
