@@ -15,7 +15,7 @@ import { FormField, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
 import { ChoiceChip } from './SiteDetail';
 import { FRAMEWORKS, frameworkById } from '../deploy-shared/frameworks';
-import { SourceDropzone, type PickedSource } from '../deploy-shared/SourceDropzone';
+import { SourceDropzone, type PickedSource, type Detection } from '../deploy-shared/SourceDropzone';
 import { FrameworkLogo } from '../deploy-shared/FrameworkLogo';
 import { buildTarGz } from '@/lib/targz';
 
@@ -54,6 +54,7 @@ export function CreateSiteDialog({
   const [buildCommand, setBuildCommand] = useState('');
   const [outputDirectory, setOutputDirectory] = useState('');
   const [source, setSource] = useState<PickedSource | null>(null);
+  const [detected, setDetected] = useState<Detection | null>(null);
   const [creating, setCreating] = useState(false);
   const [progress, setProgress] = useState('');
 
@@ -69,6 +70,7 @@ export function CreateSiteDialog({
       setBuildCommand('');
       setOutputDirectory('');
       setSource(null);
+      setDetected(null);
       setCreating(false);
       setProgress('');
     }
@@ -78,10 +80,16 @@ export function CreateSiteDialog({
 
   const goStep = (next: number) => {
     if (next === 2) {
-      if (sourceType === 'upload') {
-        // A manual upload IS the build output. Auto-filling "npm run build"
-        // here fails on anything that isn't a Node project, and is pointless
-        // even when it is one.
+      if (sourceType === 'upload' && detected) {
+        // Detection inspected the actual files, so trust it over the framework
+        // picker: pre-built output yields no build command, sources yield one.
+        setInstallCommand(detected.installCommand);
+        setBuildCommand(detected.buildCommand);
+        setOutputDirectory(detected.outputDir || '.');
+      } else if (sourceType === 'upload') {
+        // An archive we could not inspect. A manual upload IS the build
+        // output, so assume it needs no build rather than guessing one that
+        // fails on anything without a package.json.
         setInstallCommand('');
         setBuildCommand('');
         setOutputDirectory((v) => v || '.');
@@ -226,7 +234,16 @@ export function CreateSiteDialog({
                   <TextField label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
                 </>
               ) : (
-                <SourceDropzone value={source} onChange={setSource} />
+                <SourceDropzone
+                  value={source}
+                  onChange={setSource}
+                  onDetected={(d) => {
+                    setDetected(d);
+                    // Detection knows what the source actually is; the picker
+                    // on step 1 was only ever a guess.
+                    if (d) setFramework(d.framework === 'docker' ? 'static' : d.framework);
+                  }}
+                />
               )}
             </div>
           )}
@@ -235,9 +252,11 @@ export function CreateSiteDialog({
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-2 rounded-[var(--radius)] border border-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] p-3 text-[length:var(--text-label)] text-[var(--color-accent)]">
                 <Info size={14} />
-                {sourceType === 'upload'
-                  ? 'Your upload is served as-is. Add a build command only if you uploaded sources.'
-                  : `Auto-detected from ${fw.label}. Edit if needed.`}
+                {detected
+                  ? `Detected ${detected.framework} from ${detected.reason}. Edit if needed.`
+                  : sourceType === 'upload'
+                    ? 'Your upload is served as-is. Add a build command only if you uploaded sources.'
+                    : `Auto-detected from ${fw.label}. Edit if needed.`}
               </div>
               <TextField label="Install command" value={installCommand} onChange={(e) => setInstallCommand(e.target.value)} placeholder="npm install" />
               <TextField label="Build command" value={buildCommand} onChange={(e) => setBuildCommand(e.target.value)} placeholder="npm run build" />

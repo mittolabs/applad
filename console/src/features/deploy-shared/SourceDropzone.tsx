@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { UploadCloud, FileArchive, FolderOpen, X } from 'lucide-react';
+import { UploadCloud, FileArchive, FolderOpen, X, Sparkles } from 'lucide-react';
+import { api } from '@/api/client';
 
 /*
  * Source picker for manual-upload deploys. Accepts a dropped or browsed
@@ -14,6 +15,36 @@ export interface PickedSource {
   archive: File | null;
   label: string;
   bytes: number;
+}
+
+/** Build configuration inferred from the picked files by POST /deploy/detect. */
+export interface Detection {
+  framework: string;
+  installCommand: string;
+  buildCommand: string;
+  outputDir: string;
+  serveMode: string;
+  packageManager: string;
+  nodeVersion: string;
+  reason: string;
+}
+
+/** Files worth sending in full; the rest are matched by path alone. */
+const MANIFESTS = ['package.json', '.nvmrc', 'pubspec.yaml'];
+
+async function detect(files: { path: string; file: File }[]): Promise<Detection | null> {
+  const manifests: Record<string, string> = {};
+  for (const name of MANIFESTS) {
+    const hit = files.find((f) => f.path === name);
+    if (hit) manifests[name] = await hit.file.text();
+  }
+  try {
+    const res = await api.post('/deploy/detect', { files: files.map((f) => f.path), manifests });
+    return res.data as Detection;
+  } catch {
+    // Detection is a convenience: a failure must not block the upload.
+    return null;
+  }
 }
 
 const ARCHIVE_RE = /\.(tar\.gz|tgz|zip)$/i;
@@ -71,16 +102,20 @@ function formatBytes(n: number): string {
 export function SourceDropzone({
   value,
   onChange,
+  onDetected,
 }: {
   value: PickedSource | null;
   onChange: (v: PickedSource | null) => void;
+  /** Fires once the picked files have been inspected, so the wizard can prefill. */
+  onDetected?: (d: Detection | null) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [reading, setReading] = useState(false);
+  const [detected, setDetected] = useState<Detection | null>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const acceptFiles = (files: { path: string; file: File }[], label: string) => {
+  const acceptFiles = async (files: { path: string; file: File }[], label: string) => {
     const kept = stripRoot(files.filter((f) => !ignored(f.path)));
     if (kept.length === 0) {
       onChange(null);
@@ -92,6 +127,10 @@ export function SourceDropzone({
       label: `${label} · ${kept.length} file${kept.length === 1 ? '' : 's'}`,
       bytes: kept.reduce((sum, f) => sum + f.file.size, 0),
     });
+    setDetected(null);
+    const d = await detect(kept);
+    setDetected(d);
+    onDetected?.(d);
   };
 
   const onDrop = async (e: React.DragEvent) => {
@@ -109,6 +148,8 @@ export function SourceDropzone({
           (items[0] as FileSystemFileEntry).file(resolve, reject),
         );
         onChange({ files: null, archive: file, label: file.name, bytes: file.size });
+        setDetected(null);
+        onDetected?.(null);
         return;
       }
 
@@ -142,13 +183,18 @@ export function SourceDropzone({
 
   const onArchivePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) onChange({ files: null, archive: file, label: file.name, bytes: file.size });
+    if (file) {
+      onChange({ files: null, archive: file, label: file.name, bytes: file.size });
+      setDetected(null);
+      onDetected?.(null);
+    }
     e.target.value = '';
   };
 
   if (value) {
     const Icon = value.archive ? FileArchive : FolderOpen;
     return (
+      <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3 rounded-[var(--radius)] border border-field-border bg-fill px-3 py-3">
         <Icon size={20} className="shrink-0 text-[var(--color-accent)]" />
         <div className="min-w-0 flex-1">
@@ -157,12 +203,23 @@ export function SourceDropzone({
         </div>
         <button
           type="button"
-          onClick={() => onChange(null)}
+          onClick={() => {
+            onChange(null);
+            setDetected(null);
+            onDetected?.(null);
+          }}
           className="shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-fill-hover hover:text-text-primary"
           aria-label="Remove selected source"
         >
           <X size={14} />
         </button>
+      </div>
+      {detected && (
+        <div className="flex items-center gap-1.5 text-[length:var(--text-caption)] text-text-muted">
+          <Sparkles size={12} className="text-[var(--color-accent)]" />
+          {`Detected ${detected.framework} from ${detected.reason}`}
+        </div>
+      )}
       </div>
     );
   }

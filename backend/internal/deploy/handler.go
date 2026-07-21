@@ -70,6 +70,9 @@ func Routes(h *Handler) http.Handler {
 	// Runtimes
 	r.Get("/runtimes", h.listRuntimes)
 
+	// Framework detection (used by the console before an upload)
+	r.Post("/detect", h.detect)
+
 	// Aggregate stats
 	r.Get("/stats", h.getAggregateStats)
 
@@ -483,6 +486,22 @@ func (h *Handler) uploadSource(w http.ResponseWriter, r *http.Request) {
 		"pipelineId": pipelineID,
 		"bytes":      written,
 	})
+}
+
+// detect infers build configuration from a description of a source tree. The
+// console sends paths plus a few manifest files rather than the tree itself,
+// so this stays a small request even for a large project.
+func (h *Handler) detect(w http.ResponseWriter, r *http.Request) {
+	var in DetectInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if len(in.Files) == 0 {
+		apperr.BadRequest(w, "files is required")
+		return
+	}
+	writeJSON(w, http.StatusOK, Detect(in))
 }
 
 func (h *Handler) triggerPipeline(w http.ResponseWriter, r *http.Request) {

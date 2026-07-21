@@ -587,13 +587,30 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 
 	w.updateReleaseStatus(ctx, releaseID, "deploying", "", "", 0)
 
+	// A pipeline with no build configuration gets it inferred from the source.
+	// The console prefills the same values from the same detector, so this is
+	// the fallback for API-created pipelines and for git sources, which have
+	// nothing to inspect until the clone lands here.
+	buildCmd, outputDir, serveMode, nodeVersion := cfg.buildCmd, cfg.outputDir, "", ""
+	if sourceDir != "" && buildCmd == "" && (outputDir == "" || outputDir == ".") {
+		d := deploy.DetectDir(sourceDir)
+		buildCmd, outputDir, serveMode, nodeVersion = d.BuildCommand, d.OutputDir, d.ServeMode, d.NodeVersion
+		if d.InstallCommand != "" && buildCmd != "" {
+			buildCmd = d.InstallCommand + " && " + buildCmd
+		}
+		slog.Info("builds worker: detected framework", "release_id", releaseID,
+			"framework", d.Framework, "reason", d.Reason, "build", buildCmd, "output", outputDir)
+	}
+
 	deployConfig := runtime.ParseDeployConfig(map[string]interface{}{
-		"buildCmd":   cfg.buildCmd,
-		"outputDir":  cfg.outputDir,
-		"runtime":    cfg.runtime,
-		"entrypoint": cfg.entrypoint,
-		"sourceDir":  sourceDir,
-		"subdomain":  cfg.subdomain,
+		"buildCmd":    buildCmd,
+		"outputDir":   outputDir,
+		"serveMode":   serveMode,
+		"nodeVersion": nodeVersion,
+		"runtime":     cfg.runtime,
+		"entrypoint":  cfg.entrypoint,
+		"sourceDir":   sourceDir,
+		"subdomain":   cfg.subdomain,
 	})
 
 	var deployErr error

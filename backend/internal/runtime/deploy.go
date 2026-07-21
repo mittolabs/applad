@@ -27,6 +27,8 @@ type DeployConfig struct {
 	SourceDir    string            // checked-out source to build from
 	OutputDir    string            // directory of build artefacts to serve (static sites)
 	Subdomain    string            // <sub>.applad.dev this app is served on
+	ServeMode    string            // "static" (serve OutputDir) or "node" (run a server)
+	NodeVersion  string            // major Node version for the build image
 }
 
 // ParseDeployConfig extracts a DeployConfig from the raw config map.
@@ -51,6 +53,12 @@ func ParseDeployConfig(raw map[string]interface{}) DeployConfig {
 	}
 	if v, ok := raw["subdomain"].(string); ok {
 		cfg.Subdomain = v
+	}
+	if v, ok := raw["serveMode"].(string); ok {
+		cfg.ServeMode = v
+	}
+	if v, ok := raw["nodeVersion"].(string); ok {
+		cfg.NodeVersion = v
 	}
 	if v, ok := raw["port"].(string); ok && v != "" {
 		cfg.Port = v
@@ -110,14 +118,32 @@ func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID 
 		// use as provided
 	case repoDockerfile:
 		// leave empty; the repo's Dockerfile is already in the build context
+	case cfg.BuildCommand != "" && cfg.ServeMode != "node":
+		// Most frameworks build to a directory of static files. Build in Node,
+		// then serve the output with nginx: the result is a ~50MB image with no
+		// runtime, instead of dragging the whole toolchain into production.
+		out := strings.Trim(cfg.OutputDir, "/ ")
+		if out == "" || out == "." {
+			out = "dist"
+		}
+		dockerfile = fmt.Sprintf(`FROM node:%s-alpine AS build
+WORKDIR /app
+COPY . .
+RUN %s
+FROM nginx:alpine
+COPY --from=build /app/%s/ /usr/share/nginx/html/
+EXPOSE 80
+`, nodeTag(cfg.NodeVersion), cfg.BuildCommand, out)
+		cfg.Port = "80"
+
 	case cfg.BuildCommand != "":
-		dockerfile = fmt.Sprintf(`FROM node:20-alpine
+		dockerfile = fmt.Sprintf(`FROM node:%s-alpine
 WORKDIR /app
 COPY . .
 RUN %s
 EXPOSE %s
 CMD ["node", "server.js"]
-`, cfg.BuildCommand, cfg.Port)
+`, nodeTag(cfg.NodeVersion), cfg.BuildCommand, cfg.Port)
 	default:
 		root := strings.Trim(cfg.OutputDir, "/ ")
 		if root == "" || root == "." {
@@ -162,6 +188,16 @@ EXPOSE 80
 
 	// Start the container
 	return d.startContainer(ctx, deploymentID, projectID, imageName, cfg)
+}
+
+// nodeTag picks the Node base image tag, defaulting when the project does not
+// pin one. A project that declares engines.node or ships an .nvmrc usually
+// means it.
+func nodeTag(version string) string {
+	if version == "" {
+		return "20"
+	}
+	return version
 }
 
 // addDirToTar walks a source directory into a Docker build context. Version
