@@ -28,12 +28,17 @@ const (
 
 // Job represents a background job.
 type Job struct {
-	ID         string                 `json:"id"`
-	Type       string                 `json:"type"`
-	Payload    map[string]interface{} `json:"payload"`
-	CreatedAt  time.Time              `json:"createdAt"`
-	Retries    int                    `json:"retries,omitempty"`
-	MaxRetries int                    `json:"maxRetries,omitempty"`
+	ID        string                 `json:"id"`
+	Type      string                 `json:"type"`
+	Payload   map[string]interface{} `json:"payload"`
+	CreatedAt time.Time              `json:"createdAt"`
+	// LeasedAt is when a worker took the job, which is what the reaper has to
+	// measure against. Timing from CreatedAt counted the wait in the queue as
+	// though it were work, so a job that queued behind others could be
+	// declared stuck the moment it started.
+	LeasedAt   time.Time `json:"leasedAt,omitempty"`
+	Retries    int       `json:"retries,omitempty"`
+	MaxRetries int       `json:"maxRetries,omitempty"`
 }
 
 // Receipt is returned by Pop. Call Ack on success, Nack on failure.
@@ -151,6 +156,21 @@ func (q *Queue) Pop(ctx context.Context, queueName string) (*Receipt, error) {
 	if err := json.Unmarshal([]byte(result), &job); err != nil {
 		return nil, fmt.Errorf("queue: unmarshal: %w", err)
 	}
+
+	// Stamp when the work actually started, and put the stamped copy back in
+	// the processing list — the reaper reads that list, and without this it
+	// measures from when the job was created rather than from when anyone
+	// picked it up.
+	job.LeasedAt = time.Now().UTC()
+	if leased, err := json.Marshal(&job); err == nil {
+		processing := q.key(queueName, "processing")
+		if n, err := q.client.LRem(ctx, processing, 1, result).Result(); err == nil && n > 0 {
+			if err := q.client.LPush(ctx, processing, string(leased)).Err(); err == nil {
+				result = string(leased)
+			}
+		}
+	}
+
 	return &Receipt{Job: &job, raw: result, q: q, name: queueName}, nil
 }
 
@@ -183,6 +203,21 @@ func (q *Queue) StartReaper(ctx context.Context, queueName string) {
 	}()
 }
 
+// visibilityTimeout is how long a job may run before it is assumed dead.
+//
+// One value for every queue meant builds were reaped mid-flight: a cold
+// container build legitimately takes longer than five minutes, and killing it
+// left the release saying "deploying" forever while the work was thrown away.
+func visibilityTimeout(queueName string) time.Duration {
+	switch queueName {
+	case "builds":
+		// A first build fetches a language toolchain and every dependency.
+		return 45 * time.Minute
+	default:
+		return defaultVisibilityTimeout
+	}
+}
+
 func (q *Queue) reap(ctx context.Context, queueName string) {
 	processingKey := q.key(queueName, "processing")
 	items, err := q.client.LRange(ctx, processingKey, 0, -1).Result()
@@ -194,7 +229,11 @@ func (q *Queue) reap(ctx context.Context, queueName string) {
 		if err := json.Unmarshal([]byte(raw), &job); err != nil {
 			continue
 		}
-		if time.Since(job.CreatedAt) < defaultVisibilityTimeout {
+		started := job.LeasedAt
+		if started.IsZero() {
+			started = job.CreatedAt
+		}
+		if time.Since(started) < visibilityTimeout(queueName) {
 			continue
 		}
 		// Job has been in processing longer than the timeout — assume worker crashed.

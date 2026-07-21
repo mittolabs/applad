@@ -144,6 +144,30 @@ services:
       - console
     restart: unless-stopped
 
+  # BuildKit — where source becomes an image.
+  #
+  # A separate service rather than something inside the builds worker, because
+  # BUILDKIT_HOST is an address: pointing it at another machine is how a
+  # deploy runs on a server somebody added rather than on this one. Embedding
+  # it here would tie every build to the box Applad happens to run on.
+  buildkit:
+    image: moby/buildkit:v0.28.0
+    # BuildKit needs mount and namespace privileges to assemble images.
+    privileged: true
+    # Reachable over the network rather than through the Docker CLI. The
+    # docker-container:// driver shells out to `docker exec`, which would put
+    # a Docker CLI inside the worker and tie builds to a local daemon; an
+    # address works the same for a builder on another machine, reached
+    # through a tunnel.
+    command:
+      - --addr
+      - tcp://0.0.0.0:1234
+      - --addr
+      - unix:///run/buildkit/buildkitd.sock
+    volumes:
+      - buildkit_cache:/var/lib/buildkit
+    restart: unless-stopped
+
   worker-builds:
     build:
       <<: *worker-build
@@ -152,6 +176,10 @@ services:
     environment:
       <<: *worker-env
       DOCKER_HOST: "${DOCKER_HOST:-unix:///var/run/docker.sock}"
+      # Railpack builds against this. It reaches BuildKit through the Docker
+      # API, so the same socket that runs containers also carries the build —
+      # which is what will let a remote server build and run in one place.
+      BUILDKIT_HOST: "${BUILDKIT_HOST:-tcp://buildkit:1234}"
     volumes:
       - storage_data:/var/applad/storage
       - /var/run/docker.sock:/var/run/docker.sock
@@ -318,6 +346,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  buildkit_cache:
   postgres_data:
   redis_data:
   storage_data:

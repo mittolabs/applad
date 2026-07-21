@@ -67,12 +67,81 @@ func RenderDeployLog(raw string) string {
 }
 
 var (
+	// BuildKit's plain progress: "#12 npm run build" names a step, and
+	// "#12 0.134 <text>" is that step's own output, timestamped.
+	bkStep     = regexp.MustCompile(`^#(\d+) (.+)$`)
+	bkOutput   = regexp.MustCompile(`^#(\d+) +\d+\.\d+ ?(.*)$`)
+	bkNoise    = regexp.MustCompile(`^(DONE|CACHED|ERROR|resolve |sha256:|extracting |transferring |exporting |sending |naming |importing |unpacking |preparing |load |merge |copy |mkdir |\[.*\]|docker-image://|.*done$)`)
 	exitLine   = regexp.MustCompile(`^The command '(?:/bin/sh -c )?(.+)' returned a non-zero code: (\d+)$`)
 	shellNoise = []string{
 		"A complete log of this run can be found in",
 		"This is related to npm not being able to find a file",
 	}
 )
+
+// RenderRailpackLog rewrites a BuildKit progress stream as a deploy log.
+//
+// The stream interleaves every step by number, so a project's own output
+// arrives shuffled with layer bookkeeping nobody asked for. Steps are
+// reassembled here, and only the ones that ran a command survive — the same
+// rule as the Docker renderer beside it, applied to a different format.
+func RenderRailpackLog(raw string) string {
+	names := map[string]string{}
+	output := map[string][]string{}
+	var order []string
+
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimRight(line, "\r")
+
+		if m := bkOutput.FindStringSubmatch(line); m != nil {
+			id, text := m[1], m[2]
+			if _, seen := output[id]; !seen {
+				order = append(order, id)
+			}
+			output[id] = append(output[id], text)
+			continue
+		}
+		if m := bkStep.FindStringSubmatch(line); m != nil {
+			id, desc := m[1], strings.TrimSpace(m[2])
+			// The first line for a step names it; the rest is bookkeeping.
+			if _, named := names[id]; !named && !bkNoise.MatchString(desc) {
+				names[id] = desc
+			}
+		}
+	}
+
+	var b strings.Builder
+	for _, id := range order {
+		lines := output[id]
+		// A step that produced nothing but blank lines said nothing.
+		if strings.TrimSpace(strings.Join(lines, "")) == "" {
+			continue
+		}
+		if name := names[id]; name != "" {
+			fmt.Fprintf(&b, "$ %s\n", name)
+		}
+		for _, l := range lines {
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// RenderBuildLog turns whatever the builder produced into a deploy log.
+func RenderBuildLog(raw string) string {
+	if isBuildKitLog(raw) {
+		return RenderRailpackLog(raw)
+	}
+	return RenderDeployLog(raw)
+}
+
+// isBuildKitLog reports whether a log came from railpack rather than a
+// generated Dockerfile, so the right renderer is used for each.
+func isBuildKitLog(raw string) bool {
+	return strings.Contains(raw, "\n#1 ") || strings.HasPrefix(raw, "#1 ")
+}
 
 // SummariseBuildFailure reduces a failed build log to the part that explains it.
 //
@@ -91,9 +160,13 @@ func SummariseBuildFailure(raw string) string {
 		}
 	}
 
-	// The project's own output, with Docker's narration already stripped.
+	// The project's own output, with the builder's narration already stripped.
+	rendered := RenderDeployLog(raw)
+	if isBuildKitLog(raw) {
+		rendered = RenderRailpackLog(raw)
+	}
 	var output []string
-	for _, line := range strings.Split(RenderDeployLog(raw), "\n") {
+	for _, line := range strings.Split(rendered, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "$ ") || isNoise(line) || exitLine.MatchString(line) {
 			continue

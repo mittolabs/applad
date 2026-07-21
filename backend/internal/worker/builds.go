@@ -494,7 +494,11 @@ func deployNarrative(cfg *pipelineConfig, rawBuildLog string, durationMs, sizeBy
 		b.WriteString("Using the uploaded source\n")
 	}
 
-	if output := runtime.RenderDeployLog(rawBuildLog); output != "" {
+	// Two builders, two log formats: a generated Dockerfile narrates steps,
+	// railpack emits BuildKit progress. Picking the wrong renderer produced an
+	// empty result, which the line below then reported as "no build step" for
+	// a build that had just installed and compiled the whole project.
+	if output := runtime.RenderBuildLog(rawBuildLog); output != "" {
 		b.WriteString("\n")
 		b.WriteString(output)
 		b.WriteString("\n\n")

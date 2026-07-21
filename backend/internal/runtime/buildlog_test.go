@@ -119,3 +119,52 @@ func TestSummariseBuildFailureWithoutAFailedCommand(t *testing.T) {
 		t.Errorf("expected the daemon's reason, got %q", got)
 	}
 }
+
+// BuildKit interleaves steps by number, so a project's own output arrives
+// shuffled with layer bookkeeping. Feeding it to the Dockerfile renderer
+// returned nothing, and the deploy log then claimed there had been no build.
+const railpackLog = `#1 loading .
+#1 DONE 0.0s
+#3 docker-image://ghcr.io/railwayapp/railpack-runtime:mise-2026.7.7
+#3 resolve ghcr.io/railwayapp/railpack-runtime:mise-2026.7.7 0.9s done
+#3 DONE 0.9s
+#12 pnpm install --frozen-lockfile
+#12 0.421 Lockfile is up to date, resolution step is skipped
+#12 2.310 Packages: +23
+#12 DONE 3.1s
+#13 npm run build
+#13 0.131 > echo BUILDING-NOW
+#13 0.134 BUILDING-NOW
+#13 DONE 0.4s
+#14 exporting to docker image format
+#14 sending tarball
+#14 DONE 8.0s`
+
+func TestRenderRailpackLogKeepsTheProjectsOutput(t *testing.T) {
+	got := RenderRailpackLog(railpackLog)
+
+	for _, want := range []string{
+		"$ pnpm install --frozen-lockfile",
+		"Lockfile is up to date",
+		"$ npm run build",
+		"BUILDING-NOW",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q from:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"DONE", "sending tarball", "docker-image://", "resolve ghcr.io"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("kept bookkeeping %q:\n%s", unwanted, got)
+		}
+	}
+}
+
+func TestRenderBuildLogPicksTheRightRenderer(t *testing.T) {
+	if RenderBuildLog(railpackLog) == "" {
+		t.Error("a railpack build reported no output at all")
+	}
+	if !strings.Contains(RenderBuildLog(npmFailureLog), "npm error code ENOENT") {
+		t.Error("a Docker build lost its output")
+	}
+}

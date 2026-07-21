@@ -121,11 +121,38 @@ func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID 
 		}
 	}
 
+	// Every deployed site answers on 80, whatever it is built from.
+	//
+	// The ingress proxies <sub>.applad.dev to applad-site-<sub>:80, so a site
+	// listening anywhere else is unreachable no matter how well it built.
+	// PORT is passed to the container, and both Caddy and every framework
+	// railpack generates for honour it.
+	cfg.Port = "80"
+
 	// Decide how to containerise the app:
 	//   1. an explicit Dockerfile in the config wins
-	//   2. otherwise the repo's own Dockerfile is used as-is
-	//   3. otherwise a build command implies a Node app
-	//   4. otherwise it's a static site — serve it with nginx
+	//   2. otherwise the repo's own Dockerfile is used as-is — somebody who
+	//      wrote one meant it, and second-guessing it is not our place
+	//   3. otherwise railpack reads the source and builds it
+	//
+	// Only the first two produce a Dockerfile here. The third is a different
+	// kind of build entirely and returns early.
+	if cfg.Dockerfile == "" && !repoDockerfile {
+		buildLog, err := d.BuildWithRailpack(ctx, RailpackBuild{
+			SourceDir:  cfg.SourceDir,
+			ImageName:  imageName,
+			InstallCmd: cfg.InstallCommand,
+			BuildCmd:   cfg.BuildCommand,
+			StartCmd:   cfg.StartCommand,
+			CacheKey:   cfg.Subdomain,
+			Env:        cfg.Env,
+		})
+		if err != nil {
+			return buildLog, err
+		}
+		return buildLog, d.startContainer(ctx, deploymentID, projectID, imageName, cfg)
+	}
+
 	dockerfile := cfg.Dockerfile
 	// Set when the generated image expects our nginx log config in the build
 	// context.
@@ -203,16 +230,6 @@ EXPOSE 80
 		addToTar(tw, "applad-log.conf", []byte(accessLogConf))
 	}
 	tw.Close()
-
-	// Every deployed site answers on 80, whatever it is built from.
-	//
-	// The ingress proxies <sub>.applad.dev to applad-site-<sub>:80, so a site
-	// listening anywhere else is unreachable no matter how well it built. A
-	// Next.js app served on 3000 was "active", passed its health check on
-	// 3000, and served the platform's placeholder page to every visitor.
-	// PORT is passed to the container, and both Caddy and every Node
-	// framework we generate for honour it.
-	cfg.Port = "80"
 
 	log.Printf("deploy: building image %s for deployment %s", imageName, deploymentID)
 	buildLog, err := d.docker.BuildImage(ctx, imageName, tarBuf)
