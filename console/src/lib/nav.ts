@@ -15,7 +15,6 @@ import {
   KeyRound,
   type LucideIcon,
   LayoutDashboard,
-  Layers,
   Mail,
   Monitor,
   Play,
@@ -69,9 +68,12 @@ export const navGroups: NavGroup[] = [
     children: [{ label: 'Suites', route: 'tests', icon: FlaskConical }],
   },
   {
-    id: 'platforms',
-    label: 'Platforms',
-    icon: Layers,
+    // Every child here is a deploy target — /deploy/targets filtered by type —
+    // so "Platforms" named the container rather than the act, and collided
+    // with what Platforms means in Appwrite, where it registers client apps.
+    id: 'deploy',
+    label: 'Deploy',
+    icon: Rocket,
     children: [
       { label: 'Sites', route: 'sites', icon: Globe },
       { label: 'Containers', route: 'containers', icon: Container },
@@ -145,7 +147,7 @@ export const routeToGroup: Record<string, string> = (() => {
   }
   // extra segments that live under a group but aren't nav children
   map['get-started'] = 'overview';
-  map['platforms'] = 'platforms';
+  map['platforms'] = 'deploy';
   map['health'] = 'observe';
   map['environments'] = 'settings';
   return map;

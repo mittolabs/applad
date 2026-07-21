@@ -156,9 +156,10 @@ API and internal code use tables/rows/columns terminology only. User data lives 
 
 **Sidebar**: 68px icon rail + 220px labelled panel. Groups: Overview → Build
 (Auth, Databases, Functions, Storage, Messaging, Realtime, Feature Flags) →
-Platforms (Sites, Containers, Mobile, Desktop) → Automate (Workflows) →
+Deploy (Sites, Containers, Mobile, Desktop) → Automate (Workflows) →
 Observe (8 routes) → Settings pinned to bottom. The order mirrors the
-lifecycle the marketing site sells: Build, Deploy, Automate, Monitor.
+lifecycle the marketing site sells: Build, Test, Deploy, Automate, Monitor.
+Every child of Deploy is a deploy target — /deploy/targets filtered by type.
 Workflows sits at rail level rather than inside Build because it composes the
 other primitives rather than being one.
 
