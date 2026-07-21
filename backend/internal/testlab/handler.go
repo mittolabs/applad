@@ -13,6 +13,8 @@ import (
 	"github.com/mittolabs/applad/internal/apperr"
 	"github.com/mittolabs/applad/internal/deploy"
 	"github.com/mittolabs/applad/internal/middleware"
+	"github.com/mittolabs/applad/internal/queue"
+	"github.com/redis/go-redis/v9"
 )
 
 // Handler serves the test lab API.
@@ -21,8 +23,8 @@ type Handler struct {
 	studio *Studio
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc, studio: NewStudio(svc)}
+func NewHandler(svc *Service, q *queue.Queue, rdb *redis.Client) *Handler {
+	return &Handler{svc: svc, studio: NewStudio(svc, q, rdb)}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

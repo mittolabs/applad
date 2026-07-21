@@ -14,6 +14,9 @@ import { IdText } from '@/components/id-text';
 import { toast } from '@/components/toast';
 import { type Row } from '@/components/data-table';
 import { CreateSuiteDialog } from './CreateSuiteDialog';
+import { StudioView } from './StudioView';
+import { RecordDialog, type StudioSession } from './RecordDialog';
+import { FlowsTab } from './FlowsTab';
 import { shortDate } from '../deploy-shared/format';
 
 /*
@@ -25,13 +28,30 @@ import { shortDate } from '../deploy-shared/format';
  * red run is read by looking at what broke.
  */
 
-const LIST_TABS = ['Suites', 'Runs'];
+const LIST_TABS = ['Flows', 'Suites', 'Runs'];
 
 export function TestPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [tab, setTab] = useTabIndex(LIST_TABS);
   const [creating, setCreating] = useState(false);
   const [openRun, setOpenRun] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [session, setSession] = useState<StudioSession | null>(null);
+  const [flowsKey, setFlowsKey] = useState(0);
+
+  // A live recording takes the whole page: it is the app under test.
+  if (session) {
+    return (
+      <StudioView
+        session={session}
+        onClose={() => setSession(null)}
+        onSaved={() => {
+          setSession(null);
+          setFlowsKey((k) => k + 1);
+        }}
+      />
+    );
+  }
 
   if (openRun) {
     return <RunDetail runId={openRun} onBack={() => setOpenRun(null)} />;
@@ -42,17 +62,21 @@ export function TestPage() {
       <div>
         <h1 className="text-[length:var(--text-h1)] font-semibold text-text-primary">Test</h1>
         <p className="mt-1 text-[length:var(--text-body)] text-text-secondary">
-          Run your suite and see every case it covered
+          Record a flow by using your app, or run a suite you already have
         </p>
       </div>
 
       <PageTabs tabs={LIST_TABS} selected={tab} onChange={setTab} />
 
-      {tab === 0 ? (
-        <SuitesTab projectId={projectId} creating={creating} setCreating={setCreating} />
-      ) : (
-        <RunsTab projectId={projectId} onOpen={setOpenRun} />
+      {tab === 0 && (
+        <FlowsTab key={flowsKey} projectId={projectId} onRecord={() => setRecording(true)} />
       )}
+      {tab === 1 && (
+        <SuitesTab projectId={projectId} creating={creating} setCreating={setCreating} />
+      )}
+      {tab === 2 && <RunsTab projectId={projectId} onOpen={setOpenRun} />}
+
+      <RecordDialog open={recording} onOpenChange={setRecording} onStarted={setSession} />
     </div>
   );
 }

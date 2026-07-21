@@ -1,7 +1,10 @@
 package router
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -145,7 +148,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	// Deploy handler — created here so it can be shared between the public webhook
 	// route (no auth) and the authenticated /deploy mount below.
 	deployHandler := deploy.NewHandler(deploySvc)
-	testlabHandler := testlab.NewHandler(testlab.NewService(database, deployQueue))
+	testlabHandler := testlab.NewHandler(testlab.NewService(database, deployQueue), deployQueue, cacheClient.Client())
 
 	// Console auth
 	consoleSvc := console.NewService(database, cfg.JWTSecret)
@@ -365,6 +368,23 @@ type statusWriter struct {
 func (sw *statusWriter) WriteHeader(code int) {
 	sw.status = code
 	sw.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack passes the connection through, so wrapping a response does not stop
+// a WebSocket from being upgraded. Without it every endpoint under this
+// middleware — the studio's live session, realtime — fails the handshake.
+func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := sw.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("router: response does not support hijacking")
+}
+
+// Flush lets streaming responses through for the same reason.
+func (sw *statusWriter) Flush() {
+	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // oauthAdapter adapts oauth.Provider to auth.OAuthProvider interface.

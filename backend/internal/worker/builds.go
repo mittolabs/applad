@@ -31,6 +31,7 @@ import (
 type Builds struct {
 	cfg            *config.Config
 	queue          *queue.Queue
+	rdb            *redis.Client
 	db             *db.DB
 	executor       *runtime.Executor
 	deployExecutor *runtime.DeployExecutor
@@ -42,6 +43,7 @@ func NewBuilds(cfg *config.Config) *Builds {
 
 func (w *Builds) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
+	w.rdb = rdb
 	w.queue = queue.New(rdb)
 
 	database, err := db.Connect(w.cfg.DatabaseDSN, w.cfg.DBMaxOpenConns, w.cfg.DBMaxIdleConns)
@@ -97,6 +99,10 @@ func (w *Builds) process(ctx context.Context, job *queue.Job) error {
 		return w.processTeardown(ctx, job)
 	case "test_run":
 		return w.processTestRun(ctx, job)
+	case "studio_start":
+		return w.processStudioStart(ctx, job)
+	case "studio_stop":
+		return w.processStudioStop(ctx, job)
 	default:
 		return w.processDeployment(ctx, job)
 	}
@@ -329,6 +335,44 @@ func (w *Builds) testSource(ctx context.Context, suite *testlab.Suite) (string, 
 		return cloneToSource(ctx, suite.SourceURL, suite.Branch)
 	}
 	return extractUploadedSource(suite.ID)
+}
+
+// processStudioStart opens a browser for a recording session.
+//
+// The API asks for it rather than doing it, because only this worker holds the
+// Docker socket. Once it is up the API talks to it directly over the shared
+// network, so the endpoint is all that needs handing back.
+func (w *Builds) processStudioStart(ctx context.Context, job *queue.Job) error {
+	sessionID, _ := job.Payload["sessionId"].(string)
+	image, _ := job.Payload["image"].(string)
+	if image == "" {
+		image = runtime.StudioBrowserImage()
+	}
+
+	key := "applad:studio:" + sessionID
+	_, wsURL, err := w.deployExecutor.StartBrowser(ctx, sessionID, image)
+	if err != nil {
+		// Reported rather than dropped, so the console says what went wrong
+		// instead of waiting out the timeout.
+		w.rdb.Set(ctx, key, "error:"+err.Error(), 5*time.Minute) //nolint:errcheck
+		return err
+	}
+
+	// The session holds the browser open, so the key outlives a long recording
+	// but not a forgotten one.
+	w.rdb.Set(ctx, key, wsURL, 4*time.Hour) //nolint:errcheck
+	slog.Info("builds worker: studio browser ready", "session_id", sessionID)
+	return nil
+}
+
+func (w *Builds) processStudioStop(ctx context.Context, job *queue.Job) error {
+	sessionID, _ := job.Payload["sessionId"].(string)
+	name := "applad-studio-" + sessionID
+	if err := w.deployExecutor.StopBrowserByName(ctx, name); err != nil {
+		slog.Warn("builds worker: stopping studio browser", "session_id", sessionID, "error", err)
+	}
+	w.rdb.Del(ctx, "applad:studio:"+sessionID) //nolint:errcheck
+	return nil
 }
 
 // processTeardown removes everything a deleted deploy target left behind.

@@ -266,6 +266,27 @@ so a failing browser test shows its own recording. Test containers join the
 deploy network, so a browser suite reaches the app it exercises by container
 name — pass it as `BASE_URL`.
 
+### The recording studio
+
+`Test → Flows → Record` opens a real browser in a container against a target,
+streams it into the console over a WebSocket, and forwards clicks and
+keystrokes back. A recorder injected into the page turns each interaction into
+a step with a durable selector — role and name, a test id, a label — rather
+than a coordinate, and records which match was clicked so strict matching does
+not fail on replay. Assert mode turns a click into an assertion instead of an
+action.
+
+Flows are stored as steps, not code, and compile to Playwright for the web and
+Maestro for devices. Saving writes a complete generated Playwright project to
+the runner's source path, so a recording is immediately a suite that runs on
+every change. Device platforms need an emulator (virtualisation) or a Mac,
+which is why only web is wired up.
+
+The browser is started by the builds worker, not the API: only that worker
+holds the Docker socket. The API reaches the browser over the shared network.
+Chromium binds DevTools to loopback and rejects non-localhost Host headers, so
+the browser image runs a forwarder and every call presents `Host: localhost`.
+
 ### Scheduling
 
 `worker-cron` ticks once a minute and fires anything due: workflows with

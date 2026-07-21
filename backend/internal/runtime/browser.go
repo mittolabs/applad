@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -20,13 +21,47 @@ import (
  * is clicking through the app.
  */
 
-// StudioBrowserImage is the image sessions run. Chromium with the DevTools
-// protocol exposed is all that is required; the studio drives it directly.
+// StudioBrowserImage is the image sessions run.
 func StudioBrowserImage() string {
 	if v := os.Getenv("APPLAD_BROWSER_IMAGE"); v != "" {
 		return v
 	}
-	return "zenika/alpine-chrome:latest"
+	return studioImageName
+}
+
+const studioImageName = "applad-studio-browser:1"
+
+/*
+ * Chromium binds its DevTools endpoint to loopback and refuses connections
+ * from anywhere else — deliberate hardening that --remote-debugging-address
+ * does not override in current builds. It also rejects HTTP requests whose
+ * Host header is neither an IP nor localhost.
+ *
+ * So the browser image puts a forwarder in front: Chromium listens on
+ * loopback, socat accepts from the network and relays. Callers still have to
+ * present Host: localhost, which is why every request below sets it.
+ */
+const studioDockerfile = `FROM zenika/alpine-chrome:latest
+USER root
+RUN apk add --no-cache socat
+USER chrome
+ENTRYPOINT ["/bin/sh","-c","socat TCP-LISTEN:9222,fork,reuseaddr TCP:127.0.0.1:9223 & exec chromium-browser --headless=new --remote-debugging-port=9223 --no-sandbox --disable-dev-shm-usage --disable-gpu --hide-scrollbars --window-size=1280,800 about:blank"]
+`
+
+// ensureBrowserImage builds the studio's browser image if it is not already
+// present. Docker's layer cache makes this free after the first session.
+func (d *DeployExecutor) ensureBrowserImage(ctx context.Context, image string) error {
+	if image != studioImageName {
+		// A caller supplied their own image and is responsible for it.
+		return d.pullImage(ctx, image)
+	}
+
+	tarBuf := new(bytes.Buffer)
+	tw := tar.NewWriter(tarBuf)
+	addToTar(tw, "Dockerfile", []byte(studioDockerfile))
+	tw.Close()
+
+	return d.docker.BuildImage(ctx, image, tarBuf)
 }
 
 // StartBrowser launches a browser and returns its container and the DevTools
@@ -40,25 +75,12 @@ func (d *DeployExecutor) StartBrowser(ctx context.Context, sessionID, image stri
 		d.docker.RemoveContainer(context.Background(), old) //nolint:errcheck
 	}
 
-	if err := d.pullImage(ctx, image); err != nil {
-		return "", "", fmt.Errorf("browser: pull %s: %w", image, err)
+	if err := d.ensureBrowserImage(ctx, image); err != nil {
+		return "", "", fmt.Errorf("browser: prepare image %s: %w", image, err)
 	}
 
 	body := map[string]interface{}{
 		"Image": image,
-		"Cmd": []string{
-			"--headless=new",
-			"--remote-debugging-address=0.0.0.0",
-			"--remote-debugging-port=9222",
-			// Sandboxing is off because the container is the sandbox, and
-			// Chromium's own needs privileges we would rather not grant.
-			"--no-sandbox",
-			"--disable-dev-shm-usage",
-			"--disable-gpu",
-			"--hide-scrollbars",
-			"--window-size=1280,800",
-			"about:blank",
-		},
 		"Labels": map[string]string{
 			"applad.managed": "true",
 			"applad.type":    "studio",
@@ -131,7 +153,15 @@ func (d *DeployExecutor) waitForDevTools(ctx context.Context, host string) (stri
 		default:
 		}
 
-		resp, err := client.Get(fmt.Sprintf("http://%s:9222/json/list", host))
+		req, reqErr := http.NewRequestWithContext(ctx, "GET",
+			fmt.Sprintf("http://%s:9222/json/list", host), nil)
+		if reqErr != nil {
+			return "", reqErr
+		}
+		// Chromium rejects a DevTools request from any other host.
+		req.Host = "localhost"
+
+		resp, err := client.Do(req)
 		if err == nil {
 			data, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
@@ -164,6 +194,16 @@ func rewriteDevToolsHost(wsURL, host string) string {
 		return fmt.Sprintf("%s%s:9222%s", prefix, host, rest[i:])
 	}
 	return wsURL
+}
+
+// StopBrowserByName ends a session's browser given the session's container
+// name, which is what the worker has when the request comes from elsewhere.
+func (d *DeployExecutor) StopBrowserByName(ctx context.Context, name string) error {
+	id := d.findContainerByName(ctx, name)
+	if id == "" {
+		return nil
+	}
+	return d.StopBrowser(ctx, id)
 }
 
 // StopBrowser ends a session's browser.

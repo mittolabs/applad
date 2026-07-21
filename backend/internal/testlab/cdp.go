@@ -3,6 +3,7 @@ package testlab
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -44,7 +45,9 @@ type cdpMessage struct {
 
 func newCDPClient(wsURL string) (*cdpClient, error) {
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
-	conn, _, err := dialer.Dial(wsURL, nil)
+	// Chromium refuses a DevTools connection whose Host is not localhost, and
+	// the browser is reached by container name, so it is set explicitly.
+	conn, _, err := dialer.Dial(wsURL, http.Header{"Host": []string{"localhost"}})
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +94,11 @@ func (c *cdpClient) readLoop() {
 			if json.Unmarshal(msg.Params, &p) != nil {
 				continue
 			}
-			// Acknowledged immediately, or Chromium stops sending frames.
-			c.send("Page.screencastFrameAck", map[string]interface{}{"sessionId": p.SessionID}) //nolint:errcheck
+			// Acknowledged without waiting for a reply. Waiting here would
+			// deadlock: the reply can only be read by this loop, which would
+			// be blocked waiting for it, and every later command would time
+			// out from the first frame onwards.
+			c.notify("Page.screencastFrameAck", map[string]interface{}{"sessionId": p.SessionID})
 			if c.onFrame != nil {
 				payload, _ := json.Marshal(map[string]interface{}{
 					"type": "frame", "data": p.Data,
@@ -114,6 +120,24 @@ func (c *cdpClient) readLoop() {
 			}
 		}
 	}
+}
+
+// notify sends a command without waiting for its reply, for the cases where
+// the reply carries nothing and waiting would be harmful.
+func (c *cdpClient) notify(method string, params interface{}) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.nextID++
+	id := c.nextID
+	c.mu.Unlock()
+
+	body, _ := json.Marshal(map[string]interface{}{"id": id, "method": method, "params": params})
+	c.writeMu.Lock()
+	c.conn.WriteMessage(websocket.TextMessage, body) //nolint:errcheck
+	c.writeMu.Unlock()
 }
 
 func (c *cdpClient) send(method string, params interface{}) (json.RawMessage, error) {

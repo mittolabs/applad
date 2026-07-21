@@ -106,6 +106,11 @@ func ProjectContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		projectID := r.Header.Get("X-Applad-Project")
 		if projectID == "" {
+			// A browser cannot set headers when opening a WebSocket, so those
+			// endpoints pass the project in the query string instead.
+			projectID = r.URL.Query().Get("project")
+		}
+		if projectID == "" {
 			apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "Missing X-Applad-Project header")
 			return
 		}
@@ -156,6 +161,12 @@ func Authenticate(jwtSecret string, provider interface{}) func(http.Handler) htt
 				if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
 					tokenStr = parts[1]
 				}
+			}
+
+			// Fallback: a WebSocket cannot carry an Authorization header, so
+			// those endpoints pass the token in the query string.
+			if tokenStr == "" {
+				tokenStr = r.URL.Query().Get("token")
 			}
 
 			// Fallback: read a_session cookie if no Authorization header

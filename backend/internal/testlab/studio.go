@@ -11,13 +11,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/mittolabs/applad/internal/deploy"
-	"github.com/mittolabs/applad/internal/runtime"
+	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/uid"
+	"github.com/redis/go-redis/v9"
 )
 
 /*
@@ -53,27 +55,71 @@ type Session struct {
 
 // Studio owns live sessions. They are deliberately in memory: a session is
 // worthless once its browser is gone, and what survives is the saved flow.
+//
+// The browser is started by the builds worker rather than here, because only
+// that worker holds the Docker socket — giving the internet-facing API control
+// of the host daemon to open a browser would be a poor trade. The API then
+// talks to the browser directly over the shared network, which needs no
+// Docker access at all.
 type Studio struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
-	exec     *runtime.DeployExecutor
 	svc      *Service
+	queue    *queue.Queue
+	rdb      *redis.Client
 }
 
-func NewStudio(svc *Service) *Studio {
+func NewStudio(svc *Service, q *queue.Queue, rdb *redis.Client) *Studio {
 	return &Studio{
 		sessions: map[string]*Session{},
-		exec:     runtime.NewDeployExecutor(),
 		svc:      svc,
+		queue:    q,
+		rdb:      rdb,
 	}
+}
+
+// browserEndpointKey is where the worker leaves the DevTools address once the
+// browser is up.
+func browserEndpointKey(sessionID string) string { return "applad:studio:" + sessionID }
+
+// requestBrowser asks the builds worker for a browser and waits for it.
+func (s *Studio) requestBrowser(ctx context.Context, sessionID, target, image string) (string, error) {
+	if s.queue == nil || s.rdb == nil {
+		return "", fmt.Errorf("studio: not configured")
+	}
+	if err := s.queue.Push(ctx, "builds", queue.Job{
+		ID:   sessionID,
+		Type: "studio_start",
+		Payload: map[string]interface{}{
+			"sessionId": sessionID, "target": target, "image": image,
+		},
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		return "", fmt.Errorf("studio: request browser: %w", err)
+	}
+
+	// Starting a browser includes pulling its image the first time, so this
+	// waits longer than a queue round trip would suggest.
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+		val, err := s.rdb.Get(ctx, browserEndpointKey(sessionID)).Result()
+		if err == nil && val != "" {
+			if strings.HasPrefix(val, "error:") {
+				return "", fmt.Errorf("studio: %s", strings.TrimPrefix(val, "error:"))
+			}
+			return val, nil
+		}
+	}
+	return "", fmt.Errorf("studio: browser did not start in time")
 }
 
 // Start launches a browser against a target and begins streaming.
 func (s *Studio) Start(ctx context.Context, projectID, target, image string) (*Session, error) {
-	if image == "" {
-		image = runtime.StudioBrowserImage()
-	}
-
 	sess := &Session{
 		ID:          uid.New("unique()"),
 		ProjectID:   projectID,
@@ -84,15 +130,15 @@ func (s *Studio) Start(ctx context.Context, projectID, target, image string) (*S
 		subscribers: map[chan []byte]struct{}{},
 	}
 
-	containerID, wsURL, err := s.exec.StartBrowser(ctx, sess.ID, image)
+	wsURL, err := s.requestBrowser(ctx, sess.ID, target, image)
 	if err != nil {
-		return nil, fmt.Errorf("studio: start browser: %w", err)
+		return nil, err
 	}
-	sess.containerID = containerID
+	sess.containerID = sess.ID
 
 	cdp, err := newCDPClient(wsURL)
 	if err != nil {
-		s.exec.StopBrowser(context.Background(), containerID) //nolint:errcheck
+		s.releaseBrowser(sess.ID)
 		return nil, fmt.Errorf("studio: connect to browser: %w", err)
 	}
 	sess.cdp = cdp
@@ -109,7 +155,7 @@ func (s *Studio) Start(ctx context.Context, projectID, target, image string) (*S
 		sess.broadcast(frame)
 	}); err != nil {
 		cdp.close()
-		s.exec.StopBrowser(context.Background(), containerID) //nolint:errcheck
+		s.releaseBrowser(sess.ID)
 		return nil, fmt.Errorf("studio: prepare browser: %w", err)
 	}
 
@@ -159,7 +205,24 @@ func (s *Studio) Stop(id, projectID string) {
 	if sess.cdp != nil {
 		sess.cdp.close()
 	}
-	s.exec.StopBrowser(context.Background(), sess.containerID) //nolint:errcheck
+	s.releaseBrowser(sess.ID)
+}
+
+// releaseBrowser asks the worker to take the browser down.
+func (s *Studio) releaseBrowser(sessionID string) {
+	ctx := context.Background()
+	if s.rdb != nil {
+		s.rdb.Del(ctx, browserEndpointKey(sessionID)) //nolint:errcheck
+	}
+	if s.queue == nil {
+		return
+	}
+	s.queue.Push(ctx, "builds", queue.Job{ //nolint:errcheck
+		ID:        sessionID + "-stop",
+		Type:      "studio_stop",
+		Payload:   map[string]interface{}{"sessionId": sessionID},
+		CreatedAt: time.Now().UTC(),
+	})
 }
 
 // Steps returns what has been recorded so far.
