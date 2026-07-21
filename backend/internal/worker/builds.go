@@ -1199,7 +1199,7 @@ func railpackConfigFor(d deploy.Detection) string {
     }
   },
   "deploy": {
-    "base": { "image": "caddy:2-alpine" },
+    "base": { "image": "caddy:2" },
     "startCommand": "caddy file-server --listen :80 --root /app/%s",
     "inputs": [{ "step": "build", "include": [%q] }]
   }

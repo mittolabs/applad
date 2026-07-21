@@ -206,11 +206,34 @@ func (c *Client) StartContainer(ctx context.Context, containerID string) error {
 	if err != nil {
 		return err
 	}
+	// Docker says why in the body. Reporting only the status code turned
+	// "the image has no /bin/bash" into "docker start failed: 400", which is
+	// a number where the answer was.
+	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotModified {
-		return fmt.Errorf("docker start failed: %d", resp.StatusCode)
+		return fmt.Errorf("the container would not start: %s", dockerMessage(body, resp.StatusCode))
 	}
 	return nil
+}
+
+// dockerMessage pulls the human sentence out of a Docker error body.
+func dockerMessage(body []byte, status int) string {
+	var out struct {
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(body, &out)
+	msg := strings.TrimSpace(out.Message)
+	if msg == "" {
+		msg = strings.TrimSpace(string(body))
+	}
+	if msg == "" {
+		return fmt.Sprintf("HTTP %d", status)
+	}
+	if len(msg) > 300 {
+		msg = msg[:300]
+	}
+	return msg
 }
 
 // StopContainer stops a running container.
