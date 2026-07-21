@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
+	"github.com/mittolabs/applad/internal/cronx"
 	"github.com/mittolabs/applad/internal/middleware"
 )
 
@@ -158,6 +159,10 @@ func (h *Handler) createTarget(w http.ResponseWriter, r *http.Request) {
 	if body.MemoryMB == 0 {
 		body.MemoryMB = 256
 	}
+	if err := cronx.Validate(body.Cron); err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
 
 	t, err := h.svc.CreateTarget(r.Context(), projectID, body.Name, body.Type, body.Runtime,
 		body.Entrypoint, body.TimeoutMs, body.MemoryMB, body.EnvVars, body.Permissions, body.Cron)
@@ -219,6 +224,10 @@ func (h *Handler) updateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Type == "" {
 		body.Type = "web"
+	}
+	if err := cronx.Validate(body.Cron); err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
 	}
 
 	t, err := h.svc.UpdateTarget(r.Context(), id, projectID, body.Name, body.Type, body.Runtime,

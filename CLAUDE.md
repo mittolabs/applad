@@ -108,7 +108,8 @@ docker/         Docker Compose + per-service Dockerfiles + nginx config
 - `console` — system-level admin auth: signup/login/me, name/email/password update, account deletion, signup-enabled config
 - `health` — health check endpoints
 - `workflows` — native DAG workflow engine: definitions, topological executor, 6 node types, execution history
-- `worker` — 10 background workers (all fully implemented)
+- `cronx` — cron expression parsing and validation (standard 5-field, ranges, lists, names, descriptors, `CRON_TZ=` prefix)
+- `worker` — 11 background workers (all fully implemented)
 
 ### API routes (all under /v1)
 
@@ -244,6 +245,21 @@ On login the API sets two cookies: the HttpOnly session, and
 "Get started" for "Go to console". Their scope is derived from the console's
 own hostname, so `console.applad.io` shares them with `applad.io` and a
 self-hosted console on an IP keeps them host-only.
+
+### Scheduling
+
+`worker-cron` ticks once a minute and fires anything due: workflows with
+`trigger_type='cron'`, functions with a `cron` field, and deploy targets with
+a `cron` field. Expressions are parsed by `internal/cronx` and validated when
+written, so an unusable schedule is rejected at the API rather than accepted
+and never run.
+
+State lives in `cron_state` (one row per scheduled thing, keyed by kind +
+id), holding the expression, last and next run, and any parse error. The
+worker asks "what is due?" rather than "does this minute match?", so runs
+owed while it was down are not lost. A backlog fires once and resyncs rather
+than replaying every missed occurrence, and a Redis lock keeps replicas from
+double-firing.
 
 ### Hosted vs self-hosted
 

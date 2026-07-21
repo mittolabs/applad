@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
+	"github.com/mittolabs/applad/internal/cronx"
 	"github.com/mittolabs/applad/internal/middleware"
 )
 
@@ -64,6 +66,19 @@ func WebhookRoutes(h *Handler) http.Handler {
 	return r
 }
 
+// validateTrigger rejects a cron workflow whose expression cannot be parsed.
+// Accepting one would create a workflow that looks scheduled and never runs.
+func validateTrigger(triggerType string, cfg map[string]interface{}) error {
+	if triggerType != "cron" {
+		return nil
+	}
+	expr, _ := cfg["cron"].(string)
+	if strings.TrimSpace(expr) == "" {
+		return fmt.Errorf("a cron trigger needs a schedule")
+	}
+	return cronx.Validate(expr)
+}
+
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	var body struct {
@@ -80,6 +95,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.TriggerType == "" {
 		body.TriggerType = "manual"
+	}
+
+	if err := validateTrigger(body.TriggerType, body.TriggerConfig); err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
 	}
 
 	wf, err := h.svc.Create(r.Context(), projectID, body.Name, body.Description, body.TriggerType, body.TriggerConfig, body.Nodes, body.Edges)
@@ -138,6 +158,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.TriggerType == "" {
 		body.TriggerType = "manual"
+	}
+
+	if err := validateTrigger(body.TriggerType, body.TriggerConfig); err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
 	}
 
 	wf, err := h.svc.Update(r.Context(), id, projectID, body.Name, body.Description, body.Status, body.TriggerType, body.TriggerConfig, body.Nodes, body.Edges)

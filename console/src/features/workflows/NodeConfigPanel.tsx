@@ -540,7 +540,9 @@ function TriggerSettings({
           />
           <p className="text-[length:var(--text-caption)] text-text-secondary">{describeCron(cron)}</p>
           <p className="text-[length:var(--text-caption)] text-text-subtle">
-            Format: minute hour day month weekday (UTC)
+            minute hour day month weekday. Ranges, lists and names work
+            (0 9 * * MON-FRI). Prefix with CRON_TZ=Africa/Nairobi for a
+            timezone; UTC otherwise.
           </p>
         </div>
       )}
@@ -597,11 +599,22 @@ function CopyRow({ text }: { text: string }) {
   );
 }
 
-function describeCron(expr: string): string {
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) {
-    return expr.trim() === '' ? 'Enter a cron expression above.' : 'Invalid expression (need 5 fields).';
+function describeCron(raw: string): string {
+  let expr = raw.trim();
+  if (expr === '') return 'Enter a cron expression above.';
+
+  // An inline timezone is part of the expression the server accepts.
+  let zone = 'UTC';
+  if (expr.startsWith('CRON_TZ=')) {
+    const [tz, ...rest] = expr.split(/\s+/);
+    zone = tz.slice('CRON_TZ='.length) || 'UTC';
+    expr = rest.join(' ');
   }
+  // Descriptors are valid too; the server understands them.
+  if (expr.startsWith('@')) return `${expr} (${zone})`;
+
+  const parts = expr.split(/\s+/);
+  if (parts.length !== 5) return 'Invalid expression (need 5 fields).';
   const [min, hr, dom, mon, dow] = parts;
   if (min === '*' && hr === '*' && dom === '*' && mon === '*' && dow === '*') return 'Every minute';
   if (min.startsWith('*/') && hr === '*' && dom === '*' && mon === '*' && dow === '*')
@@ -609,11 +622,13 @@ function describeCron(expr: string): string {
   if (min === '0' && hr.startsWith('*/') && dom === '*' && mon === '*' && dow === '*')
     return `Every ${hr.slice(2)} hours`;
   if (min === '0' && hr === '0' && dom === '*' && mon === '*' && dow === '*')
-    return 'Daily at midnight UTC';
-  if (min === '0' && dom === '*' && mon === '*' && dow === '*') return `Daily at ${hr}:00 UTC`;
+    return `Daily at midnight ${zone}`;
+  if (min === '0' && dom === '*' && mon === '*' && dow === '*') return `Daily at ${hr}:00 ${zone}`;
   if (min === '0' && hr === '0' && dom === '1' && mon === '*' && dow === '*')
-    return 'Monthly on the 1st at midnight UTC';
-  return expr;
+    return `Monthly on the 1st at midnight ${zone}`;
+  // Anything else is echoed rather than judged: the server is the authority
+  // on validity, and it accepts far more than this function names.
+  return `${expr} (${zone})`;
 }
 
 // ── Data preview (Input/Output tabs) ──

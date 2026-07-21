@@ -587,6 +587,7 @@ function SettingsTab({
   const [installCommand, setInstallCommand] = useState(String(site['installCommand'] ?? ''));
   const [buildCommand, setBuildCommand] = useState(String(site['buildCommand'] ?? ''));
   const [outputDirectory, setOutputDirectory] = useState(String(site['outputDirectory'] ?? ''));
+  const [cron, setCron] = useState(String(site['cron'] ?? ''));
   const initialEnv = (site['environmentVariables'] as Record<string, unknown> | undefined) ?? {};
   const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>(
     Object.entries(initialEnv).map(([k, v]) => ({ key: k, value: String(v) })),
@@ -606,6 +607,7 @@ function SettingsTab({
         buildCommand,
         outputDirectory,
         installCommand,
+        cron: cron.trim(),
         environmentVariables: envMap,
       });
       onChange(res.data as Row);
@@ -647,6 +649,16 @@ function SettingsTab({
         <TextField label="Install command" value={installCommand} onChange={(e) => setInstallCommand(e.target.value)} placeholder="npm install" />
         <TextField label="Build command" value={buildCommand} onChange={(e) => setBuildCommand(e.target.value)} placeholder="npm run build" />
         <TextField label="Output directory" value={outputDirectory} onChange={(e) => setOutputDirectory(e.target.value)} placeholder="dist" />
+      </Section>
+
+      <Section title="Schedule">
+        <TextField
+          label="Rebuild on a schedule"
+          value={cron}
+          onChange={(e) => setCron(e.target.value)}
+          placeholder="0 3 * * *"
+          hint="Standard 5-field cron. Ranges, lists and names are supported (0 3 * * MON-FRI). Prefix with CRON_TZ=Africa/Nairobi to use a timezone instead of UTC. Leave empty to build only on push."
+        />
       </Section>
 
       <Section title="Environment variables">

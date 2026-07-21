@@ -408,7 +408,7 @@ function SettingsTab({
           value={cron}
           onChange={(e) => setCron(e.target.value)}
           placeholder="0 * * * *"
-          hint="Standard 5-field cron expression (minute hour day month weekday). Leave empty for manual execution only."
+          hint="Standard 5-field cron. Ranges, lists and names are supported (0 9 * * MON-FRI). Prefix with CRON_TZ=Africa/Nairobi to use a timezone instead of UTC. Leave empty for manual execution only."
         />
       </SectionCard>
 

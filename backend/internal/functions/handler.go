@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
+	"github.com/mittolabs/applad/internal/cronx"
 	"github.com/mittolabs/applad/internal/middleware"
 	"github.com/mittolabs/applad/internal/runtime"
 )
@@ -66,6 +67,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
+		return
+	}
+	// Reject an unusable schedule here rather than accepting it and never
+	// running the function.
+	if err := cronx.Validate(body.Cron); err != nil {
+		apperr.BadRequest(w, err.Error())
 		return
 	}
 	if body.Runtime == "" {
@@ -178,6 +185,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	cron := existing.Cron
 	if body.Cron != nil {
 		cron = *body.Cron
+		if err := cronx.Validate(cron); err != nil {
+			apperr.BadRequest(w, err.Error())
+			return
+		}
 	}
 
 	f, err := h.svc.Update(r.Context(), id, projectID, body.Name, body.Runtime, body.Entrypoint, body.Timeout, body.EnvVars, body.SourceType, body.Source, body.Repository, body.Branch, cron)
