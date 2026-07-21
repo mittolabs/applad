@@ -195,7 +195,9 @@ EXPOSE 80
 	log.Printf("deploy: building image %s for deployment %s", imageName, deploymentID)
 	buildLog, err := d.docker.BuildImage(ctx, imageName, tarBuf)
 	if err != nil {
-		return buildLog, fmt.Errorf("deploy: image build failed: %w", err)
+		// Already a sentence about what failed — wrapping it again would only
+		// prefix Go package names onto something a person has to read.
+		return buildLog, err
 	}
 
 	// Start the container

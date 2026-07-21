@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Play, RefreshCw, Rocket } from 'lucide-react';
+import { AlertCircle, Play, RefreshCw, Rocket } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { StatusChip } from '@/components/status-chip';
@@ -160,14 +160,7 @@ export function DeploymentsPanel({
                       {/* The build's own output. It used to be discarded on
                           success and folded into the error on failure, so
                           there was nowhere to see what a deploy actually did. */}
-                      {error && (
-                        <div
-                          className="mb-2 rounded-[var(--radius)] p-2.5 text-[length:var(--text-caption)]"
-                          style={{ backgroundColor: '#EF444411', color: '#F87171' }}
-                        >
-                          {error}
-                        </div>
-                      )}
+                      {error && <FailureNotice error={error} />}
                       {log ? (
                         <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap rounded-[var(--radius)] bg-surface p-3 font-[family-name:var(--font-mono)] text-[length:var(--text-caption)] text-text-muted">
                           {log}
@@ -188,6 +181,46 @@ export function DeploymentsPanel({
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+/*
+ * Why a deployment failed.
+ *
+ * The backend sends a headline — which command failed and how — followed by
+ * that command's own last words. Both used to arrive as one string rendered as
+ * prose, so the newlines collapsed and the whole build stream ran together as a
+ * red paragraph. The headline reads as a sentence; the output below it is the
+ * tool's, so it keeps the tool's formatting.
+ */
+function FailureNotice({ error }: { error: string }) {
+  const newline = error.indexOf('\n');
+  const headline = newline === -1 ? error : error.slice(0, newline);
+  const detail = newline === -1 ? '' : error.slice(newline + 1);
+
+  return (
+    <div
+      className="mb-2 rounded-[var(--radius)] border p-3"
+      style={{ backgroundColor: '#EF44440E', borderColor: '#EF444433' }}
+    >
+      <div className="flex items-start gap-2">
+        <AlertCircle size={14} className="mt-px shrink-0" style={{ color: '#F87171' }} />
+        <span
+          className="text-[length:var(--text-label)] font-medium"
+          style={{ color: '#F87171' }}
+        >
+          {headline}
+        </span>
+      </div>
+      {detail && (
+        <pre
+          className="mt-2 max-h-[180px] overflow-auto whitespace-pre-wrap pl-[22px] font-[family-name:var(--font-mono)] text-[length:var(--text-caption)] leading-relaxed"
+          style={{ color: '#FCA5A5' }}
+        >
+          {detail}
+        </pre>
       )}
     </div>
   );

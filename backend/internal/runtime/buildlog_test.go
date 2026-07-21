@@ -59,3 +59,63 @@ Successfully built 789abc`
 		t.Errorf("kept bookkeeping alongside it:\n%s", got)
 	}
 }
+
+// The log from a real failed deploy: an uploaded source with no package.json
+// at its root, which the console showed as one unbroken paragraph.
+const npmFailureLog = `Step 1/7 : FROM node:20-alpine AS build
+ ---> fb4cd12c85ee
+Step 2/7 : WORKDIR /app
+ ---> Running in 9fc57de6ec3a
+ ---> Removed intermediate container 9fc57de6ec3a
+ ---> 2d30dc1e2e95
+Step 3/7 : COPY . .
+ ---> eae1ba9fbdc7
+Step 4/7 : RUN npm run build
+ ---> Running in 4474d5ceef34
+npm error code ENOENT
+npm error syscall open
+npm error path /app/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/app/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /root/.npm/_logs/2026-07-21T14_15_09_438Z-debug-0.log
+ ---> Removed intermediate container 4474d5ceef34
+The command '/bin/sh -c npm run build' returned a non-zero code: 254`
+
+func TestSummariseBuildFailureNamesTheCommandAndItsLastWords(t *testing.T) {
+	got := SummariseBuildFailure(npmFailureLog)
+
+	head, rest, _ := strings.Cut(got, "\n")
+	if head != "npm run build exited with code 254" {
+		t.Errorf("headline = %q", head)
+	}
+	if !strings.Contains(rest, "Could not read package.json") {
+		t.Errorf("summary dropped the reason:\n%s", got)
+	}
+	// The bookkeeping is what made it unreadable.
+	for _, unwanted := range []string{"Step 1/7", "--->", "fb4cd12c85ee", "Removed intermediate container"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("summary still carries %q:\n%s", unwanted, got)
+		}
+	}
+	// So is the tool telling you where to read more.
+	if strings.Contains(got, "_logs/") {
+		t.Errorf("summary kept the debug-log pointer:\n%s", got)
+	}
+	if lines := strings.Count(got, "\n") + 1; lines > 7 {
+		t.Errorf("summary is %d lines, still a wall:\n%s", lines, got)
+	}
+}
+
+func TestSummariseBuildFailureWithoutAFailedCommand(t *testing.T) {
+	// An image that could not be assembled at all names no command.
+	raw := "Step 1/3 : FROM node:20-alpine AS build\npull access denied for node:20-alpin, repository does not exist"
+	got := SummariseBuildFailure(raw)
+	if !strings.HasPrefix(got, "Build failed") {
+		t.Errorf("expected a headline, got %q", got)
+	}
+	if !strings.Contains(got, "pull access denied") {
+		t.Errorf("expected the daemon's reason, got %q", got)
+	}
+}

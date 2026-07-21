@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -105,9 +106,10 @@ func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io
 		return log, fmt.Errorf("docker build failed (%d): %s", resp.StatusCode, log)
 	}
 
-	// Check for error in build stream
+	// Check for error in build stream. The log is returned alongside, so the
+	// error carries only the explanation rather than a copy of the stream.
 	if bytes.Contains(output, []byte(`"error"`)) {
-		return log, fmt.Errorf("build failed:\n%s", log)
+		return log, errors.New(SummariseBuildFailure(log))
 	}
 
 	return log, nil

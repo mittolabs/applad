@@ -443,7 +443,7 @@ func (w *Builds) processContainerLogs(ctx context.Context, job *queue.Job) error
 //
 // The raw Docker stream narrates a Dockerfile that Applad wrote, so on its own
 // it tells somebody about plumbing they never asked for.
-func deployNarrative(cfg *pipelineConfig, rawBuildLog string, durationMs, sizeBytes int64) string {
+func deployNarrative(cfg *pipelineConfig, rawBuildLog string, durationMs, sizeBytes int64, served bool) string {
 	var b strings.Builder
 
 	switch {
@@ -469,7 +469,9 @@ func deployNarrative(cfg *pipelineConfig, rawBuildLog string, durationMs, sizeBy
 		fmt.Fprintf(&b, "Built image (%.1f MB) in %s\n",
 			float64(sizeBytes)/(1024*1024), time.Duration(durationMs)*time.Millisecond)
 	}
-	if cfg.subdomain != "" {
+	// Only when it is actually serving: a failed build used to sign off with
+	// an address that answers nothing.
+	if served && cfg.subdomain != "" {
 		// The full address, since "the-range" alone is not something anyone
 		// can open.
 		domain := os.Getenv("APPLAD_DEPLOY_DOMAIN")
@@ -914,7 +916,7 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		// The log matters most when it failed, so it is stored alongside the
 		// error rather than folded into it.
 		w.updateReleaseStatus(ctx, releaseID, "failed",
-			deployNarrative(cfg, buildLog, durationMs, 0), deployErr.Error(), durationMs)
+			deployNarrative(cfg, buildLog, durationMs, 0, false), deployErr.Error(), durationMs)
 		w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "failure", "Deploy failed")
 		return deployErr
 	}
@@ -922,7 +924,7 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	// Kept whether or not it succeeded: the log of a deploy that worked is
 	// what the next one gets compared against.
 	w.updateReleaseStatus(ctx, releaseID, "success",
-		deployNarrative(cfg, buildLog, durationMs, imageSize), "", durationMs)
+		deployNarrative(cfg, buildLog, durationMs, imageSize, true), "", durationMs)
 	w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "success", "Deployed successfully")
 	slog.Info("builds worker: release complete", "release_id", releaseID, "duration_ms", durationMs)
 	return nil
