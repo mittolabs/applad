@@ -16,6 +16,9 @@ type Config struct {
 	// ".applad.io" so the marketing site on applad.io can read it. Empty
 	// leaves the cookie host-only.
 	SessionCookieDomain string
+	// DeployDomain is the parent domain deployed apps are served from, so the
+	// console can show a site's real address rather than "no domain assigned".
+	DeployDomain string
 
 	// Storage driver: "local" (default) or "s3"
 	StorageDriver string
@@ -173,6 +176,7 @@ func Load() *Config {
 		AppEnv:      getEnv("APP_ENV", "development"),
 
 		SessionCookieDomain: getEnv("SESSION_COOKIE_DOMAIN", ""),
+		DeployDomain:        getEnv("APPLAD_DEPLOY_DOMAIN", "applad.dev.localhost"),
 
 		StorageDriver:           getEnv("STORAGE_DRIVER", "local"),
 		S3Endpoint:              getEnv("S3_ENDPOINT", ""),

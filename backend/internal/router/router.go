@@ -147,6 +147,8 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 
 	// Deploy handler — created here so it can be shared between the public webhook
 	// route (no auth) and the authenticated /deploy mount below.
+	deploySvc.SetDeployDomain(cfg.DeployDomain)
+	deploySvc.SetRedis(cacheClient.Client())
 	deployHandler := deploy.NewHandler(deploySvc)
 	testlabHandler := testlab.NewHandler(testlab.NewService(database, deployQueue), deployQueue, cacheClient.Client())
 

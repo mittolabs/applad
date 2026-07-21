@@ -39,10 +39,19 @@ export function shortDate(v: unknown): string {
 }
 
 /** Duration given in whole seconds. */
-export function formatDuration(seconds: unknown): string {
-  if (seconds == null) return '--';
-  const s = typeof seconds === 'number' ? Math.trunc(seconds) : 0;
-  if (s <= 0) return '--';
+/**
+ * Renders a duration given in milliseconds.
+ *
+ * It previously read its argument as seconds while every caller passed
+ * milliseconds, so a one-second build was reported as sixteen minutes.
+ */
+export function formatDuration(ms: unknown): string {
+  if (ms == null) return '--';
+  const total = typeof ms === 'number' ? Math.trunc(ms) : 0;
+  if (total <= 0) return '--';
+  if (total < 1000) return `${total}ms`;
+
+  const s = Math.round(total / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   const r = s % 60;

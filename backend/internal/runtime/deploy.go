@@ -546,3 +546,38 @@ func (d *DeployExecutor) GetContainerID(deploymentID string) (string, bool) {
 	id, ok := d.containers[deploymentID]
 	return id, ok
 }
+
+// ImageSize returns the size of a built image in bytes, so a deploy can report
+// what it produced.
+func (d *DeployExecutor) ImageSize(ctx context.Context, image string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		fmt.Sprintf("%s/v1.44/images/%s/json", d.docker.baseURL, url.QueryEscape(image)), nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := d.docker.httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("image %s not found", image)
+	}
+	var info struct {
+		Size int64 `json:"Size"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return 0, err
+	}
+	return info.Size, nil
+}
+
+// ContainerLogsByName reads a running container's output, given the name the
+// deploy executor gave it.
+func (d *DeployExecutor) ContainerLogsByName(ctx context.Context, name string) (string, error) {
+	id := d.findContainerByName(ctx, name)
+	if id == "" {
+		return "", fmt.Errorf("no container named %s", name)
+	}
+	return d.docker.ContainerLogs(ctx, id)
+}

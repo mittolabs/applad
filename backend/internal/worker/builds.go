@@ -103,6 +103,8 @@ func (w *Builds) process(ctx context.Context, job *queue.Job) error {
 		return w.processStudioStart(ctx, job)
 	case "studio_stop":
 		return w.processStudioStop(ctx, job)
+	case "container_logs":
+		return w.processContainerLogs(ctx, job)
 	default:
 		return w.processDeployment(ctx, job)
 	}
@@ -405,6 +407,34 @@ func (w *Builds) processStudioStop(ctx context.Context, job *queue.Job) error {
 		slog.Warn("builds worker: stopping studio browser", "session_id", sessionID, "error", err)
 	}
 	w.rdb.Del(ctx, "applad:studio:"+sessionID) //nolint:errcheck
+	return nil
+}
+
+// processContainerLogs answers a request for a running container's output.
+// The API cannot see containers, so it asks and reads the reply from Redis.
+func (w *Builds) processContainerLogs(ctx context.Context, job *queue.Job) error {
+	name, _ := job.Payload["container"].(string)
+	replyKey, _ := job.Payload["replyKey"].(string)
+	if name == "" || replyKey == "" {
+		return nil
+	}
+
+	lines := []string{}
+	if out, err := w.deployExecutor.ContainerLogsByName(ctx, name); err == nil {
+		for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			if line != "" {
+				lines = append(lines, line)
+			}
+		}
+	}
+	// Tail rather than everything: a busy site would otherwise return a
+	// megabyte the console cannot use.
+	if len(lines) > 500 {
+		lines = lines[len(lines)-500:]
+	}
+
+	data, _ := json.Marshal(lines)
+	w.rdb.Set(ctx, replyKey, data, 30*time.Second) //nolint:errcheck
 	return nil
 }
 
@@ -742,6 +772,9 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		}
 		slog.Info("builds worker: detected framework", "release_id", releaseID,
 			"framework", d.Framework, "reason", d.Reason, "build", buildCmd, "output", outputDir)
+		// Recorded on the target so the console can name what this is.
+		w.db.ExecContext(ctx, //nolint:errcheck
+			"UPDATE deploy_targets SET framework = $1 WHERE id = $2", d.Framework, targetID)
 	}
 
 	deployConfig := runtime.ParseDeployConfig(map[string]interface{}{
@@ -771,6 +804,14 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	}
 
 	durationMs := time.Since(start).Milliseconds()
+	if deployErr == nil {
+		// Recorded so the console can show what the deploy produced instead of
+		// a pair of dashes.
+		if size, err := w.deployExecutor.ImageSize(ctx, "applad-deploy-"+releaseID); err == nil && size > 0 {
+			w.db.ExecContext(ctx, //nolint:errcheck
+				"UPDATE deploy_releases SET size_bytes = $1 WHERE id = $2", size, releaseID)
+		}
+	}
 	if deployErr == nil && cfg.subdomain != "" {
 		// What just shipped is what gets checked.
 		svc := testlab.NewService(w.db, w.queue)

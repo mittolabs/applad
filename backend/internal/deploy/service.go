@@ -22,6 +22,7 @@ import (
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/uid"
+	"github.com/redis/go-redis/v9"
 )
 
 // ── Models ──
@@ -41,6 +42,21 @@ type Target struct {
 	Cron        string            `json:"cron,omitempty"`
 	CreatedAt   time.Time         `json:"$createdAt"`
 	UpdatedAt   time.Time         `json:"$updatedAt"`
+
+	// Derived for display. A site's address, where its code came from and what
+	// its last deploy produced all live in other tables; the console needs
+	// them together, and asking it to stitch four calls per row would be
+	// worse than filling them here.
+	Subdomain      string     `json:"subdomain,omitempty"`
+	URL            string     `json:"url,omitempty"`
+	SourceType     string     `json:"source,omitempty"`
+	Repository     string     `json:"repository,omitempty"`
+	Branch         string     `json:"branch,omitempty"`
+	Framework      string     `json:"framework,omitempty"`
+	LastDeployedAt *time.Time `json:"lastDeployedAt,omitempty"`
+	LastStatus     string     `json:"lastStatus,omitempty"`
+	BuildMs        int64      `json:"buildMs,omitempty"`
+	SizeBytes      int64      `json:"sizeBytes,omitempty"`
 }
 
 // Pipeline represents a build/deploy pipeline tied to a target.
@@ -107,13 +123,73 @@ type Execution struct {
 
 // Service handles deploy business logic.
 type Service struct {
-	db    *db.DB
-	queue *queue.Queue
+	db           *db.DB
+	queue        *queue.Queue
+	rdb          *redis.Client
+	deployDomain string
 }
+
+// SetRedis gives the service the connection it uses to ask the builds worker
+// for things only that worker can see.
+func (s *Service) SetRedis(c *redis.Client) { s.rdb = c }
 
 // NewService creates a new deploy Service.
 func NewService(database *db.DB, q *queue.Queue) *Service {
 	return &Service{db: database, queue: q}
+}
+
+// SetDeployDomain sets the parent domain deployed apps answer on, used to
+// render a site's address.
+func (s *Service) SetDeployDomain(d string) { s.deployDomain = d }
+
+// deployDomainOr returns the configured parent domain, falling back to the
+// local one so a site is never shown as having no address at all.
+func (s *Service) deployDomainOr() string {
+	if s.deployDomain != "" {
+		return s.deployDomain
+	}
+	return "applad.dev.localhost"
+}
+
+// enrich fills the fields the console shows on a site: where it answers, where
+// its code came from, and what its last deploy produced.
+func (s *Service) enrich(ctx context.Context, t *Target) {
+	if t.Subdomain != "" {
+		scheme := "https"
+		if strings.HasSuffix(s.deployDomainOr(), ".localhost") {
+			scheme = "http"
+		}
+		t.URL = fmt.Sprintf("%s://%s.%s", scheme, t.Subdomain, s.deployDomainOr())
+	}
+
+	// The newest pipeline says where the code comes from.
+	var sourceType, sourceURL, branch sql.NullString
+	s.db.QueryRowContext(ctx, //nolint:errcheck
+		`SELECT source_type, source_url, branch FROM deploy_pipelines
+		  WHERE target_id = $1 ORDER BY created_at DESC LIMIT 1`, t.ID).
+		Scan(&sourceType, &sourceURL, &branch)
+	t.SourceType, t.Repository, t.Branch = sourceType.String, sourceURL.String, branch.String
+
+	// The framework detected at build time, so the console names what this
+	// actually is rather than defaulting to static.
+	var framework sql.NullString
+	s.db.QueryRowContext(ctx, //nolint:errcheck
+		"SELECT framework FROM deploy_targets WHERE id = $1", t.ID).Scan(&framework)
+	t.Framework = framework.String
+
+	// The newest finished release says what it produced.
+	var status sql.NullString
+	var finished sql.NullTime
+	var durationMs, sizeBytes sql.NullInt64
+	s.db.QueryRowContext(ctx, //nolint:errcheck
+		`SELECT status, completed_at, duration_ms, size_bytes FROM deploy_releases
+		  WHERE target_id = $1 ORDER BY created_at DESC LIMIT 1`, t.ID).
+		Scan(&status, &finished, &durationMs, &sizeBytes)
+	t.LastStatus = status.String
+	if finished.Valid {
+		t.LastDeployedAt = &finished.Time
+	}
+	t.BuildMs, t.SizeBytes = durationMs.Int64, sizeBytes.Int64
 }
 
 // ── Target CRUD ──
@@ -164,10 +240,10 @@ func (s *Service) GetTarget(ctx context.Context, id, projectID string) (*Target,
 	var envJSON []byte
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, created_at, updated_at
+		`SELECT id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, COALESCE(subdomain,''), created_at, updated_at
 		 FROM deploy_targets WHERE id = $1 AND project_id = $2`, id, projectID,
 	).Scan(&t.ID, &t.ProjectID, &t.Name, &t.Type, &t.Runtime, &t.Entrypoint,
-		&t.TimeoutMs, &t.MemoryMB, &envJSON, &t.Permissions, &t.Cron, &t.CreatedAt, &t.UpdatedAt)
+		&t.TimeoutMs, &t.MemoryMB, &envJSON, &t.Permissions, &t.Cron, &t.Subdomain, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("target not found")
 	}
@@ -181,13 +257,14 @@ func (s *Service) GetTarget(ctx context.Context, id, projectID string) (*Target,
 	if t.Permissions == nil {
 		t.Permissions = json.RawMessage("[]")
 	}
+	s.enrich(ctx, &t)
 	return &t, nil
 }
 
 // ListTargets returns all targets for a project.
 func (s *Service) ListTargets(ctx context.Context, projectID string) ([]*Target, int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, created_at, updated_at
+		`SELECT id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, COALESCE(subdomain,''), created_at, updated_at
 		 FROM deploy_targets WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, 0, err
@@ -199,7 +276,8 @@ func (s *Service) ListTargets(ctx context.Context, projectID string) ([]*Target,
 		var t Target
 		var envJSON []byte
 		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Name, &t.Type, &t.Runtime, &t.Entrypoint,
-			&t.TimeoutMs, &t.MemoryMB, &envJSON, &t.Permissions, &t.Cron, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			&t.TimeoutMs, &t.MemoryMB, &envJSON, &t.Permissions, &t.Cron, &t.Subdomain,
+			&t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		json.Unmarshal(envJSON, &t.EnvVars)
@@ -209,6 +287,7 @@ func (s *Service) ListTargets(ctx context.Context, projectID string) ([]*Target,
 		if t.Permissions == nil {
 			t.Permissions = json.RawMessage("[]")
 		}
+		s.enrich(ctx, &t)
 		targets = append(targets, &t)
 	}
 	return targets, len(targets), nil
@@ -918,6 +997,22 @@ func (s *Service) ListDomains(ctx context.Context, projectID, targetID string) (
 		}
 		domains = append(domains, &d)
 	}
+
+	// The address Applad assigned is a domain too, and the one that actually
+	// serves traffic today. Leaving it out is why a live site read as having
+	// none assigned.
+	if t, err := s.GetTarget(ctx, targetID, projectID); err == nil && t.Subdomain != "" {
+		domains = append([]*CustomDomain{{
+			ID:        "assigned",
+			ProjectID: projectID,
+			TargetID:  targetID,
+			Domain:    fmt.Sprintf("%s.%s", t.Subdomain, s.deployDomainOr()),
+			Verified:  true,
+			SSLStatus: "managed",
+			CreatedAt: t.CreatedAt,
+		}}, domains...)
+	}
+
 	return domains, len(domains), nil
 }
 
@@ -1246,48 +1341,78 @@ func (s *Service) GetTargetStats(ctx context.Context, targetID, projectID string
 
 // GetTargetLogs returns the latest build/deploy logs for a target as structured log entries.
 func (s *Service) GetTargetLogs(ctx context.Context, targetID, projectID string) (map[string]interface{}, error) {
-	var releaseID, buildLog, deployLog string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(build_log,''), COALESCE(deploy_log,'')
-		 FROM deploy_releases WHERE target_id = $1 AND project_id = $2
-		 ORDER BY created_at DESC LIMIT 1`, targetID, projectID,
-	).Scan(&releaseID, &buildLog, &deployLog)
-
-	if err == sql.ErrNoRows {
+	t, err := s.GetTarget(ctx, targetID, projectID)
+	if err != nil {
 		return map[string]interface{}{"logs": []interface{}{}}, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("deploy: get target logs: %w", err)
+
+	// Access logs come from the running container, which only the builds
+	// worker can see, so it is asked and answers through Redis. Falling back
+	// to the build log would show something labelled "access logs" that is
+	// nothing of the kind.
+	if t.Subdomain != "" && s.queue != nil && s.rdb != nil {
+		if lines, err := s.containerLogs(ctx, "applad-site-"+t.Subdomain); err == nil {
+			entries := ParseAccessLog(lines, targetID+"-")
+
+			// This view is requests: nginx's startup notices have no method,
+			// path or status, so they render as blank rows dated year zero.
+			// They are dropped unless nothing parsed at all, in which case a
+			// container that only ever complained is better seen than hidden.
+			requests := make([]AccessEntry, 0, len(entries))
+			for _, e := range entries {
+				if e.Method != "" {
+					requests = append(requests, e)
+				}
+			}
+			if len(requests) > 0 {
+				entries = requests
+			}
+
+			// Newest first, which is the order somebody reading logs wants.
+			for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+			return map[string]interface{}{"logs": entries, "total": len(entries)}, nil
+		}
 	}
 
-	var logs []map[string]interface{}
-	combined := buildLog
-	if deployLog != "" {
-		if combined != "" {
-			combined += "\n"
-		}
-		combined += deployLog
+	return map[string]interface{}{"logs": []interface{}{}}, nil
+}
+
+// containerLogs asks the builds worker for a container's output and waits
+// briefly for the answer.
+func (s *Service) containerLogs(ctx context.Context, containerName string) ([]string, error) {
+	replyKey := "applad:logs:" + uid.New("unique()")
+	if err := s.queue.Push(ctx, "builds", queue.Job{
+		ID:   replyKey,
+		Type: "container_logs",
+		Payload: map[string]interface{}{
+			"container": containerName, "replyKey": replyKey,
+		},
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		return nil, err
 	}
-	now := time.Now().UTC()
-	for i, line := range strings.Split(combined, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if strings.TrimSpace(line) == "" {
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+		val, err := s.rdb.Get(ctx, replyKey).Result()
+		if err != nil {
 			continue
 		}
-		logs = append(logs, map[string]interface{}{
-			"$id":        fmt.Sprintf("%s-%d", releaseID, i),
-			"path":       "/",
-			"method":     "LOG",
-			"statusCode": 200,
-			"duration":   0,
-			"message":    line,
-			"$createdAt": now,
-		})
+		s.rdb.Del(ctx, replyKey) //nolint:errcheck
+		var lines []string
+		if err := json.Unmarshal([]byte(val), &lines); err != nil {
+			return nil, err
+		}
+		return lines, nil
 	}
-	if logs == nil {
-		logs = []map[string]interface{}{}
-	}
-	return map[string]interface{}{"logs": logs}, nil
+	return nil, fmt.Errorf("deploy: logs timed out")
 }
 
 // AggregateStats holds project-wide deploy statistics.

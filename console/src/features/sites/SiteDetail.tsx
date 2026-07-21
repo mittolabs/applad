@@ -82,9 +82,12 @@ export function SiteDetail({
 
 function OverviewTab({ site, siteId, onGoTab }: { site: Row; siteId: string; onGoTab: (i: number) => void }) {
   const framework = frameworkById(String(site['framework'] ?? 'static'));
-  const source = String(site['source'] ?? 'git');
+  const source = String(site['source'] ?? '');
   const repository = String(site['repository'] ?? '');
-  const updatedAt = site['$updatedAt'] ?? site['updatedAt'] ?? '';
+  // The address Applad assigned. A deployed site always has one, so falling
+  // back to "no domain assigned" told a live site it was unreachable.
+  const url = String(site['url'] ?? '');
+  const deployedAt = site['lastDeployedAt'] ?? site['$updatedAt'] ?? '';
 
   const domains = useQuery({
     queryKey: ['site-domains', siteId],
@@ -135,25 +138,49 @@ function OverviewTab({ site, siteId, onGoTab }: { site: Row; siteId: string; onG
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="flex h-[200px] w-full max-w-[340px] flex-col items-center justify-center gap-2 rounded-[var(--radius)] border border-border bg-surface text-text-subtle">
-          <Globe size={40} />
-          <span className="text-[length:var(--text-label)]">Site preview</span>
+        <div className="flex h-[200px] w-full max-w-[340px] flex-col items-center justify-center gap-3 rounded-[var(--radius)] border border-border bg-surface">
+          <Globe size={36} className="text-text-subtle" />
+          {url ? (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener"
+              className="px-4 text-center font-mono text-[length:var(--text-caption)] text-[var(--color-accent)] hover:underline"
+            >
+              {url.replace(/^https?:\/\//, '')}
+            </a>
+          ) : (
+            <span className="text-[length:var(--text-label)] text-text-subtle">Not deployed yet</span>
+          )}
         </div>
 
         <div className="flex flex-1 flex-col gap-3">
-          <InfoRow icon={Globe} label="Domain" value={String(site['domain'] ?? 'No domain assigned')} />
-          <InfoRow icon={Clock} label="Last deployed" value={updatedAt ? timeAgo(updatedAt) || 'Never' : 'Never'} />
+          <InfoRow
+            icon={Globe}
+            label="Domain"
+            value={url ? url.replace(/^https?:\/\//, '') : 'Not deployed yet'}
+          />
+          <InfoRow
+            icon={Clock}
+            label="Last deployed"
+            value={deployedAt ? timeAgo(deployedAt) || 'Never' : 'Never'}
+          />
           <InfoRow
             icon={source === 'git' ? GitBranch : Upload}
             label="Source"
-            value={repository || (source === 'git' ? 'Git repository' : 'Manual upload')}
+            value={repository || (source === 'git' ? 'Git repository' : source ? 'Manual upload' : '--')}
           />
           <InfoRow icon={FrameworkIcon} label="Framework" value={framework.label} />
-          <InfoRow icon={Timer} label="Build duration" value={formatDuration(site['buildDuration'])} />
-          <InfoRow icon={HardDrive} label="Total size" value={formatBytes(site['totalSize'])} />
+          <InfoRow icon={Timer} label="Build duration" value={formatDuration(site['buildMs'])} />
+          <InfoRow icon={HardDrive} label="Total size" value={formatBytes(site['sizeBytes'])} />
 
           <div className="mt-2 flex gap-2">
-            <Button size="sm">
+            {/* Opens the site. It did nothing at all before. */}
+            <Button
+              size="sm"
+              disabled={!url}
+              onClick={() => url && window.open(url, '_blank', 'noopener')}
+            >
               <ExternalLink size={14} />
               Visit
             </Button>

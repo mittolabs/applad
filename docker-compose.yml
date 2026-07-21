@@ -50,6 +50,8 @@ services:
       APP_ENV: "${APP_ENV:-development}"
       # auto (disabled once the first admin exists), true, or false.
       CONSOLE_SIGNUP_ENABLED: "${CONSOLE_SIGNUP_ENABLED:-auto}"
+      # Parent domain deployed apps answer on, used to show a site's address.
+      APPLAD_DEPLOY_DOMAIN: "${APPLAD_DEPLOY_DOMAIN:-applad.dev.localhost}"
       # Optional. Cookie scope is derived from the console's own hostname
       # (console.<parent> shares cookies with <parent>); set this only to
       # override that.
