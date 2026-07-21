@@ -415,9 +415,12 @@ func (w *Builds) processTeardown(ctx context.Context, job *queue.Job) error {
 	targetName, _ := job.Payload["targetName"].(string)
 	domain, _ := job.Payload["domain"].(string)
 
-	sub := subdomainSlug(domain)
+	sub, _ := job.Payload["subdomain"].(string)
 	if sub == "" {
-		sub = subdomainSlug(targetName)
+		sub = deploy.Subdomain(domain)
+	}
+	if sub == "" {
+		sub = deploy.Subdomain(targetName)
 	}
 	if sub != "" && w.deployExecutor != nil {
 		if err := w.deployExecutor.StopByName(ctx, "applad-site-"+sub); err != nil {
@@ -635,15 +638,15 @@ func (w *Builds) loadPipelineConfig(ctx context.Context, pipelineID, targetID, p
 	cfg.targetID = targetID
 	cfg.projectID = projectID
 
-	var sourceURL, branch, buildCmd, outputDir, runtimeName, entrypoint, domain sql.NullString
+	var sourceURL, branch, buildCmd, outputDir, runtimeName, entrypoint, domain, storedSub sql.NullString
 	err := w.db.QueryRowContext(ctx,
 		`SELECT dp.source_type, dp.source_url, dp.branch, dp.build_cmd, dp.output_dir,
-		        dt.type, dt.runtime, dt.entrypoint, dp.timeout_ms, dt.domain, dt.name
+		        dt.type, dt.runtime, dt.entrypoint, dp.timeout_ms, dt.domain, dt.name, dt.subdomain
 		 FROM deploy_pipelines dp
 		 JOIN deploy_targets dt ON dt.id = dp.target_id
 		 WHERE dp.id = $1 AND dp.project_id = $2`, pipelineID, projectID,
 	).Scan(&cfg.sourceType, &sourceURL, &branch, &buildCmd, &outputDir,
-		&cfg.targetType, &runtimeName, &entrypoint, &cfg.timeoutMs, &domain, &cfg.targetName)
+		&cfg.targetType, &runtimeName, &entrypoint, &cfg.timeoutMs, &domain, &cfg.targetName, &storedSub)
 	if err != nil {
 		return nil, fmt.Errorf("load pipeline config: %w", err)
 	}
@@ -651,40 +654,17 @@ func (w *Builds) loadPipelineConfig(ctx context.Context, pipelineID, targetID, p
 	cfg.buildCmd, cfg.outputDir = buildCmd.String, outputDir.String
 	cfg.runtime, cfg.entrypoint = runtimeName.String, entrypoint.String
 
-	// The subdomain a deployed app is served on: <sub>.applad.dev. Prefer an
-	// explicit domain on the target, else slugify its name.
-	cfg.subdomain = subdomainSlug(domain.String)
-	if cfg.subdomain == "" {
-		cfg.subdomain = subdomainSlug(cfg.targetName)
+	// The subdomain a deployed app is served on: <sub>.applad.dev.
+	// The target's claimed subdomain is authoritative; a custom domain or the
+	// name are only fallbacks for targets created before it was stored.
+	if storedSub.Valid && storedSub.String != "" {
+		cfg.subdomain = storedSub.String
+	} else if sub := deploy.Subdomain(domain.String); sub != "" {
+		cfg.subdomain = sub
+	} else {
+		cfg.subdomain = deploy.Subdomain(cfg.targetName)
 	}
 	return &cfg, nil
-}
-
-// subdomainSlug reduces a name or domain to a DNS-safe label ("The Range" ->
-// "the-range", "the-range.applad.dev" -> "the-range").
-func subdomainSlug(v string) string {
-	v = strings.ToLower(strings.TrimSpace(v))
-	if v == "" {
-		return ""
-	}
-	if i := strings.Index(v, "."); i > 0 {
-		v = v[:i] // keep only the first label of a full domain
-	}
-	var b strings.Builder
-	lastDash := false
-	for _, r := range v {
-		switch {
-		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
-			b.WriteRune(r)
-			lastDash = false
-		default:
-			if b.Len() > 0 && !lastDash {
-				b.WriteByte('-')
-				lastDash = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }
 
 func (w *Builds) updateReleaseStatus(ctx context.Context, releaseID, status, buildLog, releaseErr string, durationMs int64) {

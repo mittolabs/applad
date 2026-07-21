@@ -132,10 +132,21 @@ func (s *Service) CreateTarget(ctx context.Context, projectID, name, targetType,
 
 	envJSON, _ := json.Marshal(envVars)
 
+	// Claimed up front, so a clash is reported when the site is named rather
+	// than discovered when it takes over another site's traffic.
+	var subdomain string
+	if targetType == "web" {
+		claimed, err := s.ClaimSubdomain(ctx, id, name)
+		if err != nil {
+			return nil, err
+		}
+		subdomain = claimed
+	}
+
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO deploy_targets (id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		id, projectID, name, targetType, runtime, entrypoint, timeoutMs, memoryMB, envJSON, permissions, cron, now, now)
+		`INSERT INTO deploy_targets (id, project_id, name, type, runtime, entrypoint, timeout_ms, memory_mb, env_vars, permissions, cron, subdomain, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12,''), $13, $14)`,
+		id, projectID, name, targetType, runtime, entrypoint, timeoutMs, memoryMB, envJSON, permissions, cron, subdomain, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("deploy: create target: %w", err)
 	}
@@ -213,10 +224,23 @@ func (s *Service) UpdateTarget(ctx context.Context, id, projectID, name, targetT
 	}
 	envJSON, _ := json.Marshal(envVars)
 
+	// Renaming a site moves its address, so the new one is claimed the same
+	// way as on creation.
+	var subdomain string
+	if targetType == "web" {
+		claimed, err := s.ClaimSubdomain(ctx, id, name)
+		if err != nil {
+			return nil, err
+		}
+		subdomain = claimed
+	}
+
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE deploy_targets SET name=$1, type=$2, runtime=$3, entrypoint=$4, timeout_ms=$5, memory_mb=$6, env_vars=$7, permissions=$8, cron=$9, updated_at=$10
+		`UPDATE deploy_targets SET name=$1, type=$2, runtime=$3, entrypoint=$4, timeout_ms=$5, memory_mb=$6,
+		        env_vars=$7, permissions=$8, cron=$9, subdomain=NULLIF($13,''), updated_at=$10
 		 WHERE id=$11 AND project_id=$12`,
-		name, targetType, runtime, entrypoint, timeoutMs, memoryMB, envJSON, permissions, cron, time.Now().UTC(), id, projectID)
+		name, targetType, runtime, entrypoint, timeoutMs, memoryMB, envJSON, permissions, cron,
+		time.Now().UTC(), id, projectID, subdomain)
 	if err != nil {
 		return nil, err
 	}
@@ -229,13 +253,13 @@ func (s *Service) DeleteTarget(ctx context.Context, id, projectID string) error 
 	// pipelines) disappear. Deleting only the row would leave the app's
 	// container running and still reachable on its subdomain.
 	var name string
-	var domain sql.NullString
+	var domain, subdomain sql.NullString
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT t.name, MIN(d.domain)
+		`SELECT t.name, MIN(d.domain), MAX(t.subdomain)
 		   FROM deploy_targets t
 		   LEFT JOIN custom_domains d ON d.target_id = t.id
 		  WHERE t.id = $1 AND t.project_id = $2
-		  GROUP BY t.name`, id, projectID).Scan(&name, &domain); err != nil {
+		  GROUP BY t.name`, id, projectID).Scan(&name, &domain, &subdomain); err != nil {
 		// Without a name we cannot derive the subdomain, so the container would
 		// survive the delete. Surface it rather than silently orphaning an app.
 		return fmt.Errorf("deploy: resolve target before delete: %w", err)
@@ -269,6 +293,7 @@ func (s *Service) DeleteTarget(ctx context.Context, id, projectID string) error 
 				"projectId":   projectID,
 				"targetName":  name,
 				"domain":      domain.String,
+				"subdomain":   subdomain.String,
 				"pipelineIds": pipelineIDs,
 			},
 			CreatedAt: time.Now().UTC(),

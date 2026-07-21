@@ -1,0 +1,75 @@
+package deploy
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// ErrSubdomainTaken is returned when a name resolves to an address another
+// site already answers on. Callers turn it into a conflict rather than a
+// server error, since the person naming the site can fix it.
+var ErrSubdomainTaken = errors.New("subdomain already taken")
+
+/*
+ * The address a deployed app answers on.
+ *
+ * A subdomain is global: <sub>.applad.dev routes to whichever container claims
+ * it. Deriving one from the target's name at deploy time and never storing it
+ * meant two targets called the same thing resolved to one address, and the
+ * later deploy quietly took the earlier one's traffic — across projects as
+ * well as within them. It is stored and unique now, and claimed when a target
+ * is created rather than discovered when one is deployed.
+ */
+
+// Subdomain reduces a name or domain to a DNS-safe label:
+// "The Range" becomes "the-range", "the-range.applad.dev" becomes "the-range".
+func Subdomain(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" {
+		return ""
+	}
+	if i := strings.Index(v, "."); i > 0 {
+		v = v[:i] // keep only the first label of a full domain
+	}
+
+	var b strings.Builder
+	lastDash := false
+	for _, r := range v {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if b.Len() > 0 && !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// ClaimSubdomain reserves a name's subdomain for a target, refusing one that
+// another target already answers on.
+//
+// Rejecting is deliberate rather than quietly suffixing: somebody naming a
+// second site "The Range" has almost certainly forgotten the first, and a
+// silently different address is a worse surprise than being told.
+func (s *Service) ClaimSubdomain(ctx context.Context, targetID, name string) (string, error) {
+	sub := Subdomain(name)
+	if sub == "" {
+		return "", nil // nothing to claim; the deploy will not be routable
+	}
+
+	var owner string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM deploy_targets WHERE subdomain = $1 AND id <> $2", sub, targetID).Scan(&owner)
+	if err == nil {
+		return "", fmt.Errorf("%w: %s is already used by another site — choose a different name",
+			ErrSubdomainTaken, sub)
+	}
+
+	return sub, nil
+}

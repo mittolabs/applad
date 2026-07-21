@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -167,6 +168,10 @@ func (h *Handler) createTarget(w http.ResponseWriter, r *http.Request) {
 	t, err := h.svc.CreateTarget(r.Context(), projectID, body.Name, body.Type, body.Runtime,
 		body.Entrypoint, body.TimeoutMs, body.MemoryMB, body.EnvVars, body.Permissions, body.Cron)
 	if err != nil {
+		if errors.Is(err, ErrSubdomainTaken) {
+			apperr.Conflict(w, err.Error())
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -233,6 +238,10 @@ func (h *Handler) updateTarget(w http.ResponseWriter, r *http.Request) {
 	t, err := h.svc.UpdateTarget(r.Context(), id, projectID, body.Name, body.Type, body.Runtime,
 		body.Entrypoint, body.TimeoutMs, body.MemoryMB, body.EnvVars, body.Permissions, body.Cron)
 	if err != nil {
+		if errors.Is(err, ErrSubdomainTaken) {
+			apperr.Conflict(w, err.Error())
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
