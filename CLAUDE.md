@@ -250,14 +250,17 @@ them:
 | Who can register | anyone | the first account, then invitees only |
 | First run | normal signup | "Create the owner account" |
 
-On a closed instance an invited address can still register: accepting an
-organization invite needs an account to attach it to, so `SignupAllowedFor`
-checks for a pending invite before refusing. Without that exception a
-self-hosted team would be stuck at one person forever.
+Invites are not signup. A closed instance stays closed to `/console/signup`;
+colleagues arrive through `POST /console/invites/{token}/redeem`, where the
+token is the credential and the address is read from the invite rather than
+supplied by the caller. Redemption creates the account and activates the
+membership in one transaction, and consumes the token. The console serves
+this at `/invite/:token`, and shows the link once after an invite is created
+since a self-hosted instance usually has no SMTP configured.
 
 `GET /console/signup-status` returns `signupEnabled`, `firstRun` and
-`inviteOnly` so the login page can say which of these applies rather than
-silently dropping people onto the sign-in form.
+`inviteOnly` so the login page can say which applies rather than silently
+dropping people onto the sign-in form.
 
 ### Environment variables
 

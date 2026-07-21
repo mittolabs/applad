@@ -99,12 +99,12 @@ export function LoginPage() {
     if (firstRun) setMode('signup');
   }, [firstRun]);
 
-  // Closed instances stay on sign-in, but an invited address may still
-  // register — so signup mode is left reachable rather than forced away, and
-  // the form explains the rule.
+  // Registration closed means closed. Someone who was invited does not come
+  // through this form at all — they follow the link in their invite, which
+  // carries the token that creates their account.
   useEffect(() => {
-    if (mode === 'signup' && !signupEnabled && !inviteOnly) setMode('login');
-  }, [mode, signupEnabled, inviteOnly]);
+    if (mode === 'signup' && !signupEnabled) setMode('login');
+  }, [mode, signupEnabled]);
 
   // Handle OAuth / reset callbacks once on mount.
   useEffect(() => {
@@ -377,12 +377,7 @@ function LoginSignupForm({
           the rest of your team afterwards.
         </p>
       )}
-      {inviteOnly && isSignup && (
-        <p className="mt-2 text-[13px] leading-[1.5] text-text-muted">
-          This instance is private. Use the address you were invited on, or ask an administrator for
-          an invite.
-        </p>
-      )}
+
       <div className="h-8" />
 
       {!isSignup && (
@@ -450,16 +445,22 @@ function LoginSignupForm({
       {/* Links row */}
       <div className="flex items-center justify-center">
         {!isSignup && <TextLink onClick={() => onMode('forgot')}>Forgot password?</TextLink>}
-        {!isSignup && (signupEnabled || inviteOnly) && <span className="px-3 text-text-subtle">|</span>}
-        {(signupEnabled || inviteOnly) &&
+        {!isSignup && signupEnabled && <span className="px-3 text-text-subtle">|</span>}
+        {signupEnabled &&
           (isSignup ? (
             <TextLink onClick={() => onMode('login')}>Already got an account? Sign in</TextLink>
           ) : (
             <TextLink primary onClick={() => onMode('signup')}>
-              {inviteOnly ? 'Got an invite?' : 'Sign up'}
+              Sign up
             </TextLink>
           ))}
       </div>
+
+      {inviteOnly && !isSignup && (
+        <p className="mt-4 text-center text-[12px] leading-[1.5] text-text-subtle">
+          This instance is private. New accounts are created from an invite link.
+        </p>
+      )}
 
       {!isSignup && (
         <p className="mt-4 text-center text-[12px] leading-[1.5] text-text-subtle">

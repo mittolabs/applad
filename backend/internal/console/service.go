@@ -198,36 +198,109 @@ func (s *Service) FirstRun(ctx context.Context) (bool, error) {
 	return count == 0, nil
 }
 
-// HasPendingInvite reports whether someone has been invited to an organization
-// at this address but has no account yet.
-func (s *Service) HasPendingInvite(ctx context.Context, email string) (bool, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM organization_members
-		  WHERE lower(email) = lower($1) AND status = 'pending' AND invite_token IS NOT NULL`,
-		email).Scan(&n)
-	if err != nil {
-		return false, fmt.Errorf("console: check invite: %w", err)
-	}
-	return n > 0, nil
+// Invite describes a pending organization invite, identified by its token.
+type Invite struct {
+	Email            string `json:"email"`
+	Name             string `json:"name"`
+	Role             string `json:"role"`
+	OrganizationID   string `json:"organizationId"`
+	OrganizationName string `json:"organizationName"`
+	// HasAccount reports whether this address already has a console account,
+	// in which case the invite is accepted by signing in rather than by
+	// registering.
+	HasAccount bool `json:"hasAccount"`
 }
 
-// SignupAllowedFor reports whether this specific address may create an account.
-//
-// Open signup ("true") is how the hosted service runs. Self-hosted instances
-// default to "auto", which closes signup behind the first account — but an
-// invited colleague still needs to register, since accepting an invite
-// requires an account to attach it to. Without this exception a self-hosted
-// team is permanently stuck at one person.
-func (s *Service) SignupAllowedFor(ctx context.Context, email, setting string) (bool, error) {
-	enabled, err := s.SignupEnabled(ctx, setting)
+// LookupInvite resolves a pending invite by its token. The token is the
+// credential: nothing about an invite is discoverable without it.
+func (s *Service) LookupInvite(ctx context.Context, token string) (*Invite, error) {
+	var inv Invite
+	var name, orgName sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT m.email, m.name, m.role, m.org_id, o.name
+		   FROM organization_members m
+		   JOIN organizations o ON o.id = m.org_id
+		  WHERE m.invite_token = $1 AND m.status = 'pending'`,
+		token).Scan(&inv.Email, &name, &inv.Role, &inv.OrganizationID, &orgName)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("console: invite not found or already used")
+	}
 	if err != nil {
-		return false, err
+		return nil, fmt.Errorf("console: lookup invite: %w", err)
 	}
-	if enabled {
-		return true, nil
+	inv.Name, inv.OrganizationName = name.String, orgName.String
+
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM console_users WHERE lower(email) = lower($1)", inv.Email).Scan(&n); err != nil {
+		return nil, fmt.Errorf("console: lookup invite: %w", err)
 	}
-	return s.HasPendingInvite(ctx, email)
+	inv.HasAccount = n > 0
+	return &inv, nil
+}
+
+// RedeemInvite creates the account an invite was issued for and activates the
+// membership in one transaction.
+//
+// This is deliberately not signup. The address is read from the invite rather
+// than supplied by the caller, so possession of the token — not knowledge of
+// who was invited — is what grants the account. And because the membership is
+// activated here, the person lands inside the organization instead of holding
+// an account that still has to accept something.
+func (s *Service) RedeemInvite(ctx context.Context, token, password, name string) (*ConsoleUser, string, error) {
+	inv, err := s.LookupInvite(ctx, token)
+	if err != nil {
+		return nil, "", err
+	}
+	if inv.HasAccount {
+		return nil, "", fmt.Errorf("console: an account already exists for %s — sign in to accept", inv.Email)
+	}
+	if name == "" {
+		name = inv.Name
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return nil, "", fmt.Errorf("console: hash password: %w", err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("console: redeem invite: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	id := uid.New("unique()")
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO console_users (id, email, name, password_hash, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		id, inv.Email, name, string(hash), now, now); err != nil {
+		return nil, "", fmt.Errorf("console: redeem invite: %w", err)
+	}
+
+	// Consumes the token, so an invite cannot be redeemed twice.
+	res, err := tx.ExecContext(ctx,
+		`UPDATE organization_members
+		    SET user_id = $1, name = $2, status = 'active', invite_token = NULL
+		  WHERE invite_token = $3 AND status = 'pending'`,
+		id, name, token)
+	if err != nil {
+		return nil, "", fmt.Errorf("console: redeem invite: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, "", fmt.Errorf("console: invite not found or already used")
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, "", fmt.Errorf("console: redeem invite: %w", err)
+	}
+
+	jwt, err := s.signJWT(id, inv.Email, name)
+	if err != nil {
+		return nil, "", err
+	}
+	return &ConsoleUser{ID: id, Email: inv.Email, Name: name, CreatedAt: now, UpdatedAt: now}, jwt, nil
 }
 
 // LoginOrCreateByOAuth finds an existing console user by email or creates one

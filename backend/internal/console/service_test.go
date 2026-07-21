@@ -2,6 +2,7 @@ package console
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -258,53 +259,41 @@ func TestCountUsers(t *testing.T) {
 	}
 }
 
-// Self-hosted instances close signup behind the first account. An invited
-// colleague must still be able to register, because accepting an invite
-// requires an account to attach it to — otherwise a self-hosted team is
-// permanently stuck at one person.
-func TestSignupAllowedForInvitedAddress(t *testing.T) {
+// An invite is redeemed with its token, not by claiming an invited address.
+// Knowing who was invited must never be enough to take their seat.
+func TestRedeemInviteUsesTokenNotEmail(t *testing.T) {
 	svc, mock := newMockService(t)
 
-	// "auto" with an existing account: signup is closed.
-	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery("organization_members").WithArgs("invited@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("FROM organization_members").WithArgs("bad-token").
+		WillReturnError(sql.ErrNoRows)
 
-	allowed, err := svc.SignupAllowedFor(context.Background(), "invited@example.com", "auto")
-	if err != nil {
-		t.Fatal(err)
+	if _, _, err := svc.RedeemInvite(context.Background(), "bad-token", "hunter2hunter2", "Someone"); err == nil {
+		t.Error("an unknown token must not create an account")
 	}
-	if !allowed {
-		t.Error("an invited address must be able to register on a closed instance")
-	}
-
-	// Same instance, an address nobody invited.
-	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery("organization_members").WithArgs("stranger@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-	allowed, err = svc.SignupAllowedFor(context.Background(), "stranger@example.com", "auto")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if allowed {
-		t.Error("an uninvited address must not be able to register on a closed instance")
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 }
 
-// The hosted service runs with signup open, where no invite is needed and no
-// invite lookup should happen.
-func TestSignupAllowedForOpenInstance(t *testing.T) {
+// The address comes from the invite record, so a caller cannot choose which
+// account gets created.
+func TestLookupInviteReportsExistingAccount(t *testing.T) {
 	svc, mock := newMockService(t)
 
-	allowed, err := svc.SignupAllowedFor(context.Background(), "anyone@example.com", "true")
+	mock.ExpectQuery("FROM organization_members").WithArgs("tok").
+		WillReturnRows(sqlmock.NewRows([]string{"email", "name", "role", "org_id", "name"}).
+			AddRow("colleague@example.com", "Colleague", "member", "org1", "Tito's Workspace"))
+	mock.ExpectQuery("FROM console_users").WithArgs("colleague@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	inv, err := svc.LookupInvite(context.Background(), "tok")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allowed {
-		t.Error("open signup must allow any address")
+	if inv.Email != "colleague@example.com" || inv.OrganizationName != "Tito's Workspace" {
+		t.Errorf("unexpected invite: %+v", inv)
 	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("open signup should not query the database: %v", err)
+	if !inv.HasAccount {
+		t.Error("should report that this address already has an account, so it signs in instead")
 	}
 }

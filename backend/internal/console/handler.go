@@ -155,6 +155,10 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func Routes(h *Handler) http.Handler {
 	r := chi.NewRouter()
 	r.Post("/signup", h.signup)
+	// Invite redemption is not signup: the token carries the address, so it
+	// works on instances where registration is closed.
+	r.Get("/invites/{token}", h.getInvite)
+	r.Post("/invites/{token}/redeem", h.redeemInvite)
 	r.Post("/login", h.login)
 	r.Post("/logout", h.logout)
 	r.Get("/signup-status", h.signupStatus)
@@ -219,15 +223,15 @@ func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Checked per address, not globally: a closed instance still has to let an
-	// invited colleague register, since the invite needs an account to attach
-	// to.
-	allowed, err := h.svc.SignupAllowedFor(r.Context(), body.Email, h.signupSetting)
+	// Open registration only. Someone who was invited does not come through
+	// here: they redeem their token, which carries the address the account is
+	// created for.
+	enabled, err := h.svc.SignupEnabled(r.Context(), h.signupSetting)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
-	if !allowed {
+	if !enabled {
 		apperr.Write(w, http.StatusForbidden, "signup_disabled",
 			"This instance is private. Ask an administrator to invite you.")
 		return
@@ -400,6 +404,47 @@ func safeConsoleRedirect(raw string) string {
 		return "/login"
 	}
 	return raw
+}
+
+// getInvite lets the console show who invited whom before asking for a
+// password. Only a valid token reveals anything.
+func (h *Handler) getInvite(w http.ResponseWriter, r *http.Request) {
+	inv, err := h.svc.LookupInvite(r.Context(), chi.URLParam(r, "token"))
+	if err != nil {
+		apperr.Write(w, http.StatusNotFound, "invite_invalid", "This invite is no longer valid.")
+		return
+	}
+	writeJSON(w, http.StatusOK, inv)
+}
+
+// redeemInvite creates the invited account and activates the membership. The
+// email is taken from the invite, never from the request.
+func (h *Handler) redeemInvite(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Password string `json:"password"`
+		Name     string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if len(body.Password) < 8 {
+		apperr.BadRequest(w, "password must be at least 8 characters")
+		return
+	}
+
+	user, token, err := h.svc.RedeemInvite(r.Context(), chi.URLParam(r, "token"), body.Password, body.Name)
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			apperr.Conflict(w, "An account already exists for this address. Sign in to accept the invite.")
+			return
+		}
+		apperr.Write(w, http.StatusNotFound, "invite_invalid", "This invite is no longer valid.")
+		return
+	}
+
+	h.setSignedIn(w, r, token)
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"user": user, "token": token})
 }
 
 func (h *Handler) signupStatus(w http.ResponseWriter, r *http.Request) {

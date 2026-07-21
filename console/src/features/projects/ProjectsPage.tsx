@@ -443,6 +443,7 @@ function MembersTab({ orgId }: { orgId: string | null }) {
   const [name, setName] = useState('');
   const [role, setRole] = useState('member');
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['org-members', orgId] });
 
@@ -453,9 +454,14 @@ function MembersTab({ orgId }: { orgId: string | null }) {
         role,
         ...(name.trim() ? { name: name.trim() } : {}),
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       invalidate();
       setInviting(false);
+      // Surface the link. On a self-hosted instance with no SMTP configured
+      // nothing is emailed, so without this the invite is unreachable and the
+      // person can never create their account.
+      const token = (res.data as { inviteToken?: string }).inviteToken;
+      if (token) setInviteLink(`${window.location.origin}/invite/${token}`);
       setEmail('');
       setName('');
       setRole('member');
@@ -533,6 +539,24 @@ function MembersTab({ orgId }: { orgId: string | null }) {
           </div>
         ))}
       </div>
+
+      {/* The invite link, shown once. Self-hosted instances usually have no
+          SMTP configured, so this is how the invite actually reaches someone. */}
+      <FormDialog
+        open={inviteLink !== null}
+        onOpenChange={(o) => !o && setInviteLink(null)}
+        title="Invite created"
+        subtitle="Send this link to the person you invited. It creates their account and adds them to this organization."
+        submitLabel="Copy link"
+        onSubmit={() => {
+          if (inviteLink) navigator.clipboard.writeText(inviteLink);
+          setInviteLink(null);
+        }}
+      >
+        <div className="break-all rounded-[var(--radius)] border border-field-border bg-fill px-3 py-2.5 font-mono text-[length:var(--text-caption)] text-text-primary">
+          {inviteLink}
+        </div>
+      </FormDialog>
 
       <FormDialog
         open={inviting}

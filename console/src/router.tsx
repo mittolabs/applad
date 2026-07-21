@@ -11,6 +11,7 @@ import { AiChatOverlay } from './features/ai/AiChatOverlay';
 import { Shell } from './shell/Shell';
 import { PlaceholderPage } from './components/placeholder-page';
 import { LoginPage } from './features/login/LoginPage';
+import { InvitePage } from './features/login/InvitePage';
 import { ProjectsPage } from './features/projects/ProjectsPage';
 import { AccountPage } from './features/account/AccountPage';
 import { OnboardingPage } from './features/onboarding/OnboardingPage';
@@ -167,6 +168,9 @@ export const router = createBrowserRouter([
           </RedirectIfAuthed>
         ),
       },
+      // Invite redemption stands apart from login: the token is the
+      // credential, and it works on instances where signup is closed.
+      { path: '/invite/:token', element: <InvitePage /> },
       { path: '/', element: <RootRedirect /> },
       {
         element: <RequireAuth />,
