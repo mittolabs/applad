@@ -98,7 +98,7 @@ function Nav() {
             className="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
             style={{ background: ACCENT }}
           >
-            {signedIn ? 'Go to console' : 'Sign up'}
+            {signedIn ? 'Go to console' : 'Get started'}
           </a>
         </div>
       </div>
@@ -452,7 +452,7 @@ function CTA() {
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <a href={signedIn ? CONSOLE_URL : SIGNUP_URL} className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
-            {signedIn ? 'Go to console' : 'Create an account'}
+            {signedIn ? 'Go to console' : 'Get started'}
             <ArrowRight size={16} />
           </a>
           <a href={DOCS_URL} className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-text transition-colors hover:bg-surface">
