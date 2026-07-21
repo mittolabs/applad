@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import type { ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ShieldOff, Table2, X } from 'lucide-react';
@@ -31,7 +32,8 @@ export function TableDetail({
   tableName: string;
   onBack: () => void;
 }) {
-  const [tab, setTab] = useState(0);
+  // In the URL so a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(BASE_TABS, undefined, 'view');
   const [showCreateColumn, setShowCreateColumn] = useState(false);
 
   // Content-enabled tables get an editorial Entries view in front of the raw grid.

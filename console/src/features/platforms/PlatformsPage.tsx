@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
+import { DetailRoute } from '@/components/detail-route';
 import { useQuery } from '@tanstack/react-query';
 import { Layers } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
@@ -32,7 +34,8 @@ const PER_PAGE_DEFAULT = 12;
 
 export function PlatformsPage() {
   const { projectId = '' } = useParams<{ projectId: string }>();
-  const [selected, setSelected] = useState<Row | null>(null);
+  // Which record is open belongs in the address.
+  const selection = useRoutedSelection('platforms', 'platformId');
   const [creating, setCreating] = useState(false);
 
   const [search, setSearch] = useState('');
@@ -71,21 +74,25 @@ export function PlatformsPage() {
     [filtered, page, perPage],
   );
 
-  if (selected) {
+  if (selection.id) {
     return (
+      <DetailRoute endpoint="/deploy/targets" id={selection.id}>
+        {(platform, refetch) => (
       <PlatformDetail
-        platform={selected}
+        platform={platform}
         projectId={projectId}
-        onBack={() => setSelected(null)}
-        onChange={(next) => {
-          setSelected(next);
+        onBack={selection.clear}
+        onChange={() => {
+          refetch();
           query.refetch();
         }}
         onDeleted={() => {
-          setSelected(null);
+          selection.clear();
           query.refetch();
         }}
       />
+        )}
+      </DetailRoute>
     );
   }
 
@@ -137,7 +144,7 @@ export function PlatformsPage() {
         }}
         rowIcon={(row) => typeIconFor(String(row['type'] ?? ''))}
         rowIconColor={(row) => typeBadgeColor(String(row['type'] ?? ''))}
-        onRowClick={(row) => setSelected(row)}
+        onRowClick={(row) => selection.select(String(row['$id'] ?? row['id'] ?? ''))}
         onDeleteRow={async (row) => {
           try {
             await api.delete(`/projects/${projectId}/platforms/${platformId(row)}`);

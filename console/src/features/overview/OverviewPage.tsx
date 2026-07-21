@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -159,7 +160,8 @@ function timeAgo(iso: unknown): string {
 
 export function OverviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [tab, setTab] = useState(0);
+  // In the URL so a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(TABS, undefined, 'view');
   const { data: project } = useProject(projectId);
 
   if (!projectId) {

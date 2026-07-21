@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { Row } from '@/components/data-table';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
+import { DetailRoute } from '@/components/detail-route';
 import { WorkflowList } from './WorkflowList';
 import { WorkflowBuilder } from './WorkflowBuilder';
 
@@ -11,19 +11,30 @@ import { WorkflowBuilder } from './WorkflowBuilder';
  */
 export function WorkflowsPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [editing, setEditing] = useState<Row | null>(null);
+  // The workflow being edited is part of the address, so a refresh does not
+  // throw somebody out of a canvas they were working in.
+  const selection = useRoutedSelection('workflows', 'workflowId');
 
-  if (editing) {
+  if (selection.id) {
     return (
-      <WorkflowBuilder
-        workflow={editing}
-        onBack={() => setEditing(null)}
-        onSaved={() => {
-          /* list refetches on return via its own hook scope */
-        }}
-      />
+      <DetailRoute endpoint="/workflows" id={selection.id}>
+        {(workflow) => (
+          <WorkflowBuilder
+            workflow={workflow}
+            onBack={selection.clear}
+            onSaved={() => {
+              /* list refetches on return via its own hook scope */
+            }}
+          />
+        )}
+      </DetailRoute>
     );
   }
 
-  return <WorkflowList projectId={projectId} onSelect={setEditing} />;
+  return (
+    <WorkflowList
+      projectId={projectId}
+      onSelect={(row) => selection.select(String(row['$id'] ?? row['id'] ?? ''))}
+    />
+  );
 }

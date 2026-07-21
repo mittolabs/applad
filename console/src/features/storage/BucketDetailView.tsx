@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, File as FileIcon, FolderClosed } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
@@ -27,7 +28,8 @@ export function BucketDetailView({
   onBack: () => void;
   onFileSelect: (fileId: string) => void;
 }) {
-  const [tab, setTab] = useState(0);
+  // In the URL so a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(TABS, undefined, 'view');
 
   const { data: bucket } = useQuery({
     queryKey: ['storage-bucket', bucketId],

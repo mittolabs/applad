@@ -49,9 +49,14 @@ const saved = localStorage.getItem(TOKEN_KEY);
 if (saved) setAuthToken(saved);
 
 /**
- * On 401/403 the Dart client proactively clears the token and the router
- * guard bounces to /login. We surface that here via a subscriber the auth
- * store registers, to avoid a hard import cycle.
+ * On 401 the token is cleared and the router guard bounces to /login. We
+ * surface that here via a subscriber the auth store registers, to avoid a hard
+ * import cycle.
+ *
+ * 403 deliberately does not sign anybody out. It means the credentials were
+ * accepted and the action was refused — a row the caller cannot write, a
+ * closed signup — and ending the session over it logs people out of the whole
+ * console because one resource said no.
  */
 let onAuthError: (() => void) | null = null;
 export function registerAuthErrorHandler(fn: () => void) {
@@ -62,7 +67,7 @@ api.interceptors.response.use(
   (res) => res,
   (error: AxiosError) => {
     const status = error.response?.status;
-    if (status === 401 || status === 403) onAuthError?.();
+    if (status === 401) onAuthError?.();
     return Promise.reject(error);
   },
 );

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ChevronLeft, MinusCircle, Play, Plus, XCircle, AlertTriangle } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
@@ -40,7 +41,8 @@ export function TestPage() {
   const [recording, setRecording] = useState(false);
   const [session, setSession] = useState<StudioSession | null>(null);
   const [flowsKey, setFlowsKey] = useState(0);
-  const [openTest, setOpenTest] = useState<{ id: string; name: string } | null>(null);
+  // The open test is part of the address, so its history can be linked to.
+  const selection = useRoutedSelection('tests', 'testId');
 
   // A live recording takes the whole page: it is the app under test.
   if (session) {
@@ -56,8 +58,8 @@ export function TestPage() {
     );
   }
 
-  if (openTest) {
-    return <TestDetail testId={openTest.id} name={openTest.name} onBack={() => setOpenTest(null)} />;
+  if (selection.id) {
+    return <TestDetail testId={selection.id} onBack={selection.clear} />;
   }
 
   if (openRun) {
@@ -80,7 +82,7 @@ export function TestPage() {
           key={flowsKey}
           projectId={projectId}
           onRecord={() => setRecording(true)}
-          onOpen={setOpenTest}
+          onOpen={(t) => selection.select(t.id)}
         />
       )}
       {tab === 1 && <SuitesTab projectId={projectId} />}

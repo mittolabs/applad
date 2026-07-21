@@ -38,16 +38,19 @@ const TRIGGER_ICON: Record<string, typeof Rocket> = {
   manual: Hand,
 };
 
-export function TestDetail({
-  testId,
-  name,
-  onBack,
-}: {
-  testId: string;
-  name: string;
-  onBack: () => void;
-}) {
+export function TestDetail({ testId, onBack }: { testId: string; onBack: () => void }) {
   const [open, setOpen] = useState<string | null>(null);
+
+  // The name comes with the catalogue rather than the caller, so the page can
+  // be opened directly from a link.
+  const { data: name = '' } = useQuery({
+    queryKey: ['test-name', testId],
+    queryFn: async () => {
+      const tests = ((await api.get('/tests/tests')).data as { tests: { $id: string; name: string }[] })
+        .tests ?? [];
+      return tests.find((t) => t.$id === testId)?.name ?? 'Test';
+    },
+  });
 
   const { data: history = [] } = useQuery({
     queryKey: ['test-history', testId],

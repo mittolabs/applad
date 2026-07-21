@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import { useParams } from 'react-router-dom';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Smartphone, Tablet } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
@@ -34,7 +36,8 @@ const DETAIL_TABS = ['Overview', 'Builds', 'Signing', 'Settings'];
 
 export function MobilePage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The open app is part of the address, so a refresh keeps it.
+  const selection = useRoutedSelection('mobile', 'appId');
 
   const list = useResourceList({
     endpoint: '/deploy/targets',
@@ -43,13 +46,13 @@ export function MobilePage() {
     scope: [projectId],
   });
 
-  if (selectedId) {
+  if (selection.id) {
     return (
       <MobileDetail
-        id={selectedId}
-        onBack={() => setSelectedId(null)}
+        id={selection.id}
+        onBack={selection.clear}
         onDeleted={() => {
-          setSelectedId(null);
+          selection.clear();
           list.refetch();
         }}
       />
@@ -65,7 +68,7 @@ export function MobilePage() {
         </p>
       </div>
 
-      <MobileList list={list} onOpen={setSelectedId} />
+      <MobileList list={list} onOpen={selection.select} />
     </div>
   );
 }
@@ -251,7 +254,8 @@ function MobileDetail({
   onBack: () => void;
   onDeleted: () => void;
 }) {
-  const [tab, setTab] = useState(0);
+  // In the URL so a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(DETAIL_TABS, undefined, 'view');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
+import { DetailRoute } from '@/components/detail-route';
 import { Activity, AlertTriangle, Timer, Zap } from 'lucide-react';
 import { api } from '@/api/client';
 import { useResourceList } from '@/hooks/use-resource-list';
@@ -34,7 +36,8 @@ const COLUMNS: DataTableColumn[] = [
 export function FunctionsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [tab, setTab] = useTabIndex(LIST_TABS);
-  const [selected, setSelected] = useState<Row | null>(null);
+  // Which function is open belongs in the address, not in state.
+  const selection = useRoutedSelection('functions', 'functionId');
 
   const list = useResourceList({
     endpoint: '/functions',
@@ -42,17 +45,21 @@ export function FunctionsPage() {
     scope: [projectId],
   });
 
-  if (selected) {
+  if (selection.id) {
     return (
-      <FunctionDetail
-        fn={selected}
-        onChange={setSelected}
-        onBack={() => setSelected(null)}
-        onDeleted={() => {
-          setSelected(null);
-          list.refetch();
-        }}
-      />
+      <DetailRoute endpoint="/functions" id={selection.id}>
+        {(fn, refetch) => (
+          <FunctionDetail
+            fn={fn}
+            onChange={refetch}
+            onBack={selection.clear}
+            onDeleted={() => {
+              selection.clear();
+              list.refetch();
+            }}
+          />
+        )}
+      </DetailRoute>
     );
   }
 
@@ -68,7 +75,7 @@ export function FunctionsPage() {
       <PageTabs tabs={LIST_TABS} selected={tab} onChange={setTab} />
 
       {tab === 0 ? (
-        <FunctionsTab list={list} onOpen={setSelected} />
+        <FunctionsTab list={list} onOpen={(row) => selection.select(String(row['$id'] ?? ''))} />
       ) : (
         <UsageTab />
       )}

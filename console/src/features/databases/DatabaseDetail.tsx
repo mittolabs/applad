@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database } from 'lucide-react';
 import { api } from '@/api/client';
@@ -23,7 +24,8 @@ export function DatabaseDetail({
   onBack: () => void;
   onSelectTable: (id: string, name: string) => void;
 }) {
-  const [tab, setTab] = useState(0);
+  // In the URL so a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(TABS, undefined, 'view');
 
   const tablesQuery = useQuery({
     queryKey: ['db-tables', dbId],

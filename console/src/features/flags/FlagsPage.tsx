@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
+import { DetailRoute } from '@/components/detail-route';
 import { Flag as FlagIcon } from 'lucide-react';
 import { api } from '@/api/client';
 import { DataTable, type DataTableColumn, type Row } from '@/components/data-table';
@@ -19,7 +21,8 @@ const COLUMNS: DataTableColumn[] = [
 
 export function FlagsPage() {
   const { projectId } = useParams();
-  const [selected, setSelected] = useState<Flag | null>(null);
+  // Which record is open belongs in the address.
+  const selection = useRoutedSelection('flags', 'flagId');
   const [creating, setCreating] = useState(false);
   const list = useResourceList<Flag>({ endpoint: '/flags', itemsKey: 'flags', scope: [projectId] });
 
@@ -41,20 +44,24 @@ export function FlagsPage() {
     return true;
   });
 
-  if (selected) {
+  if (selection.id) {
     return (
-      <FlagDetail
-        flag={selected}
-        onBack={() => setSelected(null)}
-        onChange={(updated) => {
-          setSelected(updated);
-          list.refetch();
-        }}
-        onDeleted={() => {
-          setSelected(null);
-          list.refetch();
-        }}
-      />
+      <DetailRoute endpoint="/flags" id={selection.id}>
+        {(flag, refetch) => (
+          <FlagDetail
+            flag={flag as Flag}
+            onBack={selection.clear}
+            onChange={() => {
+              refetch();
+              list.refetch();
+            }}
+            onDeleted={() => {
+              selection.clear();
+              list.refetch();
+            }}
+          />
+        )}
+      </DetailRoute>
     );
   }
 
@@ -93,7 +100,7 @@ export function FlagsPage() {
         }}
         rowIcon={() => FlagIcon}
         rowIconColor={(row) => (row.enabled === true ? '#22C55E' : '#6B7280')}
-        onRowClick={(row) => setSelected(row as Flag)}
+        onRowClick={(row) => selection.select(String(row['$id'] ?? ''))}
         onDeleteRow={async (row) => {
           await api.delete(`/flags/${String(row.$id)}`);
           list.refetch();

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useNestedSelection } from '@/hooks/use-routed-selection';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { File as FileIcon, FolderClosed, HardDrive } from 'lucide-react';
 import { api } from '@/api/client';
@@ -25,15 +26,17 @@ const COLUMNS: DataTableColumn[] = [
 export function StoragePage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [tab, setTab] = useTabIndex(TABS);
-  const [selectedBucketId, setSelectedBucketId] = useState<string | null>(null);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  // Both levels live in the path: a file only means something inside its
+  // bucket, so /storage/:bucketId/:fileId describes exactly what is on screen.
+  const { parentId: selectedBucketId, childId: selectedFileId, select } =
+    useNestedSelection('storage', 'bucketId', 'fileId');
 
   if (selectedBucketId && selectedFileId) {
     return (
       <FileDetailView
         bucketId={selectedBucketId}
         fileId={selectedFileId}
-        onBack={() => setSelectedFileId(null)}
+        onBack={() => select(selectedBucketId)}
       />
     );
   }
@@ -42,8 +45,8 @@ export function StoragePage() {
     return (
       <BucketDetailView
         bucketId={selectedBucketId}
-        onBack={() => setSelectedBucketId(null)}
-        onFileSelect={setSelectedFileId}
+        onBack={() => select(null)}
+        onFileSelect={(fileId) => select(selectedBucketId, fileId)}
       />
     );
   }
@@ -60,7 +63,7 @@ export function StoragePage() {
       <PageTabs tabs={TABS} selected={tab} onChange={setTab} />
 
       {tab === 0 ? (
-        <BucketsTab projectId={projectId} onSelect={setSelectedBucketId} />
+        <BucketsTab projectId={projectId} onSelect={(bucketId) => select(bucketId)} />
       ) : (
         <UsageTab />
       )}

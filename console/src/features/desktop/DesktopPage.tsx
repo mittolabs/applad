@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import { useParams } from 'react-router-dom';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
 import { useQuery } from '@tanstack/react-query';
 import { Apple, Check, Laptop, Minus, Monitor, Plus, Terminal, type LucideIcon } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
@@ -57,7 +59,8 @@ function platformsLabel(row: Row): string {
 
 export function DesktopPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The open app is part of the address, so a refresh keeps it.
+  const selection = useRoutedSelection('desktop', 'appId');
 
   const list = useResourceList({
     endpoint: '/deploy/targets',
@@ -67,13 +70,13 @@ export function DesktopPage() {
     defaultPerPage: 6,
   });
 
-  if (selectedId) {
+  if (selection.id) {
     return (
       <DesktopDetail
-        id={selectedId}
-        onBack={() => setSelectedId(null)}
+        id={selection.id}
+        onBack={selection.clear}
         onDeleted={() => {
-          setSelectedId(null);
+          selection.clear();
           list.refetch();
         }}
       />
@@ -91,7 +94,7 @@ export function DesktopPage() {
         </p>
       </div>
 
-      <DesktopList list={list} onOpen={setSelectedId} />
+      <DesktopList list={list} onOpen={selection.select} />
     </div>
   );
 }
@@ -306,7 +309,8 @@ function DesktopDetail({
   onBack: () => void;
   onDeleted: () => void;
 }) {
-  const [tab, setTab] = useState(0);
+  // In the URL so a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(DETAIL_TABS, undefined, 'view');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 

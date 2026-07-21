@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
+import { DetailRoute } from '@/components/detail-route';
 import { Box } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { useResourceList } from '@/hooks/use-resource-list';
@@ -31,7 +33,8 @@ interface ContainerPrefill {
 
 export function ContainersPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [selected, setSelected] = useState<Row | null>(null);
+  // Which record is open belongs in the address.
+  const selection = useRoutedSelection('containers', 'containerId');
   const [entryOpen, setEntryOpen] = useState(false);
   const [prefill, setPrefill] = useState<ContainerPrefill | null>(null);
 
@@ -66,16 +69,20 @@ export function ContainersPage() {
     }
   };
 
-  if (selected) {
+  if (selection.id) {
     return (
-      <ContainerDetail
-        container={selected}
-        onBack={() => setSelected(null)}
-        onDeleted={() => {
-          setSelected(null);
-          list.refetch();
-        }}
-      />
+      <DetailRoute endpoint="/deploy/targets" id={selection.id}>
+        {(container) => (
+          <ContainerDetail
+            container={container}
+            onBack={selection.clear}
+            onDeleted={() => {
+              selection.clear();
+              list.refetch();
+            }}
+          />
+        )}
+      </DetailRoute>
     );
   }
 
@@ -106,7 +113,7 @@ export function ContainersPage() {
           key === 'status' ? <StatusChip label={String(row['status'] ?? 'active')} /> : undefined
         }
         rowIcon={() => Box}
-        onRowClick={setSelected}
+        onRowClick={(row) => selection.select(String(row['$id'] ?? row['id'] ?? ''))}
         onDeleted={() => list.refetch()}
         createLabel="Create container"
         onCreate={() => setEntryOpen(true)}

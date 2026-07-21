@@ -49,8 +49,13 @@ export function useResourceList<T = Record<string, unknown>>(
   const [urlParams, setUrlParams] = useSearchParams();
   const page = Math.max(1, Number(urlParams.get('page') ?? '1'));
   const [perPage, setPerPageState] = useState(defaultPerPage);
-  const [searchInput, setSearchInput] = useState('');
-  const [activeSearch, setActiveSearch] = useState('');
+  const [searchInput, setSearchInput] = useState(urlParams.get('q') ?? '');
+  /*
+   * The applied search lives in the address, so a filtered list can be shared
+   * or reloaded. The input box stays local — syncing every keystroke to the
+   * URL would fill the history with half-typed words.
+   */
+  const activeSearch = urlParams.get('q') ?? '';
   const [filters, setFiltersState] = useState<Record<string, string | null>>({});
 
   const setPage = useCallback(
@@ -103,8 +108,11 @@ export function useResourceList<T = Record<string, unknown>>(
     error: query.error,
     setSearch: setSearchInput,
     runSearch: () => {
-      setActiveSearch(searchInput);
-      setPage(1);
+      const next = new URLSearchParams(urlParams);
+      if (searchInput.trim()) next.set('q', searchInput.trim());
+      else next.delete('q');
+      next.delete('page');
+      setUrlParams(next, { replace: true });
     },
     setPerPage: (n) => {
       setPerPageState(n);

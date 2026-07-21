@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import { ArrowLeft } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { PageTabs } from '@/components/page-tabs';
@@ -36,7 +37,8 @@ export function PlatformDetail({
   onChange: (next: Row) => void;
   onDeleted: () => void;
 }) {
-  const [tab, setTab] = useState(0);
+  // In the URL so a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(DETAIL_TABS, undefined, 'view');
   const type = String(platform['type'] ?? 'web');
   const TypeIcon = typeIconFor(type);
   const name = String(platform['name'] ?? '');

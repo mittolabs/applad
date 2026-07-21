@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTabIndex } from '@/hooks/use-tab-param';
 import { useQuery } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import { Activity, ChevronLeft, Play, Plus, Trash2, Variable } from 'lucide-react';
@@ -44,7 +45,8 @@ export function FunctionDetail({
   onBack: () => void;
   onDeleted: () => void;
 }) {
-  const [tab, setTab] = useState(0);
+  // In the URL so a refresh stays on the tab somebody was reading.
+  const [tab, setTab] = useTabIndex(DETAIL_TABS, undefined, 'view');
   const [running, setRunning] = useState(false);
   const id = String(fn['$id']);
   const name = String(fn['name'] ?? 'Function');

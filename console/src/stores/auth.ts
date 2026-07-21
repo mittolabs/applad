@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import { create } from 'zustand';
 import {
   api,
@@ -67,9 +68,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const user = await fetchMe();
       set({ user, status: 'authenticated' });
-    } catch {
-      persistToken(null);
-      set({ token: null, user: null, status: 'unauthenticated' });
+    } catch (error) {
+      /*
+       * Only an outright rejection of the credentials ends the session.
+       * Treating every failure as one signs people out over a dropped
+       * connection, a server hiccup, or a request the browser cancelled
+       * because they navigated while it was still in flight — which is what
+       * a quick second refresh does.
+       */
+      if (isAxiosError(error) && error.response?.status === 401) {
+        persistToken(null);
+        set({ token: null, user: null, status: 'unauthenticated' });
+        return;
+      }
+      // The token is kept and the session stays; the failing screen shows the
+      // error rather than the login page.
+      set({ status: 'authenticated' });
     }
   },
 
