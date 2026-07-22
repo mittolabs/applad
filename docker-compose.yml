@@ -39,6 +39,33 @@ x-worker-deps: &worker-deps
 x-worker-volumes: &worker-volumes
   - storage_data:/var/applad/storage
 
+# Workers reach the data plane on `internal` and the outside world (git, SMTP,
+# webhooks, ACME) through `backend`.
+x-worker-networks: &worker-networks
+  - internal
+  - backend
+
+# Bounded container logs — an unbounded json-file log fills the host disk.
+# Deployed customer apps are created straight through the Docker API, so their
+# log cap comes from the daemon: set the same json-file limits in
+# /etc/docker/daemon.json ("log-driver"/"log-opts") to bound them too.
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Resource ceilings so one runaway service cannot starve the box.
+x-limits-small: &limits-small
+  mem_limit: 512m
+  cpus: 1
+x-limits-medium: &limits-medium
+  mem_limit: 1g
+  cpus: 2
+x-limits-large: &limits-large
+  mem_limit: 4g
+  cpus: 2
+
 services:
   api:
     build:
@@ -90,7 +117,15 @@ services:
       # Read-only, and absent on an instance with no GitHub App — the app is
       # optional and every path degrades without it.
       - ./secrets:/run/secrets:ro
+    networks:
+      - internal
+      - backend
+      # The recording studio dials browser containers by name, and those live
+      # on the deploy network with the customer apps they record against.
+      - deploy
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-medium
     restart: unless-stopped
 
   # React + Vite admin console (served as a static bundle by nginx).
@@ -101,6 +136,10 @@ services:
       dockerfile: docker/console/Dockerfile
     expose:
       - "80"
+    networks:
+      - backend
+    logging: *default-logging
+    <<: *limits-small
     restart: unless-stopped
 
   # Marketing site → applad.io.localhost
@@ -110,6 +149,10 @@ services:
       dockerfile: docker/website/Dockerfile
     expose:
       - "80"
+    networks:
+      - backend
+    logging: *default-logging
+    <<: *limits-small
     restart: unless-stopped
 
   # Documentation (Fumadocs) → docs.applad.io.localhost
@@ -122,6 +165,10 @@ services:
         NEXT_PUBLIC_CONSOLE_URL: "http://console.applad.io.localhost"
     expose:
       - "80"
+    networks:
+      - backend
+    logging: *default-logging
+    <<: *limits-small
     restart: unless-stopped
 
   # Status page → status.applad.io.localhost (reads GET /v1/status)
@@ -131,6 +178,10 @@ services:
       dockerfile: docker/status/Dockerfile
     expose:
       - "80"
+    networks:
+      - backend
+    logging: *default-logging
+    <<: *limits-small
     restart: unless-stopped
 
   proxy:
@@ -141,9 +192,17 @@ services:
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ssl_certs:/etc/ssl/applad
+    networks:
+      # backend for our own services; deploy so <app>.applad.dev vhosts can
+      # reach customer containers by name. The proxy is the only bridge
+      # between the two.
+      - backend
+      - deploy
+    logging: *default-logging
     depends_on:
       - api
       - console
+    <<: *limits-small
     restart: unless-stopped
 
   # BuildKit — where source becomes an image.
@@ -167,7 +226,16 @@ services:
       - --addr
       - unix:///run/buildkit/buildkitd.sock
     volumes:
+      # buildkit_cache grows without bound; prune it periodically, e.g.
+      #   docker compose exec buildkit buildctl \
+      #     --addr unix:///run/buildkit/buildkitd.sock prune --keep-storage 10gb
       - buildkit_cache:/var/lib/buildkit
+    networks:
+      # Privileged and unauthenticated, so it shares a network with nothing
+      # but the one worker that builds — never the deploy network.
+      - build
+    logging: *default-logging
+    <<: *limits-large
     restart: unless-stopped
 
   worker-builds:
@@ -182,12 +250,25 @@ services:
       # API, so the same socket that runs containers also carries the build —
       # which is what will let a remote server build and run in one place.
       BUILDKIT_HOST: "${BUILDKIT_HOST:-tcp://buildkit:1234}"
+      # The network deployed customer containers are started on. Only the
+      # proxy (routing), the api (studio) and this worker (health checks)
+      # also join it, so a customer app cannot see buildkit or postgres.
+      APPLAD_DEPLOY_NETWORK: "${APPLAD_DEPLOY_NETWORK:-applad_deploy}"
     volumes:
       - storage_data:/var/applad/storage
       - /var/run/docker.sock:/var/run/docker.sock
       # The builds worker is what clones, so it needs the app's key.
       - ./secrets:/run/secrets:ro
+    networks:
+      - internal
+      - backend
+      # Sole peer of buildkit.
+      - build
+      # Health-checks freshly deployed apps by container name.
+      - deploy
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-medium
     restart: unless-stopped
 
   worker-certificates:
@@ -197,7 +278,10 @@ services:
         WORKER_TYPE: certificates
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-databases:
@@ -207,7 +291,10 @@ services:
         WORKER_TYPE: databases
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-deletes:
@@ -217,7 +304,10 @@ services:
         WORKER_TYPE: deletes
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-executions:
@@ -227,7 +317,10 @@ services:
         WORKER_TYPE: executions
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-mails:
@@ -237,7 +330,10 @@ services:
         WORKER_TYPE: mails
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-messaging:
@@ -247,7 +343,10 @@ services:
         WORKER_TYPE: messaging
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-migrations:
@@ -257,7 +356,10 @@ services:
         WORKER_TYPE: migrations
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-usage:
@@ -267,7 +369,10 @@ services:
         WORKER_TYPE: usage
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-webhooks:
@@ -277,7 +382,10 @@ services:
         WORKER_TYPE: webhooks
     environment: *worker-env
     volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   worker-cron:
@@ -286,7 +394,10 @@ services:
       args:
         WORKER_TYPE: cron
     environment: *worker-env
+    networks: *worker-networks
+    logging: *default-logging
     depends_on: *worker-deps
+    <<: *limits-small
     restart: unless-stopped
 
   pgbouncer:
@@ -310,6 +421,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *limits-small
     restart: unless-stopped
 
   postgres:
@@ -326,10 +441,47 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *limits-medium
+    restart: unless-stopped
+
+  # Scheduled pg_dump into ./backups on the host, with rotation. The postgres
+  # image so pg_dump always matches the server's major version.
+  pgbackup:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: "${DB_PASSWORD:-applad}"
+      BACKUP_INTERVAL: "${BACKUP_INTERVAL:-86400}"
+      BACKUP_KEEP_DAYS: "${BACKUP_KEEP_DAYS:-7}"
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        while :; do
+          f="/backups/applad-$$(date -u +%Y%m%d-%H%M%S).dump"
+          pg_dump -Fc -h postgres -U applad -d applad -f "$$f" \
+            && echo "pgbackup: wrote $$f" \
+            || { echo "pgbackup: dump failed" >&2; rm -f "$$f"; }
+          find /backups -name 'applad-*.dump' -mtime +"$$BACKUP_KEEP_DAYS" -delete
+          sleep "$$BACKUP_INTERVAL"
+        done
+    volumes:
+      - ./backups:/backups
+    networks:
+      - internal
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    <<: *limits-small
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
+    # AOF, so queued build jobs survive a restart rather than living in memory.
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:
@@ -337,6 +489,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *limits-small
     restart: unless-stopped
 
   clamav:
@@ -345,7 +501,28 @@ services:
       - antivirus
     volumes:
       - clamav_data:/var/lib/clamav
+    networks:
+      # backend as well: freshclam needs egress for signature updates.
+      - internal
+      - backend
+    logging: *default-logging
+    <<: *limits-large
     restart: unless-stopped
+
+networks:
+  # Data plane — postgres, pgbouncer, redis. internal: true means no egress
+  # and no route in from anything that has not been given membership here.
+  internal:
+    internal: true
+  # Our services and their egress; also what the proxy uses to reach them.
+  backend:
+  # BuildKit is privileged and unauthenticated: worker-builds is its only peer.
+  build:
+  # Deployed customer containers. Named explicitly because the builds worker
+  # attaches containers to it by name (APPLAD_DEPLOY_NETWORK) through the raw
+  # Docker API, outside compose.
+  deploy:
+    name: applad_deploy
 
 volumes:
   buildkit_cache:

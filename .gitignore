@@ -64,3 +64,6 @@ Thumbs.db
 # lives here and is mounted into the containers that need it.
 secrets/
 *.pem
+
+# Local Postgres backups (pgbackup service + install.sh upgrade snapshots)
+backups/

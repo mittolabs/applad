@@ -37,6 +37,7 @@ type Builds struct {
 	db             *db.DB
 	executor       *runtime.Executor
 	deployExecutor *runtime.DeployExecutor
+	docker         *runtime.Client
 	// Consulted only to mint GitHub tokens for a clone; the worker does its
 	// own querying for everything else.
 	deploySvc *deploy.Service
@@ -60,6 +61,7 @@ func (w *Builds) Start(ctx context.Context) error {
 
 	w.executor = runtime.NewExecutor()
 	w.deployExecutor = runtime.NewDeployExecutor()
+	w.docker = runtime.NewClient()
 
 	// The worker clones repositories, so it needs to be able to mint a token
 	// for a private one. An instance with no GitHub App configured carries on
@@ -998,8 +1000,41 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	w.updateReleaseStatus(ctx, releaseID, "success",
 		deployNarrative(cfg, buildLog, durationMs, imageSize, true), "", durationMs)
 	w.postReleaseCommitStatus(ctx, projectID, pipelineID, commitSHA, "success", "Deployed successfully")
+	w.reapReleaseImages(ctx, targetID, releaseID, cfg.targetType)
 	slog.Info("builds worker: release complete", "release_id", releaseID, "duration_ms", durationMs)
 	return nil
+}
+
+// reapReleaseImages removes the images earlier releases of a target left
+// behind. Every release tags applad-deploy-<id> and nothing ever deleted
+// them — 17GB accumulated in a day on one host. Only settled releases are
+// touched: keepID is the one whose image the serving container runs, and a
+// row still building belongs to another worker.
+func (w *Builds) reapReleaseImages(ctx context.Context, targetID, keepID, targetType string) {
+	if targetType == "serverless" || targetType == "function" {
+		return // functions build applad-fn-<id>; the executor reaps those
+	}
+	rows, err := w.db.QueryContext(ctx,
+		`SELECT id FROM deploy_releases
+		  WHERE target_id = $1 AND id != $2
+		    AND status IN ('success', 'failed', 'rolled_back')`,
+		targetID, keepID)
+	if err != nil {
+		slog.Warn("builds worker: release image reap query failed", "target_id", targetID, "error", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) != nil {
+			continue
+		}
+		// A missing image (most failed builds never tagged one) 404s, which
+		// RemoveImage ignores.
+		if err := w.docker.RemoveImage(ctx, "applad-deploy-"+id); err != nil {
+			slog.Warn("builds worker: remove release image failed", "release_id", id, "error", err)
+		}
+	}
 }
 
 func (w *Builds) processRollback(ctx context.Context, job *queue.Job) error {
@@ -1050,6 +1085,9 @@ func (w *Builds) processRollback(ctx context.Context, job *queue.Job) error {
 	}
 
 	w.updateReleaseStatus(ctx, releaseID, "success", "", "", durationMs)
+	// A rollback serves its own freshly built image, so older ones are as
+	// dead here as after a normal release.
+	w.reapReleaseImages(ctx, targetID, releaseID, cfg.targetType)
 	slog.Info("builds worker: rollback complete", "release_id", releaseID)
 	return nil
 }

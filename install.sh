@@ -193,6 +193,24 @@ if [ "$MODE" = upgrade ]; then
   [ -f "$COMPOSE_FILE" ] || die "No $COMPOSE_FILE found in $INSTALL_DIR. Run install first."
   section "Upgrading Applad"
   NEW_VERSION="$(ask "Target version:" "latest")"
+
+  # Snapshot the database before anything changes, so a bad upgrade is a
+  # restore rather than a loss.
+  SNAPSHOT="$INSTALL_DIR/backups/pre-${NEW_VERSION}.dump"
+  RESTORE_CMD="docker compose -f $COMPOSE_FILE exec -T postgres pg_restore -U applad -d applad --clean --if-exists < $SNAPSHOT"
+  mkdir -p "$INSTALL_DIR/backups"
+  info "Snapshotting database to ${SNAPSHOT}…"
+  if docker compose -f "$COMPOSE_FILE" exec -T postgres pg_dump -Fc -U applad -d applad > "$SNAPSHOT"; then
+    log "Snapshot written ($(du -h "$SNAPSHOT" | cut -f1))"
+  else
+    rm -f "$SNAPSHOT"
+    if [ "${SKIP_DB_SNAPSHOT:-0}" = "1" ]; then
+      warn "Continuing without a snapshot (SKIP_DB_SNAPSHOT=1)"
+    else
+      die "Database snapshot failed — is postgres running? Set SKIP_DB_SNAPSHOT=1 to upgrade without one."
+    fi
+  fi
+
   # Update the version in .env if it exists
   if [ -f .env ]; then
     if grep -q '^APPLAD_VERSION=' .env; then
@@ -201,11 +219,26 @@ if [ "$MODE" = upgrade ]; then
       echo "APPLAD_VERSION=${NEW_VERSION}" >> .env
     fi
   fi
+
   info "Pulling images (version: ${NEW_VERSION})…"
-  APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" pull
+  if ! APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" pull; then
+    [ -f .env.bak ] && mv .env.bak .env
+    err "Image pull failed — nothing was changed, services are still on the previous version."
+    info "Database snapshot kept at: ${SNAPSHOT}"
+    exit 1
+  fi
   info "Restarting services…"
-  APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+  if ! APPLAD_VERSION="$NEW_VERSION" docker compose -f "$COMPOSE_FILE" up -d --remove-orphans; then
+    err "Upgrade failed to start."
+    info "Restore the pre-upgrade database with:"
+    printf "      ${BOLD}%s${RESET}\n" "$RESTORE_CMD"
+    info "Then roll back the images with:"
+    printf "      ${BOLD}APPLAD_VERSION=<previous> docker compose -f %s up -d${RESET}\n" "$COMPOSE_FILE"
+    exit 1
+  fi
+  rm -f .env.bak
   log "Upgrade complete — running ${NEW_VERSION}"
+  info "Pre-upgrade snapshot: ${SNAPSHOT} (restore: ${RESTORE_CMD})"
   printf '\n'
   info "Tail logs: ${BOLD}docker compose -f %s logs -f${RESET}" "$COMPOSE_FILE"
   exit 0

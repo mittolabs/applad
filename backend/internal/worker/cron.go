@@ -156,6 +156,28 @@ func (w *Cron) tick(ctx context.Context) {
 	for _, s := range w.collect(ctx) {
 		w.evaluate(ctx, s, now)
 	}
+
+	w.sweepStaleReleases(ctx)
+}
+
+// sweepStaleReleases fails releases whose worker died mid-build. Without it a
+// lost builds worker leaves rows 'building' forever and the console shows a
+// deploy that never ends. deploy_releases has no updated_at, so age is judged
+// from when the build started (or the row was created); an hour is far past
+// any build timeout.
+func (w *Cron) sweepStaleReleases(ctx context.Context) {
+	res, err := w.db.ExecContext(ctx,
+		`UPDATE deploy_releases
+		    SET status = 'failed', error = 'worker lost', completed_at = NOW()
+		  WHERE status IN ('building', 'deploying')
+		    AND COALESCE(started_at, created_at) < NOW() - INTERVAL '1 hour'`)
+	if err != nil {
+		slog.Error("cron worker: stale release sweep failed", "error", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Warn("cron worker: failed stale releases", "count", n)
+	}
 }
 
 // evaluate decides whether one scheduled thing is due, fires it if so, and

@@ -21,19 +21,18 @@ func main() {
 	cfg := config.Load()
 	slog.SetDefault(logger.New(cfg.AppEnv))
 
-	if cfg.JWTSecret == "change-me-in-production" {
-		if cfg.AppEnv == "production" {
-			slog.Error("JWT_SECRET must be changed from default in production")
-			panic("unsafe JWT_SECRET in production")
-		}
-		slog.Warn("using default JWT_SECRET — set JWT_SECRET before going to production")
+	// JWT_SECRET also derives the API-key pepper and the credentials-vault
+	// key, so a known or short value forfeits every credential on the
+	// instance. Refused in every environment: APP_ENV defaults to
+	// "development", which is exactly what an unconfigured production box
+	// runs as.
+	if cfg.JWTSecret == "" || cfg.JWTSecret == "change-me-in-production" {
+		slog.Error("JWT_SECRET is unset or the known default — generate one: openssl rand -hex 32")
+		panic("refusing to start with default JWT_SECRET")
 	}
 	if len(cfg.JWTSecret) < 32 {
-		if cfg.AppEnv == "production" {
-			slog.Error("JWT_SECRET must be at least 32 characters in production")
-			panic("JWT_SECRET too short for production")
-		}
-		slog.Warn("JWT_SECRET is shorter than 32 characters — use a longer secret in production")
+		slog.Error("JWT_SECRET must be at least 32 characters — generate one: openssl rand -hex 32")
+		panic("refusing to start with short JWT_SECRET")
 	}
 
 	database, err := db.Connect(cfg.DatabaseDSN, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
