@@ -97,6 +97,7 @@ function RootRedirect() {
 const shellSegments: [string, string][] = [
   ['overview', 'Overview'],
   ['plan', 'Plan'],
+  ['plan/:itemId', 'Plan'],
   ['get-started', 'Get started'],
   ['auth', 'Auth'],
   ['databases', 'Databases'],
@@ -145,6 +146,7 @@ const shellSegments: [string, string][] = [
 const FEATURE_ELEMENTS: Record<string, React.ReactNode> = {
   overview: <OverviewPage />,
   plan: <PlanPage />,
+  'plan/:itemId': <PlanPage />,
   'get-started': <GetStartedPage />,
   auth: <AuthPage />,
   databases: <DatabasesPage />,

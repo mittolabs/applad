@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useRoutedSelection } from '@/hooks/use-routed-selection';
+import { ItemDetail } from './ItemDetail';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Plus, Columns3, List } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
@@ -63,6 +65,9 @@ const ORDER = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 export function PlanPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const qc = useQueryClient();
+  // Which item is open belongs in the address, so a refresh does not throw
+  // somebody out of what they were reading.
+  const selection = useRoutedSelection('plan', 'itemId');
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
   // Remembered, because which view suits you is a preference about how you
@@ -94,6 +99,10 @@ export function PlanPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plan-items'] }),
     onError: (e) => toast.error(friendlyError(e)),
   });
+
+  if (selection.id) {
+    return <ItemDetail itemId={selection.id} onBack={selection.clear} />;
+  }
 
   return (
     <div className="flex flex-col gap-6 p-6 md:p-8">
@@ -163,6 +172,7 @@ export function PlanPage() {
           items={items}
           showClosed={showClosed}
           onStatus={(id, status) => setStatus.mutate({ id, status })}
+          onOpen={selection.select}
         />
       ) : (
         <div className="flex flex-col gap-6">
@@ -185,6 +195,7 @@ export function PlanPage() {
                       key={item.$id}
                       item={item}
                       onStatus={(status) => setStatus.mutate({ id: item.$id, status })}
+                      onOpen={() => selection.select(item.$id)}
                     />
                   ))}
                 </div>
@@ -218,10 +229,12 @@ function BoardView({
   items,
   showClosed,
   onStatus,
+  onOpen,
 }: {
   items: Item[];
   showClosed: boolean;
   onStatus: (id: string, status: string) => void;
+  onOpen: (id: string) => void;
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -269,6 +282,7 @@ function BoardView({
               <div
                 key={item.$id}
                 draggable
+                onClick={() => onOpen(item.$id)}
                 onDragStart={() => setDragging(item.$id)}
                 onDragEnd={() => {
                   setDragging(null);
@@ -326,7 +340,15 @@ function BoardView({
   );
 }
 
-function ItemRow({ item, onStatus }: { item: Item; onStatus: (status: string) => void }) {
+function ItemRow({
+  item,
+  onStatus,
+  onOpen,
+}: {
+  item: Item;
+  onStatus: (status: string) => void;
+  onOpen: () => void;
+}) {
   const closed = item.status === 'done' || item.status === 'cancelled';
   return (
     <div className="flex items-center gap-3 rounded-[var(--radius)] border border-border bg-surface px-4 py-3 transition-colors hover:bg-fill-hover">
@@ -342,14 +364,15 @@ function ItemRow({ item, onStatus }: { item: Item; onStatus: (status: string) =>
         ))}
       </select>
 
-      <span
+      <button
+        onClick={onOpen}
         className={cn(
-          'flex-1 truncate text-[length:var(--text-body)]',
+          'flex-1 truncate text-left text-[length:var(--text-body)] hover:underline',
           closed ? 'text-text-muted line-through' : 'text-text-primary',
         )}
       >
         {item.title}
-      </span>
+      </button>
 
       {item.labels.map((label) => (
         <span
