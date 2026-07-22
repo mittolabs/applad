@@ -88,6 +88,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	r.Use(mw.CORS)
 	r.Use(mw.SecurityHeaders)
 	r.Use(mw.RateLimitRedisTiered(cfg.RateLimitAnonPerMinute, cfg.RateLimitAuthedPerMinute, cacheClient.Client()))
+	// Credential attempts, before anything knows who the caller is. Keyed by
+	// address and by the account being attempted, because an attacker rotates
+	// the first and cannot rotate the second.
+	r.Use(mw.RateLimitRules(cacheClient.Client(), mw.AuthRules()))
 	r.Use(mw.MaxBodySize(10 << 20))
 	r.Use(audit.Middleware(auditSvc))
 
@@ -296,6 +300,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			r.Group(func(r chi.Router) {
 				r.Use(mw.RequireAuth)
 				r.Use(mw.RateLimitUser(300, cacheClient.Client()))
+				// Work a project causes — builds, messages, executions — as
+				// distinct from requests it makes. Applied here because the
+				// project is known by now, and it is the project that pays.
+				r.Use(mw.RateLimitRules(cacheClient.Client(), mw.ProjectWorkRules()))
 				r.Mount("/users", auth.UserRoutes(auth.NewHandler(authSvc)))
 				r.Mount("/teams", teams.Routes(teams.NewHandler(teamSvc)))
 				r.Mount("/databases", databases.Routes(databases.NewHandler(dbSvc)))

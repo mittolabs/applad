@@ -333,6 +333,30 @@ not a failure: public repositories still deploy by URL, and the console says so
 instead of offering a button that cannot work. An operator who wants private
 repos registers their own app and sets `GITHUB_APP_*`.
 
+### Rate limits
+
+A request is not a unit of cost. Reading a list is a cached query; starting a
+deploy is minutes of CPU; sending an SMS is money and a sender reputation. One
+counter over all of them protected the cheapest thing in the system and
+nothing else — refreshing a page hit the limit while nothing capped builds,
+messages or password guesses.
+
+Three layers, each keyed by whoever should bear it:
+
+| | Keyed by | Guards against |
+|---|---|---|
+| Generic | address, split anonymous vs signed-in | a flood from an unknown source |
+| Credentials | address **and** the account attempted | password guessing; an attacker rotates the first and cannot rotate the second |
+| Project work | project | deploys, messages, executions and test runs — the operations that cost something |
+
+The signed-in generic limit is sized for a console, which issues twenty or
+more requests to render a page. Expensive operations are named individually in
+`middleware.ProjectWorkRules`, so a limit is a statement about one operation
+rather than a number covering everything.
+
+Redis being unavailable allows the request: this is fairness, not
+authorisation, and failing closed would turn a cache outage into a total one.
+
 ### Scheduling
 
 `worker-cron` ticks once a minute and fires anything due: workflows with
