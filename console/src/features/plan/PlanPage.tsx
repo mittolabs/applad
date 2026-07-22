@@ -1,0 +1,273 @@
+import { useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Plus } from 'lucide-react';
+import { api, friendlyError } from '@/api/client';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/empty-state';
+import { ErrorState } from '@/components/error-state';
+import { FormDialog, SelectField, TextField } from '@/components/form-dialog';
+import { toast } from '@/components/toast';
+import { cn } from '@/lib/utils';
+
+/*
+ * Plan — the work a project has decided to do.
+ *
+ * An item is intent, in a sentence somebody would say out loud. What the
+ * software must then do is a specification and whether it does it is a test;
+ * both are things an item points at, so the links here are how the rest of
+ * Applad is reached from the decision that caused it.
+ *
+ * Closed work is out of the list by default. A backlog showing everything ever
+ * finished is not a backlog.
+ */
+
+interface Link {
+  $id: string;
+  kind: string;
+  ref: string;
+  label?: string;
+}
+
+interface Item {
+  $id: string;
+  title: string;
+  body: string;
+  status: string;
+  priority: string;
+  labels: string[];
+  links: Link[];
+  closedAt?: string;
+}
+
+const STATUS = {
+  todo: { label: 'Todo', icon: CircleDashed, color: 'var(--text-muted)' },
+  in_progress: { label: 'In progress', icon: CircleDot, color: '#3B82F6' },
+  blocked: { label: 'Blocked', icon: PauseCircle, color: '#F59E0B' },
+  done: { label: 'Done', icon: CircleCheckBig, color: '#22C55E' },
+  cancelled: { label: 'Cancelled', icon: Ban, color: 'var(--text-subtle)' },
+} as const;
+
+const PRIORITY_COLOR: Record<string, string> = {
+  urgent: '#EF4444',
+  high: '#F59E0B',
+  medium: 'var(--text-muted)',
+  low: 'var(--text-subtle)',
+};
+
+const ORDER = ['in_progress', 'blocked', 'todo', 'done', 'cancelled'];
+
+export function PlanPage() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const qc = useQueryClient();
+  const [showClosed, setShowClosed] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const query = useQuery({
+    queryKey: ['plan-items', projectId, showClosed],
+    queryFn: async () =>
+      ((await api.get('/plan/items', { params: { includeClosed: showClosed || undefined } }))
+        .data as { items: Item[] }).items ?? [],
+  });
+
+  const items = query.data ?? [];
+  const grouped = ORDER.map((status) => ({
+    status,
+    items: items.filter((i) => i.status === status),
+  })).filter((g) => g.items.length > 0);
+
+  const setStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      api.patch(`/plan/items/${id}`, { status }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plan-items'] }),
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
+  return (
+    <div className="flex flex-col gap-6 p-6 md:p-8">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-[length:var(--text-h1)] font-semibold text-text-primary">Plan</h1>
+          <p className="mt-1 text-[length:var(--text-body)] text-text-secondary">
+            What this project has decided to do, and what each decision led to.
+          </p>
+        </div>
+        <Button onClick={() => setCreating(true)}>
+          <Plus size={14} />
+          New item
+        </Button>
+      </div>
+
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-[length:var(--text-label)] text-text-secondary">
+        <input
+          type="checkbox"
+          checked={showClosed}
+          onChange={(e) => setShowClosed(e.target.checked)}
+          className="accent-[var(--color-accent)]"
+        />
+        Show closed work
+      </label>
+
+      {query.isLoading ? (
+        <div className="py-10 text-center text-[length:var(--text-body)] text-text-muted">
+          Loading…
+        </div>
+      ) : query.error ? (
+        <ErrorState error={query.error} onRetry={() => query.refetch()} />
+      ) : items.length === 0 ? (
+        <EmptyState
+          icon={CircleDashed}
+          title="Nothing planned yet"
+          subtitle="Add the first thing this project has decided to do."
+        />
+      ) : (
+        <div className="flex flex-col gap-6">
+          {grouped.map((group) => {
+            const meta = STATUS[group.status as keyof typeof STATUS];
+            return (
+              <div key={group.status} className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <meta.icon size={14} style={{ color: meta.color }} />
+                  <span className="text-[length:var(--text-label)] font-medium text-text-primary">
+                    {meta.label}
+                  </span>
+                  <span className="text-[length:var(--text-caption)] text-text-subtle">
+                    {group.items.length}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {group.items.map((item) => (
+                    <ItemRow
+                      key={item.$id}
+                      item={item}
+                      onStatus={(status) => setStatus.mutate({ id: item.$id, status })}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <CreateItemDialog
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={() => qc.invalidateQueries({ queryKey: ['plan-items'] })}
+      />
+    </div>
+  );
+}
+
+function ItemRow({ item, onStatus }: { item: Item; onStatus: (status: string) => void }) {
+  const closed = item.status === 'done' || item.status === 'cancelled';
+  return (
+    <div className="flex items-center gap-3 rounded-[var(--radius)] border border-border bg-surface px-4 py-3 transition-colors hover:bg-fill-hover">
+      <select
+        value={item.status}
+        onChange={(e) => onStatus(e.target.value)}
+        className="cursor-pointer rounded-[var(--radius-sm)] border border-field-border bg-fill px-2 py-1 text-[length:var(--text-caption)] text-text-secondary"
+      >
+        {Object.entries(STATUS).map(([value, meta]) => (
+          <option key={value} value={value}>
+            {meta.label}
+          </option>
+        ))}
+      </select>
+
+      <span
+        className={cn(
+          'flex-1 truncate text-[length:var(--text-body)]',
+          closed ? 'text-text-muted line-through' : 'text-text-primary',
+        )}
+      >
+        {item.title}
+      </span>
+
+      {item.labels.map((label) => (
+        <span
+          key={label}
+          className="rounded-[var(--radius-sm)] border border-border bg-fill px-1.5 py-0.5 text-[length:var(--text-caption)] text-text-secondary"
+        >
+          {label}
+        </span>
+      ))}
+
+      {/* What this decision led to. A plan item with no links is a decision
+          nobody has acted on yet, which is worth being able to see. */}
+      {item.links.map((link) => (
+        <span
+          key={link.$id}
+          title={`${link.kind}: ${link.ref}`}
+          className="max-w-[180px] truncate rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[length:var(--text-caption)]"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)', color: 'var(--color-accent)' }}
+        >
+          {link.kind} · {link.label || link.ref}
+        </span>
+      ))}
+
+      <span
+        className="text-[length:var(--text-caption)] font-medium"
+        style={{ color: PRIORITY_COLOR[item.priority] }}
+      >
+        {item.priority}
+      </span>
+    </div>
+  );
+}
+
+function CreateItemDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onCreated: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [priority, setPriority] = useState('medium');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await api.post('/plan/items', { title: title.trim(), priority });
+      setTitle('');
+      setPriority('medium');
+      onOpenChange(false);
+      onCreated();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New item"
+      subtitle="Something this project has decided to do"
+      submitLabel="Add"
+      loading={saving}
+      submitDisabled={!title.trim()}
+      onSubmit={submit}
+    >
+      <TextField
+        label="Title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="e.g. Add promotions to checkout"
+        autoFocus
+      />
+      <SelectField
+        label="Priority"
+        value={priority}
+        onChange={setPriority}
+        options={['low', 'medium', 'high', 'urgent'].map((p) => ({ value: p, label: p }))}
+      />
+    </FormDialog>
+  );
+}

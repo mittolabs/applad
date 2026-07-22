@@ -15,6 +15,7 @@ import {
   KeyRound,
   type LucideIcon,
   LayoutDashboard,
+  ListTodo,
   Mail,
   Monitor,
   Play,
@@ -47,6 +48,9 @@ export interface NavGroup {
 
 export const navGroups: NavGroup[] = [
   { id: 'overview', label: 'Overview', icon: BarChart3, route: 'overview' },
+  // Plan comes before Build because the work is decided before it is done —
+  // the rail reads as the lifecycle: plan it, build it, test it, ship it.
+  { id: 'plan', label: 'Plan', icon: ListTodo, route: 'plan' },
   {
     id: 'build',
     label: 'Build',
