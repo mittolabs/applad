@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Plus, Trash2, Flag } from 'lucide-react';
+import { CalendarDays, Plus, Trash2, Flag, ChevronRight } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { FormDialog, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
+import { cn } from '@/lib/utils';
 
 /*
  * The roadmap.
@@ -92,7 +93,7 @@ function positionOf(time: number, start: number, end: number): number {
   return Math.min(100, Math.max(0, ((time - start) / (end - start)) * 100));
 }
 
-export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string) => void }) {
+export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }) {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
 
@@ -108,6 +109,10 @@ export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string)
     onError: (e) => toast.error(friendlyError(e)),
   });
   const onDelete = (id: string) => remove.mutate(id);
+  // Opening a milestone shows its work underneath it, rather than sending
+  // somebody to another view: the timeline is the context that makes the
+  // items mean anything, and leaving it to read them throws that away.
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const milestones = query.data ?? [];
   const span = timeSpan(milestones);
@@ -176,16 +181,23 @@ export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string)
             const overdue = !m.completedAt && m.targetDate && daysUntil(m.targetDate) < 0;
 
             return (
+              <Fragment key={m.$id}>
               <div
-                key={m.$id}
-                className="group flex items-center gap-4 border-b border-border px-4 py-3 last:border-0 hover:bg-fill-hover"
+                className="group flex items-center gap-4 border-b border-border px-4 py-3 hover:bg-fill-hover"
               >
                 <div className="flex w-[300px] shrink-0 flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => onOpenMilestone(m.$id)}
-                      className="truncate text-left text-[length:var(--text-body)] font-medium text-text-primary hover:underline"
+                      onClick={() => setExpanded(expanded === m.$id ? null : m.$id)}
+                      className="flex items-center gap-1 truncate text-left text-[length:var(--text-body)] font-medium text-text-primary hover:underline"
                     >
+                      <ChevronRight
+                        size={13}
+                        className={cn(
+                          'shrink-0 text-text-subtle transition-transform',
+                          expanded === m.$id && 'rotate-90',
+                        )}
+                      />
                       {m.name}
                     </button>
                     <button
@@ -231,7 +243,7 @@ export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string)
                   />
                   {m.targetDate ? (
                     <button
-                      onClick={() => onOpenMilestone(m.$id)}
+                      onClick={() => setExpanded(expanded === m.$id ? null : m.$id)}
                       className="absolute inset-y-1 left-0 flex items-center overflow-hidden rounded-[var(--radius-sm)] border transition-transform hover:scale-y-110"
                       style={{
                         width: `${Math.max(at, 4)}%`,
@@ -255,6 +267,11 @@ export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string)
                   )}
                 </div>
               </div>
+
+              {expanded === m.$id && (
+                <MilestoneItems milestoneId={m.$id} onOpenItem={onOpenItem} />
+              )}
+              </Fragment>
             );
           })}
         </div>
@@ -265,6 +282,79 @@ export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string)
         onOpenChange={setCreating}
         onCreated={() => qc.invalidateQueries({ queryKey: ['plan-milestones'] })}
       />
+    </div>
+  );
+}
+
+/*
+ * A milestone's work, shown under it.
+ *
+ * Only fetched when somebody opens one — a roadmap of twenty milestones
+ * should not ask for twenty lists of items to draw two bars.
+ */
+function MilestoneItems({
+  milestoneId,
+  onOpenItem,
+}: {
+  milestoneId: string;
+  onOpenItem: (id: string) => void;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['plan-items', 'milestone', milestoneId],
+    queryFn: async () =>
+      (
+        (
+          await api.get('/plan/items', {
+            params: { milestoneId, includeClosed: true },
+          })
+        ).data as { items: { $id: string; title: string; status: string; priority: string }[] }
+      ).items ?? [],
+  });
+
+  const items = data ?? [];
+  const dot: Record<string, string> = {
+    todo: 'var(--text-muted)',
+    in_progress: '#3B82F6',
+    blocked: '#F59E0B',
+    done: '#22C55E',
+    cancelled: 'var(--text-subtle)',
+  };
+
+  return (
+    <div className="border-b border-border bg-surface-alt px-4 py-2 last:border-0">
+      {isLoading ? (
+        <div className="py-2 pl-8 text-[length:var(--text-caption)] text-text-muted">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="py-2 pl-8 text-[length:var(--text-caption)] text-text-subtle">
+          No items in this milestone yet.
+        </div>
+      ) : (
+        items.map((item) => (
+          <button
+            key={item.$id}
+            onClick={() => onOpenItem(item.$id)}
+            className="flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] py-1.5 pl-8 pr-2 text-left hover:bg-fill-hover"
+          >
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: dot[item.status] ?? 'var(--text-subtle)' }}
+            />
+            <span
+              className={cn(
+                'flex-1 truncate text-[length:var(--text-body)]',
+                item.status === 'done' || item.status === 'cancelled'
+                  ? 'text-text-muted line-through'
+                  : 'text-text-primary',
+              )}
+            >
+              {item.title}
+            </span>
+            <span className="text-[length:var(--text-caption)] text-text-subtle">
+              {item.priority}
+            </span>
+          </button>
+        ))
+      )}
     </div>
   );
 }

@@ -197,12 +197,7 @@ export function PlanPage() {
       </div>
 
       {view === 'roadmap' ? (
-        <RoadmapView
-          onOpenMilestone={(id) => {
-            setMilestone(id);
-            chooseView('list');
-          }}
-        />
+        <RoadmapView onOpenItem={selection.select} />
       ) : query.isLoading ? (
         <div className="py-10 text-center text-[length:var(--text-body)] text-text-muted">
           Loading…
