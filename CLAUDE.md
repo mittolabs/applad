@@ -6,6 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go backend, React + Vite admin console. Runs as a single `docker compose up` with PostgreSQL and Redis.
 
+> **Scope of this repo.** This is the self-hostable product. `docker compose up`
+> brings up exactly what a self-hoster needs — the console (`console.applad.io`),
+> its API and workers, and the data stores — and nothing else. The extra web
+> properties Mittolabs Cloud runs on top of it (the marketing site `applad.io`,
+> docs `docs.applad.io`, the status page `status.applad.io`) and the full
+> multi-domain production provisioning live in the **private
+> `mittolabs/applad-cloud`** Ansible repo, not here. The docs *source* stays in
+> this repo under `docs/` (applad-cloud builds it from here).
+>
+> Three composes: `docker-compose.yml` (build the console stack from source —
+> the default `make up`), `docker-compose.dev.yml` (Go `go run`, live reload),
+> and `docker-compose.release.yml` (prebuilt `ghcr.io/mittolabs/applad-*`
+> images — the artifact `install.sh` materializes on a production self-host).
+
 > The admin console was a Flutter Web app; it was rewritten in React + Vite + TypeScript (Tailwind v4 + shadcn/ui) at feature parity and now lives at `console/`. The old Flutter app has been removed. `melos` now manages only `sdks/dart`. Console design/parity notes: `console/CORE_REFERENCE.md`, `console/PARITY_AUDIT.md`.
 
 ## Commands
@@ -72,8 +86,18 @@ sdks/js/        TypeScript client SDK
 sdks/node/      Node.js server SDK
 sdks/go/        Go server SDK (zero deps)
 sdks/python/    Python server SDK (stdlib only)
-docker/         Docker Compose + per-service Dockerfiles + nginx config
+docs/           Documentation source (Next.js / Fumadocs). Served at docs.applad.io
+                by applad-cloud, which builds it from here; a self-host install
+                does not run it.
+docker/         Per-service Dockerfiles + nginx config (self-host vhosts)
 ```
+
+> Not in this repo: the marketing site, the status page, the full multi-domain
+> compose, the multi-vhost production nginx, and the k8s manifests moved to the
+> private **`mittolabs/applad-cloud`** Ansible repo, which provisions the full
+> hosted stack. This repo builds only the console-facing stack; its CI publishes
+> the `ghcr.io/mittolabs/applad-*` images that `install.sh` and applad-cloud both
+> pull.
 
 ### Backend structure
 
@@ -222,21 +246,28 @@ Root-level `docker-compose.yml` — run from repo root with `docker compose up -
 
 ### Hosts
 
+This is the *full* Mittolabs Cloud layout. A **self-hosted** install serves only
+the rows marked ✓ below — the console, the API, deployed apps, and the fallback;
+its `docker/nginx/nginx.conf` (and the smaller one `install.sh` writes) contain
+exactly those vhosts. The ⛅ rows — marketing, docs, status — are extra web
+properties provisioned by the private **`applad-cloud`** repo's multi-vhost edge
+(`roles/proxy`), not by anything in this repo.
+
 Two domains, deliberately separated: everything of ours is on `applad.io`,
 while deployed customer apps get `applad.dev` to themselves. Deployed apps run
 arbitrary customer code, so sharing a registrable domain with the console
 would let one of them set cookies the console receives and make every app
 same-site with it.
 
-| Production | Local | Serves |
-|---|---|---|
-| `applad.io` | `applad.io.localhost` | Marketing site |
-| `console.applad.io` | `console.applad.io.localhost` | Admin console (+ same-origin `/v1`) |
-| `api.applad.io` | `api.applad.io.localhost` | Public API for SDKs |
-| `docs.applad.io` | `docs.applad.io.localhost` | Documentation |
-| `status.applad.io` | `status.applad.io.localhost` | Status page |
-| `<app>.applad.dev` | `<app>.applad.dev.localhost` | Deployed apps |
-| `applad.dev` | `applad.dev.localhost` | Redirects to the marketing site |
+| | Production | Local | Serves |
+|---|---|---|---|
+| ⛅ | `applad.io` | `applad.io.localhost` | Marketing site (applad-cloud) |
+| ✓ | `console.applad.io` | `console.applad.io.localhost` | Admin console (+ same-origin `/v1`) |
+| ✓ | `api.applad.io` | `api.applad.io.localhost` | Public API for SDKs |
+| ⛅ | `docs.applad.io` | `docs.applad.io.localhost` | Documentation (built from this repo's `docs/`) |
+| ⛅ | `status.applad.io` | `status.applad.io.localhost` | Status page (applad-cloud) |
+| ✓ | `<app>.applad.dev` | `<app>.applad.dev.localhost` | Deployed apps |
+| ⛅ | `applad.dev` | `applad.dev.localhost` | Redirects to the marketing site |
 
 Any other host (an IP, `localhost`) falls back to the console, which is how a
 self-hosted install is reached. Local names need no `/etc/hosts` entry:

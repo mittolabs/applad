@@ -142,47 +142,10 @@ services:
     <<: *limits-small
     restart: unless-stopped
 
-  # Marketing site → applad.io.localhost
-  website:
-    build:
-      context: .
-      dockerfile: docker/website/Dockerfile
-    expose:
-      - "80"
-    networks:
-      - backend
-    logging: *default-logging
-    <<: *limits-small
-    restart: unless-stopped
-
-  # Documentation (Fumadocs) → docs.applad.io.localhost
-  docs:
-    build:
-      context: .
-      dockerfile: docker/docs/Dockerfile
-      args:
-        NEXT_PUBLIC_SITE_URL: "http://applad.io.localhost"
-        NEXT_PUBLIC_CONSOLE_URL: "http://console.applad.io.localhost"
-    expose:
-      - "80"
-    networks:
-      - backend
-    logging: *default-logging
-    <<: *limits-small
-    restart: unless-stopped
-
-  # Status page → status.applad.io.localhost (reads GET /v1/status)
-  status:
-    build:
-      context: .
-      dockerfile: docker/status/Dockerfile
-    expose:
-      - "80"
-    networks:
-      - backend
-    logging: *default-logging
-    <<: *limits-small
-    restart: unless-stopped
+  # The marketing site (applad.io), docs (docs.applad.io) and status page
+  # (status.applad.io) are NOT part of a self-hosted install — they are the
+  # extra web properties Mittolabs Cloud runs, provisioned by the private
+  # applad-cloud repo. This compose builds only the console-facing stack.
 
   proxy:
     image: openresty/openresty:alpine
