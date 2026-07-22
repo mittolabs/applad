@@ -60,7 +60,40 @@ function whenLabel(date?: string, completed?: string): { text: string; tone: str
   return { text: `in ${Math.round(days / 7)}w`, tone: 'var(--text-muted)' };
 }
 
-export function RoadmapView() {
+/*
+ * The window the roadmap draws: from today (or the earliest target, if
+ * something is already overdue) to a month past the furthest one. Everything
+ * is positioned in this span, which is what makes it a roadmap rather than a
+ * list with dates written on it.
+ */
+function timeSpan(milestones: Milestone[]): { start: number; end: number; months: Date[] } {
+  const dates = milestones
+    .map((m) => (m.targetDate ? new Date(m.targetDate).getTime() : 0))
+    .filter(Boolean);
+
+  const now = Date.now();
+  const start = Math.min(now, ...(dates.length ? dates : [now]));
+  const furthest = Math.max(now, ...(dates.length ? dates : [now]));
+  // A month of headroom, so the last milestone is not flush against the edge.
+  const end = furthest + 30 * 86_400_000;
+
+  const months: Date[] = [];
+  const cursor = new Date(start);
+  cursor.setDate(1);
+  while (cursor.getTime() <= end) {
+    months.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return { start, end, months };
+}
+
+/** Where a moment sits across the span, as a percentage. */
+function positionOf(time: number, start: number, end: number): number {
+  if (end <= start) return 0;
+  return Math.min(100, Math.max(0, ((time - start) / (end - start)) * 100));
+}
+
+export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string) => void }) {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
 
@@ -77,6 +110,9 @@ export function RoadmapView() {
   });
 
   const milestones = query.data ?? [];
+  const dated = milestones.filter((m) => m.targetDate);
+  const span = timeSpan(milestones);
+  const todayAt = positionOf(Date.now(), span.start, span.end);
 
   return (
     <div className="flex flex-col gap-4">
@@ -104,10 +140,78 @@ export function RoadmapView() {
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {milestones.map((m) => (
-            <MilestoneRow key={m.$id} milestone={m} onDelete={() => remove.mutate(m.$id)} />
-          ))}
+        <div className="flex flex-col gap-4">
+          {dated.length > 0 && (
+            <div className="relative overflow-hidden rounded-[var(--radius-10)] border border-border bg-surface p-4 pt-3">
+              {/* The axis. Months across the top, today marked, and each
+                  milestone drawn where its date actually falls. */}
+              <div className="relative mb-2 h-5">
+                {span.months.map((month) => (
+                  <span
+                    key={month.toISOString()}
+                    className="absolute text-[length:var(--text-caption)] text-text-subtle"
+                    style={{ left: `${positionOf(month.getTime(), span.start, span.end)}%` }}
+                  >
+                    {month.toLocaleDateString(undefined, { month: 'short' })}
+                  </span>
+                ))}
+              </div>
+
+              <div className="relative flex flex-col gap-2 pb-1">
+                <div
+                  className="pointer-events-none absolute bottom-0 top-0 w-px"
+                  style={{ left: `${todayAt}%`, backgroundColor: 'var(--color-accent)' }}
+                  title="Today"
+                />
+                {dated.map((m) => {
+                  const at = positionOf(new Date(m.targetDate!).getTime(), span.start, span.end);
+                  const p = m.progress;
+                  const donePct = p.total > 0 ? (p.done / p.total) * 100 : 0;
+                  const overdue = !m.completedAt && daysUntil(m.targetDate!) < 0;
+                  return (
+                    <button
+                      key={m.$id}
+                      onClick={() => onOpenMilestone(m.$id)}
+                      className="relative h-7 w-full text-left"
+                      title={`${m.name} — ${p.done} of ${p.total} done`}
+                    >
+                      <div
+                        className="absolute top-0 flex h-7 items-center overflow-hidden rounded-[var(--radius-sm)] border transition-colors hover:brightness-125"
+                        style={{
+                          left: 0,
+                          width: `${Math.max(at, 8)}%`,
+                          borderColor: overdue ? '#EF4444' : 'var(--border)',
+                          backgroundColor: 'var(--fill)',
+                        }}
+                      >
+                        <div
+                          className="absolute inset-y-0 left-0"
+                          style={{
+                            width: `${donePct}%`,
+                            backgroundColor: 'color-mix(in srgb, #22C55E 35%, transparent)',
+                          }}
+                        />
+                        <span className="relative truncate px-2 text-[length:var(--text-caption)] text-text-primary">
+                          {m.name}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            {milestones.map((m) => (
+              <MilestoneRow
+                key={m.$id}
+                milestone={m}
+                onOpen={() => onOpenMilestone(m.$id)}
+                onDelete={() => remove.mutate(m.$id)}
+              />
+            ))}
+          </div>
         </div>
       )}
 
@@ -122,9 +226,11 @@ export function RoadmapView() {
 
 function MilestoneRow({
   milestone,
+  onOpen,
   onDelete,
 }: {
   milestone: Milestone;
+  onOpen: () => void;
   onDelete: () => void;
 }) {
   const p = milestone.progress;
@@ -140,9 +246,12 @@ function MilestoneRow({
   return (
     <div className="group flex flex-col gap-3 rounded-[var(--radius-10)] border border-border bg-surface px-4 py-3.5">
       <div className="flex items-center gap-3">
-        <span className="flex-1 truncate text-[length:var(--text-body)] font-medium text-text-primary">
+        <button
+          onClick={onOpen}
+          className="flex-1 truncate text-left text-[length:var(--text-body)] font-medium text-text-primary hover:underline"
+        >
           {milestone.name}
-        </span>
+        </button>
 
         {milestone.targetDate && (
           <span className="flex items-center gap-1.5 text-[length:var(--text-caption)] text-text-muted">

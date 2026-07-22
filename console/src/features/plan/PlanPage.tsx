@@ -71,6 +71,9 @@ export function PlanPage() {
   const selection = useRoutedSelection('plan', 'itemId');
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Set when a milestone is opened from the roadmap: the list then shows that
+  // milestone's work rather than everything.
+  const [milestone, setMilestone] = useState<string | null>(null);
   // Remembered, because which view suits you is a preference about how you
   // work rather than something to re-choose on every visit.
   const [view, setView] = useState<'list' | 'board' | 'roadmap'>(
@@ -82,10 +85,18 @@ export function PlanPage() {
   };
 
   const query = useQuery({
-    queryKey: ['plan-items', projectId, showClosed],
+    queryKey: ['plan-items', projectId, showClosed, milestone],
     queryFn: async () =>
-      ((await api.get('/plan/items', { params: { includeClosed: showClosed || undefined } }))
-        .data as { items: Item[] }).items ?? [],
+      (
+        (
+          await api.get('/plan/items', {
+            params: {
+              includeClosed: showClosed || undefined,
+              milestoneId: milestone ?? undefined,
+            },
+          })
+        ).data as { items: Item[] }
+      ).items ?? [],
   });
 
   const items = query.data ?? [];
@@ -162,8 +173,27 @@ export function PlanPage() {
         </div>
       </div>
 
+      {milestone && view !== 'roadmap' && (
+        <div className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-surface px-3 py-2">
+          <span className="text-[length:var(--text-label)] text-text-secondary">
+            Showing one milestone's work
+          </span>
+          <button
+            onClick={() => setMilestone(null)}
+            className="ml-auto text-[length:var(--text-label)] text-[var(--color-accent)] hover:underline"
+          >
+            Show everything
+          </button>
+        </div>
+      )}
+
       {view === 'roadmap' ? (
-        <RoadmapView />
+        <RoadmapView
+          onOpenMilestone={(id) => {
+            setMilestone(id);
+            chooseView('list');
+          }}
+        />
       ) : query.isLoading ? (
         <div className="py-10 text-center text-[length:var(--text-body)] text-text-muted">
           Loading…
