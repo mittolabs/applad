@@ -33,6 +33,9 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/criteria/{criterionId}", h.deleteCriterion)
 
 	r.Post("/items/{itemId}/rate", h.rate)
+	r.Get("/questions", h.listQuestions)
+	r.Get("/items/{itemId}/questions", h.listQuestions)
+	r.Post("/items/{itemId}/answers", h.answer)
 	r.Get("/matrix", h.getMatrix)
 	r.Put("/matrix", h.setMatrixCell)
 	r.Get("/items/{itemId}/activity", h.listActivity)
@@ -222,6 +225,36 @@ func (h *Handler) rate(w http.ResponseWriter, r *http.Request) {
 	item, err := h.svc.Rate(r.Context(), chi.URLParam(r, "itemId"),
 		middleware.ProjectFromContext(r.Context()), middleware.UserFromContext(r.Context()),
 		body.Impact, body.Urgency)
+	if err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) listQuestions(w http.ResponseWriter, r *http.Request) {
+	questions, err := h.svc.Questions(r.Context(), middleware.ProjectFromContext(r.Context()),
+		chi.URLParam(r, "itemId"))
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"questions": questions})
+}
+
+func (h *Handler) answer(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		QuestionID string `json:"questionId"`
+		OptionID   string `json:"optionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+
+	item, err := h.svc.Answer(r.Context(), chi.URLParam(r, "itemId"),
+		middleware.ProjectFromContext(r.Context()), middleware.UserFromContext(r.Context()),
+		body.QuestionID, body.OptionID)
 	if err != nil {
 		apperr.BadRequest(w, err.Error())
 		return
