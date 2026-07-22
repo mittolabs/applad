@@ -199,13 +199,13 @@ func (s *Service) UpdateAs(ctx context.Context, id, projectID, actorID string, i
 	labels, _ := json.Marshal(item.Labels)
 	if _, err := s.db.ExecContext(ctx,
 		`UPDATE plan_items SET parent_id = NULLIF($1,''), title = $2, body = $3, status = $4,
-		     priority = $5, priority_is_manual = CASE WHEN priority = $5 THEN priority_is_manual ELSE TRUE END, kind = $6, milestone_id = NULLIF($7,''), target_date = $8,
+		     priority = $5, priority_is_manual = $15, kind = $6, milestone_id = NULLIF($7,''), target_date = $8,
 		     assignee_id = NULLIF($9,''), labels = $10, rank = $11, closed_at = $12,
 		     updated_at = NOW()
 		   WHERE id = $13 AND project_id = $14`,
 		item.ParentID, item.Title, item.Body, item.Status, item.Priority, item.Kind,
 		item.MilestoneID, item.TargetDate, item.AssigneeID, labels, item.Rank,
-		item.ClosedAt, id, projectID); err != nil {
+		item.ClosedAt, id, projectID, item.IsManual); err != nil {
 		return nil, fmt.Errorf("plan: update item: %w", err)
 	}
 	s.recordChanges(ctx, id, actorID, &before, item)

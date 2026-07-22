@@ -33,6 +33,7 @@ interface Link {
 }
 
 interface Item {
+  assigneeId?: string;
   $id: string;
   title: string;
   body: string;
@@ -64,12 +65,27 @@ const PRIORITY_COLOR: Record<string, string> = {
 // of progress, and on a board that runs the stages backwards.
 const ORDER = ['todo', 'in_progress', 'in_review', 'blocked', 'done', 'cancelled'];
 
+/** Who work is assigned to, by id, for the labels on rows and cards. */
+function useAssigneeNames() {
+  const { data } = useQuery({
+    queryKey: ['plan-assignees'],
+    queryFn: async () =>
+      ((await api.get('/plan/assignees')).data as {
+        assignees: { $id: string; name: string; kind: string }[];
+      }).assignees ?? [],
+  });
+  const byId: Record<string, { name: string; kind: string }> = {};
+  for (const a of data ?? []) byId[a.$id] = { name: a.name, kind: a.kind };
+  return byId;
+}
+
 export function PlanPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const qc = useQueryClient();
   // Which item is open belongs in the address, so a refresh does not throw
   // somebody out of what they were reading.
   const selection = useRoutedSelection('plan', 'itemId');
+  const assignees = useAssigneeNames();
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
   // Set when a milestone is opened from the roadmap: the list then shows that
@@ -217,6 +233,7 @@ export function PlanPage() {
           showClosed={showClosed}
           onStatus={(id, status) => setStatus.mutate({ id, status })}
           onOpen={selection.select}
+          assignees={assignees}
         />
       ) : (
         <div className="flex flex-col gap-6">
@@ -240,6 +257,7 @@ export function PlanPage() {
                       item={item}
                       onStatus={(status) => setStatus.mutate({ id: item.$id, status })}
                       onOpen={() => selection.select(item.$id)}
+                      assignee={item.assigneeId ? assignees[item.assigneeId] : undefined}
                     />
                   ))}
                 </div>
@@ -274,11 +292,13 @@ function BoardView({
   showClosed,
   onStatus,
   onOpen,
+  assignees,
 }: {
   items: Item[];
   showClosed: boolean;
   onStatus: (id: string, status: string) => void;
   onOpen: (id: string) => void;
+  assignees: Record<string, { name: string; kind: string }>;
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -347,6 +367,13 @@ function BoardView({
                   >
                     {item.priority}
                   </span>
+                  {item.assigneeId && assignees[item.assigneeId] && (
+                    <span className="rounded-[var(--radius-sm)] border border-border bg-fill px-1.5 py-0.5 text-[length:var(--text-caption)] text-text-secondary">
+                      {assignees[item.assigneeId].kind === 'ai'
+                        ? 'Applad'
+                        : assignees[item.assigneeId].name}
+                    </span>
+                  )}
                   {item.labels.map((label) => (
                     <span
                       key={label}
@@ -388,10 +415,12 @@ function ItemRow({
   item,
   onStatus,
   onOpen,
+  assignee,
 }: {
   item: Item;
   onStatus: (status: string) => void;
   onOpen: () => void;
+  assignee?: { name: string; kind: string };
 }) {
   const closed = item.status === 'done' || item.status === 'cancelled';
   return (
@@ -439,6 +468,15 @@ function ItemRow({
           {link.kind} · {link.label || link.ref}
         </span>
       ))}
+
+      {assignee && (
+        <span
+          className="rounded-[var(--radius-sm)] border border-border bg-fill px-1.5 py-0.5 text-[length:var(--text-caption)] text-text-secondary"
+          title={assignee.kind === 'ai' ? 'Assigned to Applad' : `Assigned to ${assignee.name}`}
+        >
+          {assignee.kind === 'ai' ? 'Applad' : assignee.name}
+        </span>
+      )}
 
       <span
         className="text-[length:var(--text-caption)] font-medium"

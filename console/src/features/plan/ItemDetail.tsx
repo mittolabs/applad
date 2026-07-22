@@ -69,6 +69,7 @@ interface Item {
   priority: string;
   kind: string;
   milestoneId?: string;
+  assigneeId?: string;
   impact?: number;
   urgency?: number;
   priorityIsManual: boolean;
@@ -96,6 +97,14 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
   const item = useQuery({
     queryKey: ['plan-item', itemId],
     queryFn: async () => (await api.get(`/plan/items/${itemId}`)).data as Item,
+  });
+
+  const assignees = useQuery({
+    queryKey: ['plan-assignees'],
+    queryFn: async () =>
+      ((await api.get('/plan/assignees')).data as {
+        assignees: { $id: string; name: string; kind: string }[];
+      }).assignees ?? [],
   });
 
   const milestones = useQuery({
@@ -252,6 +261,20 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
               value={data?.kind ?? 'change'}
               options={KINDS.map((k) => ({ value: k, label: k }))}
               onChange={(kind) => patch.mutate({ kind })}
+            />
+          </Property>
+
+          <Property label="Assignee">
+            <Choice
+              value={data?.assigneeId ?? ''}
+              options={[
+                { value: '', label: 'Unassigned' },
+                ...(assignees.data ?? []).map((a) => ({
+                  value: a.$id,
+                  label: a.kind === 'ai' ? `${a.name} (AI)` : a.name,
+                })),
+              ]}
+              onChange={(assigneeId) => patch.mutate({ assigneeId })}
             />
           </Property>
 

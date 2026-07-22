@@ -444,3 +444,54 @@ func scanMilestone(row scanner) (*Milestone, error) {
 	}
 	return &m, nil
 }
+
+// ── Assignees ──
+
+// AssigneeApplad is the reserved id for the platform itself.
+//
+// Applad can be given work, so it needs somewhere to be assigned. A reserved
+// id rather than a row: it is not a person, it has no account, and putting it
+// in the members table would make it appear in every list of colleagues.
+const AssigneeApplad = "applad"
+
+// Assignee is somebody — or something — work can be given to.
+type Assignee struct {
+	ID    string `json:"$id"`
+	Name  string `json:"name"`
+	Email string `json:"email,omitempty"`
+	// person | ai
+	Kind string `json:"kind"`
+}
+
+// Assignees lists who can be given work on this project: Applad itself, and
+// the people who have accepted membership of the organisation that owns it.
+//
+// Pending invitations are left out. Somebody who has not accepted cannot be
+// given work, and offering them would create a task nobody is doing.
+func (s *Service) Assignees(ctx context.Context, projectID string) ([]Assignee, error) {
+	out := []Assignee{{ID: AssigneeApplad, Name: "Applad", Kind: "ai"}}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT COALESCE(m.user_id, ''), COALESCE(NULLIF(m.name,''), m.email), m.email
+		   FROM organization_members m
+		   JOIN projects p ON p.org_id = m.org_id
+		  WHERE p.id = $1 AND m.status = 'active' AND m.user_id IS NOT NULL
+		  ORDER BY 2 ASC`, projectID)
+	if err != nil {
+		return out, nil //nolint:nilerr // a project with no org still has Applad
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var a Assignee
+		if err := rows.Scan(&a.ID, &a.Name, &a.Email); err != nil {
+			return nil, err
+		}
+		if a.ID == "" {
+			continue
+		}
+		a.Kind = "person"
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

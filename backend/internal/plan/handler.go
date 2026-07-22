@@ -33,6 +33,7 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/criteria/{criterionId}", h.deleteCriterion)
 
 	r.Post("/items/{itemId}/rate", h.rate)
+	r.Get("/assignees", h.listAssignees)
 	r.Get("/questions", h.listQuestions)
 	r.Get("/items/{itemId}/questions", h.listQuestions)
 	r.Post("/items/{itemId}/answers", h.answer)
@@ -230,6 +231,15 @@ func (h *Handler) rate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) listAssignees(w http.ResponseWriter, r *http.Request) {
+	list, err := h.svc.Assignees(r.Context(), middleware.ProjectFromContext(r.Context()))
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"assignees": list})
 }
 
 func (h *Handler) listQuestions(w http.ResponseWriter, r *http.Request) {
