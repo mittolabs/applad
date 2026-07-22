@@ -460,15 +460,25 @@ function CreateItemDialog({
   onCreated: () => void;
 }) {
   const [title, setTitle] = useState('');
-  const [priority, setPriority] = useState('medium');
+  // Two answers rather than a verdict: the grid decides the priority, so
+  // nobody has to weigh "how much does this matter" against "how soon" in
+  // their head and report the average.
+  const [impact, setImpact] = useState('2');
+  const [urgency, setUrgency] = useState('2');
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
     setSaving(true);
     try {
-      await api.post('/plan/items', { title: title.trim(), priority });
+      const created = await api.post('/plan/items', { title: title.trim() });
+      const id = created.data.$id ?? created.data.id;
+      await api.post(`/plan/items/${id}/rate`, {
+        impact: Number(impact),
+        urgency: Number(urgency),
+      });
       setTitle('');
-      setPriority('medium');
+      setImpact('2');
+      setUrgency('2');
       onOpenChange(false);
       onCreated();
     } catch (e) {
@@ -497,10 +507,26 @@ function CreateItemDialog({
         autoFocus
       />
       <SelectField
-        label="Priority"
-        value={priority}
-        onChange={setPriority}
-        options={['low', 'medium', 'high', 'urgent'].map((p) => ({ value: p, label: p }))}
+        label="Impact"
+        hint="How much it matters that this exists."
+        value={impact}
+        onChange={setImpact}
+        options={[
+          { value: '3', label: 'High' },
+          { value: '2', label: 'Medium' },
+          { value: '1', label: 'Low' },
+        ]}
+      />
+      <SelectField
+        label="Urgency"
+        hint="How soon it is needed. Priority follows from the two."
+        value={urgency}
+        onChange={setUrgency}
+        options={[
+          { value: '3', label: 'High' },
+          { value: '2', label: 'Medium' },
+          { value: '1', label: 'Low' },
+        ]}
       />
     </FormDialog>
   );

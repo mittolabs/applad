@@ -69,3 +69,38 @@ func TestClosedCoversBothWaysWorkEnds(t *testing.T) {
 		}
 	}
 }
+
+// The point of a grid rather than a dropdown is that the two axes are not
+// symmetric: impact is a property of the problem and urgency a property of the
+// calendar, so a soft deadline may defer high-impact work but must not demote
+// it.
+func TestDefaultGridLetsImpactDominateUrgency(t *testing.T) {
+	rank := map[string]int{"low": 0, "medium": 1, "high": 2, "urgent": 3}
+
+	for urgency := LevelLow; urgency <= LevelHigh; urgency++ {
+		if got := DefaultGrid[[2]int{LevelHigh, urgency}]; rank[got] < rank["high"] {
+			t.Errorf("high impact at urgency %d resolved to %q — impact was demoted", urgency, got)
+		}
+	}
+
+	// Low survives only when nothing is at stake and nobody is waiting.
+	if got := DefaultGrid[[2]int{LevelLow, LevelLow}]; got != "low" {
+		t.Errorf("low/low = %q, want low", got)
+	}
+	for _, cell := range [][2]int{{1, 2}, {1, 3}, {2, 1}} {
+		if got := DefaultGrid[cell]; got == "low" {
+			t.Errorf("%v resolved to low — something was at stake or somebody was waiting", cell)
+		}
+	}
+
+	// Only both answers at their highest earns the top of the scale.
+	for cell, priority := range DefaultGrid {
+		if priority == "urgent" && cell != [2]int{LevelHigh, LevelHigh} {
+			t.Errorf("%v resolved to urgent without both answers high", cell)
+		}
+	}
+
+	if len(DefaultGrid) != 9 {
+		t.Errorf("the grid has %d cells, want 9", len(DefaultGrid))
+	}
+}

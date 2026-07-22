@@ -42,7 +42,14 @@ type Item struct {
 	// Kind separates a change from a defect: whether the system already
 	// claimed to do this. Not a taxonomy of ticket types — two values with
 	// one real difference.
-	Kind        string     `json:"kind"`
+	Kind string `json:"kind"`
+	// Impact is a property of the problem, urgency of the calendar. Nil where
+	// nobody has answered — an unrated item is not a middling one.
+	Impact  *int `json:"impact,omitempty"`
+	Urgency *int `json:"urgency,omitempty"`
+	// IsManual distinguishes a priority somebody set from one the grid
+	// derived, so an override reads as a decision rather than as stale data.
+	IsManual    bool       `json:"priorityIsManual"`
 	MilestoneID string     `json:"milestoneId,omitempty"`
 	TargetDate  *time.Time `json:"targetDate,omitempty"`
 	AssigneeID  string     `json:"assigneeId,omitempty"`
@@ -192,7 +199,7 @@ func (s *Service) UpdateAs(ctx context.Context, id, projectID, actorID string, i
 	labels, _ := json.Marshal(item.Labels)
 	if _, err := s.db.ExecContext(ctx,
 		`UPDATE plan_items SET parent_id = NULLIF($1,''), title = $2, body = $3, status = $4,
-		     priority = $5, kind = $6, milestone_id = NULLIF($7,''), target_date = $8,
+		     priority = $5, priority_is_manual = CASE WHEN priority = $5 THEN priority_is_manual ELSE TRUE END, kind = $6, milestone_id = NULLIF($7,''), target_date = $8,
 		     assignee_id = NULLIF($9,''), labels = $10, rank = $11, closed_at = $12,
 		     updated_at = NOW()
 		   WHERE id = $13 AND project_id = $14`,
@@ -217,6 +224,7 @@ func applyInput(item *Item, in Input) {
 	}
 	if in.Priority != nil {
 		item.Priority = *in.Priority
+		item.IsManual = true
 	}
 	if in.AssigneeID != nil {
 		item.AssigneeID = *in.AssigneeID
@@ -263,6 +271,7 @@ func (s *Service) List(ctx context.Context, projectID string, f Filter) ([]*Item
 	                 COALESCE(i.milestone_id,''), i.target_date,
 	                 COALESCE(i.assignee_id,''), i.labels, i.rank, COALESCE(i.created_by,''),
 	                 i.closed_at, i.created_at, i.updated_at,
+	                 i.priority_impact, i.priority_urgency, i.priority_is_manual,
 	                 (SELECT COUNT(*) FROM plan_criteria c WHERE c.item_id = i.id),
 	                 (SELECT COUNT(*) FROM plan_criteria c WHERE c.item_id = i.id AND c.spec_ref <> '')
 	            FROM plan_items i WHERE i.project_id = $1`
@@ -324,6 +333,7 @@ func (s *Service) Get(ctx context.Context, id, projectID string) (*Item, error) 
 		        COALESCE(i.milestone_id,''), i.target_date,
 		        COALESCE(i.assignee_id,''), i.labels, i.rank, COALESCE(i.created_by,''),
 		        i.closed_at, i.created_at, i.updated_at,
+		        i.priority_impact, i.priority_urgency, i.priority_is_manual,
 		        (SELECT COUNT(*) FROM plan_criteria c WHERE c.item_id = i.id),
 		        (SELECT COUNT(*) FROM plan_criteria c WHERE c.item_id = i.id AND c.spec_ref <> '')
 		   FROM plan_items i WHERE i.id = $1 AND i.project_id = $2`, id, projectID)
@@ -416,10 +426,12 @@ func scanItem(row scanner) (*Item, error) {
 	var labels []byte
 	var closedAt sql.NullTime
 	var targetDate sql.NullTime
+	var impact, urgency sql.NullInt64
 	if err := row.Scan(&item.ID, &item.ProjectID, &item.ParentID, &item.Title, &item.Body,
 		&item.Status, &item.Priority, &item.Kind, &item.MilestoneID, &targetDate,
 		&item.AssigneeID, &labels, &item.Rank,
 		&item.CreatedBy, &closedAt, &item.CreatedAt, &item.UpdatedAt,
+		&impact, &urgency, &item.IsManual,
 		&item.CriteriaCount, &item.CriteriaSpecified); err != nil {
 		return nil, err
 	}
@@ -432,6 +444,14 @@ func scanItem(row scanner) (*Item, error) {
 	}
 	if targetDate.Valid {
 		item.TargetDate = &targetDate.Time
+	}
+	if impact.Valid {
+		v := int(impact.Int64)
+		item.Impact = &v
+	}
+	if urgency.Valid {
+		v := int(urgency.Int64)
+		item.Urgency = &v
 	}
 	return &item, nil
 }

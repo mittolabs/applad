@@ -32,6 +32,9 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/criteria/{criterionId}", h.updateCriterion)
 	r.Delete("/criteria/{criterionId}", h.deleteCriterion)
 
+	r.Post("/items/{itemId}/rate", h.rate)
+	r.Get("/matrix", h.getMatrix)
+	r.Put("/matrix", h.setMatrixCell)
 	r.Get("/items/{itemId}/activity", h.listActivity)
 	r.Get("/items/{itemId}/comments", h.listComments)
 	r.Post("/items/{itemId}/comments", h.addComment)
@@ -201,6 +204,61 @@ func (h *Handler) deleteCriterion(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.DeleteCriterion(r.Context(), chi.URLParam(r, "criterionId"),
 		middleware.ProjectFromContext(r.Context())); err != nil {
 		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) rate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Impact  int `json:"impact"`
+		Urgency int `json:"urgency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+
+	item, err := h.svc.Rate(r.Context(), chi.URLParam(r, "itemId"),
+		middleware.ProjectFromContext(r.Context()), middleware.UserFromContext(r.Context()),
+		body.Impact, body.Urgency)
+	if err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) getMatrix(w http.ResponseWriter, r *http.Request) {
+	kind := r.URL.Query().Get("kind")
+	if kind == "" {
+		kind = "change"
+	}
+	cells, err := h.svc.Grid(r.Context(), middleware.ProjectFromContext(r.Context()), kind)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"kind": kind, "cells": cells})
+}
+
+func (h *Handler) setMatrixCell(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Kind     string `json:"kind"`
+		Impact   int    `json:"impact"`
+		Urgency  int    `json:"urgency"`
+		Priority string `json:"priority"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if body.Kind == "" {
+		body.Kind = "change"
+	}
+	if err := h.svc.SetCell(r.Context(), middleware.ProjectFromContext(r.Context()),
+		body.Kind, body.Impact, body.Urgency, body.Priority); err != nil {
+		apperr.BadRequest(w, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

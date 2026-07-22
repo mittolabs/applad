@@ -51,6 +51,12 @@ const FIELD_LABEL: Record<string, string> = {
   assignee: 'assignee',
 };
 
+const LEVELS = [
+  { value: 3, label: 'High' },
+  { value: 2, label: 'Medium' },
+  { value: 1, label: 'Low' },
+];
+
 interface Item {
   $id: string;
   title: string;
@@ -59,6 +65,9 @@ interface Item {
   priority: string;
   kind: string;
   milestoneId?: string;
+  impact?: number;
+  urgency?: number;
+  priorityIsManual: boolean;
   targetDate?: string;
   labels: string[];
   links: { $id: string; kind: string; ref: string }[];
@@ -113,6 +122,17 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
       qc.invalidateQueries({ queryKey: ['plan-item', itemId] });
       qc.invalidateQueries({ queryKey: ['plan-items'] });
       qc.invalidateQueries({ queryKey: ['plan-milestones'] });
+    },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
+  const rate = useMutation({
+    mutationFn: (body: { impact: number; urgency: number }) =>
+      api.post(`/plan/items/${itemId}/rate`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plan-item', itemId] });
+      qc.invalidateQueries({ queryKey: ['plan-items'] });
+      qc.invalidateQueries({ queryKey: ['plan-activity', itemId] });
     },
     onError: (e) => toast.error(friendlyError(e)),
   });
@@ -179,7 +199,40 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
             />
           </Property>
 
-          <Property label="Priority">
+          <Property label="Impact" hint="How much it matters that this exists.">
+            <Choice
+              value={String(data?.impact ?? '')}
+              options={[
+                { value: '', label: 'Not rated' },
+                ...LEVELS.map((l) => ({ value: String(l.value), label: l.label })),
+              ]}
+              onChange={(v) =>
+                v && rate.mutate({ impact: Number(v), urgency: data?.urgency ?? 2 })
+              }
+            />
+          </Property>
+
+          <Property label="Urgency" hint="How soon it is needed.">
+            <Choice
+              value={String(data?.urgency ?? '')}
+              options={[
+                { value: '', label: 'Not rated' },
+                ...LEVELS.map((l) => ({ value: String(l.value), label: l.label })),
+              ]}
+              onChange={(v) =>
+                v && rate.mutate({ impact: data?.impact ?? 2, urgency: Number(v) })
+              }
+            />
+          </Property>
+
+          <Property
+            label="Priority"
+            hint={
+              data?.priorityIsManual
+                ? 'Set directly. Rating impact and urgency lets the matrix decide instead.'
+                : 'Derived from impact and urgency.'
+            }
+          >
             <Choice
               value={data?.priority ?? 'medium'}
               options={PRIORITIES.map((p) => ({ value: p, label: p }))}
