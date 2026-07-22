@@ -33,6 +33,24 @@ interface Comment {
   $createdAt: string;
 }
 
+interface Event {
+  $id: string;
+  field: string;
+  oldValue: string;
+  newValue: string;
+  $createdAt: string;
+}
+
+const FIELD_LABEL: Record<string, string> = {
+  status: 'status',
+  priority: 'priority',
+  kind: 'kind',
+  milestone: 'milestone',
+  targetDate: 'target date',
+  title: 'title',
+  assignee: 'assignee',
+};
+
 interface Item {
   $id: string;
   title: string;
@@ -103,7 +121,7 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
   const specified = list.filter((c) => c.specRef.trim() !== '').length;
 
   return (
-    <div className="flex flex-col gap-6 p-6 md:p-8">
+    <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-6 p-6 md:p-8">
       <button
         onClick={onBack}
         className="flex w-fit items-center gap-1 text-[length:var(--text-label)] text-text-muted transition-colors hover:text-text-primary"
@@ -112,10 +130,10 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
         Plan
       </button>
 
-      <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
+      <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-center">
         {/* The document. Capped at a readable measure rather than the width of
             whatever monitor it is opened on. */}
-        <div className="flex w-full max-w-[760px] flex-col gap-8">
+        <div className="flex w-full min-w-0 max-w-[720px] flex-1 flex-col gap-8">
           {data && (
             <EditableTitle
               kind={data.kind}
@@ -146,17 +164,12 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
             <CriteriaList itemId={itemId} criteria={list} />
           </section>
 
-          <section className="flex flex-col gap-3">
-            <h2 className="text-[length:var(--text-control)] font-medium text-text-primary">
-              Discussion
-            </h2>
-            <Discussion itemId={itemId} comments={comments.data ?? []} />
-          </section>
+          <ActivitySection itemId={itemId} comments={comments.data ?? []} />
         </div>
 
         {/* The properties. A column, so changing one does not mean leaving the
             page and the reading measure stays where it is. */}
-        <aside className="flex w-full shrink-0 flex-col gap-4 rounded-[var(--radius-10)] border border-border bg-surface p-4 lg:w-[260px]">
+        <aside className="flex w-full shrink-0 flex-col gap-3.5 rounded-[var(--radius)] border border-border bg-surface p-3.5 lg:w-[240px]">
           <Property label="Status">
             <Choice
               value={data?.status ?? 'todo'}
@@ -358,16 +371,7 @@ function EditableBody({ value, onSave }: { value: string; onSave: (v: string) =>
   return (
     <div className="flex flex-col gap-2">
       <RichTextEditor value={draft} onChange={setDraft} minRows={8} />
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          onClick={() => {
-            onSave(draft);
-            setEditing(false);
-          }}
-        >
-          Save
-        </Button>
+      <div className="flex justify-end gap-2">
         <Button
           size="sm"
           variant="ghost"
@@ -377,6 +381,15 @@ function EditableBody({ value, onSave }: { value: string; onSave: (v: string) =>
           }}
         >
           Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            onSave(draft);
+            setEditing(false);
+          }}
+        >
+          Save
         </Button>
       </div>
     </div>
@@ -564,14 +577,110 @@ function CriterionRow({
   );
 }
 
+/*
+ * What people said, and what changed.
+ *
+ * Two different questions — "why is this being done this way" and "who moved
+ * it to blocked on Tuesday" — so they are tabs rather than one stream. The
+ * composer stays closed until there is something to say: a permanently open
+ * editor is the loudest thing on a page that is mostly for reading.
+ */
+function ActivitySection({ itemId, comments }: { itemId: string; comments: Comment[] }) {
+  const [tab, setTab] = useState<'comments' | 'history'>('comments');
+
+  const activity = useQuery({
+    queryKey: ['plan-activity', itemId],
+    queryFn: async () =>
+      ((await api.get(`/plan/items/${itemId}/activity`)).data as { activity: Event[] })
+        .activity ?? [],
+    enabled: tab === 'history',
+  });
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center gap-1 border-b border-border">
+        {([
+          ['comments', `Comments${comments.length ? ` (${comments.length})` : ''}`],
+          ['history', 'History'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setTab(value)}
+            className={cn(
+              '-mb-px border-b-2 px-3 py-2 text-[length:var(--text-label)] transition-colors',
+              tab === value
+                ? 'border-[var(--color-accent)] text-text-primary'
+                : 'border-transparent text-text-muted hover:text-text-primary',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'comments' ? (
+        <Discussion itemId={itemId} comments={comments} />
+      ) : (
+        <History events={activity.data ?? []} loading={activity.isLoading} />
+      )}
+    </section>
+  );
+}
+
+function History({ events, loading }: { events: Event[]; loading: boolean }) {
+  if (loading) {
+    return <p className="text-[length:var(--text-body)] text-text-muted">Loading…</p>;
+  }
+  if (events.length === 0) {
+    return (
+      <p className="text-[length:var(--text-body)] text-text-subtle">
+        Nothing has changed since this was created.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {events.map((e) => (
+        <div key={e.$id} className="flex items-baseline gap-2 text-[length:var(--text-body)]">
+          <span className="text-text-secondary">
+            {e.field === 'body' ? (
+              <>edited the description</>
+            ) : (
+              <>
+                changed <span className="text-text-primary">{FIELD_LABEL[e.field] ?? e.field}</span>
+                {e.oldValue && (
+                  <>
+                    {' '}from <span className="text-text-primary">{e.oldValue}</span>
+                  </>
+                )}
+                {e.newValue && (
+                  <>
+                    {' '}to <span className="text-text-primary">{e.newValue}</span>
+                  </>
+                )}
+              </>
+            )}
+          </span>
+          <span className="ml-auto shrink-0 text-[length:var(--text-caption)] text-text-subtle">
+            {new Date(e.$createdAt).toLocaleString()}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Discussion({ itemId, comments }: { itemId: string; comments: Comment[] }) {
   const qc = useQueryClient();
   const [body, setBody] = useState('');
+  const [composing, setComposing] = useState(false);
 
   const add = useMutation({
     mutationFn: () => api.post(`/plan/items/${itemId}/comments`, { body: body.trim() }),
     onSuccess: () => {
       setBody('');
+      setComposing(false);
       qc.invalidateQueries({ queryKey: ['plan-comments', itemId] });
     },
     onError: (e) => toast.error(friendlyError(e)),
@@ -590,24 +699,43 @@ function Discussion({ itemId, comments }: { itemId: string; comments: Comment[] 
         </div>
       ))}
 
-      {comments.length === 0 && (
-        <p className="text-[length:var(--text-body)] text-text-subtle">No discussion yet.</p>
+      {comments.length === 0 && !composing && (
+        <p className="text-[length:var(--text-body)] text-text-subtle">No comments yet.</p>
       )}
 
-      <RichTextEditor
-        value={body}
-        onChange={setBody}
-        minRows={3}
-        placeholder="Add a note — why this was decided, what it depends on…"
-      />
-      <Button
-        size="sm"
-        className="w-fit"
-        onClick={() => add.mutate()}
-        disabled={!body.trim() || add.isPending}
-      >
-        Post
-      </Button>
+      {composing ? (
+        <div className="flex flex-col gap-2">
+          <RichTextEditor
+            value={body}
+            onChange={setBody}
+            minRows={4}
+            placeholder="Add a comment — why this was decided, what it depends on…"
+          />
+          {/* Actions right, primary last: the eye ends where the decision is. */}
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setBody('');
+                setComposing(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => add.mutate()} disabled={!body.trim() || add.isPending}>
+              Comment
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setComposing(true)}
+          className="w-full rounded-[var(--radius)] border border-field-border bg-field-fill px-3 py-2 text-left text-[length:var(--text-body)] text-text-subtle transition-colors hover:border-text-subtle"
+        >
+          Add a comment…
+        </button>
+      )}
     </div>
   );
 }

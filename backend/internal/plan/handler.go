@@ -32,6 +32,7 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/criteria/{criterionId}", h.updateCriterion)
 	r.Delete("/criteria/{criterionId}", h.deleteCriterion)
 
+	r.Get("/items/{itemId}/activity", h.listActivity)
 	r.Get("/items/{itemId}/comments", h.listComments)
 	r.Post("/items/{itemId}/comments", h.addComment)
 	r.Delete("/comments/{commentId}", h.deleteComment)
@@ -103,7 +104,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := h.svc.Update(r.Context(), chi.URLParam(r, "itemId"), projectID, body.input())
+	item, err := h.svc.UpdateAs(r.Context(), chi.URLParam(r, "itemId"), projectID,
+		middleware.UserFromContext(r.Context()), body.input())
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			apperr.NotFound(w, "plan item")
@@ -202,6 +204,15 @@ func (h *Handler) deleteCriterion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) listActivity(w http.ResponseWriter, r *http.Request) {
+	events, err := h.svc.ListActivity(r.Context(), chi.URLParam(r, "itemId"))
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"activity": events})
 }
 
 func (h *Handler) listComments(w http.ResponseWriter, r *http.Request) {

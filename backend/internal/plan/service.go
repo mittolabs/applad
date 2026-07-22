@@ -157,6 +157,11 @@ func (s *Service) Create(ctx context.Context, projectID, createdBy string, in In
 
 // Update changes only what was named.
 func (s *Service) Update(ctx context.Context, id, projectID string, in Input) (*Item, error) {
+	return s.UpdateAs(ctx, id, projectID, "", in)
+}
+
+// UpdateAs is Update, attributing the change to somebody.
+func (s *Service) UpdateAs(ctx context.Context, id, projectID, actorID string, in Input) (*Item, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
@@ -164,6 +169,7 @@ func (s *Service) Update(ctx context.Context, id, projectID string, in Input) (*
 	if err != nil {
 		return nil, err
 	}
+	before := *item
 
 	wasClosed := Closed(item.Status)
 	applyInput(item, in)
@@ -191,6 +197,7 @@ func (s *Service) Update(ctx context.Context, id, projectID string, in Input) (*
 		item.ClosedAt, id, projectID); err != nil {
 		return nil, fmt.Errorf("plan: update item: %w", err)
 	}
+	s.recordChanges(ctx, id, actorID, &before, item)
 	return s.Get(ctx, id, projectID)
 }
 

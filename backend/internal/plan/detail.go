@@ -216,6 +216,81 @@ func (s *Service) DeleteComment(ctx context.Context, id, projectID string) error
 	return err
 }
 
+// ── Activity ──
+
+// Event is one thing that changed about an item.
+type Event struct {
+	ID        string    `json:"$id"`
+	ItemID    string    `json:"itemId"`
+	ActorID   string    `json:"actorId,omitempty"`
+	Field     string    `json:"field"`
+	OldValue  string    `json:"oldValue"`
+	NewValue  string    `json:"newValue"`
+	CreatedAt time.Time `json:"$createdAt"`
+}
+
+// ListActivity returns what happened to an item, newest first.
+func (s *Service) ListActivity(ctx context.Context, itemID string) ([]Event, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, item_id, COALESCE(actor_id,''), field, old_value, new_value, created_at
+		   FROM plan_activity WHERE item_id = $1 ORDER BY created_at DESC`, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []Event{}
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.ID, &e.ItemID, &e.ActorID, &e.Field, &e.OldValue, &e.NewValue, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// recordChanges writes what an update actually altered.
+//
+// Compared before and after rather than taken from the request, because a
+// field set to the value it already had did not change anything, and a
+// history full of those is a history nobody reads.
+func (s *Service) recordChanges(ctx context.Context, itemID, actorID string, before, after *Item) {
+	type change struct{ field, old, new string }
+	var changes []change
+
+	add := func(field, old, now string) {
+		if old != now {
+			changes = append(changes, change{field, old, now})
+		}
+	}
+	add("title", before.Title, after.Title)
+	add("status", before.Status, after.Status)
+	add("priority", before.Priority, after.Priority)
+	add("kind", before.Kind, after.Kind)
+	add("milestone", before.MilestoneID, after.MilestoneID)
+	add("assignee", before.AssigneeID, after.AssigneeID)
+	add("targetDate", dateOf(before.TargetDate), dateOf(after.TargetDate))
+	if before.Body != after.Body {
+		// The text itself belongs in the item, not in a log of every draft.
+		changes = append(changes, change{"body", "", ""})
+	}
+
+	for _, c := range changes {
+		s.db.ExecContext(ctx, //nolint:errcheck
+			`INSERT INTO plan_activity (id, item_id, actor_id, field, old_value, new_value, created_at)
+			 VALUES ($1, $2, NULLIF($3,''), $4, $5, $6, NOW())`,
+			uid.New("unique()"), itemID, actorID, c.field, c.old, c.new)
+	}
+}
+
+func dateOf(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format("2006-01-02")
+}
+
 // ── Milestones ──
 
 // ListMilestones returns a project's milestones by target date, each with its
