@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { useRoutedSelection } from '@/hooks/use-routed-selection';
 import { DetailRoute } from '@/components/detail-route';
@@ -25,6 +26,21 @@ import { SourceTypeToggle, type SourceType } from './SourceTypeToggle';
 import { FunctionDetail } from './FunctionDetail';
 
 const LIST_TABS = ['Functions', 'Usage'];
+
+/** Runtime picker options, sourced from GET /functions/runtimes, falling back
+ * to the hardcoded list if the fetch fails so the picker never breaks. */
+function useRuntimeOptions() {
+  const { data } = useQuery({
+    queryKey: ['/functions/runtimes'],
+    queryFn: async () => {
+      const res = await api.get('/functions/runtimes');
+      const runtimes = (res.data as { runtimes?: { id: string; name: string }[] }).runtimes ?? [];
+      return runtimes.map((r) => ({ value: r.id, label: r.name }));
+    },
+    staleTime: Infinity,
+  });
+  return data && data.length > 0 ? data : RUNTIME_OPTIONS;
+}
 
 const COLUMNS: DataTableColumn[] = [
   { key: 'name', label: 'Name', flex: 4, sortable: true },
@@ -91,6 +107,7 @@ function FunctionsTab({
   onOpen: (row: Row) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const runtimeOptions = useRuntimeOptions();
 
   return (
     <>
@@ -138,7 +155,7 @@ function FunctionsTab({
         onNext={list.nextPage}
         itemLabel="functions"
         filters={[
-          { key: 'runtime', label: 'Runtime', options: RUNTIME_OPTIONS },
+          { key: 'runtime', label: 'Runtime', options: runtimeOptions },
           {
             key: 'status',
             label: 'Status',
@@ -211,6 +228,7 @@ function CreateFunctionDialog({
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('main');
   const [saving, setSaving] = useState(false);
+  const runtimeOptions = useRuntimeOptions();
 
   const reset = () => {
     setName('');
@@ -263,7 +281,7 @@ function CreateFunctionDialog({
         placeholder="my-function"
         autoFocus
       />
-      <SelectField label="Runtime" value={runtime} onChange={setRuntime} options={RUNTIME_OPTIONS} />
+      <SelectField label="Runtime" value={runtime} onChange={setRuntime} options={runtimeOptions} />
       <TextField
         label="Entrypoint"
         value={entrypoint}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Container as ContainerIcon } from 'lucide-react';
+import { Container as ContainerIcon, Trash2 } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
@@ -81,20 +81,62 @@ function ImagesTab({ id }: { id: string }) {
   return (
     <div className="flex flex-col gap-2">
       {rows.map((img) => (
-        <div
+        <ImageRow
           key={rowId(img) || `${String(img['repository'])}:${String(img['tag'])}`}
-          className="flex items-center gap-3 rounded-[var(--radius)] border border-border bg-surface px-3.5 py-3"
-        >
-          <ContainerIcon size={16} className="text-[var(--color-accent)]" />
-          <span className="flex-1 truncate font-[family-name:var(--font-mono)] text-[length:var(--text-body)] text-text-primary">
-            {`${String(img['repository'] ?? '')}:${String(img['tag'] ?? 'latest')}`}
-          </span>
-          <span className="text-[length:var(--text-caption)] text-text-subtle">{String(img['platform'] ?? '')}</span>
-          <span className="text-[length:var(--text-caption)] text-text-subtle">
-            {(asNumber(img['sizeBytes']) / 1_048_576).toFixed(1)} MB
-          </span>
-        </div>
+          id={id}
+          img={img}
+          onRefetch={() => images.refetch()}
+        />
       ))}
+    </div>
+  );
+}
+
+function ImageRow({ id, img, onRefetch }: { id: string; img: Row; onRefetch: () => void }) {
+  const imageId = rowId(img);
+  const ref = `${String(img['repository'] ?? '')}:${String(img['tag'] ?? 'latest')}`;
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const del = async () => {
+    setDeleting(true);
+    try {
+      await api.delete(`/deploy/targets/${id}/images/${imageId}`);
+      setConfirmDelete(false);
+      onRefetch();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 rounded-[var(--radius)] border border-border bg-surface px-3.5 py-3">
+      <ContainerIcon size={16} className="text-[var(--color-accent)]" />
+      <span className="flex-1 truncate font-[family-name:var(--font-mono)] text-[length:var(--text-body)] text-text-primary">
+        {ref}
+      </span>
+      <span className="text-[length:var(--text-caption)] text-text-subtle">{String(img['platform'] ?? '')}</span>
+      <span className="text-[length:var(--text-caption)] text-text-subtle">
+        {(asNumber(img['sizeBytes']) / 1_048_576).toFixed(1)} MB
+      </span>
+      <button
+        type="button"
+        onClick={() => setConfirmDelete(true)}
+        className="rounded-[var(--radius-6)] p-1.5 text-text-muted transition-colors hover:bg-fill hover:text-[var(--color-danger)]"
+        aria-label={`Delete ${ref}`}
+      >
+        <Trash2 size={14} />
+      </button>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete image"
+        message={`Delete ${ref} from the registry? This cannot be undone.`}
+        loading={deleting}
+        onConfirm={del}
+      />
     </div>
   );
 }

@@ -34,6 +34,21 @@ import { SourceTypeToggle, type SourceType } from './SourceTypeToggle';
 
 const DETAIL_TABS = ['Executions', 'Variables', 'Settings'];
 
+/** Runtime picker options, sourced from GET /functions/runtimes, falling back
+ * to the hardcoded list if the fetch fails so the picker never breaks. */
+function useRuntimeOptions() {
+  const { data } = useQuery({
+    queryKey: ['/functions/runtimes'],
+    queryFn: async () => {
+      const res = await api.get('/functions/runtimes');
+      const runtimes = (res.data as { runtimes?: { id: string; name: string }[] }).runtimes ?? [];
+      return runtimes.map((r) => ({ value: r.id, label: r.name }));
+    },
+    staleTime: Infinity,
+  });
+  return data && data.length > 0 ? data : RUNTIME_OPTIONS;
+}
+
 export function FunctionDetail({
   fn,
   onChange,
@@ -341,6 +356,7 @@ function SettingsTab({
   onDeleted: () => void;
 }) {
   const monacoTheme = useMonacoTheme();
+  const runtimeOptions = useRuntimeOptions();
   const id = String(fn['$id']);
   const [name, setName] = useState(String(fn['name'] ?? ''));
   const [runtime, setRuntime] = useState(String(fn['runtime'] ?? 'node-20'));
@@ -391,7 +407,7 @@ function SettingsTab({
     <div className="flex max-w-2xl flex-col gap-3">
       <SectionCard title="General" description="Basic function configuration.">
         <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-function" />
-        <SelectField label="Runtime" value={runtime} onChange={setRuntime} options={RUNTIME_OPTIONS} />
+        <SelectField label="Runtime" value={runtime} onChange={setRuntime} options={runtimeOptions} />
         <TextField
           label="Entrypoint"
           value={entrypoint}

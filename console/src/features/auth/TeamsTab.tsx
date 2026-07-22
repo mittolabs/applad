@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, MoreHorizontal, UserPlus, Users, UserX } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, Pencil, UserPlus, Users, UserX } from 'lucide-react';
 import { api } from '@/api/client';
 import { useResourceList } from '@/hooks/use-resource-list';
 import { DataTable, type DataTableColumn, type Row } from '@/components/data-table';
@@ -167,6 +167,19 @@ function TeamDetail({
   const [editRoles, setEditRoles] = useState('');
   const [removing, setRemoving] = useState<Record<string, unknown> | null>(null);
 
+  const [displayName, setDisplayName] = useState(teamName);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(teamName);
+
+  const renameTeam = useMutation({
+    mutationFn: () => api.put(`/teams/${teamId}`, { name: renameValue.trim() }).then((r) => r.data),
+    onSuccess: (team) => {
+      setDisplayName(String((team as Record<string, unknown>)?.['name'] ?? renameValue.trim()));
+      setRenaming(false);
+      refresh();
+    },
+  });
+
   const addMember = useMutation({
     mutationFn: () =>
       api
@@ -226,7 +239,18 @@ function TeamDetail({
           <ArrowLeft size={18} />
         </button>
         <Users size={18} className="text-text-muted" />
-        <span className="text-[length:var(--text-title)] font-semibold text-text-primary">{teamName}</span>
+        <span className="text-[length:var(--text-title)] font-semibold text-text-primary">{displayName}</span>
+        <button
+          type="button"
+          onClick={() => {
+            setRenameValue(displayName);
+            setRenaming(true);
+          }}
+          className="rounded-[var(--radius-6)] p-1 text-text-muted transition-colors hover:bg-fill hover:text-text-primary"
+          aria-label="Rename team"
+        >
+          <Pencil size={14} />
+        </button>
         <span className="rounded-[var(--radius-sm)] bg-fill px-2 py-0.5 font-[family-name:var(--font-mono)] text-[length:var(--text-caption)] text-text-subtle">
           ID: {teamId}
         </span>
@@ -311,6 +335,19 @@ function TeamDetail({
           </div>
         )}
       </div>
+
+      <FormDialog
+        open={renaming}
+        onOpenChange={setRenaming}
+        title="Rename team"
+        subtitle="Change the display name for this team"
+        submitLabel="Save"
+        loading={renameTeam.isPending}
+        submitDisabled={!renameValue.trim()}
+        onSubmit={() => renameTeam.mutate()}
+      >
+        <TextField label="Team name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
+      </FormDialog>
 
       <FormDialog
         open={adding}

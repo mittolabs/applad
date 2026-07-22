@@ -4,6 +4,7 @@ import { useTabIndex } from '@/hooks/use-tab-param';
 import {
   Activity,
   ArrowRight,
+  CheckCircle2,
   Clock,
   ExternalLink,
   GitBranch,
@@ -14,6 +15,7 @@ import {
   RotateCcw,
   Rocket,
   ScrollText,
+  ShieldCheck,
   Timer,
   Trash2,
   Upload,
@@ -503,43 +505,127 @@ function DomainsTab({ siteId }: { siteId: string }) {
         />
       ) : (
         <div className="flex flex-col gap-2">
-          {rows.map((d) => {
-            const targetType = String(d['targetType'] ?? 'active_deployment');
-            let targetLabel: string;
-            let TargetIcon: LucideIcon;
-            switch (targetType) {
-              case 'active_deployment':
-                targetLabel = 'Active deployment';
-                TargetIcon = Rocket;
-                break;
-              case 'git_branch':
-                targetLabel = `Branch: ${String(d['targetValue'] ?? 'main')}`;
-                TargetIcon = GitBranch;
-                break;
-              case 'redirect':
-                targetLabel = `Redirect: ${String(d['targetValue'] ?? '')}`;
-                TargetIcon = ExternalLink;
-                break;
-              default:
-                targetLabel = targetType;
-                TargetIcon = ExternalLink;
-            }
-            return (
-              <div
-                key={rowId(d) || String(d['domain'])}
-                className="flex items-center gap-3 rounded-[var(--radius)] border border-border bg-surface px-4 py-3"
-              >
-                <Globe size={14} className="text-[var(--color-accent)]" />
-                <span className="flex-1 text-[length:var(--text-body)] text-text-primary">{String(d['domain'] ?? '')}</span>
-                <TargetIcon size={14} className="text-text-subtle" />
-                <span className="text-[length:var(--text-body)] text-text-muted">{targetLabel}</span>
-              </div>
-            );
-          })}
+          {rows.map((d) => (
+            <DomainRow
+              key={rowId(d) || String(d['domain'])}
+              siteId={siteId}
+              domain={d}
+              onRefetch={() => domains.refetch()}
+            />
+          ))}
         </div>
       )}
 
       <AddDomainDialog open={adding} onOpenChange={setAdding} siteId={siteId} onAdded={() => domains.refetch()} />
+    </div>
+  );
+}
+
+function DomainRow({
+  siteId,
+  domain: d,
+  onRefetch,
+}: {
+  siteId: string;
+  domain: Row;
+  onRefetch: () => void;
+}) {
+  const domainId = rowId(d);
+  const domainName = String(d['domain'] ?? '');
+  const verified = d['verified'] === true;
+  const [verifying, setVerifying] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const targetType = String(d['targetType'] ?? 'active_deployment');
+  let targetLabel: string;
+  let TargetIcon: LucideIcon;
+  switch (targetType) {
+    case 'active_deployment':
+      targetLabel = 'Active deployment';
+      TargetIcon = Rocket;
+      break;
+    case 'git_branch':
+      targetLabel = `Branch: ${String(d['targetValue'] ?? 'main')}`;
+      TargetIcon = GitBranch;
+      break;
+    case 'redirect':
+      targetLabel = `Redirect: ${String(d['targetValue'] ?? '')}`;
+      TargetIcon = ExternalLink;
+      break;
+    default:
+      targetLabel = targetType;
+      TargetIcon = ExternalLink;
+  }
+
+  // POST verify runs a live DNS lookup on the backend; a pass flips the
+  // domain's status, so refetch to show it. A miss returns the exact record
+  // the user still needs to add, which friendlyError surfaces.
+  const verify = async () => {
+    setVerifying(true);
+    try {
+      await api.post(`/deploy/targets/${siteId}/domains/${domainId}/verify`, {});
+      toast.success('Domain verified');
+      onRefetch();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const del = async () => {
+    setDeleting(true);
+    try {
+      await api.delete(`/deploy/targets/${siteId}/domains/${domainId}`);
+      setConfirmDelete(false);
+      onRefetch();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 rounded-[var(--radius)] border border-border bg-surface px-4 py-3">
+      <Globe size={14} className="text-[var(--color-accent)]" />
+      <span className="flex-1 truncate text-[length:var(--text-body)] text-text-primary">{domainName}</span>
+      <TargetIcon size={14} className="text-text-subtle" />
+      <span className="hidden text-[length:var(--text-body)] text-text-muted sm:inline">{targetLabel}</span>
+      {verified ? (
+        <span
+          className="flex items-center gap-1 rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[length:var(--text-caption)] font-semibold"
+          style={{
+            color: 'var(--status-success)',
+            backgroundColor: 'color-mix(in srgb, var(--status-success) 12%, transparent)',
+          }}
+        >
+          <CheckCircle2 size={12} />
+          Verified
+        </span>
+      ) : (
+        <Button variant="outline" size="sm" loading={verifying} onClick={verify}>
+          <ShieldCheck size={14} />
+          Verify
+        </Button>
+      )}
+      <button
+        type="button"
+        onClick={() => setConfirmDelete(true)}
+        className="rounded-[var(--radius-6)] p-1.5 text-text-muted transition-colors hover:bg-fill hover:text-[var(--color-danger)]"
+        aria-label={`Delete ${domainName}`}
+      >
+        <Trash2 size={14} />
+      </button>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete ${domainName}?`}
+        message="This removes the custom domain from this site. It stops resolving to your deployment immediately."
+        loading={deleting}
+        onConfirm={del}
+      />
     </div>
   );
 }

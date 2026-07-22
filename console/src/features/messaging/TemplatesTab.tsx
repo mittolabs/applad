@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Bell, FileText, Mail, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { Bell, FileText, Mail, MessageSquare, Pencil, Plus, Send, Trash2 } from 'lucide-react';
 import { api } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,6 +17,8 @@ interface Template extends Record<string, unknown> {
   name?: string;
   type?: string;
   subject?: string;
+  body?: string;
+  variables?: string[];
 }
 
 const TYPE_COLOR: Record<string, string> = {
@@ -32,12 +34,18 @@ function typeIconFor(type: string) {
 }
 
 export function TemplatesTab({ projectId }: { projectId: string | undefined }) {
-  const [creating, setCreating] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingVariables, setEditingVariables] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [type, setType] = useState<MsgType>('email');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  const [sending, setSending] = useState<Template | null>(null);
+  const [sendTo, setSendTo] = useState('');
+  const [sendVars, setSendVars] = useState<Record<string, string>>({});
 
   const query = useQuery({
     queryKey: ['/messaging/templates', projectId],
@@ -48,25 +56,46 @@ export function TemplatesTab({ projectId }: { projectId: string | undefined }) {
   });
 
   const resetForm = () => {
+    setEditingId(null);
+    setEditingVariables([]);
     setName('');
     setType('email');
     setSubject('');
     setBody('');
   };
 
-  const create = useMutation({
+  const openCreate = () => {
+    resetForm();
+    setDialogOpen(true);
+  };
+
+  const openEdit = (t: Template) => {
+    setEditingId(String(t.$id ?? ''));
+    setEditingVariables(Array.isArray(t.variables) ? t.variables : []);
+    setName(String(t.name ?? ''));
+    setType((String(t.type ?? 'email') as MsgType) || 'email');
+    setSubject(String(t.subject ?? ''));
+    setBody(String(t.body ?? ''));
+    setDialogOpen(true);
+  };
+
+  const save = useMutation({
     mutationFn: async () => {
-      await api.post('/messaging/templates', {
-        templateId: 'unique()',
+      const payload = {
         name: name.trim(),
         type,
         subject: subject.trim(),
         body: body.trim(),
-        variables: [],
-      });
+        variables: editingId ? editingVariables : [],
+      };
+      if (editingId) {
+        await api.put(`/messaging/templates/${editingId}`, payload);
+      } else {
+        await api.post('/messaging/templates', { templateId: 'unique()', ...payload });
+      }
     },
     onSuccess: () => {
-      setCreating(false);
+      setDialogOpen(false);
       resetForm();
       void query.refetch();
     },
@@ -82,7 +111,35 @@ export function TemplatesTab({ projectId }: { projectId: string | undefined }) {
     },
   });
 
+  const openSend = (t: Template) => {
+    setSending(t);
+    setSendTo('');
+    setSendVars(
+      Object.fromEntries((Array.isArray(t.variables) ? t.variables : []).map((v) => [v, ''])),
+    );
+  };
+
+  const send = useMutation({
+    mutationFn: async () => {
+      const id = String(sending?.$id ?? '');
+      const to = sendTo
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await api.post(`/messaging/templates/${id}/send`, { to, variables: sendVars });
+    },
+    onSuccess: () => {
+      setSending(null);
+      setSendTo('');
+      setSendVars({});
+    },
+  });
+
   const templates = query.data ?? [];
+  const sendRecipients = sendTo
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   return (
     <div className="flex flex-col gap-4">
@@ -91,7 +148,7 @@ export function TemplatesTab({ projectId }: { projectId: string | undefined }) {
           {templates.length} template{templates.length === 1 ? '' : 's'}
         </span>
         <span className="flex-1" />
-        <Button size="sm" onClick={() => setCreating(true)}>
+        <Button size="sm" onClick={openCreate}>
           <Plus size={14} />
           New Template
         </Button>
@@ -152,6 +209,22 @@ export function TemplatesTab({ projectId }: { projectId: string | undefined }) {
                 </span>
                 <button
                   type="button"
+                  onClick={() => openSend(t)}
+                  className="rounded-[var(--radius-6)] p-1.5 text-text-subtle opacity-0 transition-all hover:bg-fill hover:text-[var(--color-accent)] group-hover:opacity-100"
+                  aria-label="Send template"
+                >
+                  <Send size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openEdit(t)}
+                  className="rounded-[var(--radius-6)] p-1.5 text-text-subtle opacity-0 transition-all hover:bg-fill hover:text-text-primary group-hover:opacity-100"
+                  aria-label="Edit template"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  type="button"
                   onClick={() => setPendingDelete(id)}
                   className="rounded-[var(--radius-6)] p-1.5 text-text-subtle opacity-0 transition-all hover:bg-fill hover:text-[var(--color-danger)] group-hover:opacity-100"
                   aria-label="Delete template"
@@ -165,18 +238,18 @@ export function TemplatesTab({ projectId }: { projectId: string | undefined }) {
       )}
 
       <FormDialog
-        open={creating}
+        open={dialogOpen}
         onOpenChange={(o) => {
-          setCreating(o);
+          setDialogOpen(o);
           if (!o) resetForm();
         }}
-        title="New Template"
+        title={editingId ? 'Edit Template' : 'New Template'}
         subtitle="Create a reusable message with {{variable}} placeholders"
         width={500}
-        submitLabel="Create"
-        loading={create.isPending}
+        submitLabel={editingId ? 'Save' : 'Create'}
+        loading={save.isPending}
         submitDisabled={!name.trim()}
-        onSubmit={() => create.mutate()}
+        onSubmit={() => save.mutate()}
       >
         <TextField
           label="Name"
@@ -209,6 +282,42 @@ export function TemplatesTab({ projectId }: { projectId: string | undefined }) {
           rows={5}
           className="font-[family-name:var(--font-mono)]"
         />
+      </FormDialog>
+
+      <FormDialog
+        open={sending !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setSending(null);
+            setSendTo('');
+            setSendVars({});
+          }
+        }}
+        title="Send Template"
+        subtitle={sending ? `Send "${String(sending.name ?? '')}" to recipients` : undefined}
+        width={500}
+        submitLabel="Send"
+        loading={send.isPending}
+        submitDisabled={sendRecipients.length === 0}
+        onSubmit={() => send.mutate()}
+      >
+        <TextField
+          label="Recipients"
+          value={sendTo}
+          onChange={(e) => setSendTo(e.target.value)}
+          placeholder="alice@example.com, bob@example.com"
+          hint="Comma-separated list of recipients"
+          autoFocus
+        />
+        {(Array.isArray(sending?.variables) ? sending!.variables! : []).map((v) => (
+          <TextField
+            key={v}
+            label={v}
+            value={sendVars[v] ?? ''}
+            onChange={(e) => setSendVars((prev) => ({ ...prev, [v]: e.target.value }))}
+            placeholder={`Value for {{${v}}}`}
+          />
+        ))}
       </FormDialog>
 
       <ConfirmDialog

@@ -8,6 +8,11 @@ import { FormDialog, TextField } from '@/components/form-dialog';
 import { ErrorState } from '@/components/error-state';
 
 interface Topic extends Record<string, unknown> {
+  // The backend serializes the identifier as `id` (messaging.Topic → json:"id");
+  // $id is only carried by the Appwrite-style resources, and the axios client
+  // does no id→$id normalization, so read the real field first.
+  id?: string;
+  $id?: string;
   name?: string;
   subscribers?: unknown[];
 }
@@ -16,6 +21,8 @@ export function TopicsTab({ projectId }: { projectId: string | undefined }) {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
+  const [subscribing, setSubscribing] = useState<Topic | null>(null);
+  const [target, setTarget] = useState('');
 
   const query = useQuery({
     queryKey: ['/messaging/topics', projectId],
@@ -32,6 +39,18 @@ export function TopicsTab({ projectId }: { projectId: string | undefined }) {
     onSuccess: () => {
       setCreating(false);
       setName('');
+      void query.refetch();
+    },
+  });
+
+  const addSubscriber = useMutation({
+    mutationFn: async () => {
+      const id = String(subscribing?.id ?? subscribing?.$id ?? '');
+      await api.post(`/messaging/topics/${id}/subscribers`, { target: target.trim() });
+    },
+    onSuccess: () => {
+      setSubscribing(null);
+      setTarget('');
       void query.refetch();
     },
   });
@@ -92,8 +111,8 @@ export function TopicsTab({ projectId }: { projectId: string | undefined }) {
             const subs = Array.isArray(t.subscribers) ? t.subscribers.length : 0;
             return (
               <div
-                key={String(t.$id ?? t.name ?? i)}
-                className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-surface p-4"
+                key={String(t.id ?? t.$id ?? t.name ?? i)}
+                className="group flex items-center gap-2 rounded-[var(--radius)] border border-border bg-surface p-4"
               >
                 <Hash size={14} className="text-text-subtle" />
                 <span className="text-[length:var(--text-control)] text-text-primary">
@@ -103,6 +122,17 @@ export function TopicsTab({ projectId }: { projectId: string | undefined }) {
                 <span className="text-[length:var(--text-label)] text-text-subtle">
                   {subs} subscriber{subs === 1 ? '' : 's'}
                 </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSubscribing(t);
+                    setTarget('');
+                  }}
+                >
+                  <Plus size={14} />
+                  Add subscriber
+                </Button>
               </div>
             );
           })}
@@ -127,6 +157,33 @@ export function TopicsTab({ projectId }: { projectId: string | undefined }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="my-topic"
+          autoFocus
+        />
+      </FormDialog>
+
+      <FormDialog
+        open={subscribing !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setSubscribing(null);
+            setTarget('');
+          }
+        }}
+        title="Add subscriber"
+        subtitle={
+          subscribing ? `Add a target to "${String(subscribing.name ?? '')}"` : undefined
+        }
+        submitLabel="Add"
+        loading={addSubscriber.isPending}
+        submitDisabled={!target.trim()}
+        onSubmit={() => addSubscriber.mutate()}
+      >
+        <TextField
+          label="Target"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          placeholder="user@example.com, +15551234567, or device token"
+          hint="Email, phone number, or push token to add to this topic"
           autoFocus
         />
       </FormDialog>

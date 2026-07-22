@@ -1,4 +1,5 @@
 import { Bell, Mail, MessageSquare, Plus } from 'lucide-react';
+import { api } from '@/api/client';
 import { useResourceList } from '@/hooks/use-resource-list';
 import { DataTable, type DataTableColumn, type Row } from '@/components/data-table';
 import { Button } from '@/components/ui/button';
@@ -74,6 +75,13 @@ export function MessagesTab({
       }
       rowIcon={(row) => typeIcon(String(row.type ?? ''))}
       onRowClick={(row: Row) => onSelect(toMessageRow(row))}
+      onDeleteRow={async (row: Row) => {
+        const id = String(row.id ?? row.$id ?? '');
+        await api.delete(`/messaging/messages/${id}`);
+        list.refetch();
+      }}
+      deleteTitle="Delete message?"
+      deleteMessage="This cannot be undone. The message and its delivery record will be removed."
       createWidget={<CreateMenu onSelect={onCreate} />}
       searchHint="Search by type, status, or ID"
       searchValue={list.search}

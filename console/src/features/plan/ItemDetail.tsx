@@ -76,12 +76,24 @@ interface Item {
   priorityIsManual: boolean;
   targetDate?: string;
   labels: string[];
-  links: { $id: string; kind: string; ref: string }[];
+  links: PlanLink[];
+}
+
+interface PlanLink {
+  $id: string;
+  kind: string;
+  ref: string;
+  label?: string;
 }
 
 const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 const KINDS = ['change', 'defect'];
+
+// The conventional kinds a link points at, as the schema documents them:
+// spec | test | deploy | repo | url. The server stores kind as free text, so
+// this is a vocabulary the console offers rather than a constraint it enforces.
+const LINK_KINDS = ['spec', 'test', 'deploy', 'repo', 'url'];
 
 const LABEL: Record<string, string> = {
   todo: 'Todo',
@@ -313,25 +325,9 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
             />
           </Property>
 
-          {(data?.links ?? []).length > 0 && (
-            <Property label="Links">
-              <div className="flex flex-col gap-1">
-                {data?.links.map((l) => (
-                  <span
-                    key={l.$id}
-                    title={l.ref}
-                    className="truncate rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[length:var(--text-caption)]"
-                    style={{
-                      backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
-                      color: 'var(--color-accent)',
-                    }}
-                  >
-                    {l.kind} · {l.ref}
-                  </span>
-                ))}
-              </div>
-            </Property>
-          )}
+          <Property label="Links">
+            <LinksSection itemId={itemId} links={data?.links ?? []} />
+          </Property>
 
           <div className="mt-1 border-t border-border pt-3">
             <button
@@ -696,6 +692,128 @@ function CriterionRow({
       >
         <Trash2 size={13} className="text-text-subtle hover:text-[#EF4444]" />
       </button>
+    </div>
+  );
+}
+
+/*
+ * What an item points at.
+ *
+ * A link is a kind and a ref — a spec path, a test id, a release, a URL — with
+ * an optional label to read instead of the raw ref. The add form stays folded
+ * away until asked for, so the aside reads as a list of what exists rather than
+ * a form that is mostly empty.
+ */
+function LinksSection({ itemId, links }: { itemId: string; links: PlanLink[] }) {
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [kind, setKind] = useState(LINK_KINDS[0]);
+  const [ref, setRef] = useState('');
+  const [label, setLabel] = useState('');
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ['plan-item', itemId] });
+
+  const add = useMutation({
+    mutationFn: () =>
+      api.post(`/plan/items/${itemId}/links`, {
+        kind,
+        ref: ref.trim(),
+        label: label.trim(),
+      }),
+    onSuccess: () => {
+      setRef('');
+      setLabel('');
+      setKind(LINK_KINDS[0]);
+      setAdding(false);
+      refresh();
+    },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/plan/links/${id}`),
+    onSuccess: refresh,
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {links.map((l) => (
+        <div key={l.$id} className="group flex items-center gap-1">
+          <span
+            title={l.ref}
+            className="min-w-0 flex-1 truncate rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[length:var(--text-caption)]"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
+              color: 'var(--color-accent)',
+            }}
+          >
+            {l.kind} · {l.label || l.ref}
+          </span>
+          <button
+            onClick={() => remove.mutate(l.$id)}
+            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            aria-label="Remove link"
+          >
+            <Trash2 size={12} className="text-text-subtle hover:text-[#EF4444]" />
+          </button>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="flex flex-col gap-1.5">
+          <Choice
+            value={kind}
+            options={LINK_KINDS.map((k) => ({ value: k, label: k }))}
+            onChange={setKind}
+          />
+          <input
+            autoFocus
+            value={ref}
+            onChange={(e) => setRef(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && ref.trim()) add.mutate();
+              if (e.key === 'Escape') setAdding(false);
+            }}
+            placeholder="what it points at"
+            className="w-full rounded-[var(--radius)] border border-field-border bg-field-fill px-2 py-1.5 text-[length:var(--text-label)] text-text-primary placeholder:text-text-subtle"
+          />
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && ref.trim()) add.mutate();
+              if (e.key === 'Escape') setAdding(false);
+            }}
+            placeholder="label (optional)"
+            className="w-full rounded-[var(--radius)] border border-field-border bg-field-fill px-2 py-1.5 text-[length:var(--text-label)] text-text-primary placeholder:text-text-subtle"
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setRef('');
+                setLabel('');
+                setAdding(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => add.mutate()} disabled={!ref.trim() || add.isPending}>
+              Add
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="flex w-fit items-center gap-1 text-[length:var(--text-caption)] text-text-subtle transition-colors hover:text-text-primary"
+        >
+          <Plus size={12} />
+          Add link
+        </button>
+      )}
     </div>
   );
 }
