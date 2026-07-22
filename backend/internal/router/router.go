@@ -41,6 +41,7 @@ import (
 	oauthpkg "github.com/mittolabs/applad/internal/oauth"
 	"github.com/mittolabs/applad/internal/observe"
 	"github.com/mittolabs/applad/internal/organizations"
+	"github.com/mittolabs/applad/internal/plan"
 	"github.com/mittolabs/applad/internal/projects"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/realtime"
@@ -313,6 +314,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))
 				r.Mount("/tests", testlab.Routes(testlabHandler))
+				r.Mount("/plan", plan.Routes(plan.NewHandler(plan.NewService(database))))
 				r.Mount("/studio", testlab.StudioRoutes(testlabHandler))
 
 				// Migrations
