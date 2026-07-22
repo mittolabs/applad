@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Plus } from 'lucide-react';
+import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Plus, Columns3, List } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
@@ -62,6 +62,15 @@ export function PlanPage() {
   const qc = useQueryClient();
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Remembered, because which view suits you is a preference about how you
+  // work rather than something to re-choose on every visit.
+  const [view, setView] = useState<'list' | 'board'>(
+    () => (localStorage.getItem('applad_plan_view') as 'list' | 'board') ?? 'list',
+  );
+  const chooseView = (v: 'list' | 'board') => {
+    setView(v);
+    localStorage.setItem('applad_plan_view', v);
+  };
 
   const query = useQuery({
     queryKey: ['plan-items', projectId, showClosed],
@@ -98,6 +107,28 @@ export function PlanPage() {
         </Button>
       </div>
 
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-1 rounded-[var(--radius)] border border-border bg-surface p-0.5">
+          {([
+            ['list', 'List', List],
+            ['board', 'Board', Columns3],
+          ] as const).map(([value, label, Icon]) => (
+            <button
+              key={value}
+              onClick={() => chooseView(value)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1 text-[length:var(--text-label)] transition-colors',
+                view === value
+                  ? 'bg-fill-hover text-text-primary'
+                  : 'text-text-muted hover:text-text-primary',
+              )}
+            >
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
+
       <label className="flex w-fit cursor-pointer items-center gap-2 text-[length:var(--text-label)] text-text-secondary">
         <input
           type="checkbox"
@@ -107,6 +138,7 @@ export function PlanPage() {
         />
         Show closed work
       </label>
+      </div>
 
       {query.isLoading ? (
         <div className="py-10 text-center text-[length:var(--text-body)] text-text-muted">
@@ -119,6 +151,12 @@ export function PlanPage() {
           icon={CircleDashed}
           title="Nothing planned yet"
           subtitle="Add the first thing this project has decided to do."
+        />
+      ) : view === 'board' ? (
+        <BoardView
+          items={items}
+          showClosed={showClosed}
+          onStatus={(id, status) => setStatus.mutate({ id, status })}
         />
       ) : (
         <div className="flex flex-col gap-6">
@@ -155,6 +193,129 @@ export function PlanPage() {
         onOpenChange={setCreating}
         onCreated={() => qc.invalidateQueries({ queryKey: ['plan-items'] })}
       />
+    </div>
+  );
+}
+
+/*
+ * The same work as columns.
+ *
+ * A list answers "what is outstanding"; a board answers "where is everything".
+ * Dragging a card is the same edit as changing the select in the list — one
+ * PATCH of one field — so the two views cannot disagree about what a move
+ * means.
+ *
+ * Closed columns appear only when closed work is asked for, or a board of
+ * a long-lived project is mostly a monument to finished things.
+ */
+function BoardView({
+  items,
+  showClosed,
+  onStatus,
+}: {
+  items: Item[];
+  showClosed: boolean;
+  onStatus: (id: string, status: string) => void;
+}) {
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+
+  const columns = ORDER.filter(
+    (s) => showClosed || (s !== 'done' && s !== 'cancelled'),
+  );
+
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-2">
+      {columns.map((status) => {
+        const meta = STATUS[status as keyof typeof STATUS];
+        const column = items.filter((i) => i.status === status);
+        return (
+          <div
+            key={status}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setOver(status);
+            }}
+            onDragLeave={() => setOver((s) => (s === status ? null : s))}
+            onDrop={() => {
+              if (dragging) onStatus(dragging, status);
+              setDragging(null);
+              setOver(null);
+            }}
+            className={cn(
+              'flex w-[280px] shrink-0 flex-col gap-2 rounded-[var(--radius-10)] border p-3 transition-colors',
+              over === status
+                ? 'border-[var(--color-accent)] bg-fill-hover'
+                : 'border-border bg-surface-alt',
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <meta.icon size={13} style={{ color: meta.color }} />
+              <span className="text-[length:var(--text-label)] font-medium text-text-primary">
+                {meta.label}
+              </span>
+              <span className="text-[length:var(--text-caption)] text-text-subtle">
+                {column.length}
+              </span>
+            </div>
+
+            {column.map((item) => (
+              <div
+                key={item.$id}
+                draggable
+                onDragStart={() => setDragging(item.$id)}
+                onDragEnd={() => {
+                  setDragging(null);
+                  setOver(null);
+                }}
+                className={cn(
+                  'flex cursor-grab flex-col gap-2 rounded-[var(--radius)] border border-border bg-surface p-3 active:cursor-grabbing',
+                  dragging === item.$id && 'opacity-50',
+                )}
+              >
+                <span className="text-[length:var(--text-body)] text-text-primary">
+                  {item.title}
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span
+                    className="text-[length:var(--text-caption)] font-medium"
+                    style={{ color: PRIORITY_COLOR[item.priority] }}
+                  >
+                    {item.priority}
+                  </span>
+                  {item.labels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-[var(--radius-sm)] border border-border bg-fill px-1.5 py-0.5 text-[length:var(--text-caption)] text-text-secondary"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                  {item.links.map((link) => (
+                    <span
+                      key={link.$id}
+                      title={`${link.kind}: ${link.ref}`}
+                      className="max-w-[150px] truncate rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[length:var(--text-caption)]"
+                      style={{
+                        backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
+                        color: 'var(--color-accent)',
+                      }}
+                    >
+                      {link.kind}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {column.length === 0 && (
+              <div className="py-6 text-center text-[length:var(--text-caption)] text-text-subtle">
+                Nothing here
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
