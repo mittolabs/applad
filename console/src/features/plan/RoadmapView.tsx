@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, Plus, Trash2, Flag, ChevronRight } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
-import { FormDialog, TextField } from '@/components/form-dialog';
+import { ConfirmDialog, FormDialog, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
 import { cn } from '@/lib/utils';
 
@@ -134,7 +134,10 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plan-milestones'] }),
     onError: (e) => toast.error(friendlyError(e)),
   });
-  const onDelete = (id: string) => remove.mutate(id);
+  // Deleting a milestone is not undoable and other people's work points at
+  // it, so it asks for the name — the same confirmation the rest of the
+  // console uses for things that cannot be taken back.
+  const [confirming, setConfirming] = useState<Milestone | null>(null);
   // Opening a milestone shows its work underneath it, rather than sending
   // somebody to another view: the timeline is the context that makes the
   // items mean anything, and leaving it to read them throws that away.
@@ -227,7 +230,7 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
                       {m.name}
                     </button>
                     <button
-                      onClick={() => onDelete(m.$id)}
+                      onClick={() => setConfirming(m)}
                       className="opacity-0 transition-opacity group-hover:opacity-100"
                       aria-label="Delete milestone"
                     >
@@ -308,6 +311,25 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirming !== null}
+        onOpenChange={(o) => !o && setConfirming(null)}
+        title="Delete milestone"
+        message={
+          <>
+            <b>{confirming?.name}</b> will be deleted. Its items are not — they stay in the
+            backlog, no longer aimed at a date.
+          </>
+        }
+        confirmText={confirming?.name}
+        confirmTextLabel="Type the milestone name to confirm"
+        loading={remove.isPending}
+        onConfirm={() => {
+          if (confirming) remove.mutate(confirming.$id);
+          setConfirming(null);
+        }}
+      />
 
       <CreateMilestoneDialog
         open={creating}
