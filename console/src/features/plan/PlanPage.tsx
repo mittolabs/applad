@@ -465,6 +465,21 @@ function CreateItemDialog({
   // their head and report the average.
   const [impact, setImpact] = useState('2');
   const [urgency, setUrgency] = useState('2');
+
+  // The grid, so the dialog can say what the two answers produce before the
+  // item exists. Asking two questions and hiding the result makes the answers
+  // feel arbitrary — the point of the matrix is that you can see it decide.
+  const { data: cells = [] } = useQuery({
+    queryKey: ['plan-matrix', 'change'],
+    queryFn: async () =>
+      ((await api.get('/plan/matrix', { params: { kind: 'change' } })).data as {
+        cells: { impact: number; urgency: number; priority: string }[];
+      }).cells ?? [],
+  });
+
+  const derived = cells.find(
+    (c) => c.impact === Number(impact) && c.urgency === Number(urgency),
+  )?.priority;
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -519,7 +534,7 @@ function CreateItemDialog({
       />
       <SelectField
         label="Urgency"
-        hint="How soon it is needed. Priority follows from the two."
+        hint="How soon it is needed."
         value={urgency}
         onChange={setUrgency}
         options={[
@@ -528,6 +543,25 @@ function CreateItemDialog({
           { value: '1', label: 'Low' },
         ]}
       />
+
+      {/* The result, stated rather than left to be discovered after saving.
+          Not a field: it follows from the two above, and offering to edit it
+          here would invite an answer the answers themselves contradict. */}
+      <div className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-fill px-3 py-2">
+        <span className="text-[length:var(--text-label)] text-text-secondary">Priority</span>
+        <span
+          className="rounded-[var(--radius-sm)] px-2 py-0.5 text-[length:var(--text-label)] font-medium"
+          style={{
+            backgroundColor: `color-mix(in srgb, ${PRIORITY_COLOR[derived ?? 'medium']} 18%, transparent)`,
+            color: PRIORITY_COLOR[derived ?? 'medium'],
+          }}
+        >
+          {derived ?? '—'}
+        </span>
+        <span className="ml-auto text-[length:var(--text-caption)] text-text-subtle">
+          from this project's matrix
+        </span>
+      </div>
     </FormDialog>
   );
 }
