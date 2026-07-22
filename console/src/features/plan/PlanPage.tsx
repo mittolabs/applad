@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useRoutedSelection } from '@/hooks/use-routed-selection';
 import { ItemDetail } from './ItemDetail';
+import { RoadmapView } from './RoadmapView';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Plus, Columns3, List } from 'lucide-react';
+import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Plus, Columns3, List, Map } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
@@ -72,10 +73,10 @@ export function PlanPage() {
   const [creating, setCreating] = useState(false);
   // Remembered, because which view suits you is a preference about how you
   // work rather than something to re-choose on every visit.
-  const [view, setView] = useState<'list' | 'board'>(
-    () => (localStorage.getItem('applad_plan_view') as 'list' | 'board') ?? 'list',
+  const [view, setView] = useState<'list' | 'board' | 'roadmap'>(
+    () => (localStorage.getItem('applad_plan_view') as 'list' | 'board' | 'roadmap') ?? 'list',
   );
-  const chooseView = (v: 'list' | 'board') => {
+  const chooseView = (v: 'list' | 'board' | 'roadmap') => {
     setView(v);
     localStorage.setItem('applad_plan_view', v);
   };
@@ -120,7 +121,12 @@ export function PlanPage() {
       </div>
 
       <div className="flex items-center justify-between gap-4">
-        <label className="flex w-fit cursor-pointer items-center gap-2 text-[length:var(--text-label)] text-text-secondary">
+        <label
+          className={cn(
+            'flex w-fit cursor-pointer items-center gap-2 text-[length:var(--text-label)] text-text-secondary',
+            view === 'roadmap' && 'invisible',
+          )}
+        >
         <input
           type="checkbox"
           checked={showClosed}
@@ -134,9 +140,10 @@ export function PlanPage() {
           {([
             ['list', List],
             ['board', Columns3],
+            ['roadmap', Map],
           ] as const).map(([value, Icon], i) => (
             <div key={value} className="flex h-full">
-              {i === 1 && <div className="w-px bg-field-border" />}
+              {i > 0 && <div className="w-px bg-field-border" />}
               <button
                 type="button"
                 onClick={() => chooseView(value)}
@@ -155,7 +162,9 @@ export function PlanPage() {
         </div>
       </div>
 
-      {query.isLoading ? (
+      {view === 'roadmap' ? (
+        <RoadmapView />
+      ) : query.isLoading ? (
         <div className="py-10 text-center text-[length:var(--text-body)] text-text-muted">
           Loading…
         </div>
