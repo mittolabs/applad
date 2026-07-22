@@ -25,9 +25,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import { CONSOLE_URL as consoleUrl, DOCS_URL as docsUrl, STATUS_URL as statusUrl, isSignedIn } from './lib/urls';
+import { API_URL as apiUrl, CONSOLE_URL as consoleUrl, DOCS_URL as docsUrl, STATUS_URL as statusUrl, isSignedIn } from './lib/urls';
 
 // Resolved once at module load; the host cannot change under a loaded page.
+const API_URL = apiUrl();
 const CONSOLE_URL = consoleUrl();
 const SIGNIN_URL = `${CONSOLE_URL}/login`;
 const SIGNUP_URL = `${CONSOLE_URL}/login?mode=signup`;
@@ -215,10 +216,11 @@ function AiSpotlight() {
       title="Just ask"
       body={
         <>
-          The lad is an AI that works on your project, not just chats about it. It knows your
-          schema, data and config, and takes real actions across the stack: designing tables,
-          wiring auth, writing functions and workflows, connecting services and shipping. No
-          snippets to paste. Prefer to build it yourself? The SDKs are right there.
+          The lad is an AI that knows your project, not just code in general. Ask it anything
+          about your stack — it inspects your databases, users, functions, workflows, storage
+          and usage, and answers from what is actually there. Need something to happen? It can
+          kick off your workflows on request. No digging through dashboards. Prefer to build
+          it yourself? The SDKs are right there.
         </>
       }
       visual={
@@ -387,7 +389,7 @@ function Deploy() {
               </li>
             ))}
           </ul>
-          <a href={CONSOLE_URL} className="mt-7 inline-flex w-fit items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
+          <a href={SIGNUP_URL} className="mt-7 inline-flex w-fit items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
             Start free trial
             <ArrowRight size={15} />
           </a>
@@ -448,7 +450,7 @@ function CTA() {
       <div className="relative mx-auto max-w-3xl px-6 py-28 text-center">
         <h2 className="text-3xl font-bold tracking-tight md:text-[44px]">Go from idea to production today.</h2>
         <p className="mx-auto mt-4 max-w-md text-[17px] text-muted">
-          Create a project, ask the assistant to scaffold it, and connect your app with one of the SDKs.
+          Create a project, connect your app with one of the SDKs, and ask the assistant whenever you need eyes on your stack.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <a href={signedIn ? CONSOLE_URL : SIGNUP_URL} className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: ACCENT }}>
@@ -536,12 +538,50 @@ function Footer() {
         </div>
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-border pt-6 text-sm text-muted sm:flex-row">
           <span>© 2026 Mittolabs LTD. All rights reserved.</span>
-          <a href={STATUS_URL} className="flex items-center gap-1.5 transition-colors hover:text-text">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: '#10b981' }} />
-            All systems operational
-          </a>
+          <StatusLink />
         </div>
       </div>
     </footer>
+  );
+}
+
+/*
+ * Footer status link. The claim is only shown once it has actually been
+ * measured: after mount the real status is fetched from the public
+ * `GET /v1/status` endpoint (CORS `*`), and until — or unless — that
+ * succeeds the link is a neutral "Status" with no health assertion.
+ */
+const STATUS_STYLES: Record<string, { color: string; label: string }> = {
+  operational: { color: '#10b981', label: 'All systems operational' },
+  degraded: { color: '#f59e0b', label: 'Degraded performance' },
+  down: { color: '#ef4444', label: 'Service disruption' },
+};
+
+function StatusLink() {
+  const [overall, setOverall] = useState<string | null>(null);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetch(`${API_URL}/v1/status`, { signal: ctrl.signal, headers: { Accept: 'application/json' } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: unknown) => {
+        const o = (data as { overall?: unknown } | null)?.overall;
+        if (typeof o === 'string') setOverall(o);
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, []);
+
+  const style = overall ? STATUS_STYLES[overall] : undefined;
+  return (
+    <a href={STATUS_URL} className="flex items-center gap-1.5 transition-colors hover:text-text">
+      {style ? (
+        <>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: style.color }} />
+          {style.label}
+        </>
+      ) : (
+        'Status'
+      )}
+    </a>
   );
 }

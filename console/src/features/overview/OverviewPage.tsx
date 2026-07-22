@@ -49,8 +49,10 @@ interface Stats {
 function countKey(data: unknown, key: string): number {
   if (data && typeof data === 'object') {
     const obj = data as Record<string, unknown>;
-    if (Array.isArray(obj[key])) return (obj[key] as unknown[]).length;
+    // Prefer the reported total: paginated lists (e.g. /users) return one
+    // page plus a `total`, so the array length would undercount.
     if (typeof obj.total === 'number') return obj.total;
+    if (Array.isArray(obj[key])) return (obj[key] as unknown[]).length;
   }
   return 0;
 }
@@ -92,7 +94,7 @@ function useProjectStats(projectId: string) {
         safeFetch('/databases'),
         safeFetch('/functions'),
         safeFetch('/storage/buckets'),
-        safeFetch('/account/users'),
+        safeFetch('/users'),
         safeFetch('/deploy/targets'),
         safeFetch('/workflows'),
         safeFetch(`/projects/${projectId}/usage`),
@@ -519,7 +521,9 @@ function ServicesGrid({
     { icon: Database, label: 'Databases', value: `${stats.databases}`, sublabel: 'databases', seg: 'databases' },
     { icon: FolderClosed, label: 'Storage', value: `${stats.buckets}`, sublabel: 'buckets', seg: 'storage' },
     { icon: Zap, label: 'Functions', value: `${stats.functions}`, sublabel: 'functions', seg: 'functions' },
-    { icon: Rocket, label: 'Deploy', value: `${stats.deployments}`, sublabel: 'targets', seg: 'deploy' },
+    // 'deploy' is not a route — Deploy's children are sites/containers/mobile/
+    // desktop, so the card lands on Sites.
+    { icon: Rocket, label: 'Deploy', value: `${stats.deployments}`, sublabel: 'targets', seg: 'sites' },
     { icon: GitBranch, label: 'Workflows', value: `${stats.workflows}`, sublabel: 'workflows', seg: 'workflows' },
     { icon: Mail, label: 'Messaging', value: '—', sublabel: 'email · sms · push', seg: 'messaging' },
   ];
