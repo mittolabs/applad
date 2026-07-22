@@ -106,7 +106,7 @@ func NewService(database *db.DB, cfg Config) *Service {
 
 // CreateMessage persists a new message record in the given status.
 func (s *Service) CreateMessage(ctx context.Context, projectID, msgType, subject, body string, recipients []string, status string) (*Message, error) {
-	id := uid.New("msg")
+	id := uid.New("unique()")
 	recipJSON, err := json.Marshal(recipients)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: marshal recipients: %w", err)
@@ -476,7 +476,7 @@ type Provider struct {
 
 // CreateProvider persists a new messaging provider for a project.
 func (s *Service) CreateProvider(ctx context.Context, projectID, name, typ, provider string, config json.RawMessage) (*Provider, error) {
-	id := uid.New("prv")
+	id := uid.New("unique()")
 	if config == nil {
 		config = json.RawMessage("{}")
 	}
@@ -848,7 +848,7 @@ func (s *Service) sendPushViaFCMConfig(ctx context.Context, token, title, body s
 
 // CreateTopic persists a new topic.
 func (s *Service) CreateTopic(ctx context.Context, projectID, name string) (*Topic, error) {
-	id := uid.New("msg")
+	id := uid.New("unique()")
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO msg_topics (id, project_id, name) VALUES ($1,$2,$3)`,
 		id, projectID, name)

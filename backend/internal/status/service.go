@@ -75,7 +75,7 @@ func (s *Service) runOnce(ctx context.Context) {
 		p := s.probe(ctx, c.Key)
 		if _, err := s.db.ExecContext(ctx,
 			`INSERT INTO status_checks (id, component, status, latency_ms, error_msg) VALUES ($1,$2,$3,$4,$5)`,
-			uid.New("chk"), c.Key, p.status, p.latency, p.errMsg,
+			uid.New("unique()"), c.Key, p.status, p.latency, p.errMsg,
 		); err != nil {
 			slog.Error("status: record check failed", "component", c.Key, "error", err)
 		}
@@ -162,7 +162,7 @@ func (s *Service) reconcileIncident(ctx context.Context, c Component, p probe) {
 		title := c.Name + " " + p.status
 		if _, err := s.db.ExecContext(ctx,
 			`INSERT INTO status_incidents (id, component, title, status, severity) VALUES ($1,$2,$3,'investigating',$4)`,
-			uid.New("inc"), c.Key, title, severity,
+			uid.New("unique()"), c.Key, title, severity,
 		); err != nil {
 			slog.Error("status: open incident failed", "component", c.Key, "error", err)
 		}
