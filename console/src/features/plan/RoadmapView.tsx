@@ -5,7 +5,6 @@ import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { FormDialog, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
-import { cn } from '@/lib/utils';
 
 /*
  * The roadmap.
@@ -108,9 +107,9 @@ export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string)
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plan-milestones'] }),
     onError: (e) => toast.error(friendlyError(e)),
   });
+  const onDelete = (id: string) => remove.mutate(id);
 
   const milestones = query.data ?? [];
-  const dated = milestones.filter((m) => m.targetDate);
   const span = timeSpan(milestones);
   const todayAt = positionOf(Date.now(), span.start, span.end);
 
@@ -140,78 +139,124 @@ export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string)
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-4">
-          {dated.length > 0 && (
-            <div className="relative overflow-hidden rounded-[var(--radius-10)] border border-border bg-surface p-4 pt-3">
-              {/* The axis. Months across the top, today marked, and each
-                  milestone drawn where its date actually falls. */}
-              <div className="relative mb-2 h-5">
-                {span.months.map((month) => (
-                  <span
-                    key={month.toISOString()}
-                    className="absolute text-[length:var(--text-caption)] text-text-subtle"
-                    style={{ left: `${positionOf(month.getTime(), span.start, span.end)}%` }}
-                  >
-                    {month.toLocaleDateString(undefined, { month: 'short' })}
-                  </span>
-                ))}
-              </div>
+        /*
+         * One row per milestone, carrying both halves.
+         *
+         * This was a timeline above a list of the same milestones: the bars
+         * said when and the rows said how much, and neither was complete on
+         * its own. A row now holds its name, date and counts on the left and
+         * its bar in the shared track on the right, so a milestone is read
+         * once.
+         */
+        <div className="overflow-hidden rounded-[var(--radius-10)] border border-border bg-surface">
+          <div className="flex border-b border-border px-4 py-2">
+            <div className="w-[300px] shrink-0" />
+            <div className="relative h-4 flex-1">
+              {span.months.map((month) => (
+                <span
+                  key={month.toISOString()}
+                  className="absolute text-[length:var(--text-caption)] text-text-subtle"
+                  style={{ left: `${positionOf(month.getTime(), span.start, span.end)}%` }}
+                >
+                  {month.toLocaleDateString(undefined, { month: 'short' })}
+                </span>
+              ))}
+            </div>
+          </div>
 
-              <div className="relative flex flex-col gap-2 pb-1">
-                <div
-                  className="pointer-events-none absolute bottom-0 top-0 w-px"
-                  style={{ left: `${todayAt}%`, backgroundColor: 'var(--color-accent)' }}
-                  title="Today"
-                />
-                {dated.map((m) => {
-                  const at = positionOf(new Date(m.targetDate!).getTime(), span.start, span.end);
-                  const p = m.progress;
-                  const donePct = p.total > 0 ? (p.done / p.total) * 100 : 0;
-                  const overdue = !m.completedAt && daysUntil(m.targetDate!) < 0;
-                  return (
+          {milestones.map((m) => {
+            const p = m.progress;
+            const when = whenLabel(m.targetDate, m.completedAt);
+            const hasItems = p.total > 0;
+            const donePct = hasItems ? (p.done / p.total) * 100 : 0;
+            const unspecified = p.criteria - p.specified;
+            const at = m.targetDate
+              ? positionOf(new Date(m.targetDate).getTime(), span.start, span.end)
+              : 0;
+            const overdue = !m.completedAt && m.targetDate && daysUntil(m.targetDate) < 0;
+
+            return (
+              <div
+                key={m.$id}
+                className="group flex items-center gap-4 border-b border-border px-4 py-3 last:border-0 hover:bg-fill-hover"
+              >
+                <div className="flex w-[300px] shrink-0 flex-col gap-1">
+                  <div className="flex items-center gap-2">
                     <button
-                      key={m.$id}
                       onClick={() => onOpenMilestone(m.$id)}
-                      className="relative h-7 w-full text-left"
-                      title={`${m.name} — ${p.done} of ${p.total} done`}
+                      className="truncate text-left text-[length:var(--text-body)] font-medium text-text-primary hover:underline"
+                    >
+                      {m.name}
+                    </button>
+                    <button
+                      onClick={() => onDelete(m.$id)}
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                      aria-label="Delete milestone"
+                    >
+                      <Trash2 size={12} className="text-text-subtle hover:text-[#EF4444]" />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-2 text-[length:var(--text-caption)]">
+                    {m.targetDate && (
+                      <span className="flex items-center gap-1 text-text-muted">
+                        <CalendarDays size={11} />
+                        {new Date(m.targetDate).toLocaleDateString(undefined, {
+                          day: 'numeric',
+                          month: 'short',
+                        })}
+                      </span>
+                    )}
+                    <span style={{ color: when.tone }}>{when.text}</span>
+                    <span className="text-text-secondary">
+                      {hasItems ? `${p.done}/${p.total} done` : 'no items'}
+                    </span>
+                    {p.criteria > 0 && unspecified > 0 && (
+                      <span
+                        style={{ color: '#F59E0B' }}
+                        title="Acceptance criteria not yet expressed as rules in a specification"
+                      >
+                        {unspecified} unspecified
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* The track. A bar ends on the date it is aimed at, shaded by
+                    how much of it is done. */}
+                <div className="relative h-8 flex-1">
+                  <div
+                    className="pointer-events-none absolute -top-3 bottom-[-0.75rem] w-px opacity-60"
+                    style={{ left: `${todayAt}%`, backgroundColor: 'var(--color-accent)' }}
+                  />
+                  {m.targetDate ? (
+                    <button
+                      onClick={() => onOpenMilestone(m.$id)}
+                      className="absolute inset-y-1 left-0 flex items-center overflow-hidden rounded-[var(--radius-sm)] border transition-transform hover:scale-y-110"
+                      style={{
+                        width: `${Math.max(at, 4)}%`,
+                        borderColor: overdue ? '#EF4444' : 'var(--border)',
+                        backgroundColor: 'var(--fill)',
+                      }}
+                      title={`${p.done} of ${p.total} done`}
                     >
                       <div
-                        className="absolute top-0 flex h-7 items-center overflow-hidden rounded-[var(--radius-sm)] border transition-colors hover:brightness-125"
+                        className="absolute inset-y-0 left-0"
                         style={{
-                          left: 0,
-                          width: `${Math.max(at, 8)}%`,
-                          borderColor: overdue ? '#EF4444' : 'var(--border)',
-                          backgroundColor: 'var(--fill)',
+                          width: `${donePct}%`,
+                          backgroundColor: 'color-mix(in srgb, #22C55E 40%, transparent)',
                         }}
-                      >
-                        <div
-                          className="absolute inset-y-0 left-0"
-                          style={{
-                            width: `${donePct}%`,
-                            backgroundColor: 'color-mix(in srgb, #22C55E 35%, transparent)',
-                          }}
-                        />
-                        <span className="relative truncate px-2 text-[length:var(--text-caption)] text-text-primary">
-                          {m.name}
-                        </span>
-                      </div>
+                      />
                     </button>
-                  );
-                })}
+                  ) : (
+                    <span className="flex h-full items-center text-[length:var(--text-caption)] text-text-subtle">
+                      Not on the roadmap — no target date
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2">
-            {milestones.map((m) => (
-              <MilestoneRow
-                key={m.$id}
-                milestone={m}
-                onOpen={() => onOpenMilestone(m.$id)}
-                onDelete={() => remove.mutate(m.$id)}
-              />
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
 
@@ -220,103 +265,6 @@ export function RoadmapView({ onOpenMilestone }: { onOpenMilestone: (id: string)
         onOpenChange={setCreating}
         onCreated={() => qc.invalidateQueries({ queryKey: ['plan-milestones'] })}
       />
-    </div>
-  );
-}
-
-function MilestoneRow({
-  milestone,
-  onOpen,
-  onDelete,
-}: {
-  milestone: Milestone;
-  onOpen: () => void;
-  onDelete: () => void;
-}) {
-  const p = milestone.progress;
-  const when = whenLabel(milestone.targetDate, milestone.completedAt);
-  const hasItems = p.total > 0;
-  const donePct = hasItems ? Math.round((p.done / p.total) * 100) : 0;
-  const activePct = hasItems ? Math.round((p.inProgress / p.total) * 100) : 0;
-
-  // Agreed but never expressed as behaviour. This is the number that predicts
-  // trouble, so it is stated rather than folded into a single percentage.
-  const unspecified = p.criteria - p.specified;
-
-  return (
-    <div className="group flex flex-col gap-3 rounded-[var(--radius-10)] border border-border bg-surface px-4 py-3.5">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onOpen}
-          className="flex-1 truncate text-left text-[length:var(--text-body)] font-medium text-text-primary hover:underline"
-        >
-          {milestone.name}
-        </button>
-
-        {milestone.targetDate && (
-          <span className="flex items-center gap-1.5 text-[length:var(--text-caption)] text-text-muted">
-            <CalendarDays size={12} />
-            {new Date(milestone.targetDate).toLocaleDateString(undefined, {
-              day: 'numeric',
-              month: 'short',
-              year: 'numeric',
-            })}
-          </span>
-        )}
-
-        <span
-          className="text-[length:var(--text-caption)] font-medium"
-          style={{ color: when.tone }}
-        >
-          {when.text}
-        </span>
-
-        <button
-          onClick={onDelete}
-          className="opacity-0 transition-opacity group-hover:opacity-100"
-          aria-label="Delete milestone"
-        >
-          <Trash2 size={13} className="text-text-subtle hover:text-[#EF4444]" />
-        </button>
-      </div>
-
-      {/* The bar is the count, not an estimate. An empty milestone shows no
-          bar at all rather than a 0% one — "nothing planned" and "nothing
-          done" are different things to be told. */}
-      {hasItems ? (
-        <>
-          <div className="flex h-1.5 overflow-hidden rounded-full bg-fill">
-            <div style={{ width: `${donePct}%`, backgroundColor: '#22C55E' }} />
-            <div style={{ width: `${activePct}%`, backgroundColor: '#3B82F6' }} />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[length:var(--text-caption)]">
-            <span className="text-text-secondary">
-              {p.done} of {p.total} done
-            </span>
-            {p.inProgress > 0 && (
-              <span style={{ color: '#3B82F6' }}>{p.inProgress} in progress</span>
-            )}
-            {p.blocked > 0 && <span style={{ color: '#F59E0B' }}>{p.blocked} blocked</span>}
-
-            {p.criteria > 0 && (
-              <span
-                className={cn('ml-auto', unspecified > 0 ? '' : 'text-text-subtle')}
-                style={unspecified > 0 ? { color: '#F59E0B' } : undefined}
-                title="Acceptance criteria that have become rules in a specification"
-              >
-                {unspecified > 0
-                  ? `${unspecified} of ${p.criteria} criteria still unspecified`
-                  : `all ${p.criteria} criteria specified`}
-              </span>
-            )}
-          </div>
-        </>
-      ) : (
-        <span className="text-[length:var(--text-caption)] text-text-subtle">
-          No items in this milestone yet
-        </span>
-      )}
     </div>
   );
 }
