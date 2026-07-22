@@ -113,6 +113,31 @@ var defaultBands = []Band{
 	{"", 3, 8, 999},
 }
 
+// Bands returns how a summed score becomes a level, so a caller scoring
+// answers locally reaches the same verdict the server would.
+func (s *Service) Bands(ctx context.Context, projectID string) ([]Band, error) {
+	if _, err := s.Questions(ctx, projectID, ""); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT dimension, level, min_score, max_score FROM plan_priority_bands
+		  WHERE project_id = $1 ORDER BY dimension ASC, level ASC`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []Band{}
+	for rows.Next() {
+		var b Band
+		if err := rows.Scan(&b.Dimension, &b.Level, &b.MinScore, &b.MaxScore); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 // Questions returns a project's questions, seeding the defaults on first ask.
 //
 // When itemID is given, each question also carries the answer recorded for

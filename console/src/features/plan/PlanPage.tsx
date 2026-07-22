@@ -9,7 +9,7 @@ import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
 import { ErrorState } from '@/components/error-state';
-import { FormDialog, SelectField, TextField } from '@/components/form-dialog';
+import { FormDialog, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
 import { cn } from '@/lib/utils';
 
@@ -463,37 +463,71 @@ function CreateItemDialog({
   // Two answers rather than a verdict: the grid decides the priority, so
   // nobody has to weigh "how much does this matter" against "how soon" in
   // their head and report the average.
-  const [impact, setImpact] = useState('2');
-  const [urgency, setUrgency] = useState('2');
+  // The questions, not the abstraction. Asking "impact: high, medium or low"
+  // is the guess the questions exist to replace — nobody knows what medium
+  // impact means, and everybody can answer "is there a workaround?".
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
-  // The grid, so the dialog can say what the two answers produce before the
-  // item exists. Asking two questions and hiding the result makes the answers
-  // feel arbitrary — the point of the matrix is that you can see it decide.
-  const { data: cells = [] } = useQuery({
-    queryKey: ['plan-matrix', 'change'],
+  const { data } = useQuery({
+    queryKey: ['plan-questions'],
     queryFn: async () =>
-      ((await api.get('/plan/matrix', { params: { kind: 'change' } })).data as {
+      (await api.get('/plan/questions')).data as {
+        questions: {
+          $id: string;
+          dimension: string;
+          text: string;
+          help?: string;
+          options: { $id: string; label: string; score: number; forcesTop: boolean }[];
+        }[];
+        bands: { dimension: string; level: number; minScore: number; maxScore: number }[];
         cells: { impact: number; urgency: number; priority: string }[];
-      }).cells ?? [],
+      },
   });
 
-  const derived = cells.find(
-    (c) => c.impact === Number(impact) && c.urgency === Number(urgency),
-  )?.priority;
-  const [saving, setSaving] = useState(false);
+  const questions = data?.questions ?? [];
+
+  // Scored the way the server scores it, so the preview and the result cannot
+  // disagree.
+  const derived = (() => {
+    if (!data) return undefined;
+    const scores: Record<string, number> = { impact: 0, urgency: 0 };
+    let forced = false;
+    let answered = 0;
+
+    for (const q of questions) {
+      const chosen = q.options.find((o) => o.$id === answers[q.$id]);
+      if (!chosen) continue;
+      answered++;
+      scores[q.dimension] = (scores[q.dimension] ?? 0) + chosen.score;
+      if (chosen.forcesTop) forced = true;
+    }
+    if (answered === 0) return undefined;
+
+    const level = (dimension: string) =>
+      data.bands.find(
+        (b) => b.dimension === dimension && scores[dimension] >= b.minScore && scores[dimension] <= b.maxScore,
+      )?.level ?? 1;
+
+    const impact = forced ? 3 : level('impact');
+    const urgency = forced ? 3 : level('urgency');
+    return {
+      impact,
+      urgency,
+      priority: data.cells.find((c) => c.impact === impact && c.urgency === urgency)?.priority,
+    };
+  })();
 
   const submit = async () => {
     setSaving(true);
     try {
       const created = await api.post('/plan/items', { title: title.trim() });
       const id = created.data.$id ?? created.data.id;
-      await api.post(`/plan/items/${id}/rate`, {
-        impact: Number(impact),
-        urgency: Number(urgency),
-      });
+      for (const [questionId, optionId] of Object.entries(answers)) {
+        await api.post(`/plan/items/${id}/answers`, { questionId, optionId });
+      }
       setTitle('');
-      setImpact('2');
-      setUrgency('2');
+      setAnswers({});
       onOpenChange(false);
       onCreated();
     } catch (e) {
@@ -521,43 +555,71 @@ function CreateItemDialog({
         placeholder="e.g. Add promotions to checkout"
         autoFocus
       />
-      <SelectField
-        label="Impact"
-        hint="How much it matters that this exists."
-        value={impact}
-        onChange={setImpact}
-        options={[
-          { value: '3', label: 'High' },
-          { value: '2', label: 'Medium' },
-          { value: '1', label: 'Low' },
-        ]}
-      />
-      <SelectField
-        label="Urgency"
-        hint="How soon it is needed."
-        value={urgency}
-        onChange={setUrgency}
-        options={[
-          { value: '3', label: 'High' },
-          { value: '2', label: 'Medium' },
-          { value: '1', label: 'Low' },
-        ]}
-      />
 
-      {/* The result, stated rather than left to be discovered after saving.
-          Not a field: it follows from the two above, and offering to edit it
-          here would invite an answer the answers themselves contradict. */}
+      <div className="flex flex-col gap-4">
+        {(['impact', 'urgency'] as const).map((dimension) => (
+          <div key={dimension} className="flex flex-col gap-3">
+            <span className="text-[length:var(--text-caption)] uppercase tracking-wide text-text-subtle">
+              {dimension === 'impact' ? 'Impact — how much it matters' : 'Urgency — how soon'}
+            </span>
+            {questions
+              .filter((q) => q.dimension === dimension)
+              .map((q) => (
+                <div key={q.$id} className="flex flex-col gap-1.5">
+                  <span className="text-[length:var(--text-body)] text-text-primary">{q.text}</span>
+                  {q.help && (
+                    <span className="text-[length:var(--text-caption)] text-text-subtle">
+                      {q.help}
+                    </span>
+                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {q.options.map((o) => (
+                      <button
+                        key={o.$id}
+                        type="button"
+                        onClick={() =>
+                          setAnswers((a) => ({
+                            ...a,
+                            [q.$id]: a[q.$id] === o.$id ? '' : o.$id,
+                          }))
+                        }
+                        className={cn(
+                          'rounded-[var(--radius-sm)] border px-2.5 py-1 text-[length:var(--text-label)] transition-colors',
+                          answers[q.$id] === o.$id
+                            ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-text-primary'
+                            : 'border-field-border bg-fill text-text-secondary hover:text-text-primary',
+                        )}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+          </div>
+        ))}
+      </div>
+
+      {/* What the answers produce. A value, not a field: it follows from
+          above, and offering to edit it here invites a priority the answers
+          contradict. */}
       <div className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-fill px-3 py-2">
         <span className="text-[length:var(--text-label)] text-text-secondary">Priority</span>
-        <span
-          className="rounded-[var(--radius-sm)] px-2 py-0.5 text-[length:var(--text-label)] font-medium"
-          style={{
-            backgroundColor: `color-mix(in srgb, ${PRIORITY_COLOR[derived ?? 'medium']} 18%, transparent)`,
-            color: PRIORITY_COLOR[derived ?? 'medium'],
-          }}
-        >
-          {derived ?? '—'}
-        </span>
+        {derived?.priority ? (
+          <span
+            className="rounded-[var(--radius-sm)] px-2 py-0.5 text-[length:var(--text-label)] font-medium"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${PRIORITY_COLOR[derived.priority]} 18%, transparent)`,
+              color: PRIORITY_COLOR[derived.priority],
+            }}
+          >
+            {derived.priority}
+          </span>
+        ) : (
+          <span className="text-[length:var(--text-label)] text-text-subtle">
+            answer above and it follows
+          </span>
+        )}
         <span className="ml-auto text-[length:var(--text-caption)] text-text-subtle">
           from this project's matrix
         </span>

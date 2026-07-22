@@ -239,7 +239,23 @@ func (h *Handler) listQuestions(w http.ResponseWriter, r *http.Request) {
 		apperr.Internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"questions": questions})
+	// The bands and the grid travel with the questions so a caller can score
+	// answers locally and reach the verdict the server would — a preview that
+	// disagrees with the result is worse than no preview.
+	projectID := middleware.ProjectFromContext(r.Context())
+	bands, err := h.svc.Bands(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	cells, err := h.svc.Grid(r.Context(), projectID, "change")
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"questions": questions, "bands": bands, "cells": cells,
+	})
 }
 
 func (h *Handler) answer(w http.ResponseWriter, r *http.Request) {
