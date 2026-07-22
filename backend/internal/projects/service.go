@@ -293,7 +293,7 @@ func (s *Service) GetUsage(ctx context.Context, projectID string) (*UsageStats, 
 
 // SearchResult is a single match returned by the cross-resource search.
 type SearchResult struct {
-	Type     string `json:"type"`     // function, database, bucket, workflow, deployment, user
+	Type     string `json:"type"` // function, database, bucket, workflow, deployment, user
 	ID       string `json:"id"`
 	Label    string `json:"label"`
 	Subtitle string `json:"subtitle,omitempty"`
@@ -480,11 +480,11 @@ func (s *Service) UpdatePlatform(ctx context.Context, projectID, platformID stri
 
 // AuthSecurity holds project-level auth security policy settings.
 type AuthSecurity struct {
-	UsersLimit                 int  `json:"usersLimit"`                 // 0 = unlimited
-	SessionLengthSeconds       int  `json:"sessionLengthSeconds"`       // default 31536000 (365 days)
-	SessionsPerUser            int  `json:"sessionsPerUser"`            // 0 = unlimited
-	PasswordMinLength          int  `json:"passwordMinLength"`          // default 8
-	PasswordHistory            int  `json:"passwordHistory"`            // 0 = disabled
+	UsersLimit                 int  `json:"usersLimit"`           // 0 = unlimited
+	SessionLengthSeconds       int  `json:"sessionLengthSeconds"` // default 31536000 (365 days)
+	SessionsPerUser            int  `json:"sessionsPerUser"`      // 0 = unlimited
+	PasswordMinLength          int  `json:"passwordMinLength"`    // default 8
+	PasswordHistory            int  `json:"passwordHistory"`      // 0 = disabled
 	PasswordDictionary         bool `json:"passwordDictionary"`
 	PasswordPersonalData       bool `json:"passwordPersonalData"`
 	MFARequired                bool `json:"mfaRequired"`

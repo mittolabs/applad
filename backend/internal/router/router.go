@@ -82,13 +82,17 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	})
 
 	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
+	// Forwarding headers are believed only from TRUSTED_PROXY_CIDRS peers;
+	// chi's RealIP believed anyone, letting a client choose its own address.
+	r.Use(mw.RealIP)
 	r.Use(trace.Middleware)
 	r.Use(observabilityMiddleware(perfCollector))
 	r.Use(mw.Recover) // JSON panic recovery (replaces chimw.Recoverer)
 	r.Use(mw.CORS)
 	r.Use(mw.SecurityHeaders)
-	r.Use(mw.RateLimitRedisTiered(cfg.RateLimitAnonPerMinute, cfg.RateLimitAuthedPerMinute, cacheClient.Client()))
+	// The secret lets the limiter verify a token before granting the larger
+	// authed bucket, instead of taking any Authorization header's word for it.
+	r.Use(mw.RateLimitRedisTiered(cfg.RateLimitAnonPerMinute, cfg.RateLimitAuthedPerMinute, cacheClient.Client(), cfg.JWTSecret))
 	// Credential attempts, before anything knows who the caller is. Keyed by
 	// address and by the account being attempted, because an attacker rotates
 	// the first and cannot rotate the second.
@@ -211,12 +215,20 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// Console auth — system-level admin signup/login (no project header)
 		r.Mount("/console", console.Routes(consoleHandler))
 
-		// Organizations — console-level (no project header needed)
-		orgSvc := organizations.NewService(database)
-		r.Mount("/organizations", organizations.Routes(organizations.NewHandler(orgSvc)))
+		// Console-level management — no project header, but never anonymous:
+		// a valid console session is required, and each handler checks org
+		// membership through consoleSvc. These were mounted open, which let an
+		// unauthenticated curl list every project and mint "*"-scoped keys.
+		r.Group(func(r chi.Router) {
+			r.Use(mw.RequireConsoleAuth(consoleSvc))
 
-		// Projects — no project header needed (these manage projects)
-		r.Mount("/projects", projects.Routes(projects.NewHandler(projectSvc)))
+			orgSvc := organizations.NewService(database)
+			r.Mount("/organizations", organizations.Routes(organizations.NewHandler(orgSvc, consoleSvc)))
+
+			projectsHandler := projects.NewHandler(projectSvc)
+			projectsHandler.SetAccess(consoleSvc)
+			r.Mount("/projects", projects.Routes(projectsHandler))
+		})
 
 		// AI chat — console JWT required, no project header needed
 		aiSvc := aichat.NewService(cfg.AIProvider, cfg.AIAPIKey, cfg.AIModel, cfg.AIBaseURL)
@@ -234,7 +246,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// All service routes require X-Applad-Project header + optional auth
 		r.Group(func(r chi.Router) {
 			r.Use(mw.ProjectContext)
-			r.Use(mw.Authenticate(cfg.JWTSecret, projectSvc))
+			// consoleSvc gates console JWTs by org membership: a console token
+			// is an administrator's identity, not a skeleton key to every project.
+			r.Use(mw.Authenticate(cfg.JWTSecret, projectSvc, consoleSvc))
 
 			// Account (client-side) — some public, some require auth
 			authHandler := auth.NewHandler(authSvc)

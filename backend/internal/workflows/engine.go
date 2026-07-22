@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+
+	"github.com/mittolabs/applad/internal/netguard"
 )
 
 // SubWorkflowRunner is set by the service to allow sub-workflow execution.
@@ -50,7 +52,7 @@ func RunWorkflow(ctx context.Context, wf *Workflow, triggerData map[string]inter
 	order := topoSort(wf.Nodes, wf.Edges)
 
 	// Build try_catch scope: map tryNode IDs to their catch target
-	tryCatchScope := map[string]string{}  // tryNodeID -> catchTarget
+	tryCatchScope := map[string]string{}   // tryNodeID -> catchTarget
 	tryCatchNodes := map[string][]string{} // tryCatchNodeID -> tryNodeIDs
 	for i := range wf.Nodes {
 		if wf.Nodes[i].Type == "try_catch" {
@@ -349,7 +351,9 @@ func execHTTPRequest(ctx context.Context, config map[string]interface{}, execCtx
 		}
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	// The URL is workflow-author-controlled: guarded client, or this node is
+	// an SSRF into cloud metadata and the compose-internal services.
+	client := netguard.Client(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http_request: %w", err)
@@ -439,7 +443,7 @@ func execIfCondition(config map[string]interface{}, execCtx map[string]interface
 	field, _ := config["field"].(string)
 	operator, _ := config["operator"].(string)
 	value := config["value"]
-	trueBranch, _ := config["trueBranch"].(string)  // node ID for true
+	trueBranch, _ := config["trueBranch"].(string)   // node ID for true
 	falseBranch, _ := config["falseBranch"].(string) // node ID for false
 
 	// Resolve the field value from execution context
@@ -1448,8 +1452,8 @@ func execJira(ctx context.Context, config map[string]interface{}, execCtx map[st
 		}
 		payload, _ := json.Marshal(map[string]interface{}{
 			"fields": map[string]interface{}{
-				"project":     map[string]string{"key": projectKey},
-				"summary":     summary,
+				"project": map[string]string{"key": projectKey},
+				"summary": summary,
 				"description": map[string]interface{}{
 					"type":    "doc",
 					"version": 1,
@@ -1672,9 +1676,9 @@ func execAITransform(ctx context.Context, config map[string]interface{}, execCtx
 	}
 
 	return map[string]interface{}{
-		"result":   text,
-		"model":    model,
-		"raw":      result,
+		"result": text,
+		"model":  model,
+		"raw":    result,
 	}, nil
 }
 
@@ -2052,9 +2056,9 @@ func execCompareDatasets(config map[string]interface{}, execCtx map[string]inter
 	}
 
 	return map[string]interface{}{
-		"added":     added,
-		"removed":   removed,
-		"unchanged": unchanged,
+		"added":        added,
+		"removed":      removed,
+		"unchanged":    unchanged,
 		"addedCount":   len(added),
 		"removedCount": len(removed),
 	}, nil

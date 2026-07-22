@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/netguard"
 	"github.com/mittolabs/applad/internal/uid"
 )
 
@@ -54,9 +55,9 @@ type Service struct {
 func NewService(database *db.DB) *Service {
 	return &Service{
 		db: database,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		// Webhook URLs are user-supplied and the response body is stored, so
+		// deliveries must not reach internal addresses.
+		client: netguard.Client(30 * time.Second),
 	}
 }
 

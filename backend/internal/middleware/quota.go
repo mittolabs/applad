@@ -204,6 +204,10 @@ func AuthRules() []Rule {
 		{Name: "signup", Suffix: "/signup", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 10, Message: tooMany},
 		{Name: "recovery", Prefix: "/recovery", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 10, Message: tooMany},
 		{Name: "recovery_account", Prefix: "/recovery", Method: http.MethodPost, Scope: ScopeAccount, PerMinute: 5, Message: tooMany},
+		// The console's reset flow lives at /password-reset, not /recovery, so
+		// the recovery rules never matched it and it was unlimited.
+		{Name: "pwreset", Prefix: "/password-reset", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 5, Message: tooMany},
+		{Name: "pwreset_account", Prefix: "/password-reset", Method: http.MethodPost, Scope: ScopeAccount, PerMinute: 5, Message: tooMany},
 		{Name: "magic", Prefix: "/magic-url", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 10, Message: tooMany},
 		{Name: "verification", Prefix: "/verification", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 10, Message: tooMany},
 		{Name: "invite_redeem", Prefix: "/invites/", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 20, Message: tooMany},

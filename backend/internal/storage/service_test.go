@@ -8,8 +8,8 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"time"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/mittolabs/applad/internal/db"

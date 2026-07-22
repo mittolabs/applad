@@ -191,20 +191,26 @@ func (s *Service) CreateDatabase(ctx context.Context, projectID, databaseID, nam
 
 	// Create per-database roles for RLS evaluation.
 	// applad_user (the connection role) can SET ROLE to these for policy enforcement.
+	// A silent failure here means every later query runs as the pooled owner
+	// with RLS bypassed, so these must not be best-effort.
 	for _, role := range []string{roleAnon, roleAuth} {
-		s.db.ExecContext(ctx, fmt.Sprintf( //nolint:errcheck
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf(
 			`DO $$ BEGIN
 				IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = %s) THEN
 					CREATE ROLE %s NOLOGIN;
 				END IF;
 			END $$`,
 			pgLiteral(role), pgIdent(role),
-		))
+		)); err != nil {
+			return nil, fmt.Errorf("create rls role %s: %w", role, err)
+		}
 	}
-	s.db.ExecContext(ctx, fmt.Sprintf( //nolint:errcheck
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(
 		"GRANT USAGE ON SCHEMA %s TO %s, %s",
 		pgIdent(schema), pgIdent(roleAnon), pgIdent(roleAuth),
-	))
+	)); err != nil {
+		return nil, fmt.Errorf("grant schema usage to rls roles: %w", err)
+	}
 
 	if _, err := s.db.ExecContext(ctx,
 		"INSERT INTO databases (id, project_id, name, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
@@ -330,7 +336,7 @@ func (s *Service) CreateTable(ctx context.Context, projectID, databaseID, tableI
 		return nil, fmt.Errorf("insert table metadata: %w", err)
 	}
 	if rowSecurity {
-		tableContext, err := s.lookupTableContext(ctx, id)
+		tableContext, err := s.lookupProjectTable(ctx, id, projectID)
 		if err != nil {
 			return nil, err
 		}
@@ -421,7 +427,7 @@ func (s *Service) UpdateTable(ctx context.Context, tableID, databaseID, projectI
 		return nil, err
 	}
 	if rowSecurity != nil && *rowSecurity != current.RowSecurity {
-		tableCtx, err := s.lookupTableContext(ctx, tableID)
+		tableCtx, err := s.lookupProjectTable(ctx, tableID, projectID)
 		if err == nil {
 			if *rowSecurity {
 				s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s.%s ENABLE ROW LEVEL SECURITY", pgIdent(tableCtx.Schema), pgIdent(tableCtx.Name))) //nolint:errcheck
@@ -451,8 +457,8 @@ func (s *Service) DeleteTable(ctx context.Context, tableID, databaseID, projectI
 	return nil
 }
 
-func (s *Service) CreateColumn(ctx context.Context, tableID, key, columnType string, required, array bool, defaultValue interface{}, options map[string]interface{}, validation *model.ColumnValidation) (*model.Column, error) {
-	tableContext, err := s.lookupTableContext(ctx, tableID)
+func (s *Service) CreateColumn(ctx context.Context, projectID, tableID, key, columnType string, required, array bool, defaultValue interface{}, options map[string]interface{}, validation *model.ColumnValidation) (*model.Column, error) {
+	tableContext, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -677,8 +683,8 @@ func applyWriteFilter(data map[string]interface{}, writeCols map[string]bool) ma
 	return result
 }
 
-func (s *Service) DeleteColumn(ctx context.Context, tableID, key string) error {
-	tableContext, err := s.lookupTableContext(ctx, tableID)
+func (s *Service) DeleteColumn(ctx context.Context, projectID, tableID, key string) error {
+	tableContext, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return err
 	}
@@ -694,8 +700,8 @@ func (s *Service) DeleteColumn(ctx context.Context, tableID, key string) error {
 	return nil
 }
 
-func (s *Service) CreateIndex(ctx context.Context, tableID, key, indexType string, columns, orders []string) (*model.Index, error) {
-	tableContext, err := s.lookupTableContext(ctx, tableID)
+func (s *Service) CreateIndex(ctx context.Context, projectID, tableID, key, indexType string, columns, orders []string) (*model.Index, error) {
+	tableContext, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -763,8 +769,8 @@ func (s *Service) ListIndexes(ctx context.Context, tableID string) ([]model.Inde
 	return indexes, nil
 }
 
-func (s *Service) DeleteIndex(ctx context.Context, tableID, key string) error {
-	tableContext, err := s.lookupTableContext(ctx, tableID)
+func (s *Service) DeleteIndex(ctx context.Context, projectID, tableID, key string) error {
+	tableContext, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return err
 	}
@@ -785,7 +791,7 @@ type Relationship struct {
 	OnDelete     string `json:"onDelete"`
 }
 
-func (s *Service) CreateRelationship(ctx context.Context, tableID, relatedTableID, relationType, key, twoWayKey, onDelete string, twoWay bool) (*Relationship, error) {
+func (s *Service) CreateRelationship(ctx context.Context, projectID, tableID, relatedTableID, relationType, key, twoWayKey, onDelete string, twoWay bool) (*Relationship, error) {
 	id := uid.New("unique()")
 	if onDelete == "" {
 		onDelete = "setNull"
@@ -798,11 +804,13 @@ func (s *Service) CreateRelationship(ctx context.Context, tableID, relatedTableI
 		pgOnDelete = "RESTRICT"
 	}
 
-	leftTable, err := s.lookupTableContext(ctx, tableID)
+	// Both ends must be the caller's own tables: a cross-tenant FK would both
+	// alter the victim's table and create a covert read channel.
+	leftTable, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return nil, err
 	}
-	rightTable, err := s.lookupTableContext(ctx, relatedTableID)
+	rightTable, err := s.lookupProjectTable(ctx, relatedTableID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -853,8 +861,8 @@ func (s *Service) ListRelationships(ctx context.Context, tableID string) ([]Rela
 	return relationships, nil
 }
 
-func (s *Service) DeleteRelationship(ctx context.Context, tableID, relationshipID string) error {
-	leftTable, err := s.lookupTableContext(ctx, tableID)
+func (s *Service) DeleteRelationship(ctx context.Context, projectID, tableID, relationshipID string) error {
+	leftTable, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return err
 	}
@@ -930,7 +938,7 @@ func (s *Service) SetPermissions(ctx context.Context, projectID, resourceType, r
 		return err
 	}
 	if resourceType == "table" {
-		tableContext, err := s.lookupTableContext(ctx, resourceID)
+		tableContext, err := s.lookupProjectTable(ctx, resourceID, projectID)
 		if err != nil {
 			return err
 		}
@@ -1046,6 +1054,25 @@ func (s *Service) lookupTableContext(ctx context.Context, tableID string) (*tabl
 	if err := s.db.QueryRowContext(ctx,
 		"SELECT id, database_id, project_id, name FROM tables WHERE id = $1",
 		tableID,
+	).Scan(&table.ID, &table.DatabaseID, &table.ProjectID, &table.Name); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("table not found")
+		}
+		return nil, err
+	}
+	table.Schema = schemaName(table.ProjectID, table.DatabaseID)
+	return &table, nil
+}
+
+// lookupProjectTable resolves a table only within the caller's project. The
+// project predicate is the tenant boundary: resolving by ID alone derives the
+// schema from the table's OWN project, letting any authenticated project aim
+// DDL at another tenant's table. All request-driven paths must use this.
+func (s *Service) lookupProjectTable(ctx context.Context, tableID, projectID string) (*tableContext, error) {
+	var table tableContext
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT id, database_id, project_id, name FROM tables WHERE id = $1 AND project_id = $2",
+		tableID, projectID,
 	).Scan(&table.ID, &table.DatabaseID, &table.ProjectID, &table.Name); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("table not found")
@@ -1207,9 +1234,21 @@ func (s *Service) applySessionContext(ctx context.Context, exec sqlContextExecut
 	if _, err := exec.ExecContext(ctx, "SELECT set_config('request.jwt.claims', $1, true)", string(claims)); err != nil {
 		return err
 	}
-	// SET LOCAL ROLE enforces RLS policies via the per-database role.
-	// Silently skip if the role doesn't exist yet (e.g. on old databases before migration).
-	exec.ExecContext(ctx, fmt.Sprintf("DO $$ BEGIN SET LOCAL ROLE %s; EXCEPTION WHEN undefined_object THEN NULL; END $$", pgIdent(pgRole))) //nolint:errcheck
+	// SET LOCAL ROLE enforces RLS policies via the per-database role. It must
+	// be a plain statement on this tx: inside a DO block PostgreSQL reverts
+	// SET LOCAL at block exit, so the query after it would run as the pooled
+	// owner with RLS bypassed. Missing role or failed SET is a hard error for
+	// the same reason.
+	var roleExists bool
+	if err := exec.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", pgRole).Scan(&roleExists); err != nil {
+		return fmt.Errorf("check rls role: %w", err)
+	}
+	if !roleExists {
+		return fmt.Errorf("rls role %q does not exist; recreate the database to provision it", pgRole)
+	}
+	if _, err := exec.ExecContext(ctx, "SET LOCAL ROLE "+pgIdent(pgRole)); err != nil {
+		return fmt.Errorf("set local role: %w", err)
+	}
 	return nil
 }
 
@@ -1776,7 +1815,7 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID 
 
 	results := make([]TransactionResult, 0, len(operations))
 	for _, operation := range operations {
-		table, err := s.lookupTableContext(ctx, operation.TableID)
+		table, err := s.lookupProjectTable(ctx, operation.TableID, projectID)
 		if err != nil {
 			return nil, err
 		}
@@ -1875,13 +1914,151 @@ type SQLExecutionResult struct {
 var blockedSQLPattern = regexp.MustCompile(`(?i)^\s*(create|alter|drop|truncate|comment|reindex|grant|revoke)\b`)
 var querySQLPattern = regexp.MustCompile(`(?i)^\s*(select|with|show|explain|values)\b`)
 
+// sessionControlPattern blocks SET/RESET: SET ROLE / RESET ROLE / RESET ALL
+// would drop or restore the SET LOCAL ROLE sandbox mid-transaction.
+var sessionControlPattern = regexp.MustCompile(`(?i)^\s*(set|reset)\b`)
+
+// stripLeadingSQLComments removes leading whitespace and SQL comments so the
+// keyword guards can't be dodged with a comment prefix ("/* */ DROP ...").
+func stripLeadingSQLComments(statement string) string {
+	for {
+		statement = strings.TrimSpace(statement)
+		switch {
+		case strings.HasPrefix(statement, "--"):
+			if idx := strings.IndexByte(statement, '\n'); idx >= 0 {
+				statement = statement[idx+1:]
+				continue
+			}
+			return ""
+		case strings.HasPrefix(statement, "/*"):
+			depth := 0
+			i := 0
+			for i < len(statement) {
+				if strings.HasPrefix(statement[i:], "/*") {
+					depth++
+					i += 2
+				} else if strings.HasPrefix(statement[i:], "*/") {
+					depth--
+					i += 2
+					if depth == 0 {
+						break
+					}
+				} else {
+					i++
+				}
+			}
+			if depth != 0 {
+				return "" // unterminated comment: nothing executable follows
+			}
+			statement = statement[i:]
+		default:
+			return statement
+		}
+	}
+}
+
+// hasMultipleStatements reports whether statement contains a ';' separator
+// outside string literals, quoted identifiers, dollar quotes, and comments,
+// with anything after it. A lone trailing ';' is fine. Backslashes are NOT
+// treated as escapes: doing so would hide a real separator in
+// standard-conforming strings, so E'...' strings can only false-positive.
+func hasMultipleStatements(statement string) bool {
+	i := 0
+	for i < len(statement) {
+		c := statement[i]
+		switch {
+		case c == '\'': // string literal, '' escapes
+			i++
+			for i < len(statement) {
+				if statement[i] == '\'' {
+					if i+1 < len(statement) && statement[i+1] == '\'' {
+						i += 2
+						continue
+					}
+					break
+				}
+				i++
+			}
+			i++
+		case c == '"': // quoted identifier, "" escapes
+			i++
+			for i < len(statement) {
+				if statement[i] == '"' {
+					if i+1 < len(statement) && statement[i+1] == '"' {
+						i += 2
+						continue
+					}
+					break
+				}
+				i++
+			}
+			i++
+		case c == '$': // dollar-quoted string $tag$...$tag$
+			j := i + 1
+			for j < len(statement) && (statement[j] == '_' || isAlnumByte(statement[j])) {
+				j++
+			}
+			if j < len(statement) && statement[j] == '$' {
+				tag := statement[i : j+1]
+				end := strings.Index(statement[j+1:], tag)
+				if end < 0 {
+					return false // unterminated: nothing executable follows
+				}
+				i = j + 1 + end + len(tag)
+			} else {
+				i++
+			}
+		case c == '-' && i+1 < len(statement) && statement[i+1] == '-':
+			nl := strings.IndexByte(statement[i:], '\n')
+			if nl < 0 {
+				return false
+			}
+			i += nl + 1
+		case c == '/' && i+1 < len(statement) && statement[i+1] == '*':
+			depth := 1
+			i += 2
+			for i < len(statement) && depth > 0 {
+				if strings.HasPrefix(statement[i:], "/*") {
+					depth++
+					i += 2
+				} else if strings.HasPrefix(statement[i:], "*/") {
+					depth--
+					i += 2
+				} else {
+					i++
+				}
+			}
+		case c == ';':
+			// Separator only if executable content follows.
+			return stripLeadingSQLComments(statement[i+1:]) != ""
+		default:
+			i++
+		}
+	}
+	return false
+}
+
+func isAlnumByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
 func (s *Service) ExecuteSQL(ctx context.Context, projectID, databaseID, userID string, roles []string, statement string, writeAllowed bool) (*SQLExecutionResult, error) {
 	statement = strings.TrimSpace(statement)
 	if statement == "" {
 		return nil, fmt.Errorf("sql statement is required")
 	}
-	if blockedSQLPattern.MatchString(statement) {
+	// One statement per request: a second statement after ';' would dodge the
+	// prefix-anchored guards below, and only the pgx driver happens to reject
+	// multi-statement strings today.
+	if hasMultipleStatements(statement) {
+		return nil, fmt.Errorf("multiple SQL statements are not allowed; execute one statement at a time")
+	}
+	head := stripLeadingSQLComments(statement)
+	if blockedSQLPattern.MatchString(head) {
 		return nil, fmt.Errorf("DDL statements are not allowed in the SQL editor")
+	}
+	if sessionControlPattern.MatchString(head) {
+		return nil, fmt.Errorf("SET/RESET statements are not allowed in the SQL editor")
 	}
 	start := time.Now()
 	tx, _, err := s.prepareDirectAccessTx(ctx, projectID, databaseID, userID, roles, !writeAllowed)
@@ -1891,7 +2068,7 @@ func (s *Service) ExecuteSQL(ctx context.Context, projectID, databaseID, userID 
 	defer tx.Rollback() //nolint:errcheck
 
 	result := &SQLExecutionResult{Statement: statement, WriteAllowed: writeAllowed}
-	if querySQLPattern.MatchString(statement) {
+	if querySQLPattern.MatchString(head) {
 		rows, err := tx.QueryContext(ctx, statement)
 		if err != nil {
 			return nil, err
@@ -1958,7 +2135,7 @@ func (s *Service) PreviewCSV(_ context.Context, csvData []byte) (*CSVPreview, er
 }
 
 func (s *Service) ImportCSV(ctx context.Context, projectID, databaseID, tableID string, csvData []byte, columnMapping map[string]string) (*CSVImportResult, error) {
-	tableContext, err := s.lookupTableContext(ctx, tableID)
+	tableContext, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return nil, err
 	}

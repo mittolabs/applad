@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,16 +56,16 @@ func Routes(h *Handler) http.Handler {
 func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	var body struct {
-		BucketID            string   `json:"bucketId"`
-		Name                string   `json:"name"`
-		Permissions         []string `json:"permissions"`
-		FileSizeLimit       int64    `json:"maximumFileSize"`
-		AllowedMimeTypes    []string `json:"allowedFileExtensions"`
-		Compression         string   `json:"compression"`
-		Encryption          bool     `json:"encryption"`
-		Antivirus           bool     `json:"antivirus"`
-		FileSecurity        bool     `json:"fileSecurity"`
-		ImageTransformations *bool   `json:"imageTransformations"`
+		BucketID             string   `json:"bucketId"`
+		Name                 string   `json:"name"`
+		Permissions          []string `json:"permissions"`
+		FileSizeLimit        int64    `json:"maximumFileSize"`
+		AllowedMimeTypes     []string `json:"allowedFileExtensions"`
+		Compression          string   `json:"compression"`
+		Encryption           bool     `json:"encryption"`
+		Antivirus            bool     `json:"antivirus"`
+		FileSecurity         bool     `json:"fileSecurity"`
+		ImageTransformations *bool    `json:"imageTransformations"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
@@ -216,20 +217,11 @@ func (h *Handler) createFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Reject oversized uploads before reading into memory.
 	// header.Size comes from the multipart Content-Disposition and may be 0
-	// when omitted, so we also enforce a hard cap via LimitReader (500 MB).
+	// when omitted; the service enforces the hard cap on the stream itself.
+	// Streamed, not buffered: a 500 MB upload must not cost 500 MB of RAM.
 	const hardMaxBytes = 500 << 20 // 500 MB
 	if header.Size > hardMaxBytes {
-		apperr.Write(w, http.StatusRequestEntityTooLarge, "storage_file_too_large", "file exceeds maximum allowed size")
-		return
-	}
-	content, err := io.ReadAll(io.LimitReader(file, hardMaxBytes+1))
-	if err != nil {
-		apperr.Internal(w, fmt.Errorf("read upload: %w", err))
-		return
-	}
-	if int64(len(content)) > hardMaxBytes {
 		apperr.Write(w, http.StatusRequestEntityTooLarge, "storage_file_too_large", "file exceeds maximum allowed size")
 		return
 	}
@@ -239,8 +231,12 @@ func (h *Handler) createFile(w http.ResponseWriter, r *http.Request) {
 		mimeType = "application/octet-stream"
 	}
 
-	f, err := h.svc.CreateFile(ctx, projectID, bucketID, fileID, header.Filename, content, mimeType, permissions)
+	f, err := h.svc.CreateFileStream(ctx, projectID, bucketID, fileID, header.Filename, file, hardMaxBytes, mimeType, permissions)
 	if err != nil {
+		if errors.Is(err, ErrFileTooLarge) {
+			apperr.Write(w, http.StatusRequestEntityTooLarge, "storage_file_too_large", "file exceeds maximum allowed size")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -311,12 +307,18 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, download boo
 
 	// If a signed token is provided, validate it instead of requiring auth context.
 	if token := r.URL.Query().Get("token"); token != "" {
-		tBucketID, tFileID, ok := h.svc.VerifySignedToken(token)
+		tProjectID, tBucketID, tFileID, ok := h.svc.VerifySignedToken(token)
 		if !ok || tBucketID != bucketID || tFileID != fileID {
 			apperr.Unauthorized(w)
 			return
 		}
-		// Use the IDs from the validated token — project resolved from bucket.
+		// The token is bound to the project it was minted in; a request that
+		// carries a different project context must not serve it.
+		if projectID != "" && projectID != tProjectID {
+			apperr.Unauthorized(w)
+			return
+		}
+		projectID = tProjectID
 		bucketID = tBucketID
 		fileID = tFileID
 	}
@@ -414,10 +416,10 @@ func (h *Handler) initChunkedUpload(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketId")
 
 	var body struct {
-		FileID   string   `json:"fileId"`
-		Name     string   `json:"name"`
-		MimeType string   `json:"mimeType"`
-		Size     int64    `json:"size"`
+		FileID      string   `json:"fileId"`
+		Name        string   `json:"name"`
+		MimeType    string   `json:"mimeType"`
+		Size        int64    `json:"size"`
 		Permissions []string `json:"permissions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {

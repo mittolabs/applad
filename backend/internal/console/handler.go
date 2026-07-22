@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
+	mw "github.com/mittolabs/applad/internal/middleware"
 	oauthpkg "github.com/mittolabs/applad/internal/oauth"
 )
 
@@ -186,22 +187,11 @@ func bearerToken(r *http.Request) (string, bool) {
 	return strings.TrimPrefix(auth, "Bearer "), true
 }
 
-// clientIP returns the best-guess client IP, honouring the reverse proxy.
+// clientIP returns the client address for session records. Forwarding headers
+// are honoured only from trusted proxies, so a caller cannot pick the address
+// their sign-ins are logged under.
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	if xr := r.Header.Get("X-Real-IP"); xr != "" {
-		return xr
-	}
-	host := r.RemoteAddr
-	if i := strings.LastIndexByte(host, ':'); i >= 0 {
-		host = host[:i]
-	}
-	return host
+	return mw.ClientIP(r)
 }
 
 func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {

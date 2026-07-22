@@ -1,23 +1,73 @@
 package projects
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
+	mw "github.com/mittolabs/applad/internal/middleware"
+	"github.com/mittolabs/applad/internal/model"
 )
+
+// AccessChecker decides what the signed-in console user may touch.
+// Implemented by console.Service. The user id comes from the validated JWT in
+// context, never from anything the client can set.
+type AccessChecker interface {
+	CanAccessProject(ctx context.Context, userID, projectID string) (bool, error)
+	IsOrgMember(ctx context.Context, userID, orgID string) (bool, error)
+	UserOrgIDs(ctx context.Context, userID string) ([]string, error)
+	ProjectOrgs(ctx context.Context) (map[string]string, error)
+}
 
 // Handler handles HTTP requests for project management.
 type Handler struct {
-	svc *Service
+	svc    *Service
+	access AccessChecker
 }
 
 // NewHandler creates a new projects Handler.
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+// SetAccess wires the ownership checker. Without it every handler denies —
+// authorization fails closed rather than reverting to the open API this was.
+func (h *Handler) SetAccess(a AccessChecker) {
+	h.access = a
+}
+
+// callerID returns the console user id placed in context by RequireConsoleAuth,
+// writing 401 when there is none.
+func (h *Handler) callerID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID := mw.ConsoleUserFromContext(r.Context())
+	if userID == "" || h.access == nil {
+		apperr.Unauthorized(w)
+		return "", false
+	}
+	return userID, true
+}
+
+// requireProject rejects the request unless the caller may act on the project
+// in the path. Unknown projects get the same 403, so probing ids reveals
+// nothing; a DB error also denies.
+func (h *Handler) requireProject(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID, ok := h.callerID(w, r)
+	if !ok {
+		return "", false
+	}
+	projectID := chi.URLParam(r, "projectId")
+	allowed, err := h.access.CanAccessProject(r.Context(), userID, projectID)
+	if err != nil || !allowed {
+		apperr.Write(w, http.StatusForbidden, "permission_denied",
+			"You are not a member of the organization that owns this project.")
+		return "", false
+	}
+	return projectID, true
 }
 
 // Routes returns the projects router.
@@ -62,6 +112,11 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "name is required")
 		return
 	}
+	// Any signed-in console user may create a project (it starts org-less, as
+	// onboarding does); anonymous callers may not.
+	if _, ok := h.callerID(w, r); !ok {
+		return
+	}
 	p, err := h.svc.Create(r.Context(), body.Name, body.Description)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -71,8 +126,47 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.callerID(w, r)
+	if !ok {
+		return
+	}
 	orgID := r.URL.Query().Get("orgId")
-	projects, err := h.svc.List(r.Context(), orgID)
+
+	var projects []*model.Project
+	var err error
+	if orgID != "" {
+		// Asking for an org's projects requires being in that org.
+		member, merr := h.access.IsOrgMember(r.Context(), userID, orgID)
+		if merr != nil || !member {
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You are not a member of this organization.")
+			return
+		}
+		projects, err = h.svc.List(r.Context(), orgID)
+	} else {
+		// No org given: the caller sees their orgs' projects plus org-less
+		// ones (pre-org/onboarding projects), never other tenants'.
+		all, lerr := h.svc.List(r.Context())
+		if lerr != nil {
+			apperr.Internal(w, lerr)
+			return
+		}
+		orgs, oerr := h.access.UserOrgIDs(r.Context(), userID)
+		projOrgs, perr := h.access.ProjectOrgs(r.Context())
+		if oerr != nil || perr != nil {
+			apperr.Internal(w, fmt.Errorf("projects: resolve memberships"))
+			return
+		}
+		mine := make(map[string]bool, len(orgs))
+		for _, o := range orgs {
+			mine[o] = true
+		}
+		projects = make([]*model.Project, 0, len(all))
+		for _, p := range all {
+			if org := projOrgs[p.ID]; org == "" || mine[org] {
+				projects = append(projects, p)
+			}
+		}
+	}
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -84,7 +178,10 @@ func (h *Handler) listProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getProject(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "projectId")
+	id, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	p, err := h.svc.Get(r.Context(), id)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -98,7 +195,10 @@ func (h *Handler) getProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateProject(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "projectId")
+	id, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	var body struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -120,7 +220,10 @@ func (h *Handler) updateProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteProject(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "projectId")
+	id, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	if err := h.svc.Delete(r.Context(), id); err != nil {
 		apperr.Internal(w, err)
 		return
@@ -129,7 +232,6 @@ func (h *Handler) deleteProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
 	var body struct {
 		Name      string   `json:"name"`
 		Scopes    []string `json:"scopes"`
@@ -151,6 +253,12 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 		}
 		expiresAt = &t
 	}
+	// Ownership after validation: minting a key is full project access, so an
+	// anonymous or foreign caller must never reach CreateKey.
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	key, _, err := h.svc.CreateKey(r.Context(), projectID, body.Name, body.Scopes, expiresAt)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -160,7 +268,10 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listKeys(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	keys, err := h.svc.ListKeys(r.Context(), projectID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -173,7 +284,10 @@ func (h *Handler) listKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getKey(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	keyID := chi.URLParam(r, "keyId")
 	key, err := h.svc.GetKey(r.Context(), projectID, keyID)
 	if err != nil {
@@ -188,7 +302,10 @@ func (h *Handler) getKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	keyID := chi.URLParam(r, "keyId")
 	var body struct {
 		Name      *string  `json:"name"`
@@ -224,7 +341,10 @@ func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteKey(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	keyID := chi.URLParam(r, "keyId")
 	if err := h.svc.DeleteKey(r.Context(), projectID, keyID); err != nil {
 		apperr.Internal(w, err)
@@ -234,7 +354,10 @@ func (h *Handler) deleteKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getUsage(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	usage, err := h.svc.GetUsage(r.Context(), projectID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -244,7 +367,10 @@ func (h *Handler) getUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"results": []*SearchResult{}})
@@ -259,7 +385,10 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createPlatform(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	var body struct {
 		Type     string `json:"type"`
 		Name     string `json:"name"`
@@ -279,7 +408,10 @@ func (h *Handler) createPlatform(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listPlatforms(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	platforms, err := h.svc.ListPlatforms(r.Context(), projectID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -292,7 +424,10 @@ func (h *Handler) listPlatforms(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getPlatform(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	platformID := chi.URLParam(r, "platformId")
 	p, err := h.svc.GetPlatform(r.Context(), projectID, platformID)
 	if err != nil {
@@ -303,7 +438,10 @@ func (h *Handler) getPlatform(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updatePlatform(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	platformID := chi.URLParam(r, "platformId")
 	var body struct {
 		Name           *string `json:"name"`
@@ -323,7 +461,10 @@ func (h *Handler) updatePlatform(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deletePlatform(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	platformID := chi.URLParam(r, "platformId")
 	if err := h.svc.DeletePlatform(r.Context(), projectID, platformID); err != nil {
 		apperr.Internal(w, err)
@@ -333,7 +474,10 @@ func (h *Handler) deletePlatform(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateAuthConfig(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -347,7 +491,10 @@ func (h *Handler) updateAuthConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAuthSecurity(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	sec, err := h.svc.GetAuthSecurity(r.Context(), projectID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -357,7 +504,10 @@ func (h *Handler) getAuthSecurity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateAuthSecurity(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	// Start from current settings so partial updates preserve other fields.
 	sec, _ := h.svc.GetAuthSecurity(r.Context(), projectID)
 	if err := json.NewDecoder(r.Body).Decode(&sec); err != nil {
@@ -372,7 +522,10 @@ func (h *Handler) updateAuthSecurity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateServicesConfig(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectId")
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")

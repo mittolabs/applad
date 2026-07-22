@@ -31,7 +31,7 @@ type Member struct {
 	UserID    string    `json:"userId,omitempty"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
-	Role      string    `json:"role"` // owner, admin, member
+	Role      string    `json:"role"`   // owner, admin, member
 	Status    string    `json:"status"` // active, pending
 	CreatedAt time.Time `json:"$createdAt"`
 }
@@ -254,10 +254,10 @@ type OrgStats struct {
 // GetOrgStats aggregates statistics across all projects in the organization.
 func (s *Service) GetOrgStats(ctx context.Context, orgID string) (*OrgStats, error) {
 	stats := &OrgStats{OrgID: orgID}
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects WHERE org_id = $1", orgID).Scan(&stats.TotalProjects)             //nolint:errcheck
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM organization_members WHERE org_id = $1", orgID).Scan(&stats.TotalMembers) //nolint:errcheck
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1)", orgID).Scan(&stats.TotalUsers)                            //nolint:errcheck
-	s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size),0) FROM files WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1)", orgID).Scan(&stats.TotalStorage)            //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects WHERE org_id = $1", orgID).Scan(&stats.TotalProjects)                                                            //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM organization_members WHERE org_id = $1", orgID).Scan(&stats.TotalMembers)                                                 //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1)", orgID).Scan(&stats.TotalUsers)                    //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(size),0) FROM files WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1)", orgID).Scan(&stats.TotalStorage)     //nolint:errcheck
 	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM function_executions WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1)", orgID).Scan(&stats.TotalExecutions) //nolint:errcheck
 	return stats, nil
 }

@@ -263,6 +263,7 @@ func (h *Handler) deleteTable(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) createColumn(attrType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := middleware.ProjectFromContext(r.Context())
 		tableID := chi.URLParam(r, "tableId")
 		var body struct {
 			Key        string                  `json:"key"`
@@ -296,8 +297,12 @@ func (h *Handler) createColumn(attrType string) http.HandlerFunc {
 		case "enum":
 			options["elements"] = body.Elements
 		}
-		column, err := h.svc.CreateColumn(r.Context(), tableID, body.Key, attrType, body.Required, body.Array, body.Default, options, body.Validation)
+		column, err := h.svc.CreateColumn(r.Context(), projectID, tableID, body.Key, attrType, body.Required, body.Array, body.Default, options, body.Validation)
 		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				apperr.NotFound(w, "table")
+				return
+			}
 			apperr.Internal(w, err)
 			return
 		}
@@ -316,9 +321,14 @@ func (h *Handler) listColumns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteColumn(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	tableID := chi.URLParam(r, "tableId")
 	key := chi.URLParam(r, "key")
-	if err := h.svc.DeleteColumn(r.Context(), tableID, key); err != nil {
+	if err := h.svc.DeleteColumn(r.Context(), projectID, tableID, key); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "table")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -369,6 +379,7 @@ func (h *Handler) setColumnPermissions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	collID := chi.URLParam(r, "tableId")
 	var body struct {
 		Key     string   `json:"key"`
@@ -380,8 +391,12 @@ func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "key is required")
 		return
 	}
-	idx, err := h.svc.CreateIndex(r.Context(), collID, body.Key, body.Type, body.Columns, body.Orders)
+	idx, err := h.svc.CreateIndex(r.Context(), projectID, collID, body.Key, body.Type, body.Columns, body.Orders)
 	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "table")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -399,9 +414,14 @@ func (h *Handler) listIndexes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteIndex(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	collID := chi.URLParam(r, "tableId")
 	key := chi.URLParam(r, "key")
-	if err := h.svc.DeleteIndex(r.Context(), collID, key); err != nil {
+	if err := h.svc.DeleteIndex(r.Context(), projectID, collID, key); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "table")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -409,6 +429,7 @@ func (h *Handler) deleteIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createRelationship(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	collID := chi.URLParam(r, "tableId")
 	var body struct {
 		RelatedTableID string `json:"relatedTableId"`
@@ -425,8 +446,12 @@ func (h *Handler) createRelationship(w http.ResponseWriter, r *http.Request) {
 	if body.Type == "" {
 		body.Type = "oneToMany"
 	}
-	rel, err := h.svc.CreateRelationship(r.Context(), collID, body.RelatedTableID, body.Type, body.Key, body.TwoWayKey, body.OnDelete, body.TwoWay)
+	rel, err := h.svc.CreateRelationship(r.Context(), projectID, collID, body.RelatedTableID, body.Type, body.Key, body.TwoWayKey, body.OnDelete, body.TwoWay)
 	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "table")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -444,9 +469,14 @@ func (h *Handler) listRelationships(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteRelationship(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	collID := chi.URLParam(r, "tableId")
 	relID := chi.URLParam(r, "relationshipId")
-	if err := h.svc.DeleteRelationship(r.Context(), collID, relID); err != nil {
+	if err := h.svc.DeleteRelationship(r.Context(), projectID, collID, relID); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "table")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -495,7 +525,7 @@ func (h *Handler) createRow(w http.ResponseWriter, r *http.Request) {
 // ── Content mode ─────────────────────────────────────────────────────────────
 
 func (h *Handler) enableContentMode(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.SetContentMode(r.Context(), chi.URLParam(r, "tableId"), true); err != nil {
+	if err := h.svc.SetContentMode(r.Context(), middleware.ProjectFromContext(r.Context()), chi.URLParam(r, "tableId"), true); err != nil {
 		apperr.Internal(w, err)
 		return
 	}
@@ -503,7 +533,7 @@ func (h *Handler) enableContentMode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) disableContentMode(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.SetContentMode(r.Context(), chi.URLParam(r, "tableId"), false); err != nil {
+	if err := h.svc.SetContentMode(r.Context(), middleware.ProjectFromContext(r.Context()), chi.URLParam(r, "tableId"), false); err != nil {
 		apperr.Internal(w, err)
 		return
 	}
@@ -513,7 +543,7 @@ func (h *Handler) disableContentMode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) setPublished(published bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rowID := chi.URLParam(r, "rowId")
-		if err := h.svc.SetRowPublished(r.Context(), chi.URLParam(r, "tableId"), rowID, published); err != nil {
+		if err := h.svc.SetRowPublished(r.Context(), middleware.ProjectFromContext(r.Context()), chi.URLParam(r, "tableId"), rowID, published); err != nil {
 			apperr.NotFound(w, "row")
 			return
 		}
@@ -1089,15 +1119,16 @@ func (h *Handler) executeSQL(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserFromContext(ctx)
 	databaseID := chi.URLParam(r, "databaseId")
 	var body struct {
-		Statement    string   `json:"statement"`
-		WriteAllowed bool     `json:"writeAllowed"`
-		Roles        []string `json:"roles"`
+		Statement    string `json:"statement"`
+		WriteAllowed bool   `json:"writeAllowed"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Statement) == "" {
 		apperr.BadRequest(w, "statement is required")
 		return
 	}
-	result, err := h.svc.ExecuteSQL(ctx, projectID, databaseID, userID, body.Roles, body.Statement, body.WriteAllowed)
+	// Roles come from the authenticated session only. A roles field in the
+	// body let callers mint any RLS role ("admin") and satisfy any policy.
+	result, err := h.svc.ExecuteSQL(ctx, projectID, databaseID, userID, nil, body.Statement, body.WriteAllowed)
 	if err != nil {
 		apperr.Write(w, http.StatusBadRequest, "sql_execution_failed", err.Error())
 		return

@@ -395,18 +395,95 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword s
 }
 
 // ValidateToken parses and validates a console JWT, returning the user ID.
+// Delegates to ValidateSession so a revoked session is rejected everywhere,
+// not only on routes that happened to call ValidateSession — a 30-day token
+// otherwise outlives its revocation.
 func (s *Service) ValidateToken(tokenStr string) (string, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &ConsoleClaims{}, func(t *jwt.Token) (interface{}, error) {
-		return []byte(s.jwtSecret), nil
-	})
+	// Callers predate sessions and pass no context; the revocation lookup is
+	// a single indexed query, so Background is acceptable here.
+	userID, _, err := s.ValidateSession(context.Background(), tokenStr)
+	return userID, err
+}
+
+// ── Access checks ────────────────────────────────────────────────────────────
+// A console JWT identifies an administrator; these decide what that identity
+// reaches. Membership, not possession of a token, is the boundary between
+// tenants on a hosted instance.
+
+// IsOrgMember reports whether userID is an active member of orgID.
+func (s *Service) IsOrgMember(ctx context.Context, userID, orgID string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM organization_members WHERE org_id = $1 AND user_id = $2 AND status = 'active'",
+		orgID, userID).Scan(&n)
+	return n > 0, err
+}
+
+// CanAccessProject reports whether a console user may act on a project.
+// Projects created before organizations existed (org_id NULL) are open to any
+// signed-in console user — on a closed instance that is the owner and their
+// invitees. Everything else requires active membership of the owning org.
+// Unknown projects are denied, so probing ids reveals nothing.
+func (s *Service) CanAccessProject(ctx context.Context, userID, projectID string) (bool, error) {
+	var orgID sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		"SELECT org_id FROM projects WHERE id = $1", projectID).Scan(&orgID)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
 	if err != nil {
-		return "", fmt.Errorf("console: invalid token")
+		return false, err
 	}
-	claims, ok := token.Claims.(*ConsoleClaims)
-	if !ok || !token.Valid || !claims.Console {
-		return "", fmt.Errorf("console: invalid token")
+	if !orgID.Valid || orgID.String == "" {
+		return true, nil
 	}
-	return claims.Subject, nil
+	return s.IsOrgMember(ctx, userID, orgID.String)
+}
+
+// UserOrgIDs returns the orgs a user is an active member of.
+func (s *Service) UserOrgIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT org_id FROM organization_members WHERE user_id = $1 AND status = 'active'", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			out = append(out, id)
+		}
+	}
+	return out, rows.Err()
+}
+
+// ProjectOrgs returns project id → owning org ("" when none), one query, so a
+// project listing can be filtered to the caller's orgs without a query per row.
+func (s *Service) ProjectOrgs(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, COALESCE(org_id, '') FROM projects")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, org string
+		if err := rows.Scan(&id, &org); err == nil {
+			out[id] = org
+		}
+	}
+	return out, rows.Err()
+}
+
+// UserEmailName returns a console user's email and name, for handlers that
+// derived them from client headers before and must not any longer.
+func (s *Service) UserEmailName(ctx context.Context, userID string) (email, name string, err error) {
+	u, err := s.GetMe(ctx, userID)
+	if err != nil {
+		return "", "", err
+	}
+	return u.Email, u.Name, nil
 }
 
 func (s *Service) signJWT(userID, email, sessionID string) (string, error) {

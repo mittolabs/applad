@@ -5,8 +5,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
+
+// cloneURL matches the only repository shape this system builds from: an
+// https URL, optionally with userinfo (the x-access-token form of a GitHub
+// App installation token). Everything else git accepts — ext:: (runs a
+// shell), file://, ssh://, a leading -flag — is rejected outright rather
+// than escaped: the builds worker holds the Docker socket and the App key,
+// so a URL that executes is a full compromise.
+var cloneURL = regexp.MustCompile(`^https://(?:[A-Za-z0-9._%+-]+(?::[^@/\s]*)?@)?[A-Za-z0-9.-]+(?::\d+)?/`)
 
 // CloneRepo clones the given git repository URL at the specified branch into destDir.
 // It performs a shallow clone (depth=1) for speed.
@@ -21,6 +30,17 @@ func CloneRepo(ctx context.Context, repoURL, branch, destDir string) error {
 
 // CloneRepoAs clones using authURL for the fetch while reporting repoURL.
 func CloneRepoAs(ctx context.Context, repoURL, authURL, branch, destDir string) error {
+	if !cloneURL.MatchString(repoURL) {
+		return fmt.Errorf("git clone: repository must be an https:// URL, got %q", repoURL)
+	}
+	// Never echo authURL: it carries the token.
+	if authURL != "" && !cloneURL.MatchString(authURL) {
+		return fmt.Errorf("git clone %s: credentialled URL is not https://", repoURL)
+	}
+	if strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("git clone %s: invalid branch %q", repoURL, branch)
+	}
+
 	fetchURL := repoURL
 	if authURL != "" {
 		fetchURL = authURL
@@ -30,7 +50,8 @@ func CloneRepoAs(ctx context.Context, repoURL, authURL, branch, destDir string) 
 	if branch != "" {
 		args = append(args, "--branch", branch)
 	}
-	args = append(args, fetchURL, destDir)
+	// "--" so neither URL nor dest can ever be parsed as a flag.
+	args = append(args, "--", fetchURL, destDir)
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	// Workers have no TTY. Without this git tries to prompt for credentials on a

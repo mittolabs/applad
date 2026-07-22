@@ -31,7 +31,7 @@ type Node struct {
 type Edge struct {
 	ID        string `json:"id"`
 	Source    string `json:"source"`
-	Target   string `json:"target"`
+	Target    string `json:"target"`
 	Condition string `json:"condition,omitempty"`
 }
 
@@ -153,7 +153,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, description, trig
 		ID: id, ProjectID: projectID, Name: name, Description: description,
 		Status: "draft", TriggerType: triggerType, TriggerConfig: triggerConfig,
 		WebhookSecret: webhookSecret, // only populated on create response
-		Nodes: nodes, Edges: edges, CreatedAt: now, UpdatedAt: now,
+		Nodes:         nodes, Edges: edges, CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
 
@@ -350,7 +350,7 @@ func (s *Service) Execute(ctx context.Context, workflowID, projectID string, tri
 				"executionId": execID,
 				"workflowId":  workflowID,
 				"projectId":   projectID,
-				"triggerData":  triggerData,
+				"triggerData": triggerData,
 			},
 			CreatedAt: time.Now().UTC(),
 		})

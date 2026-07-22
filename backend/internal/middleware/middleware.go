@@ -23,6 +23,7 @@ const (
 	projectIDKey
 	apiKeyScopesKey
 	consoleAdminKey
+	consoleUserKey
 )
 
 // Claims is the JWT claims structure.
@@ -121,7 +122,13 @@ func ProjectContext(next http.Handler) http.Handler {
 
 // Authenticate reads either x-applad-key or Authorization: Bearer <jwt> and validates.
 // It does NOT reject unauthenticated requests; use RequireAuth for that.
-func Authenticate(jwtSecret string, provider interface{}) func(http.Handler) http.Handler {
+// consoleAccess (optional, at most one) is consulted for console JWTs: a
+// console credential only reaches projects whose org its subject belongs to.
+func Authenticate(jwtSecret string, provider interface{}, consoleAccess ...ConsoleAccessChecker) func(http.Handler) http.Handler {
+	var checker ConsoleAccessChecker
+	if len(consoleAccess) > 0 {
+		checker = consoleAccess[0]
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -196,10 +203,26 @@ func Authenticate(jwtSecret string, provider interface{}) func(http.Handler) htt
 				if err == nil && token.Valid {
 					if claims, ok := token.Claims.(*Claims); ok {
 						if claims.Console {
-							// Console admin JWT — grant full access to all project resources.
+							// A console JWT identifies an administrator, not a grant to
+							// every project: it only reaches projects whose org the
+							// subject is an active member of. A DB error also denies —
+							// authorization fails closed.
+							if pid := ProjectFromContext(ctx); pid != "" {
+								allowed := false
+								if checker != nil {
+									ok, err := checker.CanAccessProject(ctx, claims.Subject, pid)
+									allowed = err == nil && ok
+								}
+								if !allowed {
+									apperr.Write(w, http.StatusForbidden, "permission_denied",
+										"You are not a member of the organization that owns this project.")
+									return
+								}
+							}
 							// userKey is intentionally left empty so service-layer RLS checks
 							// are bypassed (same path as internal service calls).
 							ctx = context.WithValue(ctx, consoleAdminKey, true)
+							ctx = context.WithValue(ctx, consoleUserKey, claims.Subject)
 						} else {
 							// Validate that the JWT's project claim matches the request header
 							// to prevent session fixation across projects.
@@ -229,7 +252,10 @@ func apiKeyAllowed(scopes []string, method, path string) bool {
 	}
 	required := apiKeyResourceScope(path)
 	if required == "" {
-		return true
+		// Default deny: a path no scope maps to is a path no key was ever
+		// granted. Allowing it meant every unmapped resource was open to any
+		// key, however narrow its scopes.
+		return false
 	}
 	isRead := method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 	for _, scope := range scopes {
@@ -285,8 +311,31 @@ func apiKeyResourceScope(path string) string {
 		return "edge"
 	case strings.HasPrefix(trimmed, "/billing"):
 		return "billing"
-	case strings.HasPrefix(trimmed, "/regions"):
+	case strings.HasPrefix(trimmed, "/regions"), strings.HasPrefix(trimmed, "/project-regions"):
 		return "regions"
+	case strings.HasPrefix(trimmed, "/realtime"):
+		return "realtime"
+	case strings.HasPrefix(trimmed, "/credentials"):
+		return "credentials"
+	case strings.HasPrefix(trimmed, "/audit"):
+		return "audit"
+	case strings.HasPrefix(trimmed, "/webhooks"):
+		return "webhooks"
+	case strings.HasPrefix(trimmed, "/observe"):
+		return "observe"
+	case strings.HasPrefix(trimmed, "/jobs"):
+		return "jobs"
+	case strings.HasPrefix(trimmed, "/cache"):
+		return "cache"
+	case strings.HasPrefix(trimmed, "/plan"):
+		return "plan"
+	case strings.HasPrefix(trimmed, "/usage"):
+		return "usage"
+	// The studio drives test recordings, so it shares the tests scope.
+	case strings.HasPrefix(trimmed, "/tests"), strings.HasPrefix(trimmed, "/studio"):
+		return "tests"
+	case strings.HasPrefix(trimmed, "/migrations"):
+		return "migrations"
 	default:
 		return ""
 	}

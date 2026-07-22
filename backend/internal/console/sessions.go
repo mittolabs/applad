@@ -40,9 +40,10 @@ func (s *Service) CreateSessionToken(ctx context.Context, userID, email, userAge
 // session id. Tokens issued before sessions existed (no sid) stay valid so
 // existing logins keep working; they simply have no session record.
 func (s *Service) ValidateSession(ctx context.Context, tokenStr string) (userID, sessionID string, err error) {
+	// HS256 pinned: without it a crafted token could name its own algorithm.
 	token, perr := jwt.ParseWithClaims(tokenStr, &ConsoleClaims{}, func(t *jwt.Token) (interface{}, error) {
 		return []byte(s.jwtSecret), nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}))
 	if perr != nil {
 		return "", "", fmt.Errorf("console: invalid token")
 	}

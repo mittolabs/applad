@@ -31,6 +31,38 @@ func TestNew_CustomHint(t *testing.T) {
 	}
 }
 
+func TestNew_RejectsUnsafeHints(t *testing.T) {
+	for _, hint := range []string{
+		"../../../../etc/cron.d/x",
+		"..",
+		"a/b",
+		"a\\b",
+		"file.txt",
+		"a b",
+		"a\x00b",
+		"héllo",
+	} {
+		id := New(hint)
+		if id == hint {
+			t.Errorf("New(%q) returned the hint verbatim; want a generated id", hint)
+		}
+		if len(id) != 32 {
+			t.Errorf("New(%q) = %q; want 32-char generated id", hint, id)
+		}
+	}
+}
+
+func TestValidID(t *testing.T) {
+	if !ValidID("my-custom_ID9") {
+		t.Error("ValidID rejected a well-formed id")
+	}
+	for _, s := range []string{"", "../x", "a.b", "a/b", string(make([]byte, 129))} {
+		if ValidID(s) {
+			t.Errorf("ValidID(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestNew_Uniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 	for i := 0; i < 1000; i++ {

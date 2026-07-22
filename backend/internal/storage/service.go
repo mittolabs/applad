@@ -11,12 +11,14 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -88,7 +90,7 @@ func (s *Service) CreateBucket(ctx context.Context, projectID, bucketID, name st
 		ID: id, Name: name, Enabled: true,
 		Permissions: permissions, FileSizeLimit: fileSizeLimit,
 		AllowedFileExtensions: allowedMimeTypes,
-		Compression: compression, Encryption: encryption, Antivirus: antivirus,
+		Compression:           compression, Encryption: encryption, Antivirus: antivirus,
 		FileSecurity: fileSecurity, ImageTransformations: imageTransformations,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
@@ -169,8 +171,12 @@ func (s *Service) DeleteBucket(ctx context.Context, bucketID, projectID string) 
 
 // --- files ---
 
-func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, name string, content []byte, mimeType string, permissions []string) (*model.File, error) {
-	// Sanitize filename: strip directory traversal components and enforce length.
+// ErrFileTooLarge marks an upload that exceeded the size cap so the handler
+// can answer 413 instead of 500.
+var ErrFileTooLarge = errors.New("storage: file exceeds maximum allowed size")
+
+// sanitizeName strips directory components and enforces length.
+func sanitizeName(name string) string {
 	name = filepath.Base(name)
 	if name == "." || name == "/" {
 		name = "file"
@@ -178,6 +184,27 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 	if len(name) > 255 {
 		name = name[:255]
 	}
+	return name
+}
+
+// checkFileType enforces the bucket's allow-list, which can hold extensions
+// ("jpg") or MIME types ("image/jpeg").
+func checkFileType(bucket *model.Bucket, name, mimeType string) error {
+	if len(bucket.AllowedFileExtensions) == 0 {
+		return nil
+	}
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	for _, allowed := range bucket.AllowedFileExtensions {
+		a := strings.ToLower(strings.TrimPrefix(allowed, "."))
+		if a == ext || strings.EqualFold(a, mimeType) || a == "*" {
+			return nil
+		}
+	}
+	return fmt.Errorf("storage: file type %q not allowed in this bucket", ext)
+}
+
+func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, name string, content []byte, mimeType string, permissions []string) (*model.File, error) {
+	name = sanitizeName(name)
 
 	// Enforce bucket-level quota and MIME restrictions
 	bucket, err := s.GetBucket(ctx, bucketID, projectID)
@@ -185,22 +212,10 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 		return nil, fmt.Errorf("storage: bucket not found")
 	}
 	if bucket.FileSizeLimit > 0 && int64(len(content)) > bucket.FileSizeLimit {
-		return nil, fmt.Errorf("storage: file size %d exceeds bucket limit of %d bytes", len(content), bucket.FileSizeLimit)
+		return nil, fmt.Errorf("storage: file size %d exceeds bucket limit of %d bytes: %w", len(content), bucket.FileSizeLimit, ErrFileTooLarge)
 	}
-	// AllowedFileExtensions can hold extensions ("jpg") or MIME types ("image/jpeg").
-	if len(bucket.AllowedFileExtensions) > 0 {
-		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
-		allowed := false
-		for _, allowed_ := range bucket.AllowedFileExtensions {
-			a := strings.ToLower(strings.TrimPrefix(allowed_, "."))
-			if a == ext || strings.EqualFold(a, mimeType) || a == "*" {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return nil, fmt.Errorf("storage: file type %q not allowed in this bucket", ext)
-		}
+	if err := checkFileType(bucket, name, mimeType); err != nil {
+		return nil, err
 	}
 
 	// Antivirus scan if configured
@@ -238,6 +253,72 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 	f := &model.File{
 		ID: id, BucketID: bucketID, Name: name,
 		MimeType: mimeType, SizeOriginal: int64(len(content)),
+		Signature: sig, Permissions: permissions,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	realtime.PublishResourceEvent(s.events, "storage", "files", "create", projectID, id, f)
+	return f, nil
+}
+
+// CreateFileStream is CreateFile without the full-file buffer: content is
+// streamed to the driver while the md5 signature is computed en route.
+// maxBytes caps the stream; one byte past it deletes the partial write and
+// returns ErrFileTooLarge. An antivirus-enabled instance takes the buffered
+// path — ClamAV needs the whole payload.
+func (s *Service) CreateFileStream(ctx context.Context, projectID, bucketID, fileID, name string, content io.Reader, maxBytes int64, mimeType string, permissions []string) (*model.File, error) {
+	if s.clamavAddr != "" {
+		data, err := io.ReadAll(io.LimitReader(content, maxBytes+1))
+		if err != nil {
+			return nil, fmt.Errorf("storage: read upload: %w", err)
+		}
+		if int64(len(data)) > maxBytes {
+			return nil, ErrFileTooLarge
+		}
+		return s.CreateFile(ctx, projectID, bucketID, fileID, name, data, mimeType, permissions)
+	}
+
+	name = sanitizeName(name)
+
+	bucket, err := s.GetBucket(ctx, bucketID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("storage: bucket not found")
+	}
+	if bucket.FileSizeLimit > 0 && bucket.FileSizeLimit < maxBytes {
+		maxBytes = bucket.FileSizeLimit
+	}
+	if err := checkFileType(bucket, name, mimeType); err != nil {
+		return nil, err
+	}
+
+	id := uid.New(fileID)
+	now := time.Now().UTC()
+
+	hash := md5.New()
+	storagePath := s.driver.Path(projectID, bucketID, id)
+	written, err := s.driver.WriteStream(ctx, storagePath, io.TeeReader(io.LimitReader(content, maxBytes+1), hash))
+	if err != nil {
+		return nil, fmt.Errorf("storage: write file: %w", err)
+	}
+	if written > maxBytes {
+		s.driver.Delete(ctx, storagePath) //nolint:errcheck
+		return nil, ErrFileTooLarge
+	}
+
+	sig := fmt.Sprintf("%x", hash.Sum(nil))
+	permsJSON, _ := json.Marshal(permissions)
+
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO files (id, bucket_id, project_id, name, mime_type, size, permissions, path, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		id, bucketID, projectID, name, mimeType, written, permsJSON, storagePath, now, now)
+	if err != nil {
+		s.driver.Delete(ctx, storagePath) //nolint:errcheck
+		return nil, fmt.Errorf("storage: create file record: %w", err)
+	}
+
+	f := &model.File{
+		ID: id, BucketID: bucketID, Name: name,
+		MimeType: mimeType, SizeOriginal: written,
 		Signature: sig, Permissions: permissions,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -338,6 +419,11 @@ func (s *Service) InitChunkedUpload(ctx context.Context, projectID, bucketID, fi
 
 // UploadChunk writes a single chunk to the chunk staging directory.
 func (s *Service) UploadChunk(_ context.Context, projectID, bucketID, fileID string, index int, data []byte) error {
+	// fileID comes off the URL and is joined into a path: it must be a
+	// generated ID, never anything path-shaped.
+	if !uid.ValidID(fileID) {
+		return fmt.Errorf("storage: invalid file id")
+	}
 	chunkDir := filepath.Join(s.storagePath, "_chunks", fileID)
 	if err := os.MkdirAll(chunkDir, 0755); err != nil {
 		return err
@@ -348,6 +434,9 @@ func (s *Service) UploadChunk(_ context.Context, projectID, bucketID, fileID str
 
 // CompleteChunkedUpload assembles chunks and uploads via the configured driver.
 func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID, fileID string) (*model.File, error) {
+	if !uid.ValidID(fileID) {
+		return nil, fmt.Errorf("storage: invalid file id")
+	}
 	chunkDir := filepath.Join(s.storagePath, "_chunks", fileID)
 
 	entries, err := os.ReadDir(chunkDir)
@@ -725,14 +814,18 @@ func resizeImage(src image.Image, targetW, targetH int) image.Image {
 	return dst
 }
 
-// signedURLToken produces a compact HMAC-SHA256 token encoding bucketID+fileID+expiresAt.
-// Format (base64url-encoded JSON): {"b":bucketID,"f":fileID,"e":unixExpiry}
-func (s *Service) signedURLToken(bucketID, fileID string, expiresAt int64) string {
+// signedURLToken produces a compact HMAC-SHA256 token encoding
+// projectID+bucketID+fileID+expiresAt. The project is part of the payload so
+// a token minted in one project is worthless in every other — without it a
+// token was valid instance-wide.
+// Format (base64url-encoded JSON): {"p":projectID,"b":bucketID,"f":fileID,"e":unixExpiry}
+func (s *Service) signedURLToken(projectID, bucketID, fileID string, expiresAt int64) string {
 	secret := s.jwtSecret
 	if secret == "" {
 		secret = "applad-storage-default"
 	}
 	payload, _ := json.Marshal(map[string]interface{}{
+		"p": projectID,
 		"b": bucketID,
 		"f": fileID,
 		"e": expiresAt,
@@ -754,12 +847,12 @@ func (s *Service) CreateSignedURL(ctx context.Context, fileID, bucketID, project
 	if expiresIn <= 0 {
 		expiresIn = 3600
 	}
-	token := s.signedURLToken(bucketID, fileID, time.Now().Unix()+expiresIn)
+	token := s.signedURLToken(projectID, bucketID, fileID, time.Now().Unix()+expiresIn)
 	return token, nil
 }
 
-// VerifySignedToken validates a token and returns (bucketID, fileID, ok).
-func (s *Service) VerifySignedToken(token string) (bucketID, fileID string, ok bool) {
+// VerifySignedToken validates a token and returns (projectID, bucketID, fileID, ok).
+func (s *Service) VerifySignedToken(token string) (projectID, bucketID, fileID string, ok bool) {
 	secret := s.jwtSecret
 	if secret == "" {
 		secret = "applad-storage-default"
@@ -796,9 +889,11 @@ func (s *Service) VerifySignedToken(token string) (bucketID, fileID string, ok b
 	if time.Now().Unix() > int64(exp) {
 		return // expired
 	}
+	projectID, _ = claims["p"].(string)
 	bucketID, _ = claims["b"].(string)
 	fileID, _ = claims["f"].(string)
-	ok = bucketID != "" && fileID != ""
+	// A token without a project claim (pre-binding format) is rejected.
+	ok = projectID != "" && bucketID != "" && fileID != ""
 	return
 }
 

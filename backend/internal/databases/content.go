@@ -31,8 +31,10 @@ var contentColumns = []string{"status", "slug", "locale", "published_at", "entry
 // SetContentMode enables or disables editorial behaviour for a table. Enabling
 // adds the system fields (idempotent); disabling only clears the flag, so no
 // content is ever destroyed by toggling it off.
-func (s *Service) SetContentMode(ctx context.Context, tableID string, enabled bool) error {
-	table, err := s.lookupTableContext(ctx, tableID)
+func (s *Service) SetContentMode(ctx context.Context, projectID, tableID string, enabled bool) error {
+	// Scoped to the caller's project so one tenant cannot alter another's
+	// table — the same hole closed for columns and indexes.
+	table, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return err
 	}
@@ -74,8 +76,8 @@ func (s *Service) ContentEnabled(ctx context.Context, tableID string) (bool, err
 }
 
 // SetRowPublished flips a row between draft and published.
-func (s *Service) SetRowPublished(ctx context.Context, tableID, rowID string, published bool) error {
-	table, err := s.lookupTableContext(ctx, tableID)
+func (s *Service) SetRowPublished(ctx context.Context, projectID, tableID, rowID string, published bool) error {
+	table, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return err
 	}

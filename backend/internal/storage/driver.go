@@ -19,6 +19,9 @@ import (
 // Driver is the interface for file storage backends.
 type Driver interface {
 	Write(ctx context.Context, path string, data []byte) error
+	// WriteStream streams r to path and returns the byte count, avoiding the
+	// full-file buffer Write requires.
+	WriteStream(ctx context.Context, path string, r io.Reader) (int64, error)
 	Read(ctx context.Context, path string) ([]byte, error)
 	Delete(ctx context.Context, path string) error
 	// Path constructs the storage path or object key for a given file.
@@ -35,14 +38,53 @@ func (d *LocalDriver) Path(projectID, bucketID, fileID string) string {
 	return filepath.Join(d.root, projectID, bucketID, fileID)
 }
 
+// contain verifies path is still under d.root. Path joins caller-supplied
+// segments, so a crafted "../../etc/cron.d/x" ID must fail here even if the
+// caller skipped sanitising it.
+func (d *LocalDriver) contain(path string) error {
+	rel, err := filepath.Rel(d.root, filepath.Clean(path))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("storage: path escapes storage root")
+	}
+	return nil
+}
+
 func (d *LocalDriver) Write(_ context.Context, path string, data []byte) error {
+	if err := d.contain(path); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("storage: mkdir: %w", err)
 	}
 	return os.WriteFile(path, data, 0644)
 }
 
+func (d *LocalDriver) WriteStream(_ context.Context, path string, r io.Reader) (int64, error) {
+	if err := d.contain(path); err != nil {
+		return 0, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return 0, fmt.Errorf("storage: mkdir: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return 0, fmt.Errorf("storage: create: %w", err)
+	}
+	n, err := io.Copy(f, r)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path) //nolint:errcheck
+		return n, fmt.Errorf("storage: write: %w", err)
+	}
+	return n, nil
+}
+
 func (d *LocalDriver) Read(_ context.Context, path string) ([]byte, error) {
+	if err := d.contain(path); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("storage: read: %w", err)
@@ -51,6 +93,9 @@ func (d *LocalDriver) Read(_ context.Context, path string) ([]byte, error) {
 }
 
 func (d *LocalDriver) Delete(_ context.Context, path string) error {
+	if err := d.contain(path); err != nil {
+		return err
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("storage: delete: %w", err)
 	}
@@ -86,6 +131,17 @@ func NewS3Driver(endpoint, bucket, region, accessKey, secretKey string) *S3Drive
 
 func (d *S3Driver) Path(projectID, bucketID, fileID string) string {
 	return projectID + "/" + bucketID + "/" + fileID
+}
+
+// WriteStream buffers and delegates to Write: a single-part S3 PUT needs a
+// Content-Length and payload hash up front, and this driver does not speak
+// multipart upload yet.
+func (d *S3Driver) WriteStream(ctx context.Context, path string, r io.Reader) (int64, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return 0, fmt.Errorf("s3: read stream: %w", err)
+	}
+	return int64(len(data)), d.Write(ctx, path, data)
 }
 
 func (d *S3Driver) Write(ctx context.Context, path string, data []byte) error {

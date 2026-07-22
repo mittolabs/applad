@@ -89,7 +89,7 @@ func TestCreateIndex_DefaultTypeUsesStandardIndex(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), "table1", "users_email_idx", "btree", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	index, err := svc.CreateIndex(context.Background(), "table1", "users_email_idx", "btree", []string{"email"}, []string{"ASC"})
+	index, err := svc.CreateIndex(context.Background(), "proj1", "table1", "users_email_idx", "btree", []string{"email"}, []string{"ASC"})
 	if err != nil {
 		t.Fatalf("CreateIndex returned error: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestCreateIndex_UniqueTypeUsesUniqueDDL(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), "table1", "users_email_unique", "unique", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	index, err := svc.CreateIndex(context.Background(), "table1", "users_email_unique", "unique", []string{"email"}, []string{"ASC"})
+	index, err := svc.CreateIndex(context.Background(), "proj1", "table1", "users_email_unique", "unique", []string{"email"}, []string{"ASC"})
 	if err != nil {
 		t.Fatalf("CreateIndex returned error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestCreateIndex_FullTextSingleColumnUsesGIN(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), "table1", "articles_body_search", "fulltext", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	index, err := svc.CreateIndex(context.Background(), "table1", "articles_body_search", "fulltext", []string{"body"}, []string{"ASC"})
+	index, err := svc.CreateIndex(context.Background(), "proj1", "table1", "articles_body_search", "fulltext", []string{"body"}, []string{"ASC"})
 	if err != nil {
 		t.Fatalf("CreateIndex returned error: %v", err)
 	}
@@ -172,8 +172,8 @@ func newMockService(t *testing.T) (*Service, sqlmock.Sqlmock, *sql.DB) {
 }
 
 func expectLookupTable(mock sqlmock.Sqlmock, tableID, databaseID, projectID, name string) {
-	mock.ExpectQuery(`SELECT id, database_id, project_id, name FROM tables WHERE id =`).
-		WithArgs(tableID).
+	mock.ExpectQuery(`SELECT id, database_id, project_id, name FROM tables WHERE id = \$1 AND project_id = \$2`).
+		WithArgs(tableID, projectID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name"}).
 			AddRow(tableID, databaseID, projectID, name))
 }
