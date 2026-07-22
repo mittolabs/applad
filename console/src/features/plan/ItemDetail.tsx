@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { RichTextEditor } from '@/components/rich-text-editor';
 import { toast } from '@/components/toast';
 import { cn } from '@/lib/utils';
-import { AnchoredChoice } from './PlanPage';
+import { LEVEL_LABEL } from './PlanPage';
 
 /*
  * One item, and everything agreed about it.
@@ -859,20 +859,26 @@ function PriorityAssessment({ itemId, item }: { itemId: string; item?: Item }) {
       </div>
 
       <div className="grid gap-4 rounded-[var(--radius)] border border-border bg-surface p-4 sm:grid-cols-2">
-        <AnchoredChoice
-          label="Impact"
-          caption="How much it matters"
-          value={item?.impact ?? 0}
-          onChange={(impact) => rate.mutate({ impact, urgency: item?.urgency ?? 2 })}
-          hints={hints?.impact}
-        />
-        <AnchoredChoice
-          label="Urgency"
-          caption="How soon it is needed"
-          value={item?.urgency ?? 0}
-          onChange={(urgency) => rate.mutate({ impact: item?.impact ?? 2, urgency })}
-          hints={hints?.urgency}
-        />
+        <Property label="Impact" hint={hints?.impact?.[String(item?.impact ?? 0)]}>
+          <Choice
+            value={String(item?.impact ?? '')}
+            options={[
+              { value: '', label: 'Not assessed' },
+              ...[3, 2, 1].map((l) => ({ value: String(l), label: LEVEL_LABEL[l] })),
+            ]}
+            onChange={(v) => v && rate.mutate({ impact: Number(v), urgency: item?.urgency ?? 2 })}
+          />
+        </Property>
+        <Property label="Urgency" hint={hints?.urgency?.[String(item?.urgency ?? 0)]}>
+          <Choice
+            value={String(item?.urgency ?? '')}
+            options={[
+              { value: '', label: 'Not assessed' },
+              ...[3, 2, 1].map((l) => ({ value: String(l), label: LEVEL_LABEL[l] })),
+            ]}
+            onChange={(v) => v && rate.mutate({ impact: item?.impact ?? 2, urgency: Number(v) })}
+          />
+        </Property>
       </div>
     </section>
   );

@@ -9,7 +9,7 @@ import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
 import { ErrorState } from '@/components/error-state';
-import { FormDialog, TextField } from '@/components/form-dialog';
+import { FormDialog, SelectField, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
 import { cn } from '@/lib/utils';
 
@@ -463,7 +463,7 @@ function CreateItemDialog({
   // Two answers rather than a verdict: the grid decides the priority, so
   // nobody has to weigh "how much does this matter" against "how soon" in
   // their head and report the average.
-  const [kind, setKind] = useState('change');
+  const kind = 'change';
   const [impact, setImpact] = useState(2);
   const [urgency, setUrgency] = useState(2);
   const [saving, setSaving] = useState(false);
@@ -526,43 +526,25 @@ function CreateItemDialog({
         autoFocus
       />
 
-      {/* Which vocabulary applies. Fixing something broken and building
-          something wanted are judged by different things, and asking a change
-          whether a workaround exists is how a field gets answered at random. */}
-      <div className="flex gap-1.5">
-        {([
-          ['change', 'Change — something to build'],
-          ['defect', 'Defect — something is broken'],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setKind(value)}
-            className={cn(
-              'flex-1 rounded-[var(--radius-sm)] border px-2.5 py-1.5 text-[length:var(--text-label)] transition-colors',
-              kind === value
-                ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-text-primary'
-                : 'border-field-border bg-fill text-text-secondary hover:text-text-primary',
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <AnchoredChoice
+      <SelectField
         label="Impact"
-        caption="How much it matters"
-        value={impact}
-        onChange={setImpact}
-        hints={hints?.impact}
+        hint="How much it matters"
+        value={String(impact)}
+        onChange={(v) => setImpact(Number(v))}
+        options={[3, 2, 1].map((l) => ({
+          value: String(l),
+          label: `${LEVEL_LABEL[l]} — ${hints?.impact?.[String(l)] ?? ''}`,
+        }))}
       />
-      <AnchoredChoice
+      <SelectField
         label="Urgency"
-        caption="How soon it is needed"
-        value={urgency}
-        onChange={setUrgency}
-        hints={hints?.urgency}
+        hint="How soon it is needed"
+        value={String(urgency)}
+        onChange={(v) => setUrgency(Number(v))}
+        options={[3, 2, 1].map((l) => ({
+          value: String(l),
+          label: `${LEVEL_LABEL[l]} — ${hints?.urgency?.[String(l)] ?? ''}`,
+        }))}
       />
 
       <div className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-fill px-3 py-2">
@@ -584,56 +566,4 @@ function CreateItemDialog({
   );
 }
 
-/*
- * A level with what it means beside it.
- *
- * "Medium" on its own is a vibe — two people pick it for different reasons and
- * the scale stops sorting anything. The anchor makes the answer checkable:
- * you either have a workaround or you do not.
- */
-export function AnchoredChoice({
-  label,
-  caption,
-  value,
-  onChange,
-  hints,
-}: {
-  label: string;
-  caption: string;
-  value: number;
-  onChange: (v: number) => void;
-  hints?: Record<string, string>;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline gap-2">
-        <span className="text-[length:var(--text-label)] text-text-primary">{label}</span>
-        <span className="text-[length:var(--text-caption)] text-text-subtle">{caption}</span>
-      </div>
-      <div className="flex flex-col gap-1">
-        {[3, 2, 1].map((level) => (
-          <button
-            key={level}
-            type="button"
-            onClick={() => onChange(level)}
-            className={cn(
-              'flex items-baseline gap-2 rounded-[var(--radius-sm)] border px-2.5 py-1.5 text-left transition-colors',
-              value === level
-                ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]'
-                : 'border-field-border bg-fill hover:border-text-subtle',
-            )}
-          >
-            <span className="w-[52px] shrink-0 text-[length:var(--text-label)] text-text-primary">
-              {LEVEL_LABEL[level]}
-            </span>
-            <span className="text-[length:var(--text-caption)] text-text-secondary">
-              {hints?.[String(level)] ?? ''}
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const LEVEL_LABEL: Record<number, string> = { 3: 'High', 2: 'Medium', 1: 'Low' };
+export const LEVEL_LABEL: Record<number, string> = { 3: 'High', 2: 'Medium', 1: 'Low' };
