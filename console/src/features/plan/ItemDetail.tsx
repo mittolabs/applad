@@ -33,6 +33,15 @@ interface Comment {
   $createdAt: string;
 }
 
+interface PriorityQuestion {
+  $id: string;
+  dimension: string;
+  text: string;
+  help?: string;
+  answeredWith?: string;
+  options: { $id: string; label: string; score: number; forcesTop: boolean }[];
+}
+
 interface Event {
   $id: string;
   field: string;
@@ -51,11 +60,14 @@ const FIELD_LABEL: Record<string, string> = {
   assignee: 'assignee',
 };
 
-const LEVELS = [
-  { value: 3, label: 'High' },
-  { value: 2, label: 'Medium' },
-  { value: 1, label: 'Low' },
-];
+const LEVEL_NAME: Record<number, string> = { 1: 'low', 2: 'medium', 3: 'high' };
+
+const PRIORITY_TONE: Record<string, string> = {
+  urgent: '#EF4444',
+  high: '#F59E0B',
+  medium: 'var(--text-muted)',
+  low: 'var(--text-subtle)',
+};
 
 interface Item {
   $id: string;
@@ -126,17 +138,6 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
     onError: (e) => toast.error(friendlyError(e)),
   });
 
-  const rate = useMutation({
-    mutationFn: (body: { impact: number; urgency: number }) =>
-      api.post(`/plan/items/${itemId}/rate`, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['plan-item', itemId] });
-      qc.invalidateQueries({ queryKey: ['plan-items'] });
-      qc.invalidateQueries({ queryKey: ['plan-activity', itemId] });
-    },
-    onError: (e) => toast.error(friendlyError(e)),
-  });
-
   const data = item.data;
   const list = criteria.data ?? [];
   const specified = list.filter((c) => c.specRef.trim() !== '').length;
@@ -166,6 +167,8 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
           {data && (
             <EditableBody value={data.body} onSave={(body) => patch.mutate({ body })} />
           )}
+
+          <Assessment itemId={itemId} item={data} />
 
           <section className="flex flex-col gap-3">
             <div className="flex items-baseline gap-2">
@@ -199,45 +202,57 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
             />
           </Property>
 
-          <Property label="Impact" hint="How much it matters that this exists.">
-            <Choice
-              value={String(data?.impact ?? '')}
-              options={[
-                { value: '', label: 'Not rated' },
-                ...LEVELS.map((l) => ({ value: String(l.value), label: l.label })),
-              ]}
-              onChange={(v) =>
-                v && rate.mutate({ impact: Number(v), urgency: data?.urgency ?? 2 })
-              }
-            />
-          </Property>
-
-          <Property label="Urgency" hint="How soon it is needed.">
-            <Choice
-              value={String(data?.urgency ?? '')}
-              options={[
-                { value: '', label: 'Not rated' },
-                ...LEVELS.map((l) => ({ value: String(l.value), label: l.label })),
-              ]}
-              onChange={(v) =>
-                v && rate.mutate({ impact: data?.impact ?? 2, urgency: Number(v) })
-              }
-            />
+          <Property label="Impact and urgency">
+            <div className="flex flex-col gap-1 text-[length:var(--text-label)] text-text-primary">
+              <span>
+                Impact:{' '}
+                <span className="text-text-secondary">
+                  {data?.impact ? LEVEL_NAME[data.impact] : 'not assessed'}
+                </span>
+              </span>
+              <span>
+                Urgency:{' '}
+                <span className="text-text-secondary">
+                  {data?.urgency ? LEVEL_NAME[data.urgency] : 'not assessed'}
+                </span>
+              </span>
+            </div>
           </Property>
 
           <Property
             label="Priority"
             hint={
               data?.priorityIsManual
-                ? 'Set directly. Rating impact and urgency lets the matrix decide instead.'
-                : 'Derived from impact and urgency.'
+                ? 'Set directly. Answer the assessment to let the matrix decide instead.'
+                : 'Follows from the assessment. Change an answer to change this.'
             }
           >
-            <Choice
-              value={data?.priority ?? 'medium'}
-              options={PRIORITIES.map((p) => ({ value: p, label: p }))}
-              onChange={(priority) => patch.mutate({ priority })}
-            />
+            {data?.priorityIsManual ? (
+              <Choice
+                value={data?.priority ?? 'medium'}
+                options={PRIORITIES.map((p) => ({ value: p, label: p }))}
+                onChange={(priority) => patch.mutate({ priority })}
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                <span
+                  className="rounded-[var(--radius-sm)] px-2 py-1 text-[length:var(--text-label)] font-medium"
+                  style={{
+                    backgroundColor: `color-mix(in srgb, ${PRIORITY_TONE[data?.priority ?? 'medium']} 15%, transparent)`,
+                    color: PRIORITY_TONE[data?.priority ?? 'medium'],
+                  }}
+                >
+                  {data?.priority}
+                </span>
+                <button
+                  onClick={() => patch.mutate({ priority: data?.priority })}
+                  className="text-[length:var(--text-caption)] text-text-subtle hover:text-text-primary"
+                  title="Stop deriving it and set it by hand"
+                >
+                  override
+                </button>
+              </div>
+            )}
           </Property>
 
           <Property label="Kind" hint="A defect is a promise already broken.">
@@ -791,5 +806,135 @@ function Discussion({ itemId, comments }: { itemId: string; comments: Comment[] 
         </button>
       )}
     </div>
+  );
+}
+
+/*
+ * The assessment.
+ *
+ * Asking somebody to rate impact from low to high is the guess the matrix was
+ * meant to remove, asked one level up. These are the questions underneath it:
+ * concrete, answerable, and scored, so the priority at the end can be traced
+ * to four things somebody actually knew rather than to a mood.
+ *
+ * The priority updates as each answer lands. A half-answered assessment still
+ * says something, and making somebody finish before they see anything is how
+ * a form gets abandoned.
+ */
+function Assessment({ itemId, item }: { itemId: string; item?: Item }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const { data: questions = [] } = useQuery({
+    queryKey: ['plan-questions', itemId],
+    queryFn: async () =>
+      ((await api.get(`/plan/items/${itemId}/questions`)).data as { questions: PriorityQuestion[] })
+        .questions ?? [],
+  });
+
+  const answer = useMutation({
+    mutationFn: (body: { questionId: string; optionId: string }) =>
+      api.post(`/plan/items/${itemId}/answers`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plan-questions', itemId] });
+      qc.invalidateQueries({ queryKey: ['plan-item', itemId] });
+      qc.invalidateQueries({ queryKey: ['plan-items'] });
+    },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
+  const answered = questions.filter((q) => q.answeredWith).length;
+  const dimensions: ['impact', 'urgency'] = ['impact', 'urgency'];
+
+  return (
+    <section className="flex flex-col gap-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-baseline gap-2 text-left"
+      >
+        <h2 className="text-[length:var(--text-control)] font-medium text-text-primary">
+          Priority assessment
+        </h2>
+        <span className="text-[length:var(--text-caption)] text-text-subtle">
+          {answered} of {questions.length} answered
+          {item?.priority && !item.priorityIsManual && ` · ${item.priority}`}
+        </span>
+        <span className="ml-auto text-[length:var(--text-caption)] text-text-muted">
+          {open ? 'Hide' : 'Answer'}
+        </span>
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-5 rounded-[var(--radius)] border border-border bg-surface p-4">
+          {item?.impact && item?.urgency ? (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--radius-sm)] bg-fill px-3 py-2 text-[length:var(--text-label)]">
+              <span className="text-text-secondary">
+                Impact {LEVEL_NAME[item.impact]} · urgency {LEVEL_NAME[item.urgency]} →
+              </span>
+              <span
+                className="rounded-[var(--radius-sm)] px-2 py-0.5 font-medium"
+                style={{
+                  backgroundColor: `color-mix(in srgb, ${PRIORITY_TONE[item.priority]} 18%, transparent)`,
+                  color: PRIORITY_TONE[item.priority],
+                }}
+              >
+                {item.priority}
+              </span>
+              <span className="text-[length:var(--text-caption)] text-text-subtle">
+                {item.priorityIsManual
+                  ? 'overridden — answers no longer decide it'
+                  : 'decided by this project\'s matrix'}
+              </span>
+            </div>
+          ) : (
+            <p className="rounded-[var(--radius-sm)] bg-fill px-3 py-2 text-[length:var(--text-label)] text-text-subtle">
+              Not assessed yet — answer below and the priority follows.
+            </p>
+          )}
+
+          {dimensions.map((dimension) => (
+            <div key={dimension} className="flex flex-col gap-3">
+              <span className="text-[length:var(--text-caption)] uppercase tracking-wide text-text-subtle">
+                {dimension === 'impact' ? 'Impact — how much it matters' : 'Urgency — how soon'}
+              </span>
+
+              {questions
+                .filter((q) => q.dimension === dimension)
+                .map((q) => (
+                  <div key={q.$id} className="flex flex-col gap-1.5">
+                    <span className="text-[length:var(--text-body)] text-text-primary">
+                      {q.text}
+                    </span>
+                    {q.help && (
+                      <span className="text-[length:var(--text-caption)] text-text-subtle">
+                        {q.help}
+                      </span>
+                    )}
+                    <div className="flex flex-wrap gap-1.5">
+                      {q.options.map((o) => (
+                        <button
+                          key={o.$id}
+                          onClick={() => answer.mutate({ questionId: q.$id, optionId: o.$id })}
+                          className={cn(
+                            'rounded-[var(--radius-sm)] border px-2.5 py-1 text-[length:var(--text-label)] transition-colors',
+                            q.answeredWith === o.$id
+                              ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-text-primary'
+                              : 'border-field-border bg-fill text-text-secondary hover:text-text-primary',
+                          )}
+                          title={o.forcesTop ? 'This answer decides the priority on its own.' : undefined}
+                        >
+                          {o.label}
+                          {o.forcesTop && q.answeredWith === o.$id && ' · decides it'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ))}
+
+        </div>
+      )}
+    </section>
   );
 }
