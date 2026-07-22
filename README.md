@@ -94,7 +94,7 @@ docker compose -f docker-compose.dev.yml up
 
 ```bash
 # Backend
-cd backend && go test ./... && go vet ./...
+cd apps/backend && go test ./... && go vet ./...
 
 # Console + Dart SDK
 make bootstrap   # first time only

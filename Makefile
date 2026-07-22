@@ -9,15 +9,15 @@ down:
 build: build-backend build-console
 
 build-backend:
-	cd backend && go build ./...
+	cd apps/backend && go build ./...
 
 build-console:
-	melos build:web
+	cd apps/console && npm run build
 
 test: test-backend test-flutter test-sdk-js
 
 test-backend:
-	cd backend && go test ./...
+	cd apps/backend && go test ./...
 
 test-flutter:
 	melos test
@@ -26,7 +26,7 @@ test-sdk-js:
 	cd sdks/js && npm test
 
 fmt:
-	cd backend && gofmt -w .
+	cd apps/backend && gofmt -w .
 	melos format
 
 bootstrap:
@@ -35,4 +35,4 @@ bootstrap:
 	cd sdks/js && npm install
 
 migrate:
-	cd backend && go run ./cmd/migrate
+	cd apps/backend && go run ./cmd/migrate

@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Copy the whole app first so the fumadocs-mdx postinstall (which reads
 # content/docs + source.config.ts to generate .source) has everything it needs.
-COPY docs/ ./
+COPY apps/docs/ ./
 
 # Cross-site links (site, console) are baked in at build time by Next. Local
 # dev passes the .localhost variants; production uses the defaults.

@@ -13,14 +13,14 @@ Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go back
 > docs `docs.applad.io`, the status page `status.applad.io`) and the full
 > multi-domain production provisioning live in the **private
 > `mittolabs/applad-cloud`** Ansible repo, not here. The docs *source* stays in
-> this repo under `docs/` (applad-cloud builds it from here).
+> this repo under `apps/docs/` (applad-cloud builds it from here).
 >
 > Three composes: `docker-compose.yml` (build the console stack from source —
 > the default `make up`), `docker-compose.dev.yml` (Go `go run`, live reload),
 > and `docker-compose.release.yml` (prebuilt `ghcr.io/mittolabs/applad-*`
 > images — the artifact `install.sh` materializes on a production self-host).
 
-> The admin console was a Flutter Web app; it was rewritten in React + Vite + TypeScript (Tailwind v4 + shadcn/ui) at feature parity and now lives at `console/`. The old Flutter app has been removed. `melos` now manages only `sdks/dart`. Console design/parity notes: `console/CORE_REFERENCE.md`, `console/PARITY_AUDIT.md`.
+> The admin console was a Flutter Web app; it was rewritten in React + Vite + TypeScript (Tailwind v4 + shadcn/ui) at feature parity and now lives at `apps/console/`. The old Flutter app has been removed. `melos` now manages only `sdks/dart`. Console design/parity notes: `apps/console/CORE_REFERENCE.md`, `apps/console/PARITY_AUDIT.md`.
 
 ## Commands
 
@@ -38,7 +38,7 @@ docker compose up api postgres redis proxy -d
 
 ### Backend (Go 1.22+)
 ```bash
-cd backend
+cd apps/backend
 go build ./...          # build all binaries (202 tests, 19 suites)
 go test ./...           # all unit tests
 go test -tags=integration ./tests/...  # integration tests (requires running services)
@@ -46,9 +46,9 @@ gofmt -w .              # format
 go vet ./...            # vet
 ```
 
-### React console (`console/`)
+### React console (`apps/console/`)
 ```bash
-cd console
+cd apps/console
 npm install             # first time
 npm run dev             # Vite dev server (proxies /v1 → :8080)
 npm run build           # tsc -b && vite build
@@ -73,23 +73,31 @@ cd sdks/node && npm install && npm run build               # server SDK
 ## Architecture
 
 ### Repo layout
+
+App source is grouped under `apps/` and per-service Docker under `deploy/`. The
+installer, the SDKs, and the compose files stay at the root because external
+consumers reference them there (the `install.sh` one-liner URL, the
+`github.com/mittolabs/applad/sdks/go` import path, `docker compose up`).
+
 ```
-backend/        Go backend — single Go module (github.com/mittolabs/applad)
-  api/          OpenAPI spec (openapi.yaml)
-  cmd/api/      API server entry point
-  cmd/workers/  10 worker binaries
-  internal/     26 packages (see below)
-  tests/        Integration tests (build-tag gated: integration)
-console/        React + Vite admin app (Tailwind v4 + shadcn/ui, Lucide icons, dark Railway-style UI)
+apps/
+  backend/      Go backend — single Go module (github.com/mittolabs/applad)
+    api/        OpenAPI spec (openapi.yaml)
+    cmd/api/    API server entry point
+    cmd/workers/  10 worker binaries
+    internal/   26 packages (see below)
+    tests/      Integration tests (build-tag gated: integration)
+  console/      React + Vite admin app (Tailwind v4 + shadcn/ui, Lucide icons, dark Railway-style UI)
+  docs/         Documentation source (Next.js / Fumadocs). Served at docs.applad.io
+                by applad-cloud, which builds it from here; a self-host install
+                does not run it.
 sdks/dart/      Dart SDK — client (Dio) + server (http) in one package
 sdks/js/        TypeScript client SDK
 sdks/node/      Node.js server SDK
-sdks/go/        Go server SDK (zero deps)
+sdks/go/        Go server SDK (zero deps) — imported as github.com/mittolabs/applad/sdks/go
 sdks/python/    Python server SDK (stdlib only)
-docs/           Documentation source (Next.js / Fumadocs). Served at docs.applad.io
-                by applad-cloud, which builds it from here; a self-host install
-                does not run it.
-docker/         Per-service Dockerfiles + nginx config (self-host vhosts)
+deploy/docker/  Per-service Dockerfiles + nginx config (self-host vhosts)
+install.sh · docker-compose{,.dev,.release}.yml  self-host install + run (root, external URLs)
 ```
 
 > Not in this repo: the marketing site, the status page, the full multi-domain
@@ -160,7 +168,7 @@ docker/         Per-service Dockerfiles + nginx config (self-host vhosts)
 
 ### Database / migrations
 
-Single consolidated migration in `backend/internal/db/migrations/`:
+Single consolidated migration in `apps/backend/internal/db/migrations/`:
 - `001_init.sql` — PostgreSQL schema, triggers, RLS helpers, metadata tables, and all product services
 
 API and internal code use tables/rows/columns terminology only. User data lives in real PostgreSQL schemas named `p_{projectId}_{databaseId}`.

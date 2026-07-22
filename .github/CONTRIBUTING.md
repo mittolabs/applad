@@ -33,7 +33,7 @@ All PRs must pass CI. Run the same checks locally before pushing:
 
 ```bash
 # Backend
-cd backend
+cd apps/backend
 go build ./...
 go vet ./...
 go test ./...
@@ -70,7 +70,7 @@ Keep the subject line under 72 characters. No trailing period.
 
 ## Database Migrations
 
-If your change requires a schema change, add a new migration file to `backend/internal/db/migrations/` following the existing naming convention. Document the change in `DATABASE_CHANGE.md`.
+If your change requires a schema change, add a new migration file to `apps/backend/internal/db/migrations/` following the existing naming convention. Document the change in `DATABASE_CHANGE.md`.
 
 ## Style
 

@@ -4,14 +4,14 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Install deps first for layer caching.
-COPY console/package.json console/package-lock.json* ./console/
+COPY apps/console/package.json apps/console/package-lock.json* ./console/
 RUN cd console && npm ci
 
 # Build.
-COPY console/ ./console/
+COPY apps/console/ ./console/
 RUN cd console && npm run build
 
 FROM nginx:alpine
 COPY --from=builder /app/console/dist /usr/share/nginx/html
-COPY docker/console/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/docker/console/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
