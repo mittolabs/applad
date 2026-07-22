@@ -99,6 +99,14 @@ export function PlanPage() {
       ).items ?? [],
   });
 
+  const milestonesQuery = useQuery({
+    queryKey: ['plan-milestones'],
+    queryFn: async () =>
+      ((await api.get('/plan/milestones')).data as { milestones: { $id: string; name: string }[] })
+        .milestones ?? [],
+  });
+  const milestones = milestonesQuery.data ?? [];
+
   const items = query.data ?? [];
   const grouped = ORDER.map((status) => ({
     status,
@@ -131,7 +139,7 @@ export function PlanPage() {
         </Button>
       </div>
 
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-3">
         <label
           className={cn(
             'flex w-fit cursor-pointer items-center gap-2 text-[length:var(--text-label)] text-text-secondary',
@@ -147,7 +155,22 @@ export function PlanPage() {
           Show closed work
         </label>
 
-        <div className="flex h-8 items-center overflow-hidden rounded-[var(--radius)] border border-field-border bg-field-fill">
+        {view !== 'roadmap' && milestones.length > 0 && (
+          <select
+            value={milestone ?? ''}
+            onChange={(e) => setMilestone(e.target.value || null)}
+            className="h-8 rounded-[var(--radius)] border border-field-border bg-field-fill px-2 text-[length:var(--text-label)] text-text-secondary"
+          >
+            <option value="">All milestones</option>
+            {milestones.map((m) => (
+              <option key={m.$id} value={m.$id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <div className="ml-auto flex h-8 items-center overflow-hidden rounded-[var(--radius)] border border-field-border bg-field-fill">
           {([
             ['list', List],
             ['board', Columns3],
@@ -172,20 +195,6 @@ export function PlanPage() {
           ))}
         </div>
       </div>
-
-      {milestone && view !== 'roadmap' && (
-        <div className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-surface px-3 py-2">
-          <span className="text-[length:var(--text-label)] text-text-secondary">
-            Showing one milestone's work
-          </span>
-          <button
-            onClick={() => setMilestone(null)}
-            className="ml-auto text-[length:var(--text-label)] text-[var(--color-accent)] hover:underline"
-          >
-            Show everything
-          </button>
-        </div>
-      )}
 
       {view === 'roadmap' ? (
         <RoadmapView
