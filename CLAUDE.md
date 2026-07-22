@@ -74,10 +74,10 @@ cd sdks/node && npm install && npm run build               # server SDK
 
 ### Repo layout
 
-App source is grouped under `apps/` and per-service Docker under `deploy/`. The
-installer, the SDKs, and the compose files stay at the root because external
-consumers reference them there (the `install.sh` one-liner URL, the
-`github.com/mittolabs/applad/sdks/go` import path, `docker compose up`).
+App source is grouped under `apps/`. The installer, the SDKs, `docker/`, and the
+compose files stay at the root because external consumers reference them there
+(the `install.sh` one-liner URL, the `github.com/mittolabs/applad/sdks/go`
+import path, `docker compose up`).
 
 ```
 apps/
@@ -96,7 +96,7 @@ sdks/js/        TypeScript client SDK
 sdks/node/      Node.js server SDK
 sdks/go/        Go server SDK (zero deps) — imported as github.com/mittolabs/applad/sdks/go
 sdks/python/    Python server SDK (stdlib only)
-deploy/docker/  Per-service Dockerfiles + nginx config (self-host vhosts)
+docker/  Per-service Dockerfiles + nginx config (self-host vhosts)
 install.sh · docker-compose{,.dev,.release}.yml  self-host install + run (root, external URLs)
 ```
 

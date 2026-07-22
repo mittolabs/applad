@@ -1,6 +1,6 @@
 x-worker-build: &worker-build
   context: ./apps/backend
-  dockerfile: ../../deploy/docker/worker/Dockerfile
+  dockerfile: ../../docker/worker/Dockerfile
 
 x-worker-env: &worker-env
   DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@pgbouncer:5432/applad?sslmode=disable"
@@ -70,7 +70,7 @@ services:
   api:
     build:
       context: ./apps/backend
-      dockerfile: ../../deploy/docker/api/Dockerfile
+      dockerfile: ../../docker/api/Dockerfile
     # Not published to the host — reached only through the proxy at
     # api.applad.io.localhost. (Expose 8080 here if you need direct access.)
     expose:
@@ -133,7 +133,7 @@ services:
   console:
     build:
       context: .
-      dockerfile: deploy/docker/console/Dockerfile
+      dockerfile: docker/console/Dockerfile
     expose:
       - "80"
     networks:
@@ -153,7 +153,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./deploy/docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ssl_certs:/etc/ssl/applad
     networks:
       # backend for our own services; deploy so <app>.applad.dev vhosts can
@@ -398,7 +398,7 @@ services:
       POSTGRES_PASSWORD: "${DB_PASSWORD:-applad}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./deploy/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U applad -d applad"]
       interval: 10s

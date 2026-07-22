@@ -260,12 +260,12 @@ else
 fi
 
 # postgres init.sql — runs once on first database init
-if [ -f "$SCRIPT_DIR/deploy/docker/postgres/init.sql" ] && [ "$INSTALL_DIR" != "$SCRIPT_DIR" ]; then
-  cp "$SCRIPT_DIR/deploy/docker/postgres/init.sql" "$INSTALL_DIR/$INIT_SQL"
+if [ -f "$SCRIPT_DIR/docker/postgres/init.sql" ] && [ "$INSTALL_DIR" != "$SCRIPT_DIR" ]; then
+  cp "$SCRIPT_DIR/docker/postgres/init.sql" "$INSTALL_DIR/$INIT_SQL"
   log "postgres-init.sql copied from repo"
 elif [ ! -f "$INIT_SQL" ]; then
   info "Downloading postgres-init.sql…"
-  fetch "${RELEASE_BASE}/deploy/docker/postgres/init.sql" "$INIT_SQL"
+  fetch "${RELEASE_BASE}/docker/postgres/init.sql" "$INIT_SQL"
   log "postgres-init.sql downloaded"
 else
   log "postgres-init.sql already present"

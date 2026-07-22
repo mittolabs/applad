@@ -13,5 +13,5 @@ RUN cd console && npm run build
 
 FROM nginx:alpine
 COPY --from=builder /app/console/dist /usr/share/nginx/html
-COPY deploy/docker/console/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/console/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
