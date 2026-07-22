@@ -28,21 +28,27 @@ var Priorities = []string{"low", "medium", "high", "urgent"}
 
 // Item is one piece of work.
 type Item struct {
-	ID         string     `json:"$id"`
-	ProjectID  string     `json:"projectId"`
-	ParentID   string     `json:"parentId,omitempty"`
-	Title      string     `json:"title"`
-	Body       string     `json:"body"`
-	Status     string     `json:"status"`
-	Priority   string     `json:"priority"`
-	AssigneeID string     `json:"assigneeId,omitempty"`
-	Labels     []string   `json:"labels"`
-	Rank       int64      `json:"rank"`
-	CreatedBy  string     `json:"createdBy,omitempty"`
-	ClosedAt   *time.Time `json:"closedAt,omitempty"`
-	CreatedAt  time.Time  `json:"$createdAt"`
-	UpdatedAt  time.Time  `json:"$updatedAt"`
-	Links      []Link     `json:"links"`
+	ID        string `json:"$id"`
+	ProjectID string `json:"projectId"`
+	ParentID  string `json:"parentId,omitempty"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Status    string `json:"status"`
+	Priority  string `json:"priority"`
+	// Kind separates a change from a defect: whether the system already
+	// claimed to do this. Not a taxonomy of ticket types — two values with
+	// one real difference.
+	Kind        string     `json:"kind"`
+	MilestoneID string     `json:"milestoneId,omitempty"`
+	TargetDate  *time.Time `json:"targetDate,omitempty"`
+	AssigneeID  string     `json:"assigneeId,omitempty"`
+	Labels      []string   `json:"labels"`
+	Rank        int64      `json:"rank"`
+	CreatedBy   string     `json:"createdBy,omitempty"`
+	ClosedAt    *time.Time `json:"closedAt,omitempty"`
+	CreatedAt   time.Time  `json:"$createdAt"`
+	UpdatedAt   time.Time  `json:"$updatedAt"`
+	Links       []Link     `json:"links"`
 }
 
 // Link is something an item points at.
@@ -67,14 +73,17 @@ func NewService(database *db.DB) *Service { return &Service{db: database} }
 // mentioning it are different requests, and an update that cannot tell them
 // apart silently erases whatever it was not told about.
 type Input struct {
-	Title      *string
-	Body       *string
-	Status     *string
-	Priority   *string
-	AssigneeID *string
-	ParentID   *string
-	Labels     *[]string
-	Rank       *int64
+	Title       *string
+	Body        *string
+	Status      *string
+	Priority    *string
+	AssigneeID  *string
+	ParentID    *string
+	Kind        *string
+	MilestoneID *string
+	TargetDate  *time.Time
+	Labels      *[]string
+	Rank        *int64
 }
 
 // Validate reports what is wrong with an input, in the caller's terms.
@@ -87,6 +96,9 @@ func (in Input) Validate() error {
 	}
 	if in.Priority != nil && !contains(Priorities, *in.Priority) {
 		return fmt.Errorf("priority must be one of: %s", strings.Join(Priorities, ", "))
+	}
+	if in.Kind != nil && !contains(Kinds, *in.Kind) {
+		return fmt.Errorf("kind must be one of: %s", strings.Join(Kinds, ", "))
 	}
 	return nil
 }
@@ -114,7 +126,7 @@ func (s *Service) Create(ctx context.Context, projectID, createdBy string, in In
 
 	item := &Item{
 		ID: uid.New("unique()"), ProjectID: projectID, Title: strings.TrimSpace(*in.Title),
-		Status: "todo", Priority: "medium", Labels: []string{}, CreatedBy: createdBy,
+		Status: "todo", Priority: "medium", Kind: "change", Labels: []string{}, CreatedBy: createdBy,
 		CreatedAt: time.Now().UTC(),
 	}
 	item.UpdatedAt = item.CreatedAt
@@ -129,11 +141,11 @@ func (s *Service) Create(ctx context.Context, projectID, createdBy string, in In
 
 	labels, _ := json.Marshal(item.Labels)
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO plan_items (id, project_id, parent_id, title, body, status, priority,
-		    assignee_id, labels, rank, created_by, created_at, updated_at)
-		 VALUES ($1, $2, NULLIF($3,''), $4, $5, $6, $7, NULLIF($8,''), $9, $10, NULLIF($11,''), $12, $12)`,
-		item.ID, projectID, item.ParentID, item.Title, item.Body, item.Status, item.Priority,
-		item.AssigneeID, labels, item.Rank, createdBy, item.CreatedAt); err != nil {
+		`INSERT INTO plan_items (id, project_id, parent_id, title, body, status, priority, kind,
+		    milestone_id, target_date, assignee_id, labels, rank, created_by, created_at, updated_at)
+		 VALUES ($1, $2, NULLIF($3,''), $4, $5, $6, $7, $8, NULLIF($9,''), $10, NULLIF($11,''), $12, $13, NULLIF($14,''), $15, $15)`,
+		item.ID, projectID, item.ParentID, item.Title, item.Body, item.Status, item.Priority, item.Kind,
+		item.MilestoneID, item.TargetDate, item.AssigneeID, labels, item.Rank, createdBy, item.CreatedAt); err != nil {
 		return nil, fmt.Errorf("plan: create item: %w", err)
 	}
 	return item, nil
@@ -166,11 +178,13 @@ func (s *Service) Update(ctx context.Context, id, projectID string, in Input) (*
 	labels, _ := json.Marshal(item.Labels)
 	if _, err := s.db.ExecContext(ctx,
 		`UPDATE plan_items SET parent_id = NULLIF($1,''), title = $2, body = $3, status = $4,
-		     priority = $5, assignee_id = NULLIF($6,''), labels = $7, rank = $8, closed_at = $9,
+		     priority = $5, kind = $6, milestone_id = NULLIF($7,''), target_date = $8,
+		     assignee_id = NULLIF($9,''), labels = $10, rank = $11, closed_at = $12,
 		     updated_at = NOW()
-		   WHERE id = $10 AND project_id = $11`,
-		item.ParentID, item.Title, item.Body, item.Status, item.Priority,
-		item.AssigneeID, labels, item.Rank, item.ClosedAt, id, projectID); err != nil {
+		   WHERE id = $13 AND project_id = $14`,
+		item.ParentID, item.Title, item.Body, item.Status, item.Priority, item.Kind,
+		item.MilestoneID, item.TargetDate, item.AssigneeID, labels, item.Rank,
+		item.ClosedAt, id, projectID); err != nil {
 		return nil, fmt.Errorf("plan: update item: %w", err)
 	}
 	return s.Get(ctx, id, projectID)
@@ -201,6 +215,15 @@ func applyInput(item *Item, in Input) {
 	if in.Rank != nil {
 		item.Rank = *in.Rank
 	}
+	if in.Kind != nil {
+		item.Kind = *in.Kind
+	}
+	if in.MilestoneID != nil {
+		item.MilestoneID = *in.MilestoneID
+	}
+	if in.TargetDate != nil {
+		item.TargetDate = in.TargetDate
+	}
 	if item.Labels == nil {
 		item.Labels = []string{}
 	}
@@ -208,11 +231,12 @@ func applyInput(item *Item, in Input) {
 
 // Filter narrows a listing.
 type Filter struct {
-	Status   string
-	Assignee string
-	Label    string
-	Search   string
-	ParentID string
+	Status      string
+	Assignee    string
+	Label       string
+	Search      string
+	ParentID    string
+	MilestoneID string
 	// IncludeClosed keeps done and cancelled work in the list. Off by
 	// default: a backlog that shows everything ever finished is not a backlog.
 	IncludeClosed bool
@@ -220,7 +244,8 @@ type Filter struct {
 
 // List returns a project's items, hand-ordered.
 func (s *Service) List(ctx context.Context, projectID string, f Filter) ([]*Item, error) {
-	query := `SELECT id, project_id, COALESCE(parent_id,''), title, body, status, priority,
+	query := `SELECT id, project_id, COALESCE(parent_id,''), title, body, status, priority, kind,
+	                 COALESCE(milestone_id,''), target_date,
 	                 COALESCE(assignee_id,''), labels, rank, COALESCE(created_by,''),
 	                 closed_at, created_at, updated_at
 	            FROM plan_items WHERE project_id = $1`
@@ -240,6 +265,9 @@ func (s *Service) List(ctx context.Context, projectID string, f Filter) ([]*Item
 	}
 	if f.ParentID != "" {
 		add("parent_id =", f.ParentID)
+	}
+	if f.MilestoneID != "" {
+		add("milestone_id =", f.MilestoneID)
 	}
 	if f.Label != "" {
 		add("labels @>", fmt.Sprintf("[%q]", f.Label))
@@ -275,7 +303,8 @@ func (s *Service) List(ctx context.Context, projectID string, f Filter) ([]*Item
 // Get returns one item with everything it points at.
 func (s *Service) Get(ctx context.Context, id, projectID string) (*Item, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, COALESCE(parent_id,''), title, body, status, priority,
+		`SELECT id, project_id, COALESCE(parent_id,''), title, body, status, priority, kind,
+		        COALESCE(milestone_id,''), target_date,
 		        COALESCE(assignee_id,''), labels, rank, COALESCE(created_by,''),
 		        closed_at, created_at, updated_at
 		   FROM plan_items WHERE id = $1 AND project_id = $2`, id, projectID)
@@ -367,8 +396,10 @@ func scanItem(row scanner) (*Item, error) {
 	var item Item
 	var labels []byte
 	var closedAt sql.NullTime
+	var targetDate sql.NullTime
 	if err := row.Scan(&item.ID, &item.ProjectID, &item.ParentID, &item.Title, &item.Body,
-		&item.Status, &item.Priority, &item.AssigneeID, &labels, &item.Rank,
+		&item.Status, &item.Priority, &item.Kind, &item.MilestoneID, &targetDate,
+		&item.AssigneeID, &labels, &item.Rank,
 		&item.CreatedBy, &closedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -378,6 +409,9 @@ func scanItem(row scanner) (*Item, error) {
 	}
 	if closedAt.Valid {
 		item.ClosedAt = &closedAt.Time
+	}
+	if targetDate.Valid {
+		item.TargetDate = &targetDate.Time
 	}
 	return &item, nil
 }

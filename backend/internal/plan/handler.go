@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
@@ -26,6 +27,20 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/items/{itemId}", h.delete)
 	r.Post("/items/{itemId}/links", h.addLink)
 	r.Delete("/links/{linkId}", h.removeLink)
+	r.Get("/items/{itemId}/criteria", h.listCriteria)
+	r.Post("/items/{itemId}/criteria", h.addCriterion)
+	r.Patch("/criteria/{criterionId}", h.updateCriterion)
+	r.Delete("/criteria/{criterionId}", h.deleteCriterion)
+
+	r.Get("/items/{itemId}/comments", h.listComments)
+	r.Post("/items/{itemId}/comments", h.addComment)
+	r.Delete("/comments/{commentId}", h.deleteComment)
+
+	r.Get("/milestones", h.listMilestones)
+	r.Post("/milestones", h.createMilestone)
+	r.Patch("/milestones/{milestoneId}", h.updateMilestone)
+	r.Delete("/milestones/{milestoneId}", h.deleteMilestone)
+
 	// What the console offers in its dropdowns, from the same list the server
 	// validates against — so the two cannot drift into disagreeing.
 	r.Get("/meta", h.meta)
@@ -42,6 +57,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		Label:         q.Get("label"),
 		Search:        q.Get("search"),
 		ParentID:      q.Get("parentId"),
+		MilestoneID:   q.Get("milestoneId"),
 		IncludeClosed: q.Get("includeClosed") == "true",
 	})
 	if err != nil {
@@ -137,10 +153,163 @@ func (h *Handler) removeLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) listCriteria(w http.ResponseWriter, r *http.Request) {
+	list, err := h.svc.ListCriteria(r.Context(), chi.URLParam(r, "itemId"))
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"criteria": list})
+}
+
+func (h *Handler) addCriterion(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+
+	c, err := h.svc.AddCriterion(r.Context(), chi.URLParam(r, "itemId"),
+		middleware.ProjectFromContext(r.Context()), body.Text)
+	if err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, c)
+}
+
+func (h *Handler) updateCriterion(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text    *string `json:"text"`
+		SpecRef *string `json:"specRef"`
+		Met     *bool   `json:"met"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if err := h.svc.UpdateCriterion(r.Context(), chi.URLParam(r, "criterionId"),
+		middleware.ProjectFromContext(r.Context()), body.Text, body.SpecRef, body.Met); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deleteCriterion(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.DeleteCriterion(r.Context(), chi.URLParam(r, "criterionId"),
+		middleware.ProjectFromContext(r.Context())); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) listComments(w http.ResponseWriter, r *http.Request) {
+	list, err := h.svc.ListComments(r.Context(), chi.URLParam(r, "itemId"))
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"comments": list})
+}
+
+func (h *Handler) addComment(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Body string `json:"body"`
+	}
+	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+
+	c, err := h.svc.AddComment(r.Context(), chi.URLParam(r, "itemId"),
+		middleware.ProjectFromContext(r.Context()), middleware.UserFromContext(r.Context()), body.Body)
+	if err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, c)
+}
+
+func (h *Handler) deleteComment(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.DeleteComment(r.Context(), chi.URLParam(r, "commentId"),
+		middleware.ProjectFromContext(r.Context())); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) listMilestones(w http.ResponseWriter, r *http.Request) {
+	list, err := h.svc.ListMilestones(r.Context(), middleware.ProjectFromContext(r.Context()))
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"total": len(list), "milestones": list})
+}
+
+func (h *Handler) createMilestone(w http.ResponseWriter, r *http.Request) {
+	var body milestoneBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	m, err := h.svc.CreateMilestone(r.Context(), middleware.ProjectFromContext(r.Context()),
+		body.Name, body.Description, body.target())
+	if err != nil {
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, m)
+}
+
+func (h *Handler) updateMilestone(w http.ResponseWriter, r *http.Request) {
+	var body milestoneBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if err := h.svc.UpdateMilestone(r.Context(), chi.URLParam(r, "milestoneId"),
+		middleware.ProjectFromContext(r.Context()), body.Name, body.Description,
+		body.target(), body.Completed); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deleteMilestone(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.DeleteMilestone(r.Context(), chi.URLParam(r, "milestoneId"),
+		middleware.ProjectFromContext(r.Context())); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// milestoneBody takes the target date as a plain date string, which is what a
+// date means here: a day somebody is aiming at, not an instant.
+type milestoneBody struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	TargetDate  string `json:"targetDate"`
+	Completed   *bool  `json:"completed"`
+}
+
+func (b milestoneBody) target() *time.Time {
+	if strings.TrimSpace(b.TargetDate) == "" {
+		return nil
+	}
+	t, err := time.Parse("2006-01-02", b.TargetDate)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
 func (h *Handler) meta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"statuses":   Statuses,
 		"priorities": Priorities,
+		"kinds":      Kinds,
 	})
 }
 
@@ -148,21 +317,38 @@ func (h *Handler) meta(w http.ResponseWriter, r *http.Request) {
 // not mentioned and a field that was cleared are different requests, and a
 // PATCH that cannot tell them apart erases whatever it was not told about.
 type itemBody struct {
-	Title      *string   `json:"title"`
-	Body       *string   `json:"body"`
-	Status     *string   `json:"status"`
-	Priority   *string   `json:"priority"`
-	AssigneeID *string   `json:"assigneeId"`
-	ParentID   *string   `json:"parentId"`
-	Labels     *[]string `json:"labels"`
-	Rank       *int64    `json:"rank"`
+	Title       *string   `json:"title"`
+	Body        *string   `json:"body"`
+	Status      *string   `json:"status"`
+	Priority    *string   `json:"priority"`
+	AssigneeID  *string   `json:"assigneeId"`
+	ParentID    *string   `json:"parentId"`
+	Labels      *[]string `json:"labels"`
+	Rank        *int64    `json:"rank"`
+	Kind        *string   `json:"kind"`
+	MilestoneID *string   `json:"milestoneId"`
+	TargetDate  *string   `json:"targetDate"`
 }
 
 func (b itemBody) input() Input {
 	return Input{
 		Title: b.Title, Body: b.Body, Status: b.Status, Priority: b.Priority,
 		AssigneeID: b.AssigneeID, ParentID: b.ParentID, Labels: b.Labels, Rank: b.Rank,
+		Kind: b.Kind, MilestoneID: b.MilestoneID, TargetDate: parseDate(b.TargetDate),
 	}
+}
+
+// parseDate reads a target date, which is a day somebody is aiming at rather
+// than an instant.
+func parseDate(v *string) *time.Time {
+	if v == nil || strings.TrimSpace(*v) == "" {
+		return nil
+	}
+	t, err := time.Parse("2006-01-02", *v)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
