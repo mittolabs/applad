@@ -55,6 +55,52 @@ var DefaultGrid = map[[2]int]string{
 	{1, 3}: "medium", {1, 2}: "medium", {1, 1}: "low",
 }
 
+/*
+ * What the levels mean, anchored rather than left to taste.
+ *
+ * A level with no anchor is a vibe: two people pick "medium" for different
+ * reasons and the scale stops sorting anything. An anchor makes the answer
+ * checkable — you either have a workaround or you do not.
+ *
+ * Two vocabularies, because the same grid serves two kinds of work. Fixing
+ * something broken has workarounds and blocked people; building something
+ * wanted has neither — it is wanted, or it is promised. Asking a change
+ * whether a workaround exists is how a field starts being answered at random.
+ */
+var (
+	// Defects: something is broken and the questions are about the damage.
+	ImpactHintsFix = map[int]string{
+		1: "Cosmetic, or an easy workaround exists",
+		2: "One core workflow is degraded",
+		3: "Many people affected, or somebody is blocked with no workaround",
+	}
+	UrgencyHintsFix = map[int]string{
+		1: "Nobody is waiting on it",
+		2: "Needed soon, but nothing is stopped",
+		3: "Blocking somebody right now",
+	}
+
+	// Changes: nothing is broken, so the questions are about demand.
+	ImpactHintsBuild = map[int]string{
+		1: "A nice-to-have, or one person asked",
+		2: "Several people want it, or it unblocks a workflow",
+		3: "Most people need it, or it was committed to somebody",
+	}
+	UrgencyHintsBuild = map[int]string{
+		1: "No date attached",
+		2: "Wanted this cycle",
+		3: "Committed with a date, or somebody is waiting to go live",
+	}
+)
+
+// Hints returns the anchors for a kind of work.
+func Hints(kind string) (impact, urgency map[int]string) {
+	if kind == "defect" {
+		return ImpactHintsFix, UrgencyHintsFix
+	}
+	return ImpactHintsBuild, UrgencyHintsBuild
+}
+
 // LevelName is how a level reads to a person.
 var LevelName = map[int]string{LevelLow: "low", LevelMedium: "medium", LevelHigh: "high"}
 

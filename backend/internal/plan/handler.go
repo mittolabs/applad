@@ -424,10 +424,19 @@ func (b milestoneBody) target() *time.Time {
 }
 
 func (h *Handler) meta(w http.ResponseWriter, r *http.Request) {
+	// The anchors travel with the vocabulary they belong to, so a console
+	// never has to keep its own copy of what "medium" means.
+	hints := map[string]interface{}{}
+	for _, kind := range Kinds {
+		impact, urgency := Hints(kind)
+		hints[kind] = map[string]interface{}{"impact": impact, "urgency": urgency}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"statuses":   Statuses,
 		"priorities": Priorities,
 		"kinds":      Kinds,
+		"hints":      hints,
 	})
 }
 

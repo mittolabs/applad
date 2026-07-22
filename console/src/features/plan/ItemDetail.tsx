@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { RichTextEditor } from '@/components/rich-text-editor';
 import { toast } from '@/components/toast';
 import { cn } from '@/lib/utils';
+import { AnchoredChoice } from './PlanPage';
 
 /*
  * One item, and everything agreed about it.
@@ -31,15 +32,6 @@ interface Comment {
   $id: string;
   body: string;
   $createdAt: string;
-}
-
-interface PriorityQuestion {
-  $id: string;
-  dimension: string;
-  text: string;
-  help?: string;
-  answeredWith?: string;
-  options: { $id: string; label: string; score: number; forcesTop: boolean }[];
 }
 
 interface Event {
@@ -168,7 +160,7 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
             <EditableBody value={data.body} onSave={(body) => patch.mutate({ body })} />
           )}
 
-          <Assessment itemId={itemId} item={data} />
+          <PriorityAssessment itemId={itemId} item={data} />
 
           <section className="flex flex-col gap-3">
             <div className="flex items-baseline gap-2">
@@ -810,131 +802,78 @@ function Discussion({ itemId, comments }: { itemId: string; comments: Comment[] 
 }
 
 /*
- * The assessment.
+ * What people said, and what changed.
  *
- * Asking somebody to rate impact from low to high is the guess the matrix was
- * meant to remove, asked one level up. These are the questions underneath it:
- * concrete, answerable, and scored, so the priority at the end can be traced
- * to four things somebody actually knew rather than to a mood.
- *
- * The priority updates as each answer lands. A half-answered assessment still
- * says something, and making somebody finish before they see anything is how
- * a form gets abandoned.
+ * Two different questions — "why is this being done this way" and "who moved
+ * it to blocked on Tuesday" — so they are tabs rather than one stream. The
+ * composer stays closed until there is something to say: a permanently open
+ * editor is the loudest thing on a page that is mostly for reading.
  */
-function Assessment({ itemId, item }: { itemId: string; item?: Item }) {
-  const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
 
-  const { data: questions = [] } = useQuery({
-    queryKey: ['plan-questions', itemId],
+/*
+ * Impact and urgency, anchored.
+ *
+ * A level with no anchor is a vibe: two people pick "medium" for different
+ * reasons and the scale stops sorting anything. And the anchors differ by
+ * kind — fixing something broken has workarounds and blocked people, building
+ * something wanted has neither. Asking a change whether a workaround exists
+ * is how a field gets answered at random.
+ */
+function PriorityAssessment({ itemId, item }: { itemId: string; item?: Item }) {
+  const qc = useQueryClient();
+
+  const { data: meta } = useQuery({
+    queryKey: ['plan-meta'],
     queryFn: async () =>
-      ((await api.get(`/plan/items/${itemId}/questions`)).data as { questions: PriorityQuestion[] })
-        .questions ?? [],
+      (await api.get('/plan/meta')).data as {
+        hints: Record<string, { impact: Record<string, string>; urgency: Record<string, string> }>;
+      },
   });
 
-  const answer = useMutation({
-    mutationFn: (body: { questionId: string; optionId: string }) =>
-      api.post(`/plan/items/${itemId}/answers`, body),
+  const rate = useMutation({
+    mutationFn: (body: { impact: number; urgency: number }) =>
+      api.post(`/plan/items/${itemId}/rate`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['plan-questions', itemId] });
       qc.invalidateQueries({ queryKey: ['plan-item', itemId] });
       qc.invalidateQueries({ queryKey: ['plan-items'] });
+      qc.invalidateQueries({ queryKey: ['plan-activity', itemId] });
     },
     onError: (e) => toast.error(friendlyError(e)),
   });
 
-  const answered = questions.filter((q) => q.answeredWith).length;
-  const dimensions: ['impact', 'urgency'] = ['impact', 'urgency'];
+  const hints = meta?.hints?.[item?.kind ?? 'change'];
 
   return (
     <section className="flex flex-col gap-3">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-baseline gap-2 text-left"
-      >
+      <div className="flex items-baseline gap-2">
         <h2 className="text-[length:var(--text-control)] font-medium text-text-primary">
-          Priority assessment
+          Priority
         </h2>
         <span className="text-[length:var(--text-caption)] text-text-subtle">
-          {answered} of {questions.length} answered
-          {item?.priority && !item.priorityIsManual && ` · ${item.priority}`}
+          {item?.priorityIsManual
+            ? 'set directly'
+            : item?.impact
+              ? `impact ${LEVEL_NAME[item.impact]} · urgency ${LEVEL_NAME[item.urgency ?? 1]} → ${item.priority}`
+              : 'not assessed'}
         </span>
-        <span className="ml-auto text-[length:var(--text-caption)] text-text-muted">
-          {open ? 'Hide' : 'Answer'}
-        </span>
-      </button>
+      </div>
 
-      {open && (
-        <div className="flex flex-col gap-5 rounded-[var(--radius)] border border-border bg-surface p-4">
-          {item?.impact && item?.urgency ? (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--radius-sm)] bg-fill px-3 py-2 text-[length:var(--text-label)]">
-              <span className="text-text-secondary">
-                Impact {LEVEL_NAME[item.impact]} · urgency {LEVEL_NAME[item.urgency]} →
-              </span>
-              <span
-                className="rounded-[var(--radius-sm)] px-2 py-0.5 font-medium"
-                style={{
-                  backgroundColor: `color-mix(in srgb, ${PRIORITY_TONE[item.priority]} 18%, transparent)`,
-                  color: PRIORITY_TONE[item.priority],
-                }}
-              >
-                {item.priority}
-              </span>
-              <span className="text-[length:var(--text-caption)] text-text-subtle">
-                {item.priorityIsManual
-                  ? 'overridden — answers no longer decide it'
-                  : 'decided by this project\'s matrix'}
-              </span>
-            </div>
-          ) : (
-            <p className="rounded-[var(--radius-sm)] bg-fill px-3 py-2 text-[length:var(--text-label)] text-text-subtle">
-              Not assessed yet — answer below and the priority follows.
-            </p>
-          )}
-
-          {dimensions.map((dimension) => (
-            <div key={dimension} className="flex flex-col gap-3">
-              <span className="text-[length:var(--text-caption)] uppercase tracking-wide text-text-subtle">
-                {dimension === 'impact' ? 'Impact — how much it matters' : 'Urgency — how soon'}
-              </span>
-
-              {questions
-                .filter((q) => q.dimension === dimension)
-                .map((q) => (
-                  <div key={q.$id} className="flex flex-col gap-1.5">
-                    <span className="text-[length:var(--text-body)] text-text-primary">
-                      {q.text}
-                    </span>
-                    {q.help && (
-                      <span className="text-[length:var(--text-caption)] text-text-subtle">
-                        {q.help}
-                      </span>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                      {q.options.map((o) => (
-                        <button
-                          key={o.$id}
-                          onClick={() => answer.mutate({ questionId: q.$id, optionId: o.$id })}
-                          className={cn(
-                            'rounded-[var(--radius-sm)] border px-2.5 py-1 text-[length:var(--text-label)] transition-colors',
-                            q.answeredWith === o.$id
-                              ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-text-primary'
-                              : 'border-field-border bg-fill text-text-secondary hover:text-text-primary',
-                          )}
-                          title={o.forcesTop ? 'This answer decides the priority on its own.' : undefined}
-                        >
-                          {o.label}
-                          {o.forcesTop && q.answeredWith === o.$id && ' · decides it'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          ))}
-
-        </div>
-      )}
+      <div className="grid gap-4 rounded-[var(--radius)] border border-border bg-surface p-4 sm:grid-cols-2">
+        <AnchoredChoice
+          label="Impact"
+          caption="How much it matters"
+          value={item?.impact ?? 0}
+          onChange={(impact) => rate.mutate({ impact, urgency: item?.urgency ?? 2 })}
+          hints={hints?.impact}
+        />
+        <AnchoredChoice
+          label="Urgency"
+          caption="How soon it is needed"
+          value={item?.urgency ?? 0}
+          onChange={(urgency) => rate.mutate({ impact: item?.impact ?? 2, urgency })}
+          hints={hints?.urgency}
+        />
+      </div>
     </section>
   );
 }

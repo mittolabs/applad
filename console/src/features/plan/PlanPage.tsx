@@ -463,71 +463,41 @@ function CreateItemDialog({
   // Two answers rather than a verdict: the grid decides the priority, so
   // nobody has to weigh "how much does this matter" against "how soon" in
   // their head and report the average.
-  // The questions, not the abstraction. Asking "impact: high, medium or low"
-  // is the guess the questions exist to replace — nobody knows what medium
-  // impact means, and everybody can answer "is there a workaround?".
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [kind, setKind] = useState('change');
+  const [impact, setImpact] = useState(2);
+  const [urgency, setUrgency] = useState(2);
   const [saving, setSaving] = useState(false);
 
-  const { data } = useQuery({
-    queryKey: ['plan-questions'],
+  // The anchors and the grid come from the server, so what "medium" means and
+  // what it resolves to are never a second copy that can drift.
+  const { data: meta } = useQuery({
+    queryKey: ['plan-meta'],
     queryFn: async () =>
-      (await api.get('/plan/questions')).data as {
-        questions: {
-          $id: string;
-          dimension: string;
-          text: string;
-          help?: string;
-          options: { $id: string; label: string; score: number; forcesTop: boolean }[];
-        }[];
-        bands: { dimension: string; level: number; minScore: number; maxScore: number }[];
-        cells: { impact: number; urgency: number; priority: string }[];
+      (await api.get('/plan/meta')).data as {
+        hints: Record<string, { impact: Record<string, string>; urgency: Record<string, string> }>;
       },
   });
 
-  const questions = data?.questions ?? [];
+  const { data: cells = [] } = useQuery({
+    queryKey: ['plan-matrix', kind],
+    queryFn: async () =>
+      ((await api.get('/plan/matrix', { params: { kind } })).data as {
+        cells: { impact: number; urgency: number; priority: string }[];
+      }).cells ?? [],
+  });
 
-  // Scored the way the server scores it, so the preview and the result cannot
-  // disagree.
-  const derived = (() => {
-    if (!data) return undefined;
-    const scores: Record<string, number> = { impact: 0, urgency: 0 };
-    let forced = false;
-    let answered = 0;
-
-    for (const q of questions) {
-      const chosen = q.options.find((o) => o.$id === answers[q.$id]);
-      if (!chosen) continue;
-      answered++;
-      scores[q.dimension] = (scores[q.dimension] ?? 0) + chosen.score;
-      if (chosen.forcesTop) forced = true;
-    }
-    if (answered === 0) return undefined;
-
-    const level = (dimension: string) =>
-      data.bands.find(
-        (b) => b.dimension === dimension && scores[dimension] >= b.minScore && scores[dimension] <= b.maxScore,
-      )?.level ?? 1;
-
-    const impact = forced ? 3 : level('impact');
-    const urgency = forced ? 3 : level('urgency');
-    return {
-      impact,
-      urgency,
-      priority: data.cells.find((c) => c.impact === impact && c.urgency === urgency)?.priority,
-    };
-  })();
+  const hints = meta?.hints?.[kind];
+  const derived = cells.find((c) => c.impact === impact && c.urgency === urgency)?.priority;
 
   const submit = async () => {
     setSaving(true);
     try {
-      const created = await api.post('/plan/items', { title: title.trim() });
+      const created = await api.post('/plan/items', { title: title.trim(), kind });
       const id = created.data.$id ?? created.data.id;
-      for (const [questionId, optionId] of Object.entries(answers)) {
-        await api.post(`/plan/items/${id}/answers`, { questionId, optionId });
-      }
+      await api.post(`/plan/items/${id}/rate`, { impact, urgency });
       setTitle('');
-      setAnswers({});
+      setImpact(2);
+      setUrgency(2);
       onOpenChange(false);
       onCreated();
     } catch (e) {
@@ -556,70 +526,56 @@ function CreateItemDialog({
         autoFocus
       />
 
-      <div className="flex flex-col gap-4">
-        {(['impact', 'urgency'] as const).map((dimension) => (
-          <div key={dimension} className="flex flex-col gap-3">
-            <span className="text-[length:var(--text-caption)] uppercase tracking-wide text-text-subtle">
-              {dimension === 'impact' ? 'Impact — how much it matters' : 'Urgency — how soon'}
-            </span>
-            {questions
-              .filter((q) => q.dimension === dimension)
-              .map((q) => (
-                <div key={q.$id} className="flex flex-col gap-1.5">
-                  <span className="text-[length:var(--text-body)] text-text-primary">{q.text}</span>
-                  {q.help && (
-                    <span className="text-[length:var(--text-caption)] text-text-subtle">
-                      {q.help}
-                    </span>
-                  )}
-                  <div className="flex flex-wrap gap-1.5">
-                    {q.options.map((o) => (
-                      <button
-                        key={o.$id}
-                        type="button"
-                        onClick={() =>
-                          setAnswers((a) => ({
-                            ...a,
-                            [q.$id]: a[q.$id] === o.$id ? '' : o.$id,
-                          }))
-                        }
-                        className={cn(
-                          'rounded-[var(--radius-sm)] border px-2.5 py-1 text-[length:var(--text-label)] transition-colors',
-                          answers[q.$id] === o.$id
-                            ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-text-primary'
-                            : 'border-field-border bg-fill text-text-secondary hover:text-text-primary',
-                        )}
-                      >
-                        {o.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-          </div>
+      {/* Which vocabulary applies. Fixing something broken and building
+          something wanted are judged by different things, and asking a change
+          whether a workaround exists is how a field gets answered at random. */}
+      <div className="flex gap-1.5">
+        {([
+          ['change', 'Change — something to build'],
+          ['defect', 'Defect — something is broken'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setKind(value)}
+            className={cn(
+              'flex-1 rounded-[var(--radius-sm)] border px-2.5 py-1.5 text-[length:var(--text-label)] transition-colors',
+              kind === value
+                ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-text-primary'
+                : 'border-field-border bg-fill text-text-secondary hover:text-text-primary',
+            )}
+          >
+            {label}
+          </button>
         ))}
       </div>
 
-      {/* What the answers produce. A value, not a field: it follows from
-          above, and offering to edit it here invites a priority the answers
-          contradict. */}
+      <AnchoredChoice
+        label="Impact"
+        caption="How much it matters"
+        value={impact}
+        onChange={setImpact}
+        hints={hints?.impact}
+      />
+      <AnchoredChoice
+        label="Urgency"
+        caption="How soon it is needed"
+        value={urgency}
+        onChange={setUrgency}
+        hints={hints?.urgency}
+      />
+
       <div className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-fill px-3 py-2">
         <span className="text-[length:var(--text-label)] text-text-secondary">Priority</span>
-        {derived?.priority ? (
-          <span
-            className="rounded-[var(--radius-sm)] px-2 py-0.5 text-[length:var(--text-label)] font-medium"
-            style={{
-              backgroundColor: `color-mix(in srgb, ${PRIORITY_COLOR[derived.priority]} 18%, transparent)`,
-              color: PRIORITY_COLOR[derived.priority],
-            }}
-          >
-            {derived.priority}
-          </span>
-        ) : (
-          <span className="text-[length:var(--text-label)] text-text-subtle">
-            answer above and it follows
-          </span>
-        )}
+        <span
+          className="rounded-[var(--radius-sm)] px-2 py-0.5 text-[length:var(--text-label)] font-medium"
+          style={{
+            backgroundColor: `color-mix(in srgb, ${PRIORITY_COLOR[derived ?? 'medium']} 18%, transparent)`,
+            color: PRIORITY_COLOR[derived ?? 'medium'],
+          }}
+        >
+          {derived ?? '—'}
+        </span>
         <span className="ml-auto text-[length:var(--text-caption)] text-text-subtle">
           from this project's matrix
         </span>
@@ -627,3 +583,57 @@ function CreateItemDialog({
     </FormDialog>
   );
 }
+
+/*
+ * A level with what it means beside it.
+ *
+ * "Medium" on its own is a vibe — two people pick it for different reasons and
+ * the scale stops sorting anything. The anchor makes the answer checkable:
+ * you either have a workaround or you do not.
+ */
+export function AnchoredChoice({
+  label,
+  caption,
+  value,
+  onChange,
+  hints,
+}: {
+  label: string;
+  caption: string;
+  value: number;
+  onChange: (v: number) => void;
+  hints?: Record<string, string>;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2">
+        <span className="text-[length:var(--text-label)] text-text-primary">{label}</span>
+        <span className="text-[length:var(--text-caption)] text-text-subtle">{caption}</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {[3, 2, 1].map((level) => (
+          <button
+            key={level}
+            type="button"
+            onClick={() => onChange(level)}
+            className={cn(
+              'flex items-baseline gap-2 rounded-[var(--radius-sm)] border px-2.5 py-1.5 text-left transition-colors',
+              value === level
+                ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]'
+                : 'border-field-border bg-fill hover:border-text-subtle',
+            )}
+          >
+            <span className="w-[52px] shrink-0 text-[length:var(--text-label)] text-text-primary">
+              {LEVEL_LABEL[level]}
+            </span>
+            <span className="text-[length:var(--text-caption)] text-text-secondary">
+              {hints?.[String(level)] ?? ''}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const LEVEL_LABEL: Record<number, string> = { 3: 'High', 2: 'Medium', 1: 'Low' };
