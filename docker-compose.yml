@@ -57,6 +57,8 @@ services:
       APP_ENV: "${APP_ENV:-development}"
       # auto (disabled once the first admin exists), true, or false.
       CONSOLE_SIGNUP_ENABLED: "${CONSOLE_SIGNUP_ENABLED:-auto}"
+      RATE_LIMIT_ANON_PER_MINUTE: "${RATE_LIMIT_ANON_PER_MINUTE:-100}"
+      RATE_LIMIT_AUTHED_PER_MINUTE: "${RATE_LIMIT_AUTHED_PER_MINUTE:-1200}"
       GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
       GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-applad}"
       GITHUB_APP_CLIENT_ID: "${GITHUB_APP_CLIENT_ID:-}"

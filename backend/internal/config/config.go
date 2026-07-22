@@ -147,6 +147,12 @@ type Config struct {
 	ConsoleGitHubClientID     string
 	ConsoleGitHubClientSecret string
 
+	// Rate limits, per minute. The anonymous limit guards against a flood
+	// from an unknown source; the signed-in one has to accommodate a console
+	// page, which issues twenty or more requests to render.
+	RateLimitAnonPerMinute   int
+	RateLimitAuthedPerMinute int
+
 	// The Applad GitHub App — how git deploys reach a repository. Absent on a
 	// self-hosted instance unless the operator registers their own app, which
 	// is why every path that uses it degrades rather than fails.
@@ -294,6 +300,9 @@ func Load() *Config {
 
 		ConsoleGitHubClientID:     getEnv("CONSOLE_GITHUB_CLIENT_ID", ""),
 		ConsoleGitHubClientSecret: getEnv("CONSOLE_GITHUB_CLIENT_SECRET", ""),
+
+		RateLimitAnonPerMinute:   getEnvInt("RATE_LIMIT_ANON_PER_MINUTE", 100),
+		RateLimitAuthedPerMinute: getEnvInt("RATE_LIMIT_AUTHED_PER_MINUTE", 1200),
 
 		GitHubAppID:            getEnv("GITHUB_APP_ID", ""),
 		GitHubAppSlug:          getEnv("GITHUB_APP_SLUG", "applad"),

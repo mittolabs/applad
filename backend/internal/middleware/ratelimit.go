@@ -78,9 +78,29 @@ func (cb *redisCircuitBreaker) isOpen() bool   { return cb.failures.Load() >= cb
 // After 5 consecutive Redis failures the circuit trips and all requests are
 // blocked (fail closed) until Redis recovers.
 func RateLimitRedis(requestsPerMinute int, rdb *redis.Client) func(http.Handler) http.Handler {
-	if requestsPerMinute <= 0 {
-		requestsPerMinute = 100
+	return RateLimitRedisTiered(requestsPerMinute, requestsPerMinute, rdb)
+}
+
+// RateLimitRedisTiered limits anonymous and signed-in callers separately.
+//
+// One limit for both is what made the console unusable: this guard exists to
+// stop a flood from an unknown source, but it counted a signed-in admin's
+// page loads the same way. A single console page issues twenty or more
+// requests — the shell, the project, the list, its detail, and whatever polls
+// — so a few refreshes exhausted a hundred and the whole page failed with
+// "Rate limit exceeded", which reads as though the server is out of capacity
+// when it is a counter doing what it was told.
+//
+// Signed-in traffic is still bounded, and abuse of an account is caught by
+// the per-user limiter that runs after authentication.
+func RateLimitRedisTiered(anonPerMinute, authedPerMinute int, rdb *redis.Client) func(http.Handler) http.Handler {
+	if anonPerMinute <= 0 {
+		anonPerMinute = 100
 	}
+	if authedPerMinute <= 0 {
+		authedPerMinute = anonPerMinute
+	}
+	requestsPerMinute := anonPerMinute
 	cb := &redisCircuitBreaker{threshold: 5}
 	fallback := newInMemoryLimiter(requestsPerMinute, time.Minute)
 	return func(next http.Handler) http.Handler {
@@ -89,12 +109,22 @@ func RateLimitRedis(requestsPerMinute int, rdb *redis.Client) func(http.Handler)
 			projectID := ProjectFromContext(r.Context())
 			bucket := time.Now().Unix() / 60
 
+			// Whether the caller presented credentials at all. Whether they
+			// are valid is decided later; this only chooses which bucket a
+			// request is counted in.
+			requestsPerMinute := anonPerMinute
+			class := "anon"
+			if r.Header.Get("Authorization") != "" || hasSessionCookie(r) {
+				requestsPerMinute = authedPerMinute
+				class = "auth"
+			}
+
 			// Key by project+IP when project context is available, IP-only otherwise
 			var key string
 			if projectID != "" {
-				key = fmt.Sprintf("rl:%s:%s:%d", projectID, ip, bucket)
+				key = fmt.Sprintf("rl:%s:%s:%s:%d", class, projectID, ip, bucket)
 			} else {
-				key = fmt.Sprintf("rl:%s:%d", ip, bucket)
+				key = fmt.Sprintf("rl:%s:%s:%d", class, ip, bucket)
 			}
 
 			ctx := r.Context()
@@ -240,3 +270,12 @@ func realClientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// hasSessionCookie reports whether the request carries a console session.
+func hasSessionCookie(r *http.Request) bool {
+	for _, c := range r.Cookies() {
+		if strings.HasPrefix(c.Name, "applad_session") {
+			return true
+		}
+	}
+	return false
+}

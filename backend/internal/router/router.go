@@ -87,7 +87,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	r.Use(mw.Recover) // JSON panic recovery (replaces chimw.Recoverer)
 	r.Use(mw.CORS)
 	r.Use(mw.SecurityHeaders)
-	r.Use(mw.RateLimitRedis(100, cacheClient.Client()))
+	r.Use(mw.RateLimitRedisTiered(cfg.RateLimitAnonPerMinute, cfg.RateLimitAuthedPerMinute, cacheClient.Client()))
 	r.Use(mw.MaxBodySize(10 << 20))
 	r.Use(audit.Middleware(auditSvc))
 
