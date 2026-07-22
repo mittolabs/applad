@@ -212,14 +212,20 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
             return (
               <Fragment key={m.$id}>
               <div
-                className="group flex items-center gap-4 border-b border-border px-4 py-3 hover:bg-fill-hover"
+                role="button"
+                tabIndex={0}
+                onClick={() => setExpanded(expanded === m.$id ? null : m.$id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setExpanded(expanded === m.$id ? null : m.$id);
+                  }
+                }}
+                className="group flex cursor-pointer items-center gap-4 border-b border-border px-4 py-3 hover:bg-fill-hover"
               >
                 <div className="flex w-[300px] shrink-0 flex-col gap-1">
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setExpanded(expanded === m.$id ? null : m.$id)}
-                      className="flex items-center gap-1 truncate text-left text-[length:var(--text-body)] font-medium text-text-primary hover:underline"
-                    >
+                    <span className="flex items-center gap-1 truncate text-[length:var(--text-body)] font-medium text-text-primary">
                       <ChevronRight
                         size={13}
                         className={cn(
@@ -228,9 +234,12 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
                         )}
                       />
                       {m.name}
-                    </button>
+                    </span>
                     <button
-                      onClick={() => setConfirming(m)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirming(m);
+                      }}
                       className="opacity-0 transition-opacity group-hover:opacity-100"
                       aria-label="Delete milestone"
                     >
@@ -271,9 +280,8 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
                     style={{ left: `${todayAt}%`, backgroundColor: 'var(--color-accent)' }}
                   />
                   {m.targetDate ? (
-                    <button
-                      onClick={() => setExpanded(expanded === m.$id ? null : m.$id)}
-                      className="absolute inset-y-1 left-0 flex items-center overflow-hidden rounded-[var(--radius-sm)] border transition-transform hover:scale-y-110"
+                    <div
+                      className="absolute inset-y-1 left-0 flex items-center overflow-hidden rounded-[var(--radius-sm)] border transition-transform group-hover:scale-y-110"
                       style={{
                         width: `${Math.max(at, 4)}%`,
                         borderColor: overdue ? '#EF4444' : 'var(--border)',
@@ -288,7 +296,7 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
                           backgroundColor: 'color-mix(in srgb, #22C55E 40%, transparent)',
                         }}
                       />
-                    </button>
+                    </div>
                   ) : (
                     <span className="flex h-full items-center text-[length:var(--text-caption)] text-text-subtle">
                       Not on the roadmap — no target date
