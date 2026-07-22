@@ -1,12 +1,22 @@
 name: Release
 
-# Publishes Docker images to GHCR on every version tag (v1.2.3).
-# The installer (install.sh) pulls these images — no source build needed.
+# Publishing a GitHub Release builds and pushes the GHCR images tagged with that
+# release's version (and `latest`, unless it's a pre-release). Cut a release from
+# the UI (Draft a new release → pick/create a tag → Publish) or the CLI:
+#
+#   gh release create v0.3.0 --generate-notes
+#
+# workflow_dispatch is provided to rebuild a version by hand (e.g. the first run
+# against a new layout) without cutting a release.
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to build (e.g. v0.3.0)"
+        required: true
 
 permissions:
   contents: write
@@ -15,6 +25,10 @@ permissions:
 env:
   REGISTRY: ghcr.io
   ORG: mittolabs
+  # Version comes from the published release, or the manual dispatch input.
+  VERSION: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+  # Tag `latest` for full releases and manual builds, but never for pre-releases.
+  TAG_LATEST: ${{ (github.event_name == 'release' && !github.event.release.prerelease) || github.event_name == 'workflow_dispatch' }}
 
 jobs:
   # ── API image ────────────────────────────────────────────────────────────────
@@ -40,9 +54,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.ORG }}/applad-api
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=${{ env.VERSION }}
+            type=raw,value=latest,enable=${{ env.TAG_LATEST }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -81,9 +94,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.ORG }}/applad-console
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=${{ env.VERSION }}
+            type=raw,value=latest,enable=${{ env.TAG_LATEST }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -137,9 +149,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.ORG }}/applad-worker-${{ matrix.worker }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=${{ env.VERSION }}
+            type=raw,value=latest,enable=${{ env.TAG_LATEST }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -156,9 +167,12 @@ jobs:
           cache-from: type=gha,scope=worker-${{ matrix.worker }}
           cache-to: type=gha,scope=worker-${{ matrix.worker }},mode=max
 
-  # ── GitHub Release ────────────────────────────────────────────────────────────
-  release:
-    name: Create GitHub Release
+  # ── Attach install assets to the release ──────────────────────────────────────
+  # Only on a real release (dispatch has no release to attach to). Lets a
+  # self-hoster grab the exact compose + env for this version.
+  assets:
+    name: Attach install assets
+    if: github.event_name == 'release'
     needs: [api, console, workers]
     runs-on: ubuntu-24.04
     permissions:
@@ -166,36 +180,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Create release with install assets
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "Applad ${{ steps.version.outputs.version }}"
-          body: |
-            ## Install
-
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/${{ env.ORG }}/applad/main/install.sh | bash
-            ```
-
-            ## Upgrade
-
-            ```bash
-            ./install.sh upgrade
-            ```
-
-            ## Images
-
-            | Image | Tag |
-            |---|---|
-            | `ghcr.io/${{ env.ORG }}/applad-api` | `${{ steps.version.outputs.version }}` |
-            | `ghcr.io/${{ env.ORG }}/applad-console` | `${{ steps.version.outputs.version }}` |
-            | `ghcr.io/${{ env.ORG }}/applad-worker-*` | `${{ steps.version.outputs.version }}` |
-          files: |
-            docker-compose.yml
-            .env.example
-          fail_on_unmatched_files: true
-          generate_release_notes: true
+      - name: Upload docker-compose.yml + .env.example
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ env.VERSION }}" docker-compose.yml .env.example --clobber
