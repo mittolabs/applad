@@ -49,6 +49,10 @@ type Item struct {
 	CreatedAt   time.Time  `json:"$createdAt"`
 	UpdatedAt   time.Time  `json:"$updatedAt"`
 	Links       []Link     `json:"links"`
+	// Counted alongside the item so a list can say how much of what was
+	// agreed has become behaviour, without asking per item.
+	CriteriaCount     int `json:"criteriaCount"`
+	CriteriaSpecified int `json:"criteriaSpecified"`
 }
 
 // Link is something an item points at.
@@ -244,11 +248,13 @@ type Filter struct {
 
 // List returns a project's items, hand-ordered.
 func (s *Service) List(ctx context.Context, projectID string, f Filter) ([]*Item, error) {
-	query := `SELECT id, project_id, COALESCE(parent_id,''), title, body, status, priority, kind,
-	                 COALESCE(milestone_id,''), target_date,
-	                 COALESCE(assignee_id,''), labels, rank, COALESCE(created_by,''),
-	                 closed_at, created_at, updated_at
-	            FROM plan_items WHERE project_id = $1`
+	query := `SELECT i.id, i.project_id, COALESCE(i.parent_id,''), i.title, i.body, i.status, i.priority, i.kind,
+	                 COALESCE(i.milestone_id,''), i.target_date,
+	                 COALESCE(i.assignee_id,''), i.labels, i.rank, COALESCE(i.created_by,''),
+	                 i.closed_at, i.created_at, i.updated_at,
+	                 (SELECT COUNT(*) FROM plan_criteria c WHERE c.item_id = i.id),
+	                 (SELECT COUNT(*) FROM plan_criteria c WHERE c.item_id = i.id AND c.spec_ref <> '')
+	            FROM plan_items i WHERE i.project_id = $1`
 	args := []interface{}{projectID}
 
 	add := func(clause string, value interface{}) {
@@ -256,27 +262,27 @@ func (s *Service) List(ctx context.Context, projectID string, f Filter) ([]*Item
 		query += fmt.Sprintf(" AND %s $%d", clause, len(args))
 	}
 	if f.Status != "" {
-		add("status =", f.Status)
+		add("i.status =", f.Status)
 	} else if !f.IncludeClosed {
-		query += " AND status NOT IN ('done','cancelled')"
+		query += " AND i.status NOT IN ('done','cancelled')"
 	}
 	if f.Assignee != "" {
-		add("assignee_id =", f.Assignee)
+		add("i.assignee_id =", f.Assignee)
 	}
 	if f.ParentID != "" {
-		add("parent_id =", f.ParentID)
+		add("i.parent_id =", f.ParentID)
 	}
 	if f.MilestoneID != "" {
-		add("milestone_id =", f.MilestoneID)
+		add("i.milestone_id =", f.MilestoneID)
 	}
 	if f.Label != "" {
-		add("labels @>", fmt.Sprintf("[%q]", f.Label))
+		add("i.labels @>", fmt.Sprintf("[%q]", f.Label))
 	}
 	if f.Search != "" {
 		args = append(args, "%"+strings.ToLower(f.Search)+"%")
-		query += fmt.Sprintf(" AND (LOWER(title) LIKE $%d OR LOWER(body) LIKE $%d)", len(args), len(args))
+		query += fmt.Sprintf(" AND (LOWER(i.title) LIKE $%d OR LOWER(i.body) LIKE $%d)", len(args), len(args))
 	}
-	query += " ORDER BY rank ASC, created_at ASC"
+	query += " ORDER BY i.rank ASC, i.created_at ASC"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -303,11 +309,13 @@ func (s *Service) List(ctx context.Context, projectID string, f Filter) ([]*Item
 // Get returns one item with everything it points at.
 func (s *Service) Get(ctx context.Context, id, projectID string) (*Item, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, COALESCE(parent_id,''), title, body, status, priority, kind,
-		        COALESCE(milestone_id,''), target_date,
-		        COALESCE(assignee_id,''), labels, rank, COALESCE(created_by,''),
-		        closed_at, created_at, updated_at
-		   FROM plan_items WHERE id = $1 AND project_id = $2`, id, projectID)
+		`SELECT i.id, i.project_id, COALESCE(i.parent_id,''), i.title, i.body, i.status, i.priority, i.kind,
+		        COALESCE(i.milestone_id,''), i.target_date,
+		        COALESCE(i.assignee_id,''), i.labels, i.rank, COALESCE(i.created_by,''),
+		        i.closed_at, i.created_at, i.updated_at,
+		        (SELECT COUNT(*) FROM plan_criteria c WHERE c.item_id = i.id),
+		        (SELECT COUNT(*) FROM plan_criteria c WHERE c.item_id = i.id AND c.spec_ref <> '')
+		   FROM plan_items i WHERE i.id = $1 AND i.project_id = $2`, id, projectID)
 
 	item, err := scanItem(row)
 	if err == sql.ErrNoRows {
@@ -400,7 +408,8 @@ func scanItem(row scanner) (*Item, error) {
 	if err := row.Scan(&item.ID, &item.ProjectID, &item.ParentID, &item.Title, &item.Body,
 		&item.Status, &item.Priority, &item.Kind, &item.MilestoneID, &targetDate,
 		&item.AssigneeID, &labels, &item.Rank,
-		&item.CreatedBy, &closedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		&item.CreatedBy, &closedAt, &item.CreatedAt, &item.UpdatedAt,
+		&item.CriteriaCount, &item.CriteriaSpecified); err != nil {
 		return nil, err
 	}
 	json.Unmarshal(labels, &item.Labels) //nolint:errcheck

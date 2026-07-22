@@ -21,6 +21,32 @@ import { cn } from '@/lib/utils';
  * are different states and only one of them means "nothing has happened".
  */
 
+interface PlanItem {
+  $id: string;
+  title: string;
+  status: string;
+  priority: string;
+  kind: string;
+  targetDate?: string;
+  criteriaCount: number;
+  criteriaSpecified: number;
+}
+
+const STATUS_DOT: Record<string, string> = {
+  todo: 'var(--text-muted)',
+  in_progress: '#3B82F6',
+  blocked: '#F59E0B',
+  done: '#22C55E',
+  cancelled: 'var(--text-subtle)',
+};
+
+const PRIORITY_TONE: Record<string, string> = {
+  urgent: '#EF4444',
+  high: '#F59E0B',
+  medium: 'var(--text-muted)',
+  low: 'var(--text-subtle)',
+};
+
 interface Progress {
   total: number;
   done: number;
@@ -269,7 +295,13 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
               </div>
 
               {expanded === m.$id && (
-                <MilestoneItems milestoneId={m.$id} onOpenItem={onOpenItem} />
+                <MilestoneItems
+                  milestoneId={m.$id}
+                  onOpenItem={onOpenItem}
+                  span={span}
+                  todayAt={todayAt}
+                  milestoneAt={at}
+                />
               )}
               </Fragment>
             );
@@ -295,65 +327,126 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
 function MilestoneItems({
   milestoneId,
   onOpenItem,
+  span,
+  todayAt,
+  milestoneAt,
 }: {
   milestoneId: string;
   onOpenItem: (id: string) => void;
+  span: { start: number; end: number };
+  todayAt: number;
+  milestoneAt: number;
 }) {
   const { data, isLoading } = useQuery({
     queryKey: ['plan-items', 'milestone', milestoneId],
     queryFn: async () =>
       (
         (
-          await api.get('/plan/items', {
-            params: { milestoneId, includeClosed: true },
-          })
-        ).data as { items: { $id: string; title: string; status: string; priority: string }[] }
+          await api.get('/plan/items', { params: { milestoneId, includeClosed: true } })
+        ).data as { items: PlanItem[] }
       ).items ?? [],
   });
 
   const items = data ?? [];
-  const dot: Record<string, string> = {
-    todo: 'var(--text-muted)',
-    in_progress: '#3B82F6',
-    blocked: '#F59E0B',
-    done: '#22C55E',
-    cancelled: 'var(--text-subtle)',
-  };
 
   return (
-    <div className="border-b border-border bg-surface-alt px-4 py-2 last:border-0">
+    <div className="border-b border-border bg-surface-alt last:border-0">
       {isLoading ? (
-        <div className="py-2 pl-8 text-[length:var(--text-caption)] text-text-muted">Loading…</div>
+        <div className="py-3 pl-9 text-[length:var(--text-caption)] text-text-muted">Loading…</div>
       ) : items.length === 0 ? (
-        <div className="py-2 pl-8 text-[length:var(--text-caption)] text-text-subtle">
+        <div className="py-3 pl-9 text-[length:var(--text-caption)] text-text-subtle">
           No items in this milestone yet.
         </div>
       ) : (
-        items.map((item) => (
-          <button
-            key={item.$id}
-            onClick={() => onOpenItem(item.$id)}
-            className="flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] py-1.5 pl-8 pr-2 text-left hover:bg-fill-hover"
-          >
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ backgroundColor: dot[item.status] ?? 'var(--text-subtle)' }}
-            />
-            <span
-              className={cn(
-                'flex-1 truncate text-[length:var(--text-body)]',
-                item.status === 'done' || item.status === 'cancelled'
-                  ? 'text-text-muted line-through'
-                  : 'text-text-primary',
-              )}
+        items.map((item) => {
+          const closed = item.status === 'done' || item.status === 'cancelled';
+          const due = item.targetDate ? daysUntil(item.targetDate) : null;
+          // An item is placed at its own date when it has one, and at its
+          // milestone's when it does not: work with no date of its own is
+          // still due by the thing that contains it, and hiding it from the
+          // track would say it is due never.
+          const at = item.targetDate
+            ? positionOf(new Date(item.targetDate).getTime(), span.start, span.end)
+            : milestoneAt;
+          const unspecified = item.criteriaCount - item.criteriaSpecified;
+
+          return (
+            <button
+              key={item.$id}
+              onClick={() => onOpenItem(item.$id)}
+              className="flex w-full items-center gap-4 px-4 py-2 text-left hover:bg-fill-hover"
             >
-              {item.title}
-            </span>
-            <span className="text-[length:var(--text-caption)] text-text-subtle">
-              {item.priority}
-            </span>
-          </button>
-        ))
+              <div className="flex w-[300px] shrink-0 flex-col gap-0.5 pl-5">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: STATUS_DOT[item.status] ?? 'var(--text-subtle)' }}
+                  />
+                  <span
+                    className={cn(
+                      'truncate text-[length:var(--text-body)]',
+                      closed ? 'text-text-muted line-through' : 'text-text-primary',
+                    )}
+                  >
+                    {item.title}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-2 pl-3.5 text-[length:var(--text-caption)]">
+                  <span style={{ color: PRIORITY_TONE[item.priority] }}>{item.priority}</span>
+                  {item.criteriaCount > 0 && (
+                    <span
+                      style={unspecified > 0 ? { color: '#F59E0B' } : { color: 'var(--text-subtle)' }}
+                      title="Acceptance criteria expressed as rules in a specification"
+                    >
+                      {item.criteriaSpecified}/{item.criteriaCount} specified
+                    </span>
+                  )}
+                  {item.kind === 'defect' && <span style={{ color: '#EF4444' }}>defect</span>}
+                </div>
+              </div>
+
+              {/* Placed on the same axis as the milestone above, so an item
+                  due after the thing that contains it is visible as such. */}
+              <div className="relative h-7 flex-1">
+                <div
+                  className="pointer-events-none absolute inset-y-0 w-px opacity-40"
+                  style={{ left: `${todayAt}%`, backgroundColor: 'var(--color-accent)' }}
+                />
+                <span
+                  className="absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap"
+                  style={{ left: `calc(${at}% - 3px)` }}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rotate-45"
+                    style={{
+                      backgroundColor: closed
+                        ? '#22C55E'
+                        : due !== null && due < 0
+                          ? '#EF4444'
+                          : 'var(--text-muted)',
+                    }}
+                  />
+                  {item.targetDate && (
+                    <span
+                      className="text-[length:var(--text-caption)]"
+                      style={{ color: due !== null && due < 0 ? '#EF4444' : 'var(--text-subtle)' }}
+                    >
+                      {closed
+                        ? 'done'
+                        : due !== null && due < 0
+                          ? `${-due}d late`
+                          : new Date(item.targetDate).toLocaleDateString(undefined, {
+                              day: 'numeric',
+                              month: 'short',
+                            })}
+                    </span>
+                  )}
+                </span>
+              </div>
+            </button>
+          );
+        })
       )}
     </div>
   );
