@@ -64,13 +64,14 @@ interface Item {
   links: { $id: string; kind: string; ref: string }[];
 }
 
-const STATUSES = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
+const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 const KINDS = ['change', 'defect'];
 
 const LABEL: Record<string, string> = {
   todo: 'Todo',
   in_progress: 'In progress',
+  in_review: 'In review',
   blocked: 'Blocked',
   done: 'Done',
   cancelled: 'Cancelled',

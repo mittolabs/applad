@@ -4,7 +4,7 @@ import { useRoutedSelection } from '@/hooks/use-routed-selection';
 import { ItemDetail } from './ItemDetail';
 import { RoadmapView } from './RoadmapView';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Plus, Columns3, List, Map } from 'lucide-react';
+import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Eye, Plus, Columns3, List, Map } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
@@ -46,6 +46,7 @@ interface Item {
 const STATUS = {
   todo: { label: 'Todo', icon: CircleDashed, color: 'var(--text-muted)' },
   in_progress: { label: 'In progress', icon: CircleDot, color: '#3B82F6' },
+  in_review: { label: 'In review', icon: Eye, color: '#A78BFA' },
   blocked: { label: 'Blocked', icon: PauseCircle, color: '#F59E0B' },
   done: { label: 'Done', icon: CircleCheckBig, color: '#22C55E' },
   cancelled: { label: 'Cancelled', icon: Ban, color: 'var(--text-subtle)' },
@@ -61,7 +62,7 @@ const PRIORITY_COLOR: Record<string, string> = {
 // The order work moves through, left to right and top to bottom. It read
 // in_progress → blocked → todo, which is the order of attention rather than
 // of progress, and on a board that runs the stages backwards.
-const ORDER = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
+const ORDER = ['todo', 'in_progress', 'in_review', 'blocked', 'done', 'cancelled'];
 
 export function PlanPage() {
   const { projectId } = useParams<{ projectId: string }>();

@@ -21,7 +21,11 @@ import (
 
 // Statuses an item can be in. Kept closed: a status nobody can name is a
 // status nobody can filter by.
-var Statuses = []string{"todo", "in_progress", "blocked", "done", "cancelled"}
+// in_review is built-but-not-accepted: waiting on somebody's judgement. It is
+// deliberately not "waiting for the tests to pass" — that is what a criterion
+// carrying a specification reference already says, and it is answered by
+// running them rather than by moving a card.
+var Statuses = []string{"todo", "in_progress", "in_review", "blocked", "done", "cancelled"}
 
 // Priorities, coarsest first.
 var Priorities = []string{"low", "medium", "high", "urgent"}

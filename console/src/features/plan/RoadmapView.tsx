@@ -35,6 +35,7 @@ interface PlanItem {
 const STATUS_DOT: Record<string, string> = {
   todo: 'var(--text-muted)',
   in_progress: '#3B82F6',
+  in_review: '#A78BFA',
   blocked: '#F59E0B',
   done: '#22C55E',
   cancelled: 'var(--text-subtle)',
