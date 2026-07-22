@@ -27,7 +27,6 @@ import { useTabIndex } from '@/hooks/use-tab-param';
 import {
   ACCENT,
   type Flag,
-  FLAG_TYPES,
   FlagTypeBadge,
   RuleTypeBadge,
   formatDate,
@@ -126,7 +125,7 @@ function SettingsTab({
   const toggleEnabled = async (next: boolean) => {
     setToggling(true);
     try {
-      const res = await api.patch(`/flags/${flagId}`, { enabled: next });
+      const res = await api.patch(`/flags/${flagId}/toggle`, { enabled: next });
       onChange(res.data as Flag);
     } finally {
       setToggling(false);
@@ -214,17 +213,19 @@ function EditFlagDialog({
 }) {
   const [name, setName] = useState(String(flag.name ?? ''));
   const [description, setDescription] = useState(String(flag.description ?? ''));
-  const [type, setType] = useState(String(flag.type ?? 'boolean'));
+  const type = String(flag.type ?? 'boolean');
   const [defaultValue, setDefaultValue] = useState(String(flag.defaultValue ?? ''));
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     setSaving(true);
     try {
-      const res = await api.patch(`/flags/${String(flag.$id)}`, {
+      // Full update uses PUT /flags/{id}. The backend updateFlag binds only
+      // name/description/defaultValue/enabled/tags — `type` is not accepted,
+      // so it's omitted here rather than sent and silently ignored.
+      const res = await api.put(`/flags/${String(flag.$id)}`, {
         name: name.trim(),
         description: description.trim(),
-        type,
         defaultValue: defaultValue.trim(),
         enabled: flag.enabled ?? false,
       });
@@ -253,11 +254,12 @@ function EditFlagDialog({
         placeholder="What does this flag control?"
         rows={2}
       />
-      <SelectField
+      <TextField
         label="Type"
         value={type}
-        onChange={setType}
-        options={FLAG_TYPES.map((t) => ({ value: t, label: t }))}
+        onChange={() => {}}
+        disabled
+        hint="A flag's type is fixed when it is created."
       />
       <TextField
         label="Default value"

@@ -1,6 +1,6 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Plus, Trash2, Flag, ChevronRight } from 'lucide-react';
+import { CalendarDays, Plus, Trash2, Pencil, Flag, ChevronRight } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, FormDialog, TextField } from '@/components/form-dialog';
@@ -139,6 +139,9 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
   // it, so it asks for the name — the same confirmation the rest of the
   // console uses for things that cannot be taken back.
   const [confirming, setConfirming] = useState<Milestone | null>(null);
+  // Editing a milestone reuses the create dialog seeded with its values, so
+  // renaming or moving a date is the same form as making one.
+  const [editing, setEditing] = useState<Milestone | null>(null);
   // Opening a milestone shows its work underneath it, rather than sending
   // somebody to another view: the timeline is the context that makes the
   // items mean anything, and leaving it to read them throws that away.
@@ -236,6 +239,16 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
                       />
                       {m.name}
                     </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(m);
+                      }}
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                      aria-label="Edit milestone"
+                    >
+                      <Pencil size={12} className="text-text-subtle hover:text-text-primary" />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -340,10 +353,17 @@ export function RoadmapView({ onOpenItem }: { onOpenItem: (id: string) => void }
         }}
       />
 
-      <CreateMilestoneDialog
+      <MilestoneDialog
         open={creating}
         onOpenChange={setCreating}
-        onCreated={() => qc.invalidateQueries({ queryKey: ['plan-milestones'] })}
+        onSaved={() => qc.invalidateQueries({ queryKey: ['plan-milestones'] })}
+      />
+
+      <MilestoneDialog
+        milestone={editing ?? undefined}
+        open={editing !== null}
+        onOpenChange={(o) => !o && setEditing(null)}
+        onSaved={() => qc.invalidateQueries({ queryKey: ['plan-milestones'] })}
       />
     </div>
   );
@@ -483,27 +503,56 @@ function MilestoneItems({
   );
 }
 
-function CreateMilestoneDialog({
+/*
+ * New milestone, or an existing one being edited.
+ *
+ * The same form does both — a milestone is created and later renamed or moved
+ * to a different date with the identical fields, so making a second dialog for
+ * it would only be a way for the two to drift. When a milestone is passed the
+ * form seeds from it and PATCHes; otherwise it POSTs. The description travels
+ * even though it has no field here, because the update writes it absolutely and
+ * an edit that dropped it would quietly erase what somebody wrote.
+ */
+function MilestoneDialog({
+  milestone,
   open,
   onOpenChange,
-  onCreated,
+  onSaved,
 }: {
+  milestone?: Milestone;
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }) {
   const [name, setName] = useState('');
   const [targetDate, setTargetDate] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Reseed whenever the dialog opens for a different milestone, so the fields
+  // never show the last one edited.
+  useEffect(() => {
+    if (open) {
+      setName(milestone?.name ?? '');
+      setTargetDate(milestone?.targetDate ? milestone.targetDate.slice(0, 10) : '');
+    }
+  }, [open, milestone]);
+
+  const editing = milestone !== undefined;
+
   const submit = async () => {
     setSaving(true);
     try {
-      await api.post('/plan/milestones', { name: name.trim(), targetDate });
-      setName('');
-      setTargetDate('');
+      if (editing) {
+        await api.patch(`/plan/milestones/${milestone.$id}`, {
+          name: name.trim(),
+          description: milestone.description ?? '',
+          targetDate,
+        });
+      } else {
+        await api.post('/plan/milestones', { name: name.trim(), targetDate });
+      }
       onOpenChange(false);
-      onCreated();
+      onSaved();
     } catch (e) {
       toast.error(friendlyError(e));
     } finally {
@@ -515,9 +564,9 @@ function CreateMilestoneDialog({
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="New milestone"
+      title={editing ? 'Edit milestone' : 'New milestone'}
       subtitle="A date something is aimed at"
-      submitLabel="Create"
+      submitLabel={editing ? 'Save' : 'Create'}
       loading={saving}
       submitDisabled={!name.trim()}
       onSubmit={submit}

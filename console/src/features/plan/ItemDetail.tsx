@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { ChevronLeft, Bug, GitCommitHorizontal, Plus, Trash2, Check, Pencil } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/form-dialog';
 import { RichTextEditor } from '@/components/rich-text-editor';
 import { toast } from '@/components/toast';
 import { cn } from '@/lib/utils';
@@ -135,6 +136,20 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
       qc.invalidateQueries({ queryKey: ['plan-item', itemId] });
       qc.invalidateQueries({ queryKey: ['plan-items'] });
       qc.invalidateQueries({ queryKey: ['plan-milestones'] });
+    },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
+  // Deleting an item is not undoable, so it confirms and then leaves for the
+  // list — staying on the page of a thing that no longer exists is nonsense.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/plan/items/${itemId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plan-items'] });
+      qc.invalidateQueries({ queryKey: ['plan-milestones'] });
+      setConfirmingDelete(false);
+      onBack();
     },
     onError: (e) => toast.error(friendlyError(e)),
   });
@@ -317,8 +332,32 @@ export function ItemDetail({ itemId, onBack }: { itemId: string; onBack: () => v
               </div>
             </Property>
           )}
+
+          <div className="mt-1 border-t border-border pt-3">
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="flex items-center gap-1.5 text-[length:var(--text-label)] text-text-subtle transition-colors hover:text-[#EF4444]"
+            >
+              <Trash2 size={13} />
+              Delete item
+            </button>
+          </div>
         </aside>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        title="Delete item"
+        message={
+          <>
+            <b>{data?.title}</b> will be deleted, along with its criteria, comments and history.
+            This cannot be undone.
+          </>
+        }
+        loading={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
     </div>
   );
 }
@@ -760,26 +799,44 @@ function Discussion({ itemId, comments }: { itemId: string; comments: Comment[] 
   const [body, setBody] = useState('');
   const [composing, setComposing] = useState(false);
 
+  const refresh = () => qc.invalidateQueries({ queryKey: ['plan-comments', itemId] });
+
   const add = useMutation({
     mutationFn: () => api.post(`/plan/items/${itemId}/comments`, { body: body.trim() }),
     onSuccess: () => {
       setBody('');
       setComposing(false);
-      qc.invalidateQueries({ queryKey: ['plan-comments', itemId] });
+      refresh();
     },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/plan/comments/${id}`),
+    onSuccess: refresh,
     onError: (e) => toast.error(friendlyError(e)),
   });
 
   return (
     <div className="flex flex-col gap-3">
       {comments.map((c) => (
-        <div key={c.$id} className="rounded-[var(--radius)] border border-border bg-surface px-4 py-3">
+        <div
+          key={c.$id}
+          className="group relative rounded-[var(--radius)] border border-border bg-surface px-4 py-3"
+        >
           <div className="prose-plan text-[length:var(--text-body)] text-text-primary">
             <Markdown remarkPlugins={[remarkGfm]}>{c.body}</Markdown>
           </div>
           <span className="mt-1 block text-[length:var(--text-caption)] text-text-subtle">
             {new Date(c.$createdAt).toLocaleString()}
           </span>
+          <button
+            onClick={() => remove.mutate(c.$id)}
+            className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100"
+            aria-label="Delete comment"
+          >
+            <Trash2 size={13} className="text-text-subtle hover:text-[#EF4444]" />
+          </button>
         </div>
       ))}
 

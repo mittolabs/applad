@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   Check,
-  ChevronDown,
   Copy,
   Database,
   FolderClosed,
@@ -24,7 +23,6 @@ import { PageTabs } from '@/components/page-tabs';
 import { IdText } from '@/components/id-text';
 import { EmptyState } from '@/components/empty-state';
 import { ErrorState } from '@/components/error-state';
-import { UsageChart } from './UsageChart';
 
 /* Ports console/lib/features/overview/overview_page.dart.
  * Read-only project dashboard: usage charts, stat cards, info cards,
@@ -117,12 +115,6 @@ function useProjectStats(projectId: string) {
 
 // --- Formatting helpers ------------------------------------------------------
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return `${n}`;
-}
-
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -133,15 +125,6 @@ function formatBytes(bytes: number): string {
 
 function toNum(v: unknown): number {
   return typeof v === 'number' ? v : 0;
-}
-
-function graphData(history: unknown, points: number): number[] {
-  if (Array.isArray(history) && history.length > 0) {
-    return history
-      .slice(0, points)
-      .map((e) => (typeof e === 'number' ? e : 0));
-  }
-  return Array<number>(points).fill(0);
 }
 
 function timeAgo(iso: unknown): string {
@@ -220,19 +203,10 @@ function OverviewTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Usage charts */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <UsageGraph
-          title="Requests"
-          value={formatNumber(toNum(usage.requests))}
-          data={graphData(usage.requestsHistory, 30)}
-        />
-        <UsageGraph
-          title="Bandwidth"
-          value={formatBytes(toNum(usage.bandwidth))}
-          data={graphData(usage.bandwidthHistory, 30)}
-        />
-      </div>
+      {/* Request-count and bandwidth cards were removed: the /projects/{id}/usage
+       * response (projects.UsageStats) carries no requests/bandwidth fields, so
+       * they only ever rendered a measured-looking 0 with an empty sparkline.
+       * Real request/bandwidth metering needs a backend before it can return. */}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -279,42 +253,6 @@ function OverviewTab({ projectId }: { projectId: string }) {
       <RecentDeployments releases={stats.releases} onViewAll={() => go('deploy')} />
 
       <ServicesGrid stats={stats} onNavigate={go} />
-    </div>
-  );
-}
-
-// --- Usage graph -------------------------------------------------------------
-
-function UsageGraph({
-  title,
-  value,
-  data,
-  period = '30d',
-}: {
-  title: string;
-  value: string;
-  data: number[];
-  period?: string;
-}) {
-  return (
-    <div className="rounded-[var(--radius)] border border-border bg-surface p-5">
-      <div className="flex items-start">
-        <div>
-          <div className="text-[28px] font-bold leading-none text-text-primary">
-            {value}
-          </div>
-          <div className="mt-1 text-[length:var(--text-body)] text-text-secondary">
-            {title}
-          </div>
-        </div>
-        <div className="ml-auto flex items-center gap-1 rounded-[var(--radius-6)] border border-border bg-fill px-2.5 py-1 text-[length:var(--text-label)] text-text-secondary">
-          {period}
-          <ChevronDown size={12} />
-        </div>
-      </div>
-      <div className="mt-5">
-        <UsageChart data={data} height={100} />
-      </div>
     </div>
   );
 }

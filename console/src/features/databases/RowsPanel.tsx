@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlignJustify, Columns3, KeyRound, MoreHorizontal, Plus, Upload } from 'lucide-react';
-import { api } from '@/api/client';
+import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { IdText } from '@/components/id-text';
 import { EmptyState } from '@/components/empty-state';
@@ -31,6 +31,7 @@ export function RowsPanel({
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Json | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const columnsQuery = useQuery({
     queryKey: ['db-columns', dbId, tableId],
@@ -74,7 +75,7 @@ export function RowsPanel({
         onChange={setSearch}
         trailing={
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled>
+            <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
               <Upload size={14} />
               Import CSV
             </Button>
@@ -209,7 +210,165 @@ export function RowsPanel({
         message="Are you sure? This action cannot be undone."
         onConfirm={del}
       />
+
+      {importing && (
+        <ImportCsvDialog
+          base={base}
+          onClose={() => setImporting(false)}
+          onImported={() => {
+            setImporting(false);
+            invalidateRows();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+interface CsvPreview {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  total: number;
+}
+
+interface CsvImportResult {
+  imported: number;
+  failed: number;
+  errors?: string[];
+}
+
+function ImportCsvDialog({
+  base,
+  onClose,
+  onImported,
+}: {
+  base: string;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<CsvPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pick = async (f: File | null) => {
+    setError(null);
+    setPreview(null);
+    setFile(f);
+    if (!f) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', f);
+      const res = await api.post(`${base}/import/csv/preview`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setPreview(res.data as CsvPreview);
+    } catch (e) {
+      setError(friendlyError(e));
+      setFile(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirm = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await api.post(`${base}/import/csv`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const result = res.data as CsvImportResult;
+      if (result.imported === 0 && result.failed > 0) {
+        setError(result.errors?.[0] ?? 'No rows could be imported.');
+        return;
+      }
+      onImported();
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Import CSV"
+      subtitle="Columns are matched to the table by header name."
+      width={560}
+      submitLabel="Import"
+      loading={busy}
+      submitDisabled={!preview}
+      onSubmit={confirm}
+    >
+      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius)] border border-dashed border-border bg-fill px-6 py-8 text-center transition-colors hover:border-[var(--color-accent)]">
+        <Upload size={20} className="text-text-subtle" />
+        <span className="text-[length:var(--text-body)] text-text-secondary">
+          {file ? file.name : 'Choose a CSV file'}
+        </span>
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            e.target.value = '';
+            void pick(f);
+          }}
+        />
+      </label>
+
+      {error && (
+        <div className="rounded-[var(--radius)] border border-[color-mix(in_srgb,var(--color-danger)_30%,var(--border))] bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] px-3 py-2 text-[length:var(--text-body)] text-[var(--color-danger)]">
+          {error}
+        </div>
+      )}
+
+      {preview && (
+        <div className="flex flex-col gap-2">
+          <div className="text-[length:var(--text-label)] text-text-subtle">
+            {preview.columns.length} column{preview.columns.length === 1 ? '' : 's'} ·
+            showing first {preview.rows.length} row{preview.rows.length === 1 ? '' : 's'}
+          </div>
+          <div className="overflow-x-auto rounded-[var(--radius-10)] border border-border">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-border">
+                  {preview.columns.map((c) => (
+                    <th
+                      key={c}
+                      className="whitespace-nowrap px-3 py-2 text-[length:var(--text-label)] font-medium text-text-muted"
+                    >
+                      {c}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {preview.rows.map((row, i) => (
+                  <tr key={i} className="border-b border-[var(--fill)] last:border-0">
+                    {preview.columns.map((c) => (
+                      <td
+                        key={c}
+                        className="max-w-[200px] truncate px-3 py-2 font-[family-name:var(--font-mono)] text-[length:var(--text-label)] text-text-primary"
+                      >
+                        {row[c] != null ? String(row[c]) : '-'}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </FormDialog>
   );
 }
 

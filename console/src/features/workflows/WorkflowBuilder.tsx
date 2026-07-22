@@ -210,7 +210,6 @@ function BuilderInner({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [pendingConnect, setPendingConnect] = useState<string | null>(null);
   const [execsOpen, setExecsOpen] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [lastExecData, setLastExecData] = useState<Record<string, ExecEntry>>({});
   const [pinnedData, setPinnedData] = useState<Record<string, unknown>>({});
   const [logsOpen, setLogsOpen] = useState(false);
@@ -573,28 +572,6 @@ function BuilderInner({
     }
   }, [wfId, setNodes]);
 
-  // ── Node test ──
-  const testNode = useCallback(
-    async (nodeId: string) => {
-      setTesting(true);
-      try {
-        const input = pinnedData[nodeId] ?? lastExecData[nodeId]?.input ?? {};
-        const res = await api.post(`/workflows/${wfId}/nodes/${nodeId}/test`, { input });
-        const data = res.data as Record<string, unknown> | undefined;
-        const output = data?.['output'] ?? data;
-        setLastExecData((d) => ({ ...d, [nodeId]: { input, output } }));
-      } catch (e) {
-        setLastExecData((d) => ({
-          ...d,
-          [nodeId]: { input: {}, output: { error: friendlyError(e) } },
-        }));
-      } finally {
-        setTesting(false);
-      }
-    },
-    [wfId, pinnedData, lastExecData],
-  );
-
   // ── Regenerate webhook secret ──
   const regenerateSecret = useCallback(async () => {
     try {
@@ -859,8 +836,6 @@ function BuilderInner({
             onOnErrorChange={(value) => setNodeData(configNode.id, { onError: value })}
             onDelete={() => deleteNode(configNode.id)}
             onToggleDisable={() => toggleDisable(configNode.id)}
-            onTest={() => testNode(configNode.id)}
-            testing={testing}
             onDeleteEdge={deleteEdge}
             lastExecData={lastExecData}
             pinnedData={pinnedData}

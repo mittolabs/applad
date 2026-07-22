@@ -44,8 +44,6 @@ export function NodeConfigPanel({
   onOnErrorChange,
   onDelete,
   onToggleDisable,
-  onTest,
-  testing,
   onDeleteEdge,
   lastExecData,
   pinnedData,
@@ -67,8 +65,6 @@ export function NodeConfigPanel({
   onOnErrorChange: (value: string) => void;
   onDelete: () => void;
   onToggleDisable: () => void;
-  onTest: () => void;
-  testing: boolean;
   onDeleteEdge: (edgeId: string) => void;
   lastExecData: Record<string, ExecEntry>;
   pinnedData: Record<string, unknown>;
@@ -107,15 +103,9 @@ export function NodeConfigPanel({
             <button type="button" title="Delete" onClick={onDelete} className="text-[#ff5252]">
               <Trash2 size={15} />
             </button>
-            <button
-              type="button"
-              title="Test this step"
-              onClick={onTest}
-              disabled={testing}
-              style={{ color: GREEN }}
-            >
-              {testing ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
-            </button>
+            {/* Per-node testing needs a single-node executor endpoint on the
+                backend; the button is removed until that exists rather than
+                left as a control that does nothing. */}
           </>
         )}
         <button type="button" onClick={onClose} className="text-text-secondary hover:text-text-primary">

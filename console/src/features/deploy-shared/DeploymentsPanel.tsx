@@ -39,7 +39,7 @@ export function DeploymentsPanel({
   showTrigger = true,
 }: {
   targetId: string;
-  /** Pipeline used by "Create deployment" (defaults to the target id). */
+  /** Pipeline used by "Create deployment". When absent, the target's pipeline is resolved from /deploy/pipelines. */
   pipelineId?: string;
   showMetrics?: boolean;
   showTrigger?: boolean;
@@ -63,7 +63,21 @@ export function DeploymentsPanel({
 
   const trigger = async () => {
     try {
-      await api.post(`/deploy/pipelines/${pipelineId ?? targetId}/trigger`, {});
+      // POST /deploy/pipelines/{id}/trigger wants a PIPELINE id, not a target
+      // id. When no pipeline was passed in, resolve the target's pipeline from
+      // the project-wide list rather than substituting the target id (which 404s).
+      let id = pipelineId;
+      if (!id) {
+        const res = await api.get('/deploy/pipelines');
+        const pipelines = ((res.data as Record<string, unknown>)['pipelines'] as Row[] | undefined) ?? [];
+        const match = pipelines.find((p) => String(p['targetId'] ?? '') === targetId);
+        id = match ? String(match['$id'] ?? match['id'] ?? '') : '';
+        if (!id) {
+          toast.error('No deployment pipeline is configured for this target.');
+          return;
+        }
+      }
+      await api.post(`/deploy/pipelines/${id}/trigger`, {});
       toast.success('Deployment triggered');
       query.refetch();
     } catch (e) {

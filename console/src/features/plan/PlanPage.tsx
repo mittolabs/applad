@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useRoutedSelection } from '@/hooks/use-routed-selection';
 import { ItemDetail } from './ItemDetail';
 import { RoadmapView } from './RoadmapView';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Eye, Plus, Columns3, List, Map } from 'lucide-react';
+import { CircleDashed, CircleDot, CircleCheckBig, Ban, PauseCircle, Eye, Plus, Columns3, List, Map, Grid3x3 } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
 import { ErrorState } from '@/components/error-state';
 import { FormDialog, SelectField, TextField } from '@/components/form-dialog';
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/components/toast';
 import { cn } from '@/lib/utils';
 
@@ -88,6 +89,9 @@ export function PlanPage() {
   const assignees = useAssigneeNames();
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
+  // The matrix that turns impact and urgency into a priority is a project-wide
+  // policy, so it is edited from the page rather than from any one item.
+  const [matrixOpen, setMatrixOpen] = useState(false);
   // Set when a milestone is opened from the roadmap: the list then shows that
   // milestone's work rather than everything.
   const [milestone, setMilestone] = useState<string | null>(null);
@@ -150,10 +154,16 @@ export function PlanPage() {
             What this project has decided to do, and what each decision led to.
           </p>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <Plus size={14} />
-          New item
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setMatrixOpen(true)}>
+            <Grid3x3 size={14} />
+            Priority matrix
+          </Button>
+          <Button onClick={() => setCreating(true)}>
+            <Plus size={14} />
+            New item
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -272,7 +282,132 @@ export function PlanPage() {
         onOpenChange={setCreating}
         onCreated={() => qc.invalidateQueries({ queryKey: ['plan-items'] })}
       />
+
+      <MatrixDialog open={matrixOpen} onOpenChange={setMatrixOpen} />
     </div>
+  );
+}
+
+/*
+ * The priority matrix, editable.
+ *
+ * Impact and urgency are answered per item; what those two answers resolve to
+ * is a policy this dialog owns. A cell is a select, and changing it PUTs the
+ * one cell — the grid is not saved as a whole, so two people editing different
+ * cells do not clobber each other. Change and defect keep separate grids
+ * because the same pair of answers should not mean the same urgency for
+ * building something wanted and fixing something broken.
+ */
+const MATRIX_KINDS = ['change', 'defect'] as const;
+const MATRIX_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+const MATRIX_LEVELS = [3, 2, 1];
+
+function MatrixDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const [kind, setKind] = useState<(typeof MATRIX_KINDS)[number]>('change');
+
+  const { data: cells = [] } = useQuery({
+    queryKey: ['plan-matrix', kind],
+    queryFn: async () =>
+      ((await api.get('/plan/matrix', { params: { kind } })).data as {
+        cells: { impact: number; urgency: number; priority: string }[];
+      }).cells ?? [],
+    enabled: open,
+  });
+
+  const set = useMutation({
+    mutationFn: (body: { kind: string; impact: number; urgency: number; priority: string }) =>
+      api.put('/plan/matrix', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plan-matrix', kind] });
+      // Derived priorities on items follow from the grid, so refresh the list.
+      qc.invalidateQueries({ queryKey: ['plan-items'] });
+    },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
+  const priorityAt = (impact: number, urgency: number) =>
+    cells.find((c) => c.impact === impact && c.urgency === urgency)?.priority ?? 'medium';
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent width={520}>
+        <DialogHeader>
+          <DialogTitle>Priority matrix</DialogTitle>
+          <DialogDescription>
+            How an item's impact and urgency resolve to its priority. Change a cell to set the
+            policy for this project.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <div className="mb-4 flex h-8 w-fit items-center overflow-hidden rounded-[var(--radius)] border border-field-border bg-field-fill">
+            {MATRIX_KINDS.map((k, i) => (
+              <div key={k} className="flex h-full">
+                {i > 0 && <div className="w-px bg-field-border" />}
+                <button
+                  type="button"
+                  onClick={() => setKind(k)}
+                  className={cn(
+                    'flex h-full items-center px-3 text-[length:var(--text-label)] capitalize transition-colors',
+                    kind === k
+                      ? 'bg-fill-active text-text-primary'
+                      : 'text-text-subtle hover:bg-fill-hover hover:text-text-secondary',
+                  )}
+                >
+                  {k}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-[auto_repeat(3,1fr)] gap-1.5">
+            <div />
+            {MATRIX_LEVELS.map((u) => (
+              <div
+                key={u}
+                className="text-center text-[length:var(--text-caption)] text-text-subtle"
+              >
+                Urgency {LEVEL_LABEL[u]}
+              </div>
+            ))}
+
+            {MATRIX_LEVELS.map((impact) => (
+              <Fragment key={impact}>
+                <div className="flex items-center pr-2 text-[length:var(--text-caption)] text-text-subtle">
+                  Impact {LEVEL_LABEL[impact]}
+                </div>
+                {MATRIX_LEVELS.map((urgency) => {
+                  const priority = priorityAt(impact, urgency);
+                  return (
+                    <select
+                      key={urgency}
+                      value={priority}
+                      onChange={(e) =>
+                        set.mutate({ kind, impact, urgency, priority: e.target.value })
+                      }
+                      className="w-full rounded-[var(--radius)] border border-field-border bg-field-fill px-2 py-1.5 text-center text-[length:var(--text-label)] font-medium capitalize"
+                      style={{ color: PRIORITY_COLOR[priority] }}
+                    >
+                      {MATRIX_PRIORITIES.map((p) => (
+                        <option key={p} value={p} className="text-text-primary">
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })}
+              </Fragment>
+            ))}
+          </div>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 

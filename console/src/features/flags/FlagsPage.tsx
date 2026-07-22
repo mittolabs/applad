@@ -28,7 +28,7 @@ export function FlagsPage() {
 
   const toggleFlag = async (row: Row) => {
     const next = row.enabled !== true;
-    await api.patch(`/flags/${String(row.$id)}`, { enabled: next });
+    await api.patch(`/flags/${String(row.$id)}/toggle`, { enabled: next });
     list.refetch();
   };
 

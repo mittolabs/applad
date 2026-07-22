@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Eye, EyeOff, KeyRound, Monitor, ShieldAlert, ShieldCheck, Smartphone } from 'lucide-react';
+import { Activity, Eye, EyeOff, KeyRound, Monitor, ShieldAlert, Smartphone } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useOrgs } from '@/api/queries';
@@ -10,7 +10,6 @@ import { PageTabs } from '@/components/page-tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { ConfirmDialog } from '@/components/form-dialog';
 import { useTabIndex } from '@/hooks/use-tab-param';
 
@@ -70,7 +69,6 @@ function OverviewTab() {
   const [email, setEmail] = useState(user?.email ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [mfaEnabled, setMfaEnabled] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
@@ -162,18 +160,10 @@ function OverviewTab() {
         </div>
       </Card>
 
-      <Card
-        title="Multi-factor authentication"
-        icon={ShieldCheck}
-        subtitle="Enhance your account's security by requiring a second sign-in method."
-      >
-        <div className="flex items-center gap-2.5">
-          <Switch checked={mfaEnabled} onCheckedChange={setMfaEnabled} />
-          <span className="text-[length:var(--text-body)] text-text-primary">
-            Multi-factor authentication
-          </span>
-        </div>
-      </Card>
+      {/* The MFA card was removed: it was a Switch bound only to local state
+       * with no API behind it, and there is no console-admin MFA backend
+       * (console/handler.go registers no MFA route). Restore it only once a
+       * real console-admin MFA feature exists to enroll and verify against. */}
 
       <Card
         title="Delete account"

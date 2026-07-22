@@ -189,8 +189,11 @@ function OAuthConfigDialog({
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState(false);
 
+  // Must match the backend route: GET /account/sessions/oauth/{provider}/callback
+  // (auth/handler.go). No `oauth2`, and no projectId segment — this is the exact
+  // redirect URI users register with the provider.
   const redirectUri = useMemo(
-    () => `https://your-domain.com/v1/account/sessions/oauth2/callback/${provider.id}/${projectId}`,
+    () => `https://your-domain.com/v1/account/sessions/oauth/${provider.id}/callback`,
     [provider.id, projectId],
   );
   const note =

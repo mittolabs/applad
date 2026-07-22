@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +40,10 @@ export function BucketSettings({
   const compression = (bucket?.['compression'] as string) ?? 'none';
   const maxSize = (bucket?.['maximumFileSize'] as number) ?? 0;
   const extensions = (bucket?.['allowedFileExtensions'] as string[]) ?? [];
+  // The bucket model serializes permissions under $permissions; older writes
+  // used a bare `permissions` key, so accept either when reading.
+  const permissions =
+    (bucket?.['$permissions'] as string[]) ?? (bucket?.['permissions'] as string[]) ?? [];
   const created = String(bucket?.['createdAt'] ?? bucket?.['$createdAt'] ?? '');
   const updated = String(bucket?.['updatedAt'] ?? bucket?.['$updatedAt'] ?? '');
 
@@ -100,7 +103,11 @@ export function BucketSettings({
 
       {/* 3. Permissions */}
       <Section title="Permissions" subtitle="Choose who can access your buckets and files.">
-        <PermissionsTable />
+        <PermissionsTable
+          permissions={permissions}
+          saving={update.isPending}
+          onSave={(perms) => persist({ permissions: perms })}
+        />
       </Section>
 
       {/* 4. File security */}
@@ -322,43 +329,102 @@ function NameField({
   );
 }
 
-const ROLES = ['Users', 'Guests', 'Any'];
-const PERMS = ['Create', 'Read', 'Update', 'Delete'];
+// Appwrite-style permission strings: action("role") — e.g. read("any"),
+// create("users"), delete("guests"). The grid manages the three standard
+// roles across the four actions; any permission string outside this space
+// (a user- or team-scoped grant) is preserved untouched on save.
+const ROLES: { token: string; label: string }[] = [
+  { token: 'users', label: 'Users' },
+  { token: 'guests', label: 'Guests' },
+  { token: 'any', label: 'Any' },
+];
+const PERMS: { token: string; label: string }[] = [
+  { token: 'create', label: 'Create' },
+  { token: 'read', label: 'Read' },
+  { token: 'update', label: 'Update' },
+  { token: 'delete', label: 'Delete' },
+];
 
-function PermissionsTable() {
+const GRID_TOKENS = new Set<string>(
+  ROLES.flatMap((r) => PERMS.map((p) => `${p.token}("${r.token}")`)),
+);
+
+function PermissionsTable({
+  permissions,
+  onSave,
+  saving,
+}: {
+  permissions: string[];
+  onSave: (permissions: string[]) => void;
+  saving?: boolean;
+}) {
+  const [grid, setGrid] = useState<Set<string>>(() => new Set(permissions));
+  const [baseline, setBaseline] = useState<string[]>(permissions);
+
+  // Re-sync when the bucket reloads with a different set.
+  useEffect(() => {
+    const next = [...permissions].sort().join('|');
+    const cur = [...baseline].sort().join('|');
+    if (next !== cur) {
+      setGrid(new Set(permissions));
+      setBaseline(permissions);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permissions]);
+
+  const perm = (action: string, role: string) => `${action}("${role}")`;
+  const has = (action: string, role: string) => grid.has(perm(action, role));
+  const toggle = (action: string, role: string) => {
+    setGrid((prev) => {
+      const next = new Set(prev);
+      const key = perm(action, role);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const dirty = [...grid].sort().join('|') !== [...baseline].sort().join('|');
+
+  const save = () => {
+    // Keep any grant the grid does not represent (e.g. user:/team: scopes).
+    const preserved = baseline.filter((p) => !GRID_TOKENS.has(p));
+    const gridPerms = [...grid].filter((p) => GRID_TOKENS.has(p));
+    onSave([...preserved, ...gridPerms]);
+    setBaseline([...preserved, ...gridPerms]);
+  };
+
   return (
     <div>
       <div className="grid grid-cols-[80px_repeat(4,1fr)] items-center">
         <span />
         {PERMS.map((p) => (
           <span
-            key={p}
+            key={p.token}
             className="text-center text-[length:var(--text-caption)] font-medium text-text-muted"
           >
-            {p}
+            {p.label}
           </span>
         ))}
       </div>
       {ROLES.map((role) => (
-        <div
-          key={role}
-          className="grid grid-cols-[80px_repeat(4,1fr)] items-center py-1.5"
-        >
-          <span className="text-[length:var(--text-body)] text-text-primary">{role}</span>
+        <div key={role.token} className="grid grid-cols-[80px_repeat(4,1fr)] items-center py-1.5">
+          <span className="text-[length:var(--text-body)] text-text-primary">{role.label}</span>
           {PERMS.map((p) => (
-            <div key={p} className="flex justify-center">
-              <Checkbox disabled />
+            <div key={p.token} className="flex justify-center">
+              <Checkbox
+                checked={has(p.token, role.token)}
+                onCheckedChange={() => toggle(p.token, role.token)}
+              />
             </div>
           ))}
         </div>
       ))}
-      <button
-        type="button"
-        className="mt-2 inline-flex items-center gap-1.5 text-[length:var(--text-label)] text-[var(--color-accent)]"
-      >
-        <Plus size={14} />
-        Add role
-      </button>
+      <div className="mt-4 flex justify-end">
+        <Button size="sm" loading={saving} disabled={!dirty} onClick={save}>
+          Update
+        </Button>
+      </div>
     </div>
   );
 }

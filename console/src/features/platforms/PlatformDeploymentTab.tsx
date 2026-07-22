@@ -453,9 +453,11 @@ function GitDeployDialog({
     queryKey: ['deploy-pipelines', targetId],
     enabled: open,
     queryFn: async () => {
-      const res = await api.get(`/deploy/targets/${targetId}/pipelines`);
+      // Pipelines are a project-wide resource (GET /deploy/pipelines); there is
+      // no per-target route, so fetch them all and filter to this target.
+      const res = await api.get('/deploy/pipelines');
       const list = ((res.data as Record<string, unknown>)['pipelines'] as Row[] | undefined) ?? [];
-      return list;
+      return list.filter((p) => String(p['targetId'] ?? '') === targetId);
     },
   });
   const pipelines = query.data ?? [];
