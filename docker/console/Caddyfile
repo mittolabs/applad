@@ -1,0 +1,8 @@
+# Static SPA served by Caddy: return the requested file if it exists, else
+# index.html (client-side routing). Reached only through the edge proxy.
+:80 {
+	root * /srv
+	encode gzip
+	try_files {path} /index.html
+	file_server
+}

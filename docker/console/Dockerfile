@@ -1,4 +1,4 @@
-# Build the React console with Vite, serve the static bundle with nginx.
+# Build the React console with Vite, serve the static bundle with Caddy.
 # Far smaller/faster than the old Flutter image — no 800MB toolchain pull.
 FROM node:22-alpine AS builder
 WORKDIR /app
@@ -11,7 +11,7 @@ RUN cd console && npm ci
 COPY apps/console/ ./console/
 RUN cd console && npm run build
 
-FROM nginx:alpine
-COPY --from=builder /app/console/dist /usr/share/nginx/html
-COPY docker/console/nginx.conf /etc/nginx/conf.d/default.conf
+FROM caddy:2-alpine
+COPY --from=builder /app/console/dist /srv
+COPY docker/console/Caddyfile /etc/caddy/Caddyfile
 EXPOSE 80

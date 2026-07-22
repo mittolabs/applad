@@ -1,0 +1,47 @@
+# Edge proxy for local product dev (docker-compose.dev.yml) and the build-from-
+# source stack (docker-compose.yml). Plain HTTP over .localhost names. A
+# production self-host gets a generated Caddyfile from install.sh (Caddy
+# auto-HTTPS for your domain) — this file is the local/dev mirror.
+{
+	auto_https off
+}
+
+# ── Admin console (+ same-origin /v1; WebSockets/SSE native) ──────────────────
+http://console.applad.io.localhost {
+	handle /v1/* {
+		reverse_proxy api:8080
+	}
+	handle /realtime* {
+		reverse_proxy api:8080
+	}
+	handle {
+		reverse_proxy console:80
+	}
+}
+
+# ── Public API ────────────────────────────────────────────────────────────────
+http://api.applad.io.localhost {
+	reverse_proxy api:8080
+}
+
+# ── User-deployed apps: wildcard subdomains ───────────────────────────────────
+http://*.applad.dev.localhost {
+	reverse_proxy applad-site-{labels.3}:80
+	handle_errors {
+		header Content-Type "text/html; charset=utf-8"
+		respond `<!doctype html><meta charset=utf-8><title>Applad hosting</title><body style="margin:0;height:100vh;display:grid;place-items:center;background:#0b0b0f;color:#e8e8ea;font:15px/1.6 system-ui"><div style="text-align:center"><h1 style="font-size:22px;color:#fff">No app deployed here</h1><p style="color:#8a8a92">Deploy a site or container and it will be served here.</p></div></body>` 200
+	}
+}
+
+# ── Default (reached by IP/localhost) → console ───────────────────────────────
+:80 {
+	handle /v1/* {
+		reverse_proxy api:8080
+	}
+	handle /realtime* {
+		reverse_proxy api:8080
+	}
+	handle {
+		reverse_proxy console:80
+	}
+}

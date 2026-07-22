@@ -99,12 +99,12 @@ sdks/js/        TypeScript client SDK
 sdks/node/      Node.js server SDK
 sdks/go/        Go server SDK (zero deps) — imported as github.com/mittolabs/applad/sdks/go
 sdks/python/    Python server SDK (stdlib only)
-docker/  Per-service Dockerfiles + nginx config (self-host vhosts)
-install.sh · docker-compose{,.dev,.release}.yml  self-host install + run (root, external URLs)
+docker/  Per-service Dockerfiles + Caddyfiles (edge + static SPA serving)
+install.sh · docker-compose{,.dev}.yml            self-host run + hot-reload dev (root, external URLs)
 ```
 
 > Not in this repo: the marketing site, the status page, the full multi-domain
-> compose, the multi-vhost production nginx, and the k8s manifests moved to the
+> compose, the multi-vhost production Caddyfile, and the k8s manifests moved to the
 > private **`mittolabs/applad-cloud`** Ansible repo, which provisions the full
 > hosted stack. This repo builds only the console-facing stack; its CI publishes
 > the `ghcr.io/mittolabs/applad-*` images that `install.sh` and applad-cloud both
@@ -245,9 +245,9 @@ Feature pages: `console/src/features/`:
 
 | Service | Port | Notes |
 |---|---|---|
-| `proxy` (openresty) | 80 | Name-based vhosts (see below); unknown hosts fall back to the console |
+| `proxy` (Caddy) | 80/443 | Name-based sites; automatic HTTPS; unknown hosts fall back to the console |
 | `api` | 8080 (internal) | Go API server |
-| `console` | 3000 (internal) | React + Vite static bundle, served by nginx with SPA fallback |
+| `console` | 3000 (internal) | React + Vite static bundle, served by Caddy with SPA fallback |
 | `postgres` | internal | Primary store |
 | `redis` | internal | Cache + pub/sub + job queues |
 | `10 workers` | internal | builds (with Docker socket), certificates, databases, deletes, executions, mails, messaging, migrations, usage, webhooks |
@@ -259,10 +259,22 @@ Root-level `docker-compose.yml` — run from repo root with `docker compose up -
 
 This is the *full* Mittolabs Cloud layout. A **self-hosted** install serves only
 the rows marked ✓ below — the console, the API, deployed apps, and the fallback;
-its `docker/nginx/nginx.conf` (and the smaller one `install.sh` writes) contain
-exactly those vhosts. The ⛅ rows — marketing, docs, status — are extra web
+its `docker/caddy/Caddyfile` (and the one `install.sh` generates) contain
+exactly those sites. The ⛅ rows — marketing, docs, status — are extra web
 properties provisioned by the private **`applad-cloud`** repo's multi-vhost edge
 (`roles/proxy`), not by anything in this repo.
+
+**Reverse proxy: Caddy (not nginx).** The edge *and* every static-SPA container
+run Caddy. Caddy gets and renews TLS itself (ACME), which removed the whole
+certbot apparatus this repo carried — three nginx-config writers, a certbot
+override with a renewal loop, and the ACME phase-1/phase-2 dance in `install.sh`
+(~190 lines gone). Fixed hostnames get certs via HTTP-01 with no DNS API at all;
+only a `*.applad.dev` wildcard needs DNS-01 (a provider token). Caddy has DNS
+plugins for Namecheap/Cloudflare/Route53/etc. — certbot has no Namecheap plugin
+— so the DNS provider is a swap, not a rewrite. WebSockets/SSE/streaming work
+natively (the old `map $http_upgrade`, `proxy_buffering off`, and body-size
+workarounds are gone), and issued certs live in a persisted `caddy_data` volume
+so a host move carries or re-issues them with no cron.
 
 Two domains, deliberately separated: everything of ours is on `applad.io`,
 while deployed customer apps get `applad.dev` to themselves. Deployed apps run

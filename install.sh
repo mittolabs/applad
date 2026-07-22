@@ -23,7 +23,7 @@ RELEASE_BASE="https://raw.githubusercontent.com/${GITHUB_ORG}/${GITHUB_REPO}/mai
 
 # Files we need in the install directory
 COMPOSE_FILE="docker-compose.yml"        # the one compose: builds locally, pulls on install
-NGINX_CONF="docker/nginx/nginx.conf"       # generated here; the compose mounts this path
+CADDYFILE="docker/caddy/Caddyfile"         # generated here; the compose mounts this path
 INIT_SQL="docker/postgres/init.sql"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -304,28 +304,16 @@ else
   SSL_CAPABLE=true
 fi
 
-# SSL
+# HTTPS — Caddy obtains and renews certs itself (Let's Encrypt, HTTP-01) when a
+# real domain points at this server. No certbot, no cron, no cert paths.
 SSL_MODE=none
+LE_EMAIL=''
 if [ "$SSL_CAPABLE" = true ]; then
   printf '\n'
-  SSL_IDX="$(ask_choice "TLS / SSL:" \
-    "None (HTTP only)" \
-    "Let's Encrypt (automatic — domain must point to this server)" \
-    "Custom certificate (bring your own)")"
-  case "$SSL_IDX" in
-    1) SSL_MODE=letsencrypt ;;
-    2) SSL_MODE=custom ;;
-    *) SSL_MODE=none ;;
-  esac
-fi
-
-LE_EMAIL=''; CERT_PATH=''; KEY_PATH=''
-if [ "$SSL_MODE" = letsencrypt ]; then
-  LE_EMAIL="$(ask "Email for Let's Encrypt notifications:")"
-fi
-if [ "$SSL_MODE" = custom ]; then
-  CERT_PATH="$(ask "Path to fullchain.pem:" "/etc/ssl/applad/fullchain.pem")"
-  KEY_PATH="$(ask "Path to privkey.pem:" "/etc/ssl/applad/privkey.pem")"
+  if ask_yn "Enable automatic HTTPS (Let's Encrypt via Caddy)?" y; then
+    SSL_MODE=auto
+    LE_EMAIL="$(ask "Email for Let's Encrypt notices (optional):" "")"
+  fi
 fi
 
 printf '\n'
@@ -467,207 +455,42 @@ EOF
 log ".env written"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 7. Write nginx.conf
+# 7. Write the Caddyfile
 # ═════════════════════════════════════════════════════════════════════════════
 section "Configuring reverse proxy"
-mkdir -p "$(dirname "$NGINX_CONF")"
+mkdir -p "$(dirname "$CADDYFILE")"
 
-_write_nginx_http() {
-  local domain="$1"
-  cat > "$NGINX_CONF" << NGINX
-upstream api     { server api:8080; }
-upstream console { server console:80; }
-
-server {
-    listen 80;
-    server_name _;
-
-    client_max_body_size 100m;
-
-    location /v1/ {
-        proxy_pass         http://api;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 120s;
-        # SSE / streaming — disable buffering so AI tokens reach the browser immediately
-        proxy_buffering    off;
-        proxy_cache        off;
-    }
-
-    location /realtime {
-        proxy_pass         http://api;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade    \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host       \$host;
-        proxy_read_timeout 3600s;
-    }
-
-    location / {
-        proxy_pass       http://console;
-        proxy_set_header Host \$host;
-    }
-}
-NGINX
-}
-
-_write_nginx_https() {
-  local domain="$1" cert="$2" key="$3"
-  cat > "$NGINX_CONF" << NGINX
-upstream api     { server api:8080; }
-upstream console { server console:80; }
-
-server {
-    listen 80;
-    server_name ${domain};
-    return 301 https://\$host\$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name ${domain};
-
-    ssl_certificate     ${cert};
-    ssl_certificate_key ${key};
-    ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         HIGH:!aNULL:!MD5;
-    ssl_session_cache   shared:SSL:10m;
-
-    client_max_body_size 100m;
-
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-
-    location /v1/ {
-        proxy_pass         http://api;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto https;
-        proxy_read_timeout 120s;
-        # SSE / streaming — disable buffering so AI tokens reach the browser immediately
-        proxy_buffering    off;
-        proxy_cache        off;
-    }
-
-    location /realtime {
-        proxy_pass         http://api;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade    \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host       \$host;
-        proxy_read_timeout 3600s;
-    }
-
-    location / {
-        proxy_pass       http://console;
-        proxy_set_header Host \$host;
-    }
-}
-NGINX
-}
-
-_write_nginx_le_phase1() {
-  local domain="$1"
-  cat > "$NGINX_CONF" << NGINX
-upstream api     { server api:8080; }
-upstream console { server console:80; }
-
-server {
-    listen 80;
-    server_name ${domain};
-
-    client_max_body_size 100m;
-
-    # ACME challenge
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location /v1/ {
-        proxy_pass         http://api;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 120s;
-        # SSE / streaming — disable buffering so AI tokens reach the browser immediately
-        proxy_buffering    off;
-        proxy_cache        off;
-    }
-
-    location /realtime {
-        proxy_pass         http://api;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade    \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host       \$host;
-        proxy_read_timeout 3600s;
-    }
-
-    location / {
-        proxy_pass       http://console;
-        proxy_set_header Host \$host;
-    }
-}
-NGINX
-}
-
-case "$SSL_MODE" in
-  none)
-    _write_nginx_http "$DOMAIN"
-    log "nginx.conf written (HTTP)" ;;
-  custom)
-    _write_nginx_https "$DOMAIN" "$CERT_PATH" "$KEY_PATH"
-    log "nginx.conf written (custom TLS)" ;;
-  letsencrypt)
-    _write_nginx_le_phase1 "$DOMAIN"
-    log "nginx.conf written (HTTP — ACME phase 1)" ;;
-esac
-
-# ═════════════════════════════════════════════════════════════════════════════
-# 8. Override for Let's Encrypt
-# ═════════════════════════════════════════════════════════════════════════════
-if [ "$SSL_MODE" = letsencrypt ]; then
-  cat > docker-compose.override.yml << OVERRIDE
-# Generated by install.sh — Let's Encrypt TLS
-services:
-  proxy:
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ssl_certs:/etc/ssl/applad
-      - certbot_webroot:/var/www/certbot
-
-  certbot:
-    image: certbot/certbot:latest
-    volumes:
-      - ssl_certs:/etc/letsencrypt
-      - certbot_webroot:/var/www/certbot
-    entrypoint: >
-      certbot certonly --webroot
-        --webroot-path /var/www/certbot
-        --email ${LE_EMAIL}
-        --agree-tos --no-eff-email
-        -d ${DOMAIN}
-    profiles:
-      - certbot
-
-  certbot-renew:
-    image: certbot/certbot:latest
-    volumes:
-      - ssl_certs:/etc/letsencrypt
-      - certbot_webroot:/var/www/certbot
-    entrypoint: >
-      sh -c "trap exit TERM; while :; do certbot renew --webroot
-        --webroot-path /var/www/certbot --quiet; sleep 12h & wait \$\$!; done"
-    restart: unless-stopped
-
-volumes:
-  certbot_webroot:
-OVERRIDE
-  log "docker-compose.override.yml written"
+# One Caddyfile. Caddy obtains and renews TLS itself — HTTP-01 for the domain,
+# or plain HTTP when reached by IP/localhost. No certbot, no renewal cron.
+if [ "$SSL_MODE" = auto ]; then
+  SITE="$DOMAIN"
+  log "Caddyfile written (automatic HTTPS for $DOMAIN)"
+else
+  SITE=":80"
+  log "Caddyfile written (HTTP)"
 fi
+
+{
+  [ -n "$LE_EMAIL" ] && printf '{
+	email %s
+}
+
+' "$LE_EMAIL"
+  cat <<CADDY
+${SITE} {
+	handle /v1/* {
+		reverse_proxy api:8080
+	}
+	handle /realtime* {
+		reverse_proxy api:8080
+	}
+	handle {
+		reverse_proxy console:80
+	}
+}
+CADDY
+} > "$CADDYFILE"
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 9. Pull images and start
@@ -684,33 +507,6 @@ section "Starting services"
 docker compose -f "$COMPOSE_FILE" $PROFILES up -d --remove-orphans
 log "All services started"
 
-# ═════════════════════════════════════════════════════════════════════════════
-# 10. Let's Encrypt certificate (phase 2)
-# ═════════════════════════════════════════════════════════════════════════════
-if [ "$SSL_MODE" = letsencrypt ]; then
-  section "Obtaining TLS certificate"
-  info "Waiting for nginx to be ready…"
-  sleep 8
-
-  if docker compose -f "$COMPOSE_FILE" --profile certbot run --rm certbot; then
-    log "Certificate issued for ${DOMAIN}"
-
-    # Swap to HTTPS nginx config
-    _write_nginx_https "$DOMAIN" \
-      "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" \
-      "/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
-
-    # Mount the LE certs volume and reload
-    docker compose -f "$COMPOSE_FILE" exec proxy nginx -s reload 2>/dev/null \
-      || docker compose -f "$COMPOSE_FILE" restart proxy
-
-    log "HTTPS enabled — auto-renewal running in background"
-  else
-    warn "certbot failed. Check that ${DOMAIN} resolves to this server's IP."
-    warn "Running HTTP only for now. Re-run the ACME step with:"
-    info "  docker compose -f $COMPOSE_FILE --profile certbot run --rm certbot"
-  fi
-fi
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 11. Health check
