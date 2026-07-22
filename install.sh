@@ -22,9 +22,9 @@ GITHUB_REPO="applad"
 RELEASE_BASE="https://raw.githubusercontent.com/${GITHUB_ORG}/${GITHUB_REPO}/main"
 
 # Files we need in the install directory
-COMPOSE_FILE="docker-compose.yml"        # written from docker-compose.release.yml
-NGINX_CONF="nginx.conf"
-INIT_SQL="postgres-init.sql"
+COMPOSE_FILE="docker-compose.yml"        # the one compose: builds locally, pulls on install
+NGINX_CONF="docker/nginx/nginx.conf"       # generated here; the compose mounts this path
+INIT_SQL="docker/postgres/init.sql"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -169,7 +169,7 @@ section "Install location"
 
 # Detect whether we're running from inside the repo
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./install.sh}")" 2>/dev/null && pwd || pwd)"
-if [ -f "$SCRIPT_DIR/docker-compose.release.yml" ]; then
+if [ -f "$SCRIPT_DIR/docker-compose.yml" ] && [ -d "$SCRIPT_DIR/apps" ]; then
   # Running from inside the repo — offer to use the current dir or a separate dir
   DEFAULT_DIR="$SCRIPT_DIR"
   info "Repo detected at: $SCRIPT_DIR"
@@ -250,16 +250,17 @@ fi
 section "Fetching release files"
 
 # docker-compose.yml — always refresh on install so image references stay current
-if [ -f "$SCRIPT_DIR/docker-compose.release.yml" ] && [ "$INSTALL_DIR" != "$SCRIPT_DIR" ]; then
-  cp "$SCRIPT_DIR/docker-compose.release.yml" "$INSTALL_DIR/$COMPOSE_FILE"
+if [ -f "$SCRIPT_DIR/docker-compose.yml" ] && [ -d "$SCRIPT_DIR/apps" ] && [ "$INSTALL_DIR" != "$SCRIPT_DIR" ]; then
+  cp "$SCRIPT_DIR/docker-compose.yml" "$INSTALL_DIR/$COMPOSE_FILE"
   log "docker-compose.yml copied from repo"
 else
   info "Downloading docker-compose.yml…"
-  fetch "${RELEASE_BASE}/docker-compose.release.yml" "$COMPOSE_FILE"
+  fetch "${RELEASE_BASE}/docker-compose.yml" "$COMPOSE_FILE"
   log "docker-compose.yml downloaded"
 fi
 
 # postgres init.sql — runs once on first database init
+mkdir -p "$(dirname "$INIT_SQL")"
 if [ -f "$SCRIPT_DIR/docker/postgres/init.sql" ] && [ "$INSTALL_DIR" != "$SCRIPT_DIR" ]; then
   cp "$SCRIPT_DIR/docker/postgres/init.sql" "$INSTALL_DIR/$INIT_SQL"
   log "postgres-init.sql copied from repo"
@@ -469,6 +470,7 @@ log ".env written"
 # 7. Write nginx.conf
 # ═════════════════════════════════════════════════════════════════════════════
 section "Configuring reverse proxy"
+mkdir -p "$(dirname "$NGINX_CONF")"
 
 _write_nginx_http() {
   local domain="$1"

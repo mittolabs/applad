@@ -68,6 +68,7 @@ x-limits-large: &limits-large
 
 services:
   api:
+    image: ghcr.io/mittolabs/applad-api:${APPLAD_VERSION:-latest}
     build:
       context: ./apps/backend
       dockerfile: ../../docker/api/Dockerfile
@@ -131,6 +132,7 @@ services:
   # React + Vite admin console (served as a static bundle by nginx).
   # Reached through the proxy at console.applad.io.localhost — not published directly.
   console:
+    image: ghcr.io/mittolabs/applad-console:${APPLAD_VERSION:-latest}
     build:
       context: .
       dockerfile: docker/console/Dockerfile
@@ -202,6 +204,7 @@ services:
     restart: unless-stopped
 
   worker-builds:
+    image: ghcr.io/mittolabs/applad-worker-builds:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -235,6 +238,7 @@ services:
     restart: unless-stopped
 
   worker-certificates:
+    image: ghcr.io/mittolabs/applad-worker-certificates:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -248,6 +252,7 @@ services:
     restart: unless-stopped
 
   worker-databases:
+    image: ghcr.io/mittolabs/applad-worker-databases:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -261,6 +266,7 @@ services:
     restart: unless-stopped
 
   worker-deletes:
+    image: ghcr.io/mittolabs/applad-worker-deletes:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -274,6 +280,7 @@ services:
     restart: unless-stopped
 
   worker-executions:
+    image: ghcr.io/mittolabs/applad-worker-executions:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -287,6 +294,7 @@ services:
     restart: unless-stopped
 
   worker-mails:
+    image: ghcr.io/mittolabs/applad-worker-mails:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -300,6 +308,7 @@ services:
     restart: unless-stopped
 
   worker-messaging:
+    image: ghcr.io/mittolabs/applad-worker-messaging:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -313,6 +322,7 @@ services:
     restart: unless-stopped
 
   worker-migrations:
+    image: ghcr.io/mittolabs/applad-worker-migrations:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -326,6 +336,7 @@ services:
     restart: unless-stopped
 
   worker-usage:
+    image: ghcr.io/mittolabs/applad-worker-usage:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -339,6 +350,7 @@ services:
     restart: unless-stopped
 
   worker-webhooks:
+    image: ghcr.io/mittolabs/applad-worker-webhooks:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:
@@ -352,6 +364,7 @@ services:
     restart: unless-stopped
 
   worker-cron:
+    image: ghcr.io/mittolabs/applad-worker-cron:${APPLAD_VERSION:-latest}
     build:
       <<: *worker-build
       args:

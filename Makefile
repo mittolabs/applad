@@ -1,7 +1,7 @@
 .PHONY: up down build test fmt
 
 up:
-	docker compose up -d
+	docker compose up -d --build
 
 down:
 	docker compose down

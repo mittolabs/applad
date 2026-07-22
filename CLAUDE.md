@@ -15,10 +15,12 @@ Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go back
 > `mittolabs/applad-cloud`** Ansible repo, not here. The docs *source* stays in
 > this repo under `apps/docs/` (applad-cloud builds it from here).
 >
-> Three composes: `docker-compose.yml` (build the console stack from source —
-> the default `make up`), `docker-compose.dev.yml` (Go `go run`, live reload),
-> and `docker-compose.release.yml` (prebuilt `ghcr.io/mittolabs/applad-*`
-> images — the artifact `install.sh` materializes on a production self-host).
+> Two composes. `docker-compose.yml` is the one stack: each service carries both
+> `build:` (from `apps/…`) and `image: ghcr.io/mittolabs/applad-*`, so
+> `docker compose up --build` builds locally while `install.sh` does
+> `docker compose pull` to run the prebuilt images — same file, no `.release`
+> variant. `docker-compose.dev.yml` is the separate hot-reload dev mode (Go
+> `go run` over mounted source).
 
 > The admin console was a Flutter Web app; it was rewritten in React + Vite + TypeScript (Tailwind v4 + shadcn/ui) at feature parity and now lives at `apps/console/`. The old Flutter app has been removed. `melos` now manages only `sdks/dart`. Console design/parity notes: `apps/console/CORE_REFERENCE.md`, `apps/console/PARITY_AUDIT.md`.
 
