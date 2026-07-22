@@ -13,7 +13,8 @@ Self-hosted BaaS (backend-as-a-service) with a built-in workflow engine. Go back
 > docs `docs.applad.io`, the status page `status.applad.io`) and the full
 > multi-domain production provisioning live in the **private
 > `mittolabs/applad-cloud`** Ansible repo, not here. The docs *source* stays in
-> this repo under `apps/docs/` (applad-cloud builds it from here).
+> this repo under `docs/` as plain markdown (applad-cloud's Fumadocs site stages
+> and renders it).
 >
 > Two composes. `docker-compose.yml` is the one stack: each service carries both
 > `build:` (from `apps/…`) and `image: ghcr.io/mittolabs/applad-*`, so
@@ -90,9 +91,9 @@ apps/
     internal/   26 packages (see below)
     tests/      Integration tests (build-tag gated: integration)
   console/      React + Vite admin app (Tailwind v4 + shadcn/ui, Lucide icons, dark Railway-style UI)
-  docs/         Documentation source (Next.js / Fumadocs). Served at docs.applad.io
-                by applad-cloud, which builds it from here; a self-host install
-                does not run it.
+docs/           Documentation CONTENT — markdown/mdx + meta.json, browsable here.
+                The Fumadocs site that renders docs.applad.io lives in applad-cloud
+                and stages this content at build; a self-host install runs neither.
 sdks/dart/      Dart SDK — client (Dio) + server (http) in one package
 sdks/js/        TypeScript client SDK
 sdks/node/      Node.js server SDK
