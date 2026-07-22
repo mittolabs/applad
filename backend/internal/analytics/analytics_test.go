@@ -42,12 +42,12 @@ func TestTrack_Inserts(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO analytics_events").
 		WithArgs(
-			sqlmock.AnyArg(), // id
-			"proj1",          // project_id
-			nil,              // user_id
-			nil,              // session_id
-			"page_view",      // event
-			sqlmock.AnyArg(), // properties
+			sqlmock.AnyArg(),        // id
+			"proj1",                 // project_id
+			nil,                     // user_id
+			nil,                     // session_id
+			"page_view",             // event
+			sqlmock.AnyArg(),        // properties
 			nil, nil, nil, nil, nil, // url, referrer, device, browser, country
 			sqlmock.AnyArg(), // created_at
 		).

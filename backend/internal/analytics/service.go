@@ -56,15 +56,15 @@ type Funnel struct {
 
 // FunnelResult holds conversion rates per step.
 type FunnelResult struct {
-	FunnelID string        `json:"funnelId"`
-	Steps    []StepResult  `json:"steps"`
+	FunnelID string       `json:"funnelId"`
+	Steps    []StepResult `json:"steps"`
 }
 
 // StepResult is the conversion data for a single funnel step.
 type StepResult struct {
-	Step        string  `json:"step"`
-	Count       int64   `json:"count"`
-	Conversion  float64 `json:"conversionRate"` // % vs previous step
+	Step       string  `json:"step"`
+	Count      int64   `json:"count"`
+	Conversion float64 `json:"conversionRate"` // % vs previous step
 }
 
 // Service handles analytics persistence and queries.

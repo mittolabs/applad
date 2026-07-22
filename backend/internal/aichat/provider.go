@@ -57,16 +57,16 @@ func (p *anthropicProvider) Name() string { return humanModelName(p.model, "Clau
 
 func (p *anthropicProvider) StreamChat(ctx context.Context, system string, msgs []ProviderMessage, tools []interface{}, out chan<- StreamEvent) error {
 	type content struct {
-		Type       string      `json:"type"`
-		Text       string      `json:"text,omitempty"`
-		ID         string      `json:"id,omitempty"`
-		Name       string      `json:"name,omitempty"`
-		Input      interface{} `json:"input,omitempty"`
-		ToolUseID  string      `json:"tool_use_id,omitempty"`
-		Content    interface{} `json:"content,omitempty"`
+		Type      string      `json:"type"`
+		Text      string      `json:"text,omitempty"`
+		ID        string      `json:"id,omitempty"`
+		Name      string      `json:"name,omitempty"`
+		Input     interface{} `json:"input,omitempty"`
+		ToolUseID string      `json:"tool_use_id,omitempty"`
+		Content   interface{} `json:"content,omitempty"`
 	}
 	type msg struct {
-		Role    string    `json:"role"`
+		Role    string      `json:"role"`
 		Content interface{} `json:"content"`
 	}
 
@@ -235,11 +235,11 @@ func (p *openaiProvider) StreamChat(ctx context.Context, system string, msgs []P
 		Function fnCall `json:"function,omitempty"`
 	}
 	type msg struct {
-		Role       string  `json:"role"`
-		Content    string  `json:"content,omitempty"`
-		ToolCalls  []tc    `json:"tool_calls,omitempty"`
-		ToolCallID string  `json:"tool_call_id,omitempty"`
-		Name       string  `json:"name,omitempty"`
+		Role       string `json:"role"`
+		Content    string `json:"content,omitempty"`
+		ToolCalls  []tc   `json:"tool_calls,omitempty"`
+		ToolCallID string `json:"tool_call_id,omitempty"`
+		Name       string `json:"name,omitempty"`
 	}
 
 	built := []msg{{Role: "system", Content: system}}
@@ -252,8 +252,8 @@ func (p *openaiProvider) StreamChat(ctx context.Context, system string, msgs []P
 			for _, call := range m.ToolCalls {
 				b, _ := json.Marshal(call.Args)
 				am.ToolCalls = append(am.ToolCalls, tc{
-					ID:   call.ID,
-					Type: "function",
+					ID:       call.ID,
+					Type:     "function",
 					Function: fnCall{Name: call.Name, Arguments: string(b)},
 				})
 			}
@@ -535,7 +535,7 @@ func (p *ollamaProvider) StreamChat(ctx context.Context, system string, msgs []P
 		Role       string `json:"role"`
 		Content    string `json:"content,omitempty"`
 		ToolCalls  []tc   `json:"tool_calls,omitempty"`
-		ToolCallID string  `json:"tool_call_id,omitempty"`
+		ToolCallID string `json:"tool_call_id,omitempty"`
 	}
 
 	built := []msg{{Role: "system", Content: system}}

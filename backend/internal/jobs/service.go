@@ -15,18 +15,18 @@ import (
 
 // Queue is a named job queue.
 type Queue struct {
-	ID                 string    `json:"$id"`
-	ProjectID          string    `json:"projectId"`
-	Name               string    `json:"name"`
-	WorkerURL          string    `json:"workerUrl,omitempty"`
-	Concurrency        int       `json:"concurrency"`
-	RetryLimit         int       `json:"retryLimit"`
-	RetryDelayS        int       `json:"retryDelaySeconds"`
-	DeadLetterQueueID  string    `json:"deadLetterQueueId,omitempty"`
-	Paused             bool      `json:"paused"`
-	Stats              *QStats   `json:"stats,omitempty"`
-	CreatedAt          time.Time `json:"$createdAt"`
-	UpdatedAt          time.Time `json:"$updatedAt"`
+	ID                string    `json:"$id"`
+	ProjectID         string    `json:"projectId"`
+	Name              string    `json:"name"`
+	WorkerURL         string    `json:"workerUrl,omitempty"`
+	Concurrency       int       `json:"concurrency"`
+	RetryLimit        int       `json:"retryLimit"`
+	RetryDelayS       int       `json:"retryDelaySeconds"`
+	DeadLetterQueueID string    `json:"deadLetterQueueId,omitempty"`
+	Paused            bool      `json:"paused"`
+	Stats             *QStats   `json:"stats,omitempty"`
+	CreatedAt         time.Time `json:"$createdAt"`
+	UpdatedAt         time.Time `json:"$updatedAt"`
 }
 
 // QStats holds live observability counters for a queue.
@@ -75,7 +75,7 @@ func (s *Service) CreateQueue(ctx context.Context, projectID, name, workerURL st
 		WorkerURL: workerURL, Concurrency: concurrency,
 		RetryLimit: retryLimit, RetryDelayS: retryDelayS,
 		DeadLetterQueueID: deadLetterQueueID,
-		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		CreatedAt:         time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
 	if q.Concurrency == 0 {
 		q.Concurrency = 10

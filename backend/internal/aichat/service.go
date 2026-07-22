@@ -44,7 +44,7 @@ Be concise, technical, and practical. Format code in markdown code blocks with t
 
 // Message is a single chat turn.
 type Message struct {
-	Role    string `json:"role"`    // "user" or "assistant"
+	Role    string `json:"role"` // "user" or "assistant"
 	Content string `json:"content"`
 }
 

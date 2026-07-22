@@ -16,31 +16,31 @@ import (
 
 // Plan defines a billing plan with limits and features.
 type Plan struct {
-	ID            string                 `json:"$id"`
-	Name          string                 `json:"name"`
-	Slug          string                 `json:"slug"`
-	PriceMonthly  int                    `json:"priceMonthly"` // cents
-	PriceYearly   int                    `json:"priceYearly"`  // cents
-	Limits        map[string]interface{} `json:"limits"`
-	Features      []string               `json:"features"`
-	Active        bool                   `json:"active"`
-	CreatedAt     time.Time              `json:"$createdAt"`
-	UpdatedAt     time.Time              `json:"$updatedAt"`
+	ID           string                 `json:"$id"`
+	Name         string                 `json:"name"`
+	Slug         string                 `json:"slug"`
+	PriceMonthly int                    `json:"priceMonthly"` // cents
+	PriceYearly  int                    `json:"priceYearly"`  // cents
+	Limits       map[string]interface{} `json:"limits"`
+	Features     []string               `json:"features"`
+	Active       bool                   `json:"active"`
+	CreatedAt    time.Time              `json:"$createdAt"`
+	UpdatedAt    time.Time              `json:"$updatedAt"`
 }
 
 // Subscription links a project to a plan.
 type Subscription struct {
-	ID                    string     `json:"$id"`
-	ProjectID             string     `json:"projectId"`
-	PlanID                string     `json:"planId"`
-	Status                string     `json:"status"` // active | past_due | cancelled | trialing
-	StripeCustomerID      string     `json:"stripeCustomerId,omitempty"`
-	StripeSubscriptionID  string     `json:"stripeSubscriptionId,omitempty"`
-	CurrentPeriodStart    *time.Time `json:"currentPeriodStart,omitempty"`
-	CurrentPeriodEnd      *time.Time `json:"currentPeriodEnd,omitempty"`
-	CancelAtPeriodEnd     bool       `json:"cancelAtPeriodEnd"`
-	CreatedAt             time.Time  `json:"$createdAt"`
-	UpdatedAt             time.Time  `json:"$updatedAt"`
+	ID                   string     `json:"$id"`
+	ProjectID            string     `json:"projectId"`
+	PlanID               string     `json:"planId"`
+	Status               string     `json:"status"` // active | past_due | cancelled | trialing
+	StripeCustomerID     string     `json:"stripeCustomerId,omitempty"`
+	StripeSubscriptionID string     `json:"stripeSubscriptionId,omitempty"`
+	CurrentPeriodStart   *time.Time `json:"currentPeriodStart,omitempty"`
+	CurrentPeriodEnd     *time.Time `json:"currentPeriodEnd,omitempty"`
+	CancelAtPeriodEnd    bool       `json:"cancelAtPeriodEnd"`
+	CreatedAt            time.Time  `json:"$createdAt"`
+	UpdatedAt            time.Time  `json:"$updatedAt"`
 }
 
 // BillingEvent is a metered usage event.
@@ -56,25 +56,25 @@ type BillingEvent struct {
 
 // Invoice is a billing invoice.
 type Invoice struct {
-	ID               string     `json:"$id"`
-	ProjectID        string     `json:"projectId"`
-	SubscriptionID   string     `json:"subscriptionId,omitempty"`
-	AmountCents      int        `json:"amountCents"`
-	Currency         string     `json:"currency"`
-	Status           string     `json:"status"` // draft | open | paid | void
-	StripeInvoiceID  string     `json:"stripeInvoiceId,omitempty"`
-	PeriodStart      *time.Time `json:"periodStart,omitempty"`
-	PeriodEnd        *time.Time `json:"periodEnd,omitempty"`
-	PaidAt           *time.Time `json:"paidAt,omitempty"`
-	CreatedAt        time.Time  `json:"$createdAt"`
+	ID              string     `json:"$id"`
+	ProjectID       string     `json:"projectId"`
+	SubscriptionID  string     `json:"subscriptionId,omitempty"`
+	AmountCents     int        `json:"amountCents"`
+	Currency        string     `json:"currency"`
+	Status          string     `json:"status"` // draft | open | paid | void
+	StripeInvoiceID string     `json:"stripeInvoiceId,omitempty"`
+	PeriodStart     *time.Time `json:"periodStart,omitempty"`
+	PeriodEnd       *time.Time `json:"periodEnd,omitempty"`
+	PaidAt          *time.Time `json:"paidAt,omitempty"`
+	CreatedAt       time.Time  `json:"$createdAt"`
 }
 
 // UsageSummary is aggregated usage for a project over a period.
 type UsageSummary struct {
-	ProjectID string                    `json:"projectId"`
-	Period    string                    `json:"period"`
-	Events    map[string]int64          `json:"events"`
-	Total     int64                     `json:"total"`
+	ProjectID string           `json:"projectId"`
+	Period    string           `json:"period"`
+	Events    map[string]int64 `json:"events"`
+	Total     int64            `json:"total"`
 }
 
 // Service manages billing data.
@@ -150,7 +150,7 @@ func (s *Service) GetSubscription(ctx context.Context, projectID string) (*Subsc
 func (s *Service) Subscribe(ctx context.Context, projectID, planID string) (*Subscription, error) {
 	sub := &Subscription{
 		ID: uid.New(""), ProjectID: projectID, PlanID: planID,
-		Status: "active",
+		Status:    "active",
 		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
 	now := time.Now().UTC()

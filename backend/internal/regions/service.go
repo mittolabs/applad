@@ -174,11 +174,11 @@ func (s *Service) RegionHealth(ctx context.Context, idOrCode string) (map[string
 		return nil, err
 	}
 	return map[string]interface{}{
-		"regionId": region.ID,
-		"code":     region.Code,
-		"status":   region.Status,
+		"regionId":  region.ID,
+		"code":      region.Code,
+		"status":    region.Status,
 		"latencyMs": 42,
-		"healthy":  region.Status == "active",
+		"healthy":   region.Status == "active",
 	}, nil
 }
 

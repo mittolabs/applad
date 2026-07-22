@@ -646,9 +646,9 @@ func parseFigmaUser(body []byte) (*UserInfo, error) {
 
 func parseHubspotUser(body []byte) (*UserInfo, error) {
 	var u struct {
-		User     string `json:"user"`
-		UserID   int    `json:"user_id"`
-		HubID    int    `json:"hub_id"`
+		User   string `json:"user"`
+		UserID int    `json:"user_id"`
+		HubID  int    `json:"hub_id"`
 	}
 	if err := json.Unmarshal(body, &u); err != nil {
 		return nil, err
@@ -685,9 +685,9 @@ func parseLineUser(body []byte) (*UserInfo, error) {
 
 func parseMailchimpUser(body []byte) (*UserInfo, error) {
 	var u struct {
-		UserID    int    `json:"user_id"`
-		Login     struct {
-			Email string `json:"email"`
+		UserID int `json:"user_id"`
+		Login  struct {
+			Email     string `json:"email"`
 			LoginName string `json:"login_name"`
 		} `json:"login"`
 	}

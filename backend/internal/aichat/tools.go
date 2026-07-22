@@ -319,8 +319,8 @@ func ToAnthropicTools() []interface{} {
 			}
 		}
 		out[i] = map[string]interface{}{
-			"name":         t.Name,
-			"description":  t.Description,
+			"name":        t.Name,
+			"description": t.Description,
 			"input_schema": map[string]interface{}{
 				"type":       "object",
 				"properties": props,

@@ -6,14 +6,14 @@ import (
 
 func TestNewService_StoresConfig(t *testing.T) {
 	cfg := Config{
-		Host:        "smtp.example.com",
-		Port:        "587",
-		Username:    "user",
-		Password:    "pass",
-		From:        "noreply@example.com",
-		TwilioSID:   "AC123",
-		TwilioToken: "tok123",
-		TwilioFrom:  "+1234567890",
+		Host:         "smtp.example.com",
+		Port:         "587",
+		Username:     "user",
+		Password:     "pass",
+		From:         "noreply@example.com",
+		TwilioSID:    "AC123",
+		TwilioToken:  "tok123",
+		TwilioFrom:   "+1234567890",
 		FCMServerKey: "fcm-key",
 	}
 	svc := NewService(nil, cfg)

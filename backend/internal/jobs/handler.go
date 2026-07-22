@@ -57,12 +57,12 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func (h *Handler) createQueue(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	var body struct {
-		Name               string `json:"name"`
-		WorkerURL          string `json:"workerUrl"`
-		Concurrency        int    `json:"concurrency"`
-		RetryLimit         int    `json:"retryLimit"`
-		RetryDelayS        int    `json:"retryDelaySeconds"`
-		DeadLetterQueueID  string `json:"deadLetterQueueId"`
+		Name              string `json:"name"`
+		WorkerURL         string `json:"workerUrl"`
+		Concurrency       int    `json:"concurrency"`
+		RetryLimit        int    `json:"retryLimit"`
+		RetryDelayS       int    `json:"retryDelaySeconds"`
+		DeadLetterQueueID string `json:"deadLetterQueueId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name is required")

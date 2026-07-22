@@ -15,17 +15,17 @@ import (
 
 // Index is a named search index bound to a project (and optionally a collection).
 type Index struct {
-	ID             string    `json:"$id"`
-	ProjectID      string    `json:"projectId"`
-	CollectionID   string    `json:"collectionId,omitempty"`
-	Name           string    `json:"name"`
-	Fields         []string  `json:"fields"`
-	Synonyms       []Synonym `json:"synonyms,omitempty"`
-	RankingRules   []string  `json:"rankingRules,omitempty"`
-	TypoTolerance  bool      `json:"typoTolerance"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"$createdAt"`
-	UpdatedAt      time.Time `json:"$updatedAt"`
+	ID            string    `json:"$id"`
+	ProjectID     string    `json:"projectId"`
+	CollectionID  string    `json:"collectionId,omitempty"`
+	Name          string    `json:"name"`
+	Fields        []string  `json:"fields"`
+	Synonyms      []Synonym `json:"synonyms,omitempty"`
+	RankingRules  []string  `json:"rankingRules,omitempty"`
+	TypoTolerance bool      `json:"typoTolerance"`
+	Status        string    `json:"status"`
+	CreatedAt     time.Time `json:"$createdAt"`
+	UpdatedAt     time.Time `json:"$updatedAt"`
 }
 
 // Synonym maps a set of words that should be treated as equivalent.
@@ -47,9 +47,9 @@ type Document struct {
 
 // SearchResult is a ranked search result.
 type SearchResult struct {
-	Total    int        `json:"total"`
-	Hits     []Hit      `json:"hits"`
-	Duration string     `json:"processingTimeMs"`
+	Total    int    `json:"total"`
+	Hits     []Hit  `json:"hits"`
+	Duration string `json:"processingTimeMs"`
 }
 
 // Hit is a single search result with relevance score.
@@ -313,9 +313,9 @@ func scanIndex(row interface {
 		&fieldsRaw, &synRaw, &rankRaw, &idx.TypoTolerance, &idx.Status, &idx.CreatedAt, &idx.UpdatedAt); err != nil {
 		return nil, err
 	}
-	json.Unmarshal(fieldsRaw, &idx.Fields)        //nolint:errcheck
-	json.Unmarshal(synRaw, &idx.Synonyms)          //nolint:errcheck
-	json.Unmarshal(rankRaw, &idx.RankingRules)     //nolint:errcheck
+	json.Unmarshal(fieldsRaw, &idx.Fields)     //nolint:errcheck
+	json.Unmarshal(synRaw, &idx.Synonyms)      //nolint:errcheck
+	json.Unmarshal(rankRaw, &idx.RankingRules) //nolint:errcheck
 	return idx, nil
 }
 

@@ -135,4 +135,3 @@ func TestDeleteDocument(t *testing.T) {
 		t.Fatalf("DeleteDocument: %v", err)
 	}
 }
-

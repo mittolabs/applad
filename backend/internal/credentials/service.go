@@ -3,8 +3,9 @@
 // so that key rotation re-encrypts data without invalidating existing records.
 //
 // Key versions:
-//   0 = SHA-256(JWT_SECRET)  (legacy — backward compat; not recommended for production)
-//   1 = CREDENTIALS_ENCRYPTION_KEY[:32]  (set this in production)
+//
+//	0 = SHA-256(JWT_SECRET)  (legacy — backward compat; not recommended for production)
+//	1 = CREDENTIALS_ENCRYPTION_KEY[:32]  (set this in production)
 package credentials
 
 import (

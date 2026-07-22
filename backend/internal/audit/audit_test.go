@@ -141,9 +141,9 @@ func TestMiddleware_RecordsOnAuthenticatedRoute(t *testing.T) {
 
 func TestParseRoute(t *testing.T) {
 	cases := []struct {
-		method, path   string
-		wantType       string
-		wantAction     string
+		method, path string
+		wantType     string
+		wantAction   string
 	}{
 		{"POST", "/v1/databases/db1/tables/tbl1/rows", "rows", "create.rows"},
 		{"GET", "/v1/users", "users", "list.users"},

@@ -59,7 +59,7 @@ func TestDelete(t *testing.T) {
 	proj := "test-cache-del"
 
 	svc.Set(ctx, proj, "k", "v", time.Minute, nil) //nolint:errcheck
-	svc.Delete(ctx, proj, "k")                       //nolint:errcheck
+	svc.Delete(ctx, proj, "k")                     //nolint:errcheck
 
 	entry, _ := svc.Get(ctx, proj, "k")
 	if entry != nil {

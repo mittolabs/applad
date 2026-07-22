@@ -58,7 +58,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func (h *Handler) createIndex(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	var body struct {
-		IndexID        string   `json:"indexId"`
+		IndexID       string   `json:"indexId"`
 		CollectionID  string   `json:"collectionId"`
 		Name          string   `json:"name"`
 		Fields        []string `json:"fields"`

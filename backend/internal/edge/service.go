@@ -30,14 +30,14 @@ type EdgeFunction struct {
 
 // Deployment is a specific deployed version of an edge function.
 type Deployment struct {
-	ID         string    `json:"$id"`
-	FunctionID string    `json:"functionId"`
-	ProjectID  string    `json:"projectId"`
-	Version    int       `json:"version"`
-	Status     string    `json:"status"` // deploying | active | failed
-	Regions    []string  `json:"regions"`
+	ID         string     `json:"$id"`
+	FunctionID string     `json:"functionId"`
+	ProjectID  string     `json:"projectId"`
+	Version    int        `json:"version"`
+	Status     string     `json:"status"` // deploying | active | failed
+	Regions    []string   `json:"regions"`
 	DeployedAt *time.Time `json:"deployedAt,omitempty"`
-	CreatedAt  time.Time `json:"$createdAt"`
+	CreatedAt  time.Time  `json:"$createdAt"`
 }
 
 // Service manages edge functions and their deployments.
@@ -176,8 +176,8 @@ func (s *Service) Deploy(ctx context.Context, functionID, projectID string, regi
 	}
 
 	// Mark as deployed (in a real system this would be async)
-	s.db.ExecContext(ctx, "UPDATE edge_functions SET status='deployed', updated_at=$1 WHERE id=$2", now, functionID)       //nolint:errcheck
-	s.db.ExecContext(ctx, "UPDATE edge_deployments SET status='active' WHERE id=$1", d.ID) //nolint:errcheck
+	s.db.ExecContext(ctx, "UPDATE edge_functions SET status='deployed', updated_at=$1 WHERE id=$2", now, functionID) //nolint:errcheck
+	s.db.ExecContext(ctx, "UPDATE edge_deployments SET status='active' WHERE id=$1", d.ID)                           //nolint:errcheck
 	d.Status = "active"
 	return d, nil
 }

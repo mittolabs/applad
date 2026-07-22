@@ -29,11 +29,11 @@ type TimeSeriesPoint struct {
 
 // ProjectStats holds aggregate project statistics.
 type ProjectStats struct {
-	ProjectID      string `json:"projectId"`
-	TotalRequests  int64  `json:"totalRequests"`
-	TotalUsers     int64  `json:"totalUsers"`
-	TotalStorage   int64  `json:"totalStorage"`
-	TotalExecutions int64 `json:"totalExecutions"`
+	ProjectID       string `json:"projectId"`
+	TotalRequests   int64  `json:"totalRequests"`
+	TotalUsers      int64  `json:"totalUsers"`
+	TotalStorage    int64  `json:"totalStorage"`
+	TotalExecutions int64  `json:"totalExecutions"`
 }
 
 // Service handles usage analytics business logic.

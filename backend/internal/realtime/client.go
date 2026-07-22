@@ -37,7 +37,7 @@ func NewClient(hub *Hub, conn *websocket.Conn, projectID, userID string) *Client
 
 // clientMessage is the message format clients send to subscribe/unsubscribe.
 type clientMessage struct {
-	Type    string   `json:"type"` // "subscribe" or "unsubscribe"
+	Type     string   `json:"type"` // "subscribe" or "unsubscribe"
 	Channels []string `json:"channels"`
 }
 

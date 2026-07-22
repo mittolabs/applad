@@ -23,8 +23,8 @@ type Counter struct {
 	help string
 }
 
-func (c *Counter) Inc() { c.v.Add(1) }
-func (c *Counter) Add(n uint64) { c.v.Add(n) }
+func (c *Counter) Inc()          { c.v.Add(1) }
+func (c *Counter) Add(n uint64)  { c.v.Add(n) }
 func (c *Counter) Value() uint64 { return c.v.Load() }
 
 // ── LabelCounter ─────────────────────────────────────────────────────────────

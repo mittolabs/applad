@@ -23,7 +23,7 @@ type countriesResponse struct {
 }
 
 type continentsResponse struct {
-	Total      int              `json:"total"`
+	Total      int                 `json:"total"`
 	Continents []map[string]string `json:"continents"`
 }
 

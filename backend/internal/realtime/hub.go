@@ -21,8 +21,8 @@ const redisChannel = "applad:realtime"
 
 // Event is a realtime event broadcast to subscribers.
 type Event struct {
-	Type      string      `json:"type"`      // e.g. "databases.rows.create"
-	Channel   string      `json:"channel"`   // e.g. "databases.db1.tables.t1.rows"
+	Type      string      `json:"type"`    // e.g. "databases.rows.create"
+	Channel   string      `json:"channel"` // e.g. "databases.db1.tables.t1.rows"
 	Timestamp string      `json:"timestamp"`
 	Payload   interface{} `json:"payload"`
 }
