@@ -55,7 +55,10 @@ const PRIORITY_COLOR: Record<string, string> = {
   low: 'var(--text-subtle)',
 };
 
-const ORDER = ['in_progress', 'blocked', 'todo', 'done', 'cancelled'];
+// The order work moves through, left to right and top to bottom. It read
+// in_progress → blocked → todo, which is the order of attention rather than
+// of progress, and on a board that runs the stages backwards.
+const ORDER = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 
 export function PlanPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -108,36 +111,39 @@ export function PlanPage() {
       </div>
 
       <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-1 rounded-[var(--radius)] border border-border bg-surface p-0.5">
-          {([
-            ['list', 'List', List],
-            ['board', 'Board', Columns3],
-          ] as const).map(([value, label, Icon]) => (
-            <button
-              key={value}
-              onClick={() => chooseView(value)}
-              className={cn(
-                'flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1 text-[length:var(--text-label)] transition-colors',
-                view === value
-                  ? 'bg-fill-hover text-text-primary'
-                  : 'text-text-muted hover:text-text-primary',
-              )}
-            >
-              <Icon size={13} />
-              {label}
-            </button>
-          ))}
-        </div>
-
-      <label className="flex w-fit cursor-pointer items-center gap-2 text-[length:var(--text-label)] text-text-secondary">
+        <label className="flex w-fit cursor-pointer items-center gap-2 text-[length:var(--text-label)] text-text-secondary">
         <input
           type="checkbox"
           checked={showClosed}
           onChange={(e) => setShowClosed(e.target.checked)}
           className="accent-[var(--color-accent)]"
         />
-        Show closed work
-      </label>
+          Show closed work
+        </label>
+
+        <div className="flex h-8 items-center overflow-hidden rounded-[var(--radius)] border border-field-border bg-field-fill">
+          {([
+            ['list', List],
+            ['board', Columns3],
+          ] as const).map(([value, Icon], i) => (
+            <div key={value} className="flex h-full">
+              {i === 1 && <div className="w-px bg-field-border" />}
+              <button
+                type="button"
+                onClick={() => chooseView(value)}
+                aria-label={`${value} view`}
+                className={cn(
+                  'flex h-full w-8 items-center justify-center transition-colors',
+                  view === value
+                    ? 'bg-fill-active text-text-primary'
+                    : 'text-text-subtle hover:bg-fill-hover hover:text-text-secondary',
+                )}
+              >
+                <Icon size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       {query.isLoading ? (
