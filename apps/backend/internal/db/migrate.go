@@ -88,9 +88,9 @@ type ExtraMigration struct {
 
 // MigrateExtras applies module migrations after core's.
 //
-// Versions are recorded with an "ee:" prefix in the same ledger, so a module can
-// number its migrations freely without ever colliding with core's, and a glance
-// at schema_migrations still shows everything that has been applied.
+// Versions are recorded with an "ext:" prefix in the same ledger, so a module
+// can number its migrations freely without ever colliding with core's, and a
+// glance at schema_migrations still shows everything that has been applied.
 func (db *DB) MigrateExtras(ms []ExtraMigration) error {
 	if len(ms) == 0 {
 		return nil
@@ -101,7 +101,7 @@ func (db *DB) MigrateExtras(ms []ExtraMigration) error {
 	defer db.Exec("SELECT pg_advisory_unlock($1)", migrateAdvisoryLock) //nolint:errcheck
 
 	for _, m := range ms {
-		version := "ee:" + m.Version
+		version := "ext:" + m.Version
 		var count int
 		_ = db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = $1", version).Scan(&count)
 		if count > 0 {

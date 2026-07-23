@@ -16,7 +16,7 @@ import (
 )
 
 // Migration is a schema change owned by a module. Versions are recorded with an
-// "ee:" prefix so module numbering can never collide with core's.
+// "ext:" prefix so module numbering can never collide with core's.
 type Migration struct {
 	Version string
 	SQL     string
