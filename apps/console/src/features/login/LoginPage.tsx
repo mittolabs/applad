@@ -370,7 +370,7 @@ function LoginSignupForm({
       <Heading>{isSignup ? (firstRun ? 'Create the owner account' : 'Sign up') : 'Sign in'}</Heading>
       {firstRun && isSignup && (
         <p className="mt-2 text-[13px] leading-[1.5] text-text-muted">
-          The first account owns this instance — invite your team once you're in.
+          The first account owns this instance. Invite your team once you're in.
         </p>
       )}
 
