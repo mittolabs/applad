@@ -17,6 +17,7 @@ import { ProjectsPage } from './features/projects/ProjectsPage';
 import { AccountPage } from './features/account/AccountPage';
 import { OnboardingPage } from './features/onboarding/OnboardingPage';
 import { ExperimentsPage } from './features/experiments/ExperimentsPage';
+import { extensionRoutes, extensionStandaloneRoutes } from '@/extensions';
 // Shell feature pages are lazy-loaded so heavy deps (Monaco in databases/
 // functions, React Flow in workflows) only download when the route is visited.
 const named = <M extends Record<string, unknown>, K extends keyof M>(
@@ -218,6 +219,13 @@ export const router = createBrowserRouter([
           { path: '/org/:orgId/projects', element: <ProjectsPage /> },
           { path: '/account', element: <AccountPage /> },
           { path: '/experiments', element: <ExperimentsPage /> },
+          // Authed pages a compiled-in module owns that are not project-scoped
+          // (billing belongs to an organization, not a project). A default build
+          // contributes none.
+          ...extensionStandaloneRoutes().map(({ path, element: El }) => ({
+            path,
+            element: <El />,
+          })),
           {
             path: '/project/:projectId',
             element: <Shell />,
@@ -226,6 +234,11 @@ export const router = createBrowserRouter([
               ...shellSegments.map(([path, title]) => ({
                 path,
                 element: FEATURE_ELEMENTS[path] ?? <PlaceholderPage name={title} />,
+              })),
+              // Project-scoped module pages, rendered inside the shell.
+              ...extensionRoutes().map(({ path, element: El }) => ({
+                path,
+                element: <El />,
               })),
             ],
           },

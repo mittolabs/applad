@@ -29,8 +29,15 @@ export interface ExtensionNavItem {
 
 export interface ExtensionModule {
   name: string;
-  /** Pages the module owns. Components are allowed here: it is the module's own surface. */
+  /** Pages the module owns, under the project shell (path relative to /project/:projectId). */
   routes?: ExtensionRoute[];
+  /**
+   * Pages the module owns that are NOT project-scoped: authed, but sitting beside
+   * /account and /projects rather than inside a project. Billing is org-scoped
+   * (a subscription belongs to an organization, not a project), so it lives here.
+   * `path` is absolute from the app root, e.g. "/settings/billing".
+   */
+  standaloneRoutes?: ExtensionRoute[];
   /** Nav entries pointing at the module's own routes. */
   nav?: ExtensionNavItem[];
   /** Buttons contributed to the top nav. */

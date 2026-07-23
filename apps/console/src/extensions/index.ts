@@ -15,6 +15,10 @@ export function extensionRoutes(): ExtensionRoute[] {
   return registry.modules.flatMap((m) => m.routes ?? []);
 }
 
+export function extensionStandaloneRoutes(): ExtensionRoute[] {
+  return registry.modules.flatMap((m) => m.standaloneRoutes ?? []);
+}
+
 export function extensionNav(): ExtensionNavItem[] {
   return registry.modules.flatMap((m) => m.nav ?? []);
 }
