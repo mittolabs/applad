@@ -91,10 +91,26 @@ export function useGate(key: string): Gate {
   return ALLOWED;
 }
 
-/** Notices for one region, newest-first as the server ordered them. */
+const LEVEL_RANK: Record<Notice['level'], number> = { critical: 3, warn: 2, info: 1 };
+
+/**
+ * The ONE notice to show in a region.
+ *
+ * Stacking banners pushes the product down the page and buries the message that
+ * matters, so a region shows a single notice: the most severe, and among equals
+ * the most recent (the server orders newest first). Core decides this rather
+ * than trusting whatever supplies notices to send only one, because the console
+ * is what has to stay usable.
+ */
 export function useNotices(region: NoticeRegion): Notice[] {
   const ent = useEntitlements();
-  return ent.notices.filter((n) => n.region === region);
+  const inRegion = ent.notices.filter((n) => n.region === region);
+  if (inRegion.length <= 1) return inRegion;
+
+  const winner = inRegion.reduce((best, n) =>
+    (LEVEL_RANK[n.level] ?? 0) > (LEVEL_RANK[best.level] ?? 0) ? n : best,
+  );
+  return [winner];
 }
 
 /**
