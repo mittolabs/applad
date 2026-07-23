@@ -76,14 +76,19 @@ export function Shell() {
     navigate(`/project/${projectId}/${route}`);
   };
 
+  /*
+   * The three notice regions are three genuinely different places, not three
+   * names for one. Their scope is what decides where they sit:
+   *
+   *   app.top      the whole application. Pinned under the top nav, spanning the
+   *                rail too, and shown on every page including outside a project.
+   *   project.top  this project. Pinned above the project's content, to the right
+   *                of the rail, so it stays put while the page scrolls.
+   *   page.top     this page. Inside the scroll area above the page's own
+   *                content, so it scrolls away with what it refers to.
+   */
   const content = (
     <main className="min-h-0 flex-1 overflow-y-auto">
-      {/* Banners are data from /v1/entitlements; nothing renders by default.
-          Every region the contract declares is rendered, in descending scope, so
-          a notice can never be accepted by the API and then silently land
-          nowhere. */}
-      <Notices region="app.top" className="px-6 pt-4" />
-      <Notices region="project.top" className="px-6 pt-4" />
       <Notices region="page.top" className="px-6 pt-4" />
       <Suspense
         fallback={
@@ -102,6 +107,8 @@ export function Shell() {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-background">
         <TopNav projectId={projectId} />
+        <Notices region="app.top" className="shrink-0 px-4 pt-3" />
+        <Notices region="project.top" className="shrink-0 px-4 pt-3" />
         {content}
         <BottomNav
           activeGroupId={activeGroupId}
@@ -126,6 +133,7 @@ export function Shell() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <TopNav projectId={projectId} />
+      <Notices region="app.top" className="shrink-0 px-6 pt-4" />
       <div className="flex min-h-0 flex-1">
         <IconRail
           activeGroupId={activeGroupId}
@@ -137,6 +145,7 @@ export function Shell() {
           <DetailPanel group={activeGroup!} currentSegment={segment} onSelect={go} />
         )}
         <div className="flex min-w-0 flex-1 flex-col">
+          <Notices region="project.top" className="shrink-0 px-6 pt-4" />
           {content}
           <ConsoleFooter />
         </div>
