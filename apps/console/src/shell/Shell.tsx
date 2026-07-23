@@ -108,7 +108,7 @@ export function Shell() {
   if (isMobile) {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-background">
-        <Notices region="app.top" className="shrink-0 px-4 pt-3" />
+        <Notices region="app.top" flush className="shrink-0" />
         <TopNav projectId={projectId} />
         <Notices region="project.top" className="shrink-0 px-4 pt-3" />
         {content}
@@ -134,7 +134,7 @@ export function Shell() {
   // ── Desktop layout: icon rail + optional detail panel + content ───────────
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <Notices region="app.top" className="shrink-0 px-6 pt-4" />
+      <Notices region="app.top" flush className="shrink-0" />
       <TopNav projectId={projectId} />
       <div className="flex min-h-0 flex-1">
         <IconRail

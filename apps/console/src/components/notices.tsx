@@ -27,7 +27,17 @@ const ICON_COLOR = {
   critical: 'text-status-danger',
 } as const;
 
-export function Notices({ region, className }: { region: NoticeRegion; className?: string }) {
+export function Notices({
+  region,
+  className,
+  flush,
+}: {
+  region: NoticeRegion;
+  className?: string;
+  /** Full-bleed bar with square corners, for a banner that spans the whole app
+   *  rather than sitting inside a page's padding. */
+  flush?: boolean;
+}) {
   const notices = useNotices(region);
   const dismiss = useDismissNotice();
   // Local state only hides it instantly; the server is what makes it stay
@@ -37,11 +47,12 @@ export function Notices({ region, className }: { region: NoticeRegion; className
   if (visible.length === 0) return null;
 
   return (
-    <div className={cn('flex flex-col gap-2', className)}>
+    <div className={cn('flex flex-col', flush ? 'gap-0' : 'gap-2', className)}>
       {visible.map((n) => (
         <NoticeBar
           key={n.id}
           notice={n}
+          flush={flush}
           onDismiss={() => {
             setHidden((d) => [...d, n.id]);
             dismiss(n.id);
@@ -52,13 +63,24 @@ export function Notices({ region, className }: { region: NoticeRegion; className
   );
 }
 
-function NoticeBar({ notice, onDismiss }: { notice: Notice; onDismiss: () => void }) {
+function NoticeBar({
+  notice,
+  onDismiss,
+  flush,
+}: {
+  notice: Notice;
+  onDismiss: () => void;
+  flush?: boolean;
+}) {
   const level = LEVEL[notice.level] ?? LEVEL.info;
   const { Icon } = level;
   return (
     <div
       className={cn(
-        'flex items-start gap-2.5 rounded-[var(--radius)] border px-3.5 py-2.5',
+        'flex items-start gap-2.5 border',
+        flush
+          ? 'rounded-none border-x-0 border-t-0 px-6 py-3'
+          : 'rounded-[var(--radius)] px-3.5 py-2.5',
         level.cls,
       )}
       role={notice.level === 'critical' ? 'alert' : 'status'}

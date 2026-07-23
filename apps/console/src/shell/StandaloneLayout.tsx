@@ -19,7 +19,7 @@ export function StandaloneLayout({
       {/* app.top is application-wide, so it sits above the nav and appears here
           too, not only inside a project. project.top and page.top are out of
           scope on these pages. */}
-      <Notices region="app.top" className="shrink-0 px-6 pt-4" />
+      <Notices region="app.top" flush className="shrink-0" />
       <StandaloneNav showOrg={showOrg} />
       {children}
       <ConsoleFooter />
