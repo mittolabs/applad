@@ -419,6 +419,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # First boot runs the init SQL and restarts the server; without a grace
+      # period those early probes count as failures and dependents (pgbouncer)
+      # abort before postgres is really up.
+      start_period: 40s
     networks:
       - internal
     logging: *default-logging
