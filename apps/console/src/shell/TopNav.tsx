@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Check, ChevronsUpDown, Search } from 'lucide-react';
+import { Check, ChevronsUpDown, Plus, Search } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SearchModal } from '@/components/search-modal';
 import { useOrgs, useProjects, useEnvironments } from '@/api/queries';
@@ -105,20 +105,36 @@ function OrgSwitcher() {
   const current = orgs.find((o) => o.$id === currentOrgId) ?? orgs[0];
   return (
     <SwitcherPopover label={current?.name ?? 'Organization'}>
-      {(close) =>
-        orgs.map((o) => (
-          <SwitcherItem
-            key={o.$id}
-            label={o.name}
-            selected={o.$id === current?.$id}
+      {(close) => (
+        <>
+          {orgs.map((o) => (
+            <SwitcherItem
+              key={o.$id}
+              label={o.name}
+              selected={o.$id === current?.$id}
+              onClick={() => {
+                setCurrentOrg(o.$id);
+                navigate(`/org/${o.$id}/projects`);
+                close();
+              }}
+            />
+          ))}
+          {/* Creating another org was only reachable via ⌘K or a hidden URL
+              param, so the switcher looked like a dead end once you had one org.
+              Route through /projects?create=org, which opens the create dialog. */}
+          <div className="my-1 h-px bg-border" />
+          <button
             onClick={() => {
-              setCurrentOrg(o.$id);
-              navigate(`/org/${o.$id}/projects`);
+              navigate('/projects?create=org');
               close();
             }}
-          />
-        ))
-      }
+            className="flex w-full items-center gap-2 rounded-[var(--radius-6)] px-2 py-1.5 text-[length:var(--text-body)] text-text-secondary transition-colors hover:bg-fill hover:text-text-primary"
+          >
+            <Plus size={14} className="text-text-subtle" />
+            <span>Create organization</span>
+          </button>
+        </>
+      )}
     </SwitcherPopover>
   );
 }
