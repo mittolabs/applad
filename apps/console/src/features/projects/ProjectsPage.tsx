@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FolderGit2, MoreVertical, Plus, Settings, Trash2, UserPlus } from 'lucide-react';
+import { Building2, FolderGit2, MoreVertical, Plus, Settings, Trash2, UserPlus } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { useOrgs, useProjects, type Project } from '@/api/queries';
 import { useOrgStore } from '@/stores/org';
@@ -34,7 +34,7 @@ const TABS = ['Projects', 'Members', 'Roles', 'Usage', 'Activity', 'Settings'];
 export function ProjectsPage() {
   const { orgId } = useParams<{ orgId: string }>();
   const { currentOrgId, setCurrentOrg } = useOrgStore();
-  const { data: orgs = [] } = useOrgs();
+  const { data: orgs = [], isLoading: orgsLoading, isSuccess: orgsFetched } = useOrgs();
   const [tab, setTab] = useTabIndex(TABS);
   const [params, setParams] = useSearchParams();
 
@@ -75,6 +75,27 @@ export function ProjectsPage() {
       setCurrentOrg(orgs[0]?.$id ?? null);
     }
   }, [orgsLoaded, currentOrgId, storedIsValid, orgs, setCurrentOrg]);
+
+  // No organizations at all — the account has none, or the last one was just
+  // deleted. The project workspace makes no sense here (a project must belong to
+  // an org), so offer the one action that does: create an organization. Gated on
+  // a completed fetch so an in-flight load does not flash this state.
+  if (orgsFetched && !orgsLoading && orgs.length === 0) {
+    return (
+      <StandaloneLayout showOrg={false}>
+        <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-4 py-8 sm:px-8 lg:px-12">
+          <EmptyState
+            icon={Building2}
+            title="No organizations"
+            subtitle="An organization holds your projects and team. Create one to get started."
+            actionLabel="Create organization"
+            onAction={() => setOrgCreateOpen(true)}
+          />
+        </div>
+        <CreateOrgDialog open={orgCreateOpen} onOpenChange={setOrgCreateOpen} />
+      </StandaloneLayout>
+    );
+  }
 
   return (
     <StandaloneLayout>
