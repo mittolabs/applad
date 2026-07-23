@@ -177,10 +177,12 @@ CREATE TABLE IF NOT EXISTS memberships (
 -- ---------------------------------------------------------------------------
 -- Organizations
 -- ---------------------------------------------------------------------------
+-- No plan/billing column: what an organization is entitled to is not a property
+-- of the open core. A self-hosted install has no plans; the hosted product
+-- derives an org's plan from its subscription in the commercial layer.
 CREATE TABLE IF NOT EXISTS organizations (
     id           VARCHAR(36)  NOT NULL PRIMARY KEY,
     name         VARCHAR(128) NOT NULL,
-    billing_plan VARCHAR(32)  NOT NULL DEFAULT 'free',
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );

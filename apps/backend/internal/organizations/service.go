@@ -16,12 +16,17 @@ import (
 )
 
 // Organization represents a console organization.
+//
+// There is deliberately no plan or billing field here: what an organization is
+// entitled to is not a property of the open core. A self-hosted install has no
+// plans, and the hosted product derives an org's plan from its subscription in
+// the commercial layer. Keeping a `billing_plan` column here put the commercial
+// model into the BSD-3 tree, where it did not belong and was always just "free".
 type Organization struct {
-	ID          string    `json:"$id"`
-	Name        string    `json:"name"`
-	BillingPlan string    `json:"billingPlan"`
-	CreatedAt   time.Time `json:"$createdAt"`
-	UpdatedAt   time.Time `json:"$updatedAt"`
+	ID        string    `json:"$id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"$createdAt"`
+	UpdatedAt time.Time `json:"$updatedAt"`
 }
 
 // Member represents an organization member.
@@ -71,15 +76,15 @@ func (s *Service) Create(ctx context.Context, name, creatorUserID, creatorEmail,
 	s.db.ExecContext(ctx,
 		"UPDATE console_users SET default_org_id = $1 WHERE id = $2", id, creatorUserID)
 
-	return &Organization{ID: id, Name: name, BillingPlan: "free", CreatedAt: now, UpdatedAt: now}, nil
+	return &Organization{ID: id, Name: name, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // Get returns an organization by ID.
 func (s *Service) Get(ctx context.Context, id string) (*Organization, error) {
 	var o Organization
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, name, billing_plan, created_at, updated_at FROM organizations WHERE id = $1", id,
-	).Scan(&o.ID, &o.Name, &o.BillingPlan, &o.CreatedAt, &o.UpdatedAt)
+		"SELECT id, name, created_at, updated_at FROM organizations WHERE id = $1", id,
+	).Scan(&o.ID, &o.Name, &o.CreatedAt, &o.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("organization not found")
 	}
@@ -92,7 +97,7 @@ func (s *Service) Get(ctx context.Context, id string) (*Organization, error) {
 // ListByUser returns all orgs a user belongs to.
 func (s *Service) ListByUser(ctx context.Context, userID string) ([]*Organization, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT o.id, o.name, o.billing_plan, o.created_at, o.updated_at
+		`SELECT o.id, o.name, o.created_at, o.updated_at
 		 FROM organizations o
 		 JOIN organization_members m ON m.org_id = o.id
 		 WHERE m.user_id = $1 AND m.status = 'active'
@@ -105,7 +110,7 @@ func (s *Service) ListByUser(ctx context.Context, userID string) ([]*Organizatio
 	var orgs []*Organization
 	for rows.Next() {
 		var o Organization
-		if err := rows.Scan(&o.ID, &o.Name, &o.BillingPlan, &o.CreatedAt, &o.UpdatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.CreatedAt, &o.UpdatedAt); err != nil {
 			return nil, err
 		}
 		orgs = append(orgs, &o)
