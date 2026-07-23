@@ -68,7 +68,7 @@ Flutter: `console/lib/features/projects/projects_page.dart` · React: `console-r
 
 | Sub-feature | Status | Notes |
 |---|---|---|
-| Top bar: logo, org switcher (+create org), Feedback, Support, ⌘K search, user avatar → account | ✅ | Provided by shared `TopNav` via `StandaloneLayout`; full parity. |
+| Top bar: logo, org switcher (+create org), Support, ⌘K search, user avatar → account | ✅ | Provided by shared `TopNav` via `StandaloneLayout`. |
 | 6 tabs: Projects / Members / Roles / Usage / Activity / Settings | ✅ | Same tab set and order. |
 | Heading = org name + Invite button | ⚠️ | Present. Flutter's Invite opens the invite dialog directly; React's Invite just switches to the Members tab. |
 | Overlapping **member avatars** in heading (`+N` overflow from `totalMembers`) | ❌ | Flutter draws stacked avatar circles; React shows a single org-initial circle. |

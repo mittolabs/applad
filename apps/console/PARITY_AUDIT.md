@@ -82,7 +82,7 @@ Was a placeholder ("coming from the React port"). Rebuilt as a working project o
 ### Responsive layout — ✅ FIXED (build 27)
 Ported shell.dart's responsive breakpoints (was desktop-only):
 - **< 650px (mobile):** icon rail + detail panel are replaced by a fixed **bottom nav** (Overview/Build/Platforms/Observe/Settings, capped at 5) + a **group bottom sheet** for groups with children (Build/Observe); direct-nav groups route straight through. Console footer hidden (matches Flutter). `shell/MobileNav.tsx`, `shell/Shell.tsx`
-- **< 780px:** top-nav Feedback + Support collapse into a **⋯ overflow menu** (`NavOverflowMenu`, ports `_NavOverflowMenu`); the Feedback/Support panel bodies were extracted so both the inline buttons and the overflow reuse them. `shell/navbar-popovers.tsx`, `shell/TopNav.tsx`
+- **< 780px:** the top-nav buttons collapse into a **⋯ overflow menu** (`NavOverflowMenu`, ports `_NavOverflowMenu`); the panel bodies were extracted so both the inline buttons and the overflow reuse them. `shell/navbar-popovers.tsx`, `shell/TopNav.tsx`
 - Breadcrumb (org/project switchers) now truncates instead of forcing horizontal overflow; panel popovers cap at `100vw`.
 - New `hooks/use-media-query.ts` (`useIsMobile` <650, `useIsNavCompact` <780) mirrors `_isMobile`.
 - Verified via headless CDP at 390/700/1200px: no horizontal overflow (scrollWidth==clientWidth) at any width; bottom-nav, group sheet, tablet overflow, and desktop rail all confirmed.
