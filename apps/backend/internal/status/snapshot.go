@@ -17,13 +17,16 @@ type ComponentStatus struct {
 	History   []string `json:"history"` // per-day status, oldest→newest, up to 90 entries
 }
 
-// Incident is a status incident (auto-opened by the checker).
+// Incident is a status incident — auto-opened by the checker (origin "auto") or
+// posted by an operator from the backoffice (origin "manual").
 type Incident struct {
 	ID         string     `json:"id"`
 	Component  string     `json:"component"`
 	Title      string     `json:"title"`
+	Message    string     `json:"message,omitempty"`
 	Status     string     `json:"status"`
 	Severity   string     `json:"severity"`
+	Origin     string     `json:"origin"`
 	StartedAt  time.Time  `json:"startedAt"`
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 }
@@ -131,7 +134,7 @@ func (s *Service) history(ctx context.Context, component string) []string {
 
 func (s *Service) recentIncidents(ctx context.Context) []Incident {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, component, title, status, severity, started_at, resolved_at
+		`SELECT id, component, title, message, status, severity, origin, started_at, resolved_at
 		   FROM status_incidents
 		  WHERE started_at > now() - interval '90 days'
 		  ORDER BY started_at DESC LIMIT 20`,
@@ -144,7 +147,7 @@ func (s *Service) recentIncidents(ctx context.Context) []Incident {
 	out := []Incident{}
 	for rows.Next() {
 		var in Incident
-		if err := rows.Scan(&in.ID, &in.Component, &in.Title, &in.Status, &in.Severity, &in.StartedAt, &in.ResolvedAt); err != nil {
+		if err := rows.Scan(&in.ID, &in.Component, &in.Title, &in.Message, &in.Status, &in.Severity, &in.Origin, &in.StartedAt, &in.ResolvedAt); err != nil {
 			continue
 		}
 		out = append(out, in)

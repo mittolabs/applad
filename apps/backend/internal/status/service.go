@@ -136,9 +136,11 @@ func (s *Service) probeWorkers(ctx context.Context) probe {
 // reconcileIncident opens an incident when a component first goes unhealthy and
 // resolves it when the component recovers.
 func (s *Service) reconcileIncident(ctx context.Context, c Component, p probe) {
+	// Scoped to origin='auto': the checker manages only the incidents it opened.
+	// A manually-posted incident is the operator's to resolve, never auto-closed.
 	var openID string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM status_incidents WHERE component=$1 AND status='investigating' ORDER BY started_at DESC LIMIT 1`,
+		`SELECT id FROM status_incidents WHERE component=$1 AND status='investigating' AND origin='auto' ORDER BY started_at DESC LIMIT 1`,
 		c.Key,
 	).Scan(&openID)
 	hasOpen := err == nil
@@ -161,7 +163,7 @@ func (s *Service) reconcileIncident(ctx context.Context, c Component, p probe) {
 		}
 		title := c.Name + " " + p.status
 		if _, err := s.db.ExecContext(ctx,
-			`INSERT INTO status_incidents (id, component, title, status, severity) VALUES ($1,$2,$3,'investigating',$4)`,
+			`INSERT INTO status_incidents (id, component, title, status, severity, origin) VALUES ($1,$2,$3,'investigating',$4,'auto')`,
 			uid.New("unique()"), c.Key, title, severity,
 		); err != nil {
 			slog.Error("status: open incident failed", "component", c.Key, "error", err)
