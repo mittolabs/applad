@@ -32,6 +32,11 @@ type Deps struct {
 type Module struct {
 	// Name identifies the module in logs.
 	Name string
+	// Setup runs once at startup with core's dependencies, before routes are
+	// mounted. This is where a module registers the providers core asks
+	// questions of: entitlements, policy. A failure is logged, not fatal, for
+	// the same reason those default to permissive.
+	Setup func(d Deps) error
 	// Routes mounts the module's HTTP surface. Mounted under /v1 alongside core.
 	Routes func(r chi.Router, d Deps)
 	// Migrations run after core's, in order.

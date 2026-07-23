@@ -251,12 +251,18 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// Modules compiled into this build mount their own surface here. A
 		// default build registers none and this loop does nothing.
 		for _, m := range extensions.All() {
-			if m.Routes == nil {
+			mod := m
+			deps := extensions.Deps{DB: database.DB}
+			if mod.Setup != nil {
+				if err := mod.Setup(deps); err != nil {
+					slog.Error("extensions: setup failed", "module", mod.Name, "error", err)
+				}
+			}
+			if mod.Routes == nil {
 				continue
 			}
-			slog.Info("extensions: mounting routes", "module", m.Name)
-			mod := m
-			r.Group(func(gr chi.Router) { mod.Routes(gr, extensions.Deps{DB: database.DB}) })
+			slog.Info("extensions: mounting routes", "module", mod.Name)
+			r.Group(func(gr chi.Router) { mod.Routes(gr, deps) })
 		}
 
 		// All service routes require X-Applad-Project header + optional auth

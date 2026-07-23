@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { useOrgStore } from '../stores/org';
 
 export type NoticeRegion = 'app.top' | 'page.top' | 'project.top';
 
@@ -42,9 +43,14 @@ const UNLIMITED: Entitlements = { features: {}, limits: {}, notices: [] };
  * so being generous here can only ever cost a wasted request, never a breach.
  */
 export function useEntitlements() {
+  // Scoped to the current organization: limits like project count are counted
+  // against the org, and a notice is usually addressed to one.
+  const orgId = useOrgStore((s) => s.currentOrgId);
   const { data } = useQuery({
-    queryKey: ['entitlements'],
-    queryFn: async () => (await api.get<Entitlements>('/entitlements')).data,
+    queryKey: ['entitlements', orgId],
+    queryFn: async () =>
+      (await api.get<Entitlements>('/entitlements', { params: orgId ? { org: orgId } : undefined }))
+        .data,
     staleTime: 60_000,
     retry: 1,
   });
