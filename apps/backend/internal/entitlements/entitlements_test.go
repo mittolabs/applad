@@ -6,10 +6,11 @@ import (
 	"testing"
 )
 
-func reset() { SetProvider(nil) }
+func reset() { ResetProviders() }
 
 func TestDefaultIsUnlimited(t *testing.T) {
 	reset()
+	AddProvider(unlimited{})
 	d := Get(context.Background(), "o1", "p1")
 	if len(d.Limits) != 0 || len(d.Notices) != 0 {
 		t.Fatalf("default should withhold nothing and announce nothing, got %+v", d)
@@ -28,7 +29,7 @@ func (s staticProvider) Entitlements(context.Context, string, string) (Document,
 
 func TestProviderSuppliesLimitsAndNotices(t *testing.T) {
 	reset()
-	SetProvider(staticProvider{doc: Document{
+	AddProvider(staticProvider{doc: Document{
 		Limits:  map[string]Limit{"projects": {Limit: 3, Used: 3, Scope: "org"}},
 		Notices: []Notice{{ID: "n1", Level: "warn", Title: "Limit reached", Region: RegionAppTop}},
 	}})
@@ -47,7 +48,7 @@ func TestProviderSuppliesLimitsAndNotices(t *testing.T) {
 // somewhere unintended, or nowhere, silently.
 func TestNoticesWithUnknownRegionAreDropped(t *testing.T) {
 	reset()
-	SetProvider(staticProvider{doc: Document{
+	AddProvider(staticProvider{doc: Document{
 		Notices: []Notice{
 			{ID: "good", Level: "info", Title: "ok", Region: RegionPageTop},
 			{ID: "bad", Level: "info", Title: "nope", Region: "sidebar.bottom"},
@@ -76,7 +77,7 @@ func (f *flakyProvider) Entitlements(context.Context, string, string) (Document,
 func TestFailsOpenToLastKnownGood(t *testing.T) {
 	reset()
 	f := &flakyProvider{}
-	SetProvider(f)
+	AddProvider(f)
 	defer reset()
 
 	first := Get(context.Background(), "o1", "p1")
@@ -93,7 +94,7 @@ func TestFailsOpenToLastKnownGood(t *testing.T) {
 
 func TestFailsOpenToUnlimitedWithoutCache(t *testing.T) {
 	reset()
-	SetProvider(&flakyProvider{calls: 1}) // every call errors
+	AddProvider(&flakyProvider{calls: 1}) // every call errors
 	defer reset()
 
 	d := Get(context.Background(), "o1", "p1")
@@ -106,14 +107,51 @@ func TestFailsOpenToUnlimitedWithoutCache(t *testing.T) {
 func TestInvalidateForcesRefetch(t *testing.T) {
 	reset()
 	p := staticProvider{doc: Document{Limits: map[string]Limit{"projects": {Limit: 1, Scope: "org"}}}}
-	SetProvider(p)
+	AddProvider(p)
 	_ = Get(context.Background(), "o1", "p1")
 
-	SetProvider(staticProvider{doc: Document{Limits: map[string]Limit{"projects": {Limit: 50, Scope: "org"}}}})
+	AddProvider(staticProvider{doc: Document{Limits: map[string]Limit{"projects": {Limit: 50, Scope: "org"}}}})
 	defer reset()
 
 	d := Get(context.Background(), "o1", "p1")
 	if d.Limits["projects"].Limit != 50 {
 		t.Fatalf("SetProvider should invalidate; got %+v", d.Limits)
+	}
+}
+
+// Two modules legitimately contribute to one subject: billing knows the plan's
+// limits, another knows what to announce. Before this, the last registration
+// silently won and the other module's answer vanished.
+func TestContributorsMerge(t *testing.T) {
+	reset()
+	defer reset()
+	AddProvider(staticProvider{doc: Document{
+		Limits: map[string]Limit{"projects": {Limit: 3, Used: 1, Scope: "org"}},
+	}})
+	AddProvider(staticProvider{doc: Document{
+		Notices: []Notice{{ID: "n1", Level: "info", Title: "hello", Region: RegionAppTop}},
+	}})
+
+	d := Get(context.Background(), "o1", "p1")
+	if d.Limits["projects"].Limit != 3 {
+		t.Errorf("limit from the first contributor lost: %+v", d.Limits)
+	}
+	if len(d.Notices) != 1 {
+		t.Errorf("notice from the second contributor lost: %+v", d.Notices)
+	}
+}
+
+// One contributor falling over must not withhold what the others know.
+func TestOneFailingContributorDoesNotSilenceTheRest(t *testing.T) {
+	reset()
+	defer reset()
+	AddProvider(&flakyProvider{calls: 1}) // always errors
+	AddProvider(staticProvider{doc: Document{
+		Limits: map[string]Limit{"projects": {Limit: 9, Scope: "org"}},
+	}})
+
+	d := Get(context.Background(), "o1", "p1")
+	if d.Limits["projects"].Limit != 9 {
+		t.Fatalf("a healthy contributor was silenced by a failing one: %+v", d.Limits)
 	}
 }

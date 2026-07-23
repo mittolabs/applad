@@ -85,8 +85,11 @@ func (unlimited) Entitlements(context.Context, string, string) (Document, error)
 }
 
 var (
-	mu       sync.RWMutex
-	provider Provider = unlimited{}
+	mu sync.RWMutex
+	// Several modules legitimately have something to say about one subject:
+	// billing knows the plan's limits, another module knows what to announce.
+	// A single provider slot made the last registration silently win.
+	providers []Provider
 
 	cacheMu  sync.RWMutex
 	cache    = map[string]cached{}
@@ -98,20 +101,42 @@ type cached struct {
 	at  time.Time
 }
 
-// SetProvider installs the provider. Registered at startup, before serving.
-// Cached documents are discarded outright: a new provider is a new source of
-// truth, so the previous one's answers are not a sane fallback.
-func SetProvider(p Provider) {
-	mu.Lock()
+// AddProvider registers a contributor. Registered at startup, before serving.
+// Cached documents are discarded: a new contributor changes the answer.
+func AddProvider(p Provider) {
 	if p == nil {
-		p = unlimited{}
+		return
 	}
-	provider = p
+	mu.Lock()
+	providers = append(providers, p)
 	mu.Unlock()
 
 	cacheMu.Lock()
 	cache = map[string]cached{}
 	cacheMu.Unlock()
+}
+
+// ResetProviders drops every contributor. For tests.
+func ResetProviders() {
+	mu.Lock()
+	providers = nil
+	mu.Unlock()
+	cacheMu.Lock()
+	cache = map[string]cached{}
+	cacheMu.Unlock()
+}
+
+// merge folds one contributor's answer into the document being built. Limits and
+// features are keyed, so a later contributor overrides the same key; notices
+// accumulate, because two modules announcing different things both have a point.
+func merge(into *Document, from Document) {
+	for k, v := range from.Features {
+		into.Features[k] = v
+	}
+	for k, v := range from.Limits {
+		into.Limits[k] = v
+	}
+	into.Notices = append(into.Notices, from.Notices...)
 }
 
 // Invalidate marks cached entitlements stale so the next read refetches. An
@@ -153,12 +178,28 @@ func Get(ctx context.Context, orgID, projectID string) Document {
 	}
 
 	mu.RLock()
-	p := provider
+	ps := make([]Provider, len(providers))
+	copy(ps, providers)
 	mu.RUnlock()
 
-	doc, err := p.Entitlements(ctx, orgID, projectID)
-	if err != nil {
-		slog.Error("entitlements: provider failed, serving last known good", "error", err)
+	if len(ps) == 0 {
+		return Unlimited()
+	}
+
+	doc := Unlimited()
+	failed := 0
+	for _, p := range ps {
+		part, err := p.Entitlements(ctx, orgID, projectID)
+		if err != nil {
+			// One contributor failing must not withhold what the others know.
+			slog.Error("entitlements: contributor failed", "error", err)
+			failed++
+			continue
+		}
+		merge(&doc, part)
+	}
+	if failed == len(ps) {
+		slog.Error("entitlements: every contributor failed, serving last known good")
 		if ok {
 			return c.doc
 		}
