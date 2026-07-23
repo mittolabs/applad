@@ -9,6 +9,7 @@ package extensions
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"sync"
 
 	"github.com/go-chi/chi/v5"
@@ -26,6 +27,11 @@ type Migration struct {
 // startup sequencing stay core's business.
 type Deps struct {
 	DB *sql.DB
+	// RequireConsoleAuth wraps a handler so only a valid console session reaches
+	// it, and puts the user on the request context (middleware.ConsoleUserFromContext).
+	// Module routes are mounted unauthenticated, so anything accepting input from
+	// a customer must wrap itself with this rather than trusting its caller.
+	RequireConsoleAuth func(http.Handler) http.Handler
 }
 
 // Module is one unit registered into a build.

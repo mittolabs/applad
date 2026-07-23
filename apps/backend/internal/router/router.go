@@ -255,7 +255,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// default build registers none and this loop does nothing.
 		for _, m := range extensions.All() {
 			mod := m
-			deps := extensions.Deps{DB: database.DB}
+			deps := extensions.Deps{
+				DB:                 database.DB,
+				RequireConsoleAuth: mw.RequireConsoleAuth(consoleSvc),
+			}
 			if mod.Setup != nil {
 				if err := mod.Setup(deps); err != nil {
 					slog.Error("extensions: setup failed", "module", mod.Name, "error", err)
