@@ -78,8 +78,13 @@ export function Shell() {
 
   const content = (
     <main className="min-h-0 flex-1 overflow-y-auto">
-      {/* Banners are data from /v1/entitlements; nothing renders by default. */}
+      {/* Banners are data from /v1/entitlements; nothing renders by default.
+          Every region the contract declares is rendered, in descending scope, so
+          a notice can never be accepted by the API and then silently land
+          nowhere. */}
       <Notices region="app.top" className="px-6 pt-4" />
+      <Notices region="project.top" className="px-6 pt-4" />
+      <Notices region="page.top" className="px-6 pt-4" />
       <Suspense
         fallback={
           <div className="flex h-full items-center justify-center">
