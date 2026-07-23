@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useOrgStore } from '../stores/org';
 
@@ -95,4 +95,24 @@ export function useGate(key: string): Gate {
 export function useNotices(region: NoticeRegion): Notice[] {
   const ent = useEntitlements();
   return ent.notices.filter((n) => n.region === region);
+}
+
+/**
+ * Dismiss a notice for the signed-in user, permanently.
+ *
+ * Recorded server-side rather than in this tab, so a refresh or another device
+ * does not resurrect something the user already cleared. It is per user: the
+ * banner was shown to everyone in the organization, and each clears their own.
+ */
+export function useDismissNotice() {
+  const qc = useQueryClient();
+  const { mutate } = useMutation({
+    mutationFn: async (id: string) => {
+      await api.post(`/entitlements/notices/${encodeURIComponent(id)}/dismiss`);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['entitlements'] });
+    },
+  });
+  return mutate;
 }

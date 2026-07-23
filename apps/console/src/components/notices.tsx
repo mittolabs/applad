@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { AlertTriangle, Info, X, XCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useNotices, type Notice, type NoticeRegion } from '../hooks/use-entitlements';
+import {
+  useDismissNotice,
+  useNotices,
+  type Notice,
+  type NoticeRegion,
+} from '../hooks/use-entitlements';
 
 /**
  * Banners, rendered by core in core styling from DATA.
@@ -24,14 +29,24 @@ const ICON_COLOR = {
 
 export function Notices({ region, className }: { region: NoticeRegion; className?: string }) {
   const notices = useNotices(region);
-  const [dismissed, setDismissed] = useState<string[]>([]);
-  const visible = notices.filter((n) => !dismissed.includes(n.id));
+  const dismiss = useDismissNotice();
+  // Local state only hides it instantly; the server is what makes it stay
+  // dismissed across a refresh and on the user's other devices.
+  const [hidden, setHidden] = useState<string[]>([]);
+  const visible = notices.filter((n) => !hidden.includes(n.id));
   if (visible.length === 0) return null;
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       {visible.map((n) => (
-        <NoticeBar key={n.id} notice={n} onDismiss={() => setDismissed((d) => [...d, n.id])} />
+        <NoticeBar
+          key={n.id}
+          notice={n}
+          onDismiss={() => {
+            setHidden((d) => [...d, n.id]);
+            dismiss(n.id);
+          }}
+        />
       ))}
     </div>
   );

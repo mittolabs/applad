@@ -229,6 +229,13 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			projectsHandler := projects.NewHandler(projectSvc)
 			projectsHandler.SetAccess(consoleSvc)
 			r.Mount("/projects", projects.Routes(projectsHandler))
+
+			// Entitlements — what this subject may use, and anything to tell
+			// them about it. Console session required and org membership
+			// checked: a notice can be private and limits describe an org, so
+			// this is not public. Unlimited with no notices by default.
+			r.Mount("/entitlements", entitlements.Routes(
+				entitlements.NewHandler(entitlements.NewDismissals(database.DB), consoleSvc)))
 		})
 
 		// AI chat — console JWT required, no project header needed
@@ -243,10 +250,6 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 
 		// Regions — public catalog (no auth)
 		r.Mount("/regions", regions.PublicRoutes(regions.NewHandler(regions.NewService(database))))
-
-		// Entitlements — what this subject may use, and anything to tell them
-		// about it. Unlimited with no notices unless a provider is registered.
-		r.Mount("/entitlements", entitlements.Routes(entitlements.NewHandler()))
 
 		// Modules compiled into this build mount their own surface here. A
 		// default build registers none and this loop does nothing.
