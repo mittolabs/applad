@@ -16,10 +16,11 @@ export function StandaloneLayout({
 }) {
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <StandaloneNav showOrg={showOrg} />
-      {/* app.top is application-wide, so it appears here too, not only inside a
-          project. project.top and page.top are out of scope on these pages. */}
+      {/* app.top is application-wide, so it sits above the nav and appears here
+          too, not only inside a project. project.top and page.top are out of
+          scope on these pages. */}
       <Notices region="app.top" className="shrink-0 px-6 pt-4" />
+      <StandaloneNav showOrg={showOrg} />
       {children}
       <ConsoleFooter />
     </div>

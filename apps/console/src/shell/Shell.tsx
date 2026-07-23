@@ -80,8 +80,10 @@ export function Shell() {
    * The three notice regions are three genuinely different places, not three
    * names for one. Their scope is what decides where they sit:
    *
-   *   app.top      the whole application. Pinned under the top nav, spanning the
-   *                rail too, and shown on every page including outside a project.
+   *   app.top      the whole application. The first thing on the page, ABOVE the
+   *                top nav and everything else, on every page including outside
+   *                a project. It concerns the whole product, so nothing of the
+   *                product's chrome sits above it.
    *   project.top  this project. Pinned above the project's content, to the right
    *                of the rail, so it stays put while the page scrolls.
    *   page.top     this page. Inside the scroll area above the page's own
@@ -106,8 +108,8 @@ export function Shell() {
   if (isMobile) {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-background">
-        <TopNav projectId={projectId} />
         <Notices region="app.top" className="shrink-0 px-4 pt-3" />
+        <TopNav projectId={projectId} />
         <Notices region="project.top" className="shrink-0 px-4 pt-3" />
         {content}
         <BottomNav
@@ -132,8 +134,8 @@ export function Shell() {
   // ── Desktop layout: icon rail + optional detail panel + content ───────────
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <TopNav projectId={projectId} />
       <Notices region="app.top" className="shrink-0 px-6 pt-4" />
+      <TopNav projectId={projectId} />
       <div className="flex min-h-0 flex-1">
         <IconRail
           activeGroupId={activeGroupId}
