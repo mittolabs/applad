@@ -9,6 +9,19 @@ export interface NoticeAction {
   href: string;
 }
 
+export interface Theme {
+  background?: string;
+  gradientTo?: string;
+  gradientAngle?: number;
+  image?: string;
+  effect?: 'snow' | 'confetti' | 'shimmer' | 'pulse' | 'twinkle';
+  textColor?: string;
+  accentColor?: string;
+  height?: 'compact' | 'normal' | 'tall';
+  align?: 'left' | 'center';
+  icon?: string;
+}
+
 export interface Notice {
   id: string;
   level: 'info' | 'warn' | 'critical';
@@ -18,6 +31,8 @@ export interface Notice {
   dismissible: boolean;
   scope?: 'org' | 'project';
   region: NoticeRegion;
+  /** Presentation from a vocabulary the server validated. Never markup. */
+  theme?: Theme;
 }
 
 export interface Limit {

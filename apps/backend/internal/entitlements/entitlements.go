@@ -40,6 +40,9 @@ type Notice struct {
 	Dismissible bool    `json:"dismissible"`
 	Scope       string  `json:"scope,omitempty"` // org | project
 	Region      string  `json:"region"`          // app.top | page.top | project.top
+	// Theme is optional presentation, chosen from a vocabulary core validates
+	// and renders. Never markup: see theme.go for why.
+	Theme *Theme `json:"theme,omitempty"`
 }
 
 // Valid notice regions. A notice naming anything else is dropped rather than
@@ -184,6 +187,7 @@ func normalise(d Document) Document {
 			slog.Warn("entitlements: dropping notice with unknown region", "id", n.ID, "region", n.Region)
 			continue
 		}
+		n.Theme = n.Theme.sanitise()
 		kept = append(kept, n)
 	}
 	d.Notices = kept

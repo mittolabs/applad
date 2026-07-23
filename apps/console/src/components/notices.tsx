@@ -6,6 +6,7 @@ import {
   useNotices,
   type Notice,
   type NoticeRegion,
+  type Theme,
 } from '../hooks/use-entitlements';
 
 /**
@@ -63,6 +64,34 @@ export function Notices({
   );
 }
 
+/* A theme is a set of values the server already validated against a fixed
+ * vocabulary (colours are hex, images are https, effects are named). It is
+ * turned into inline styles here; nothing from it is ever treated as markup. */
+const PAD: Record<string, string> = {
+  compact: 'py-1.5',
+  normal: 'py-3',
+  tall: 'py-6',
+};
+
+function themeStyle(t?: Theme): React.CSSProperties | undefined {
+  if (!t) return undefined;
+  const s: React.CSSProperties = {};
+  if (t.background && t.gradientTo) {
+    s.backgroundImage = `linear-gradient(${t.gradientAngle ?? 135}deg, ${t.background}, ${t.gradientTo})`;
+  } else if (t.background) {
+    s.backgroundColor = t.background;
+  }
+  if (t.image) {
+    const layer = `url("${t.image}")`;
+    s.backgroundImage = s.backgroundImage ? `${layer}, ${s.backgroundImage}` : layer;
+    s.backgroundSize = 'cover';
+    s.backgroundPosition = 'center';
+  }
+  if (t.textColor) s.color = t.textColor;
+  if (t.background || t.image) s.borderColor = 'transparent';
+  return s;
+}
+
 function NoticeBar({
   notice,
   onDismiss,
@@ -74,24 +103,44 @@ function NoticeBar({
 }) {
   const level = LEVEL[notice.level] ?? LEVEL.info;
   const { Icon } = level;
+  const t = notice.theme;
+  const themed = !!(t?.background || t?.image);
   return (
     <div
       className={cn(
-        'flex items-start gap-2.5 border',
+        'relative overflow-hidden border',
+        t?.align === 'center' ? 'flex items-center justify-center gap-2.5' : 'flex items-start gap-2.5',
         flush
-          ? 'rounded-none border-x-0 border-t-0 px-6 py-3'
-          : 'rounded-[var(--radius)] px-3.5 py-2.5',
-        level.cls,
+          ? 'rounded-none border-x-0 border-t-0 px-6'
+          : 'rounded-[var(--radius)] px-3.5',
+        PAD[t?.height ?? 'normal'] ?? PAD.normal,
+        !themed && level.cls,
+        t?.effect && `notice-fx notice-fx-${t.effect}`,
       )}
+      style={themeStyle(t)}
       role={notice.level === 'critical' ? 'alert' : 'status'}
     >
-      <Icon size={16} className={cn('mt-px shrink-0', ICON_COLOR[notice.level] ?? ICON_COLOR.info)} />
-      <div className="min-w-0 flex-1">
-        <div className="text-[length:var(--text-body)] font-medium text-text-primary">
+      {t?.icon ? (
+        <span className="mt-px shrink-0 text-[15px] leading-none">{t.icon}</span>
+      ) : (
+        <Icon size={16} className={cn('mt-px shrink-0', ICON_COLOR[notice.level] ?? ICON_COLOR.info)} />
+      )}
+      <div className="relative z-[1] min-w-0 flex-1">
+        <div
+          className={cn(
+            'text-[length:var(--text-body)] font-medium',
+            themed ? '' : 'text-text-primary',
+          )}
+        >
           {notice.title}
         </div>
         {notice.body && (
-          <div className="mt-0.5 text-[length:var(--text-label)] text-text-secondary">
+          <div
+            className={cn(
+              'mt-0.5 text-[length:var(--text-label)]',
+              themed ? 'opacity-90' : 'text-text-secondary',
+            )}
+          >
             {notice.body}
           </div>
         )}
@@ -99,7 +148,11 @@ function NoticeBar({
       {notice.action && (
         <a
           href={notice.action.href}
-          className="shrink-0 rounded-[var(--radius-6)] bg-[var(--color-accent)] px-2.5 py-1 text-[length:var(--text-label)] font-medium text-white transition-opacity hover:opacity-90"
+          style={t?.accentColor ? { backgroundColor: t.accentColor } : undefined}
+          className={cn(
+            'relative z-[1] shrink-0 rounded-[var(--radius-6)] px-2.5 py-1 text-[length:var(--text-label)] font-medium text-white transition-opacity hover:opacity-90',
+            !t?.accentColor && 'bg-[var(--color-accent)]',
+          )}
         >
           {notice.action.label}
         </a>

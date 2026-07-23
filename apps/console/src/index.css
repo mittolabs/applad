@@ -122,3 +122,71 @@ textarea:focus-visible,
 .prose-plan pre code { background: none; padding: 0; }
 .prose-plan a { color: var(--color-accent); text-decoration: underline; }
 .prose-plan blockquote { border-left: 2px solid var(--border); padding-left: 0.75rem; color: var(--text-muted); }
+
+/* ── Notice effects ─────────────────────────────────────────────────────────
+ * Animations live HERE, in core, and are selected by name. Whoever supplies a
+ * notice picks "snow"; it never ships CSS or script of its own. That is what
+ * keeps a banner in a customer's authenticated session from being a delivery
+ * mechanism, and lets us tune or disable an effect in one place.
+ * Purely decorative, so all of it is hidden from assistive tech and stops
+ * moving for anyone who asked for less motion. */
+.notice-fx::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes notice-snow {
+  from { background-position: 0 -60px, 0 -60px, 0 -60px; }
+  to   { background-position: 90px 120px, 140px 120px, 60px 120px; }
+}
+.notice-fx-snow::after {
+  background-image:
+    radial-gradient(2px 2px at 20px 10px, rgba(255,255,255,0.9), transparent),
+    radial-gradient(1.5px 1.5px at 70px 30px, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1.5px 1.5px at 120px 15px, rgba(255,255,255,0.8), transparent);
+  background-size: 90px 120px, 140px 120px, 60px 120px;
+  animation: notice-snow 6s linear infinite;
+}
+
+@keyframes notice-confetti {
+  from { background-position: 0 -40px, 0 -40px, 0 -40px; }
+  to   { background-position: 40px 120px, -60px 120px, 100px 120px; }
+}
+.notice-fx-confetti::after {
+  background-image:
+    radial-gradient(3px 6px at 15px 10px, rgba(255,215,0,0.85), transparent),
+    radial-gradient(3px 6px at 65px 25px, rgba(255,105,180,0.8), transparent),
+    radial-gradient(3px 6px at 110px 5px, rgba(80,200,255,0.8), transparent);
+  background-size: 80px 120px, 120px 120px, 100px 120px;
+  animation: notice-confetti 5s linear infinite;
+}
+
+@keyframes notice-shimmer { to { transform: translateX(100%); } }
+.notice-fx-shimmer::after {
+  background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.22) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: notice-shimmer 3.2s ease-in-out infinite;
+}
+
+@keyframes notice-pulse { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
+.notice-fx-pulse::after {
+  background: radial-gradient(120% 160% at 50% 0%, rgba(255,255,255,0.18), transparent 60%);
+  animation: notice-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes notice-twinkle { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }
+.notice-fx-twinkle::after {
+  background-image:
+    radial-gradient(1.5px 1.5px at 25px 12px, rgba(255,255,255,0.95), transparent),
+    radial-gradient(1.5px 1.5px at 85px 26px, rgba(255,255,255,0.8), transparent),
+    radial-gradient(2px 2px at 150px 8px, rgba(255,255,255,0.9), transparent);
+  background-size: 180px 100%;
+  animation: notice-twinkle 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice-fx::after { animation: none !important; }
+}
