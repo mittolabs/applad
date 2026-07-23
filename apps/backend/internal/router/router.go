@@ -347,6 +347,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				// distinct from requests it makes. Applied here because the
 				// project is known by now, and it is the project that pays.
 				r.Use(mw.RateLimitRules(cacheClient.Client(), mw.ProjectWorkRules()))
+				// Refuse writes when the workspace is read-only (a lapsed trial on
+				// the cloud). A no-op unless a resolver is installed, so a
+				// self-hosted build is never affected.
+				r.Use(mw.EnforceWritable)
 				r.Mount("/users", auth.UserRoutes(auth.NewHandler(authSvc)))
 				r.Mount("/teams", teams.Routes(teams.NewHandler(teamSvc)))
 				r.Mount("/databases", databases.Routes(databases.NewHandler(dbSvc)))
