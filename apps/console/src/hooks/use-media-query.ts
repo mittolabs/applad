@@ -23,5 +23,5 @@ export function useMediaQuery(query: string): boolean {
 
 /** Shell breakpoints — mirror the Flutter thresholds exactly. */
 export const useIsMobile = () => useMediaQuery('(max-width: 649px)');
-/** Below this the top nav collapses Feedback + Support into an overflow menu. */
+/** Below this the top nav collapses its buttons into an overflow menu. */
 export const useIsNavCompact = () => useMediaQuery('(max-width: 779px)');

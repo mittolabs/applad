@@ -15,7 +15,6 @@ const EXPERIMENTS: { key: ExperimentKey; label: string; description: string }[] 
   { key: 'search', label: 'Advanced Search', description: 'Full-text search across resources.' },
   { key: 'analytics', label: 'Analytics', description: 'Product analytics dashboards.' },
   { key: 'cache', label: 'Edge Cache', description: 'Response caching controls.' },
-  { key: 'billing', label: 'Billing', description: 'Usage-based billing surface.' },
   { key: 'edgeFunctions', label: 'Edge Functions', description: 'Run functions at the edge.' },
   { key: 'vectors', label: 'Vectors', description: 'Vector storage and search.' },
   { key: 'regions', label: 'Regions', description: 'Multi-region deployment.' },

@@ -6,22 +6,19 @@ import {
   LifeBuoy,
   LogOut,
   MessageCircle,
-  MessageSquare,
   MessagesSquare,
   Monitor,
   Moon,
   MoreHorizontal,
   Sun,
   User as UserIcon,
-  X,
 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { ConfirmDialog } from '@/components/form-dialog';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore, type ThemeMode } from '@/stores/theme';
 import { cn } from '@/lib/utils';
+import { extensionNavActions } from '@/extensions';
 
 function initials(name: string, email: string): string {
   const base = name.trim() || email.trim();
@@ -131,116 +128,6 @@ function MenuItem({
   );
 }
 
-/* Feedback — ports navbar_popovers.dart _FeedbackPanel: header + subtitle,
- * Category chips, labeled textarea, Cancel/Submit. Simulated submit (stub). */
-const FEEDBACK_CATEGORIES = ['Bug report', 'Feature request', 'General'];
-
-export function FeedbackButton() {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button className="text-[length:var(--text-body)] text-text-secondary transition-colors hover:text-text-primary">
-          Feedback
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[440px] max-w-[calc(100vw-1.5rem)] p-0">
-        <FeedbackPanelBody onClose={() => setOpen(false)} />
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/* The Feedback panel body, reusable inside either the inline nav button or the
- * compact overflow menu. State resets naturally on unmount when closed. */
-function FeedbackPanelBody({ onClose }: { onClose: () => void }) {
-  const [sent, setSent] = useState(false);
-  const [category, setCategory] = useState('General');
-  const [text, setText] = useState('');
-  const close = onClose;
-
-  return (
-    <>
-      {sent ? (
-          <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-            <div className="text-[length:var(--text-title)] font-semibold text-text-primary">
-              Thanks for the feedback!
-            </div>
-            <div className="text-[length:var(--text-body)] text-text-muted">
-              We appreciate you helping us improve Applad.
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-start justify-between gap-3 px-5 pt-5">
-              <div>
-                <div className="text-[length:var(--text-title)] font-semibold text-text-primary">
-                  Feedback
-                </div>
-                <div className="mt-1 text-[length:var(--text-body)] text-text-muted">
-                  Applad evolves with your input. Share your thoughts and help us improve.
-                </div>
-              </div>
-              <button
-                onClick={close}
-                className="rounded-[var(--radius-6)] p-1 text-text-muted transition-colors hover:bg-fill hover:text-text-primary"
-                aria-label="Close"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="mt-4 h-px bg-border" />
-
-            <div className="flex flex-col gap-4 px-5 py-4">
-              <div>
-                <div className="mb-2 text-[length:var(--text-label)] font-medium text-text-secondary">
-                  Category
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {FEEDBACK_CATEGORIES.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setCategory(c)}
-                      className={cn(
-                        'rounded-[var(--radius-6)] border px-3 py-1.5 text-[length:var(--text-caption)] transition-colors',
-                        category === c
-                          ? 'border-[var(--color-accent)] bg-fill-active text-text-primary'
-                          : 'border-border text-text-muted hover:text-text-secondary',
-                      )}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="mb-1.5 text-[length:var(--text-label)] font-medium text-text-secondary">
-                  Tell us more about your experience
-                </div>
-                <Textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder="Share your suggestions and feature requests…"
-                  rows={5}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 px-5 pb-5">
-              <Button variant="ghost" size="sm" onClick={close}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={() => setSent(true)} disabled={!text.trim()}>
-                Submit
-              </Button>
-            </div>
-          </>
-        )}
-    </>
-  );
-}
-
 /* Support — Discord / GitHub / Docs cards (faithful stub). */
 export function SupportButton() {
   return (
@@ -268,13 +155,16 @@ function SupportPanelBody() {
 }
 
 /* Compact-nav overflow menu — ports shell.dart `_NavOverflowMenu`. Below 780px
- * the Feedback + Support buttons collapse into a single 3-dot menu. Selecting a
- * row swaps the popover content in place (anchored to the same trigger), so the
- * full panels are reachable without leaving the top bar. */
+ * the top-bar buttons collapse into a single 3-dot menu. Selecting a row swaps
+ * the popover content in place (anchored to the same trigger), so the full
+ * panels are reachable without leaving the top bar.
+ *
+ * Modules compiled into this build contribute their own entries; a default build
+ * contributes none and this is just Support. */
 export function NavOverflowMenu() {
-  const [view, setView] = useState<'menu' | 'feedback' | 'support' | null>(null);
-  const width =
-    view === 'feedback' ? 'w-[440px] p-0' : view === 'support' ? 'w-[340px] p-2' : 'w-[180px] p-1';
+  const [view, setView] = useState<'menu' | 'support' | null>(null);
+  const actions = extensionNavActions();
+  const width = view === 'support' ? 'w-[340px] p-2' : 'w-[180px] p-1';
   return (
     <Popover open={view !== null} onOpenChange={(o) => setView(o ? 'menu' : null)}>
       <PopoverTrigger asChild>
@@ -289,11 +179,12 @@ export function NavOverflowMenu() {
       <PopoverContent align="end" className={width}>
         {view === 'menu' && (
           <>
-            <MenuItem icon={MessageSquare} label="Feedback" onClick={() => setView('feedback')} />
             <MenuItem icon={LifeBuoy} label="Support" onClick={() => setView('support')} />
+            {actions.map((Action, i) => (
+              <Action key={i} />
+            ))}
           </>
         )}
-        {view === 'feedback' && <FeedbackPanelBody onClose={() => setView(null)} />}
         {view === 'support' && <SupportPanelBody />}
       </PopoverContent>
     </Popover>

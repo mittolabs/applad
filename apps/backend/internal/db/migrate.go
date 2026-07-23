@@ -79,6 +79,50 @@ func (db *DB) Migrate() error {
 	return nil
 }
 
+// ExtraMigration is a schema change owned by a module compiled into this build
+// rather than by core.
+type ExtraMigration struct {
+	Version string
+	SQL     string
+}
+
+// MigrateExtras applies module migrations after core's.
+//
+// Versions are recorded with an "ee:" prefix in the same ledger, so a module can
+// number its migrations freely without ever colliding with core's, and a glance
+// at schema_migrations still shows everything that has been applied.
+func (db *DB) MigrateExtras(ms []ExtraMigration) error {
+	if len(ms) == 0 {
+		return nil
+	}
+	if _, err := db.Exec("SELECT pg_advisory_lock($1)", migrateAdvisoryLock); err != nil {
+		return fmt.Errorf("migrate extras: acquire lock: %w", err)
+	}
+	defer db.Exec("SELECT pg_advisory_unlock($1)", migrateAdvisoryLock) //nolint:errcheck
+
+	for _, m := range ms {
+		version := "ee:" + m.Version
+		var count int
+		_ = db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = $1", version).Scan(&count)
+		if count > 0 {
+			continue
+		}
+		for _, stmt := range splitStatements(m.SQL) {
+			if _, err := db.Exec(stmt); err != nil {
+				if shouldIgnoreMigrationError(stmt, err) {
+					continue
+				}
+				return fmt.Errorf("migrate extras: exec %s: %w\nSQL: %s", version, err, stmt)
+			}
+		}
+		if _, err := db.Exec("INSERT INTO schema_migrations (version) VALUES ($1)", version); err != nil {
+			return fmt.Errorf("migrate extras: record %s: %w", version, err)
+		}
+		log.Printf("migrate: applied %s", version)
+	}
+	return nil
+}
+
 func splitStatements(sql string) []string {
 	var (
 		stmts         []string

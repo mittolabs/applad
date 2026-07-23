@@ -6,6 +6,7 @@ import { navGroups, routeToGroup, shortcutToRoute, type NavGroup } from '@/lib/n
 import { api, setProject } from '@/api/client';
 import { useProjectStore } from '@/stores/project';
 import { ConsoleFooter } from '@/components/console-footer';
+import { Notices } from '@/components/notices';
 import { useIsMobile } from '@/hooks/use-media-query';
 import { TopNav } from './TopNav';
 import { BottomNav, GroupSheet, resolveGroupTap } from './MobileNav';
@@ -77,6 +78,8 @@ export function Shell() {
 
   const content = (
     <main className="min-h-0 flex-1 overflow-y-auto">
+      {/* Banners are data from /v1/entitlements; nothing renders by default. */}
+      <Notices region="app.top" className="px-6 pt-4" />
       <Suspense
         fallback={
           <div className="flex h-full items-center justify-center">

@@ -12,9 +12,11 @@ import (
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/extensions"
 	"github.com/mittolabs/applad/internal/logger"
 	"github.com/mittolabs/applad/internal/router"
 	"github.com/mittolabs/applad/internal/status"
+	"github.com/mittolabs/applad/internal/usage"
 )
 
 func main() {
@@ -44,6 +46,19 @@ func main() {
 
 	if err := database.Migrate(); err != nil {
 		slog.Error("db migrate failed", "error", err)
+		panic(err)
+	}
+
+	// Modules compiled into this build own their own schema and read usage
+	// through core rather than querying its tables. A default build registers
+	// no modules, so both of these are no-ops.
+	extensions.SetUsageReporter(usage.NewReporter(database))
+	var extraMigrations []db.ExtraMigration
+	for _, m := range extensions.Migrations() {
+		extraMigrations = append(extraMigrations, db.ExtraMigration{Version: m.Version, SQL: m.SQL})
+	}
+	if err := database.MigrateExtras(extraMigrations); err != nil {
+		slog.Error("extension migrate failed", "error", err)
 		panic(err)
 	}
 

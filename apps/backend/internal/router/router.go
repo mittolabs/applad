@@ -19,7 +19,6 @@ import (
 	"github.com/mittolabs/applad/internal/audit"
 	"github.com/mittolabs/applad/internal/auth"
 	"github.com/mittolabs/applad/internal/avatars"
-	"github.com/mittolabs/applad/internal/billing"
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/console"
@@ -28,6 +27,8 @@ import (
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/deploy"
 	"github.com/mittolabs/applad/internal/edge"
+	"github.com/mittolabs/applad/internal/entitlements"
+	"github.com/mittolabs/applad/internal/extensions"
 	"github.com/mittolabs/applad/internal/flags"
 	"github.com/mittolabs/applad/internal/functions"
 	"github.com/mittolabs/applad/internal/githubapp"
@@ -243,6 +244,21 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// Regions — public catalog (no auth)
 		r.Mount("/regions", regions.PublicRoutes(regions.NewHandler(regions.NewService(database))))
 
+		// Entitlements — what this subject may use, and anything to tell them
+		// about it. Unlimited with no notices unless a provider is registered.
+		r.Mount("/entitlements", entitlements.Routes(entitlements.NewHandler()))
+
+		// Modules compiled into this build mount their own surface here. A
+		// default build registers none and this loop does nothing.
+		for _, m := range extensions.All() {
+			if m.Routes == nil {
+				continue
+			}
+			slog.Info("extensions: mounting routes", "module", m.Name)
+			mod := m
+			r.Group(func(gr chi.Router) { mod.Routes(gr, extensions.Deps{DB: database.DB}) })
+		}
+
 		// All service routes require X-Applad-Project header + optional auth
 		r.Group(func(r chi.Router) {
 			r.Use(mw.ProjectContext)
@@ -352,7 +368,6 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				// Future services (experimental)
 				r.Mount("/analytics", analytics.Routes(analytics.NewHandler(analytics.NewService(database))))
 				r.Mount("/cache", appcache.Routes(appcache.NewHandler(appcache.NewService(cacheClient.Client()))))
-				r.Mount("/billing", billing.Routes(billing.NewHandler(billing.NewService(database))))
 				r.Mount("/edge", edge.Routes(edge.NewHandler(edge.NewService(database))))
 				r.Mount("/jobs", jobs.Routes(jobs.NewHandler(jobs.NewService(database))))
 				r.Mount("/search", search.Routes(search.NewHandler(search.NewService(database))))

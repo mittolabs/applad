@@ -7,14 +7,15 @@ import { useOrgs, useProjects, useEnvironments } from '@/api/queries';
 import { useOrgStore } from '@/stores/org';
 import { useEnvStore } from '@/stores/environment';
 import { useIsNavCompact } from '@/hooks/use-media-query';
-import { FeedbackButton, NavOverflowMenu, SupportButton, UserMenu } from './navbar-popovers';
+import { NavOverflowMenu, SupportButton, UserMenu } from './navbar-popovers';
+import { extensionNavActions } from '@/extensions';
 
 /*
  * The single top navigation bar — used by BOTH the project shell and the
  * shell-less pages (projects/account). Consolidates the two Flutter navbars
  * (shell.dart _TopNavBar + app_navbar.dart) into one component.
  *
- * - Always: logo, org switcher (unless showOrg=false), Feedback, Support,
+ * - Always: logo, org switcher (unless showOrg=false), Support, module actions,
  *   ⌘K search, user menu.
  * - In a project (projectId set): also the project switcher + env badge.
  */
@@ -74,8 +75,12 @@ export function TopNav({
           <NavOverflowMenu />
         ) : (
           <>
-            <FeedbackButton />
             <SupportButton />
+            {/* Modules compiled into this build contribute buttons here. A
+                default build contributes none. */}
+            {extensionNavActions().map((Action, i) => (
+              <Action key={i} />
+            ))}
           </>
         )}
         <button

@@ -10,7 +10,6 @@ export type ExperimentKey =
   | 'search'
   | 'analytics'
   | 'cache'
-  | 'billing'
   | 'edgeFunctions'
   | 'vectors'
   | 'regions';
@@ -20,7 +19,6 @@ const DEFAULTS: Record<ExperimentKey, boolean> = {
   search: false,
   analytics: false,
   cache: false,
-  billing: false,
   edgeFunctions: false,
   vectors: false,
   regions: false,
