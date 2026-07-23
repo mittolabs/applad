@@ -61,8 +61,20 @@ export function ProjectsPage() {
     if (orgId && orgId !== currentOrgId) setCurrentOrg(orgId);
   }, [orgId, currentOrgId, setCurrentOrg]);
 
-  const activeOrgId = orgId ?? currentOrgId ?? orgs[0]?.$id ?? null;
+  // A stored org id only counts once it resolves to a real org. After an org is
+  // deleted, localStorage still holds its id; trusting it blindly renders an
+  // empty ghost workspace, so fall back to the first org the user actually has.
+  const orgsLoaded = orgs.length > 0;
+  const storedIsValid = currentOrgId != null && orgs.some((o) => o.$id === currentOrgId);
+  const activeOrgId = orgId ?? (storedIsValid ? currentOrgId : orgs[0]?.$id) ?? null;
   const org = orgs.find((o) => o.$id === activeOrgId);
+
+  // Heal the store when it points at an org that no longer exists.
+  useEffect(() => {
+    if (orgsLoaded && currentOrgId != null && !storedIsValid) {
+      setCurrentOrg(orgs[0]?.$id ?? null);
+    }
+  }, [orgsLoaded, currentOrgId, storedIsValid, orgs, setCurrentOrg]);
 
   return (
     <StandaloneLayout>
@@ -747,6 +759,7 @@ function ActivityTab({ orgId }: { orgId: string | null }) {
 function SettingsTab({ orgId, orgName }: { orgId: string | null; orgName?: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { currentOrgId, setCurrentOrg } = useOrgStore();
   const [name, setName] = useState(orgName ?? '');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -759,6 +772,9 @@ function SettingsTab({ orgId, orgName }: { orgId: string | null; orgName?: strin
   const del = useMutation({
     mutationFn: () => api.delete(`/organizations/${orgId}`),
     onSuccess: () => {
+      // Drop the stored pointer if it was this org, or the next load lands on a
+      // ghost workspace (an id that no longer resolves to any org).
+      if (currentOrgId === orgId) setCurrentOrg(null);
       qc.invalidateQueries({ queryKey: ['organizations'] });
       navigate('/projects');
     },

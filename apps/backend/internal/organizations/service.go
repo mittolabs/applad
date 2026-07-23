@@ -130,9 +130,36 @@ func (s *Service) Update(ctx context.Context, id, name string) (*Organization, e
 }
 
 // Delete removes an organization.
+//
+// Deleting the org row cascades to its members and projects, but nothing points
+// console_users.default_org_id away from it — a plain column, no foreign key. A
+// user whose default pointed here would be left aimed at an org that no longer
+// exists, and the console then renders an empty ghost workspace. So, in one
+// transaction, first re-home anyone pointing at this org to another org they
+// still belong to (or to NULL when they have none), then delete.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM organizations WHERE id = $1", id)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE console_users u
+		   SET default_org_id = (
+		     SELECT m.org_id FROM organization_members m
+		      WHERE m.user_id = u.id AND m.org_id <> $1 AND m.status = 'active'
+		      ORDER BY m.created_at ASC
+		      LIMIT 1
+		   )
+		 WHERE u.default_org_id = $1`, id); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM organizations WHERE id = $1", id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // --- Members ---
