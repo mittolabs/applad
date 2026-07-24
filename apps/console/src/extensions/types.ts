@@ -27,6 +27,22 @@ export interface ExtensionNavItem {
   group: string;
 }
 
+/**
+ * A render error the console caught, offered to whoever wants to record it.
+ *
+ * Core catches the error and shows the user something human; it does not decide
+ * where a report goes. A default build reports nowhere (a self-hosted console
+ * has no vendor to tell), and the cloud build registers a reporter that posts it
+ * so an operator can see it in the backoffice.
+ */
+export interface ClientErrorReport {
+  message: string;
+  stack?: string;
+  componentStack?: string;
+  path: string;
+  userAgent: string;
+}
+
 export interface ExtensionModule {
   name: string;
   /** Pages the module owns, under the project shell (path relative to /project/:projectId). */
@@ -42,6 +58,8 @@ export interface ExtensionModule {
   nav?: ExtensionNavItem[];
   /** Buttons contributed to the top nav. */
   navActions?: ComponentType[];
+  /** Records a render error core caught. Must not throw. */
+  errorReporter?: (report: ClientErrorReport) => void;
 }
 
 export interface ExtensionRegistry {

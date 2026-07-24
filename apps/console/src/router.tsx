@@ -18,6 +18,7 @@ import { AccountPage } from './features/account/AccountPage';
 import { OnboardingPage } from './features/onboarding/OnboardingPage';
 import { ExperimentsPage } from './features/experiments/ExperimentsPage';
 import { extensionRoutes, extensionStandaloneRoutes } from '@/extensions';
+import { AppError } from '@/components/app-error';
 // Shell feature pages are lazy-loaded so heavy deps (Monaco in databases/
 // functions, React Flow in workflows) only download when the route is visited.
 const named = <M extends Record<string, unknown>, K extends keyof M>(
@@ -195,6 +196,9 @@ const FEATURE_ELEMENTS: Record<string, React.ReactNode> = {
 export const router = createBrowserRouter([
   {
     element: <RootBoot />,
+    // Catches render errors anywhere below, so one bad page is a screen the user
+    // can act on rather than a blank document with a minified stack.
+    errorElement: <AppError />,
     children: [
       {
         path: '/login',

@@ -1,6 +1,18 @@
-import type { ExtensionModule, ExtensionNavItem, ExtensionRegistry, ExtensionRoute } from './types';
+import type {
+  ClientErrorReport,
+  ExtensionModule,
+  ExtensionNavItem,
+  ExtensionRegistry,
+  ExtensionRoute,
+} from './types';
 
-export type { ExtensionModule, ExtensionNavItem, ExtensionRegistry, ExtensionRoute };
+export type {
+  ClientErrorReport,
+  ExtensionModule,
+  ExtensionNavItem,
+  ExtensionRegistry,
+  ExtensionRoute,
+};
 
 /**
  * The registry for THIS build.
@@ -25,4 +37,20 @@ export function extensionNav(): ExtensionNavItem[] {
 
 export function extensionNavActions() {
   return registry.modules.flatMap((m) => m.navActions ?? []);
+}
+
+/**
+ * Hands a caught render error to every registered reporter.
+ *
+ * Never throws: reporting a crash must not cause one. A default build has no
+ * reporters and this is a no-op.
+ */
+export function reportClientError(report: ClientErrorReport) {
+  for (const m of registry.modules) {
+    try {
+      m.errorReporter?.(report);
+    } catch {
+      // A reporter that fails is not allowed to make the original error worse.
+    }
+  }
 }
