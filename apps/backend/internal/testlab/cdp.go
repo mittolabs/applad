@@ -2,6 +2,7 @@ package testlab
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -197,6 +198,35 @@ func (c *cdpClient) setup(recorder string, onStep func(string), onFrame func([]b
 	})
 	return err
 }
+
+// captureFrame takes a screenshot on demand, in the same envelope the screencast
+// uses.
+//
+// The screencast only emits on repaint, so a page that has finished loading goes
+// quiet. A console connecting after that would wait forever for a frame that is
+// never coming — which is exactly what "Waiting for the first frame" was. This
+// gives every new viewer something to show immediately, regardless of whether
+// the page happens to be painting.
+func (c *cdpClient) captureFrame() ([]byte, error) {
+	res, err := c.send("Page.captureScreenshot", map[string]interface{}{
+		"format": "jpeg", "quality": 70,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil {
+		return nil, err
+	}
+	if out.Data == "" {
+		return nil, errNoFrame
+	}
+	return json.Marshal(map[string]interface{}{"type": "frame", "data": out.Data})
+}
+
+var errNoFrame = errors.New("cdp: empty screenshot")
 
 func (c *cdpClient) navigate(url string) error {
 	if _, err := c.send("Page.navigate", map[string]interface{}{"url": url}); err != nil {

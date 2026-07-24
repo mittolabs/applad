@@ -51,6 +51,14 @@ type Session struct {
 	// subscribers receive frames and steps; the console is normally the only one.
 	subscribers map[chan []byte]struct{}
 	closed      bool
+	// lastFrame is the most recent frame seen, kept so a console that connects
+	// after the page went quiet has something to draw at once. The screencast
+	// only fires on repaint, and the frames from the initial load are emitted
+	// before the console has had a chance to subscribe.
+	lastFrame []byte
+	// lastSeen tracks console activity so an abandoned session can be reaped
+	// instead of leaving a browser container running for days.
+	lastSeen time.Time
 }
 
 // Studio owns live sessions. They are deliberately in memory: a session is
@@ -70,11 +78,50 @@ type Studio struct {
 }
 
 func NewStudio(svc *Service, q *queue.Queue, rdb *redis.Client) *Studio {
-	return &Studio{
+	s := &Studio{
 		sessions: map[string]*Session{},
 		svc:      svc,
 		queue:    q,
 		rdb:      rdb,
+	}
+	go s.reapIdle()
+	return s
+}
+
+// studioIdleTimeout is how long a session may go untouched before it is torn
+// down. A recording is an interactive thing: if nobody has clicked or watched
+// for this long, the tab is gone.
+const studioIdleTimeout = 30 * time.Minute
+
+// reapIdle closes sessions nobody is using.
+//
+// Closing the browser tab does not tell us anything, so an abandoned recording
+// used to leave its container running indefinitely — several were found up for
+// more than a day, each holding a Chromium. A session is kept alive by the
+// console connecting or interacting; without either, it goes.
+func (s *Studio) reapIdle() {
+	t := time.NewTicker(5 * time.Minute)
+	defer t.Stop()
+	for range t.C {
+		var stale []*Session
+		s.mu.RLock()
+		for _, sess := range s.sessions {
+			sess.mu.Lock()
+			idleSince := sess.lastSeen
+			if idleSince.IsZero() {
+				idleSince = sess.CreatedAt
+			}
+			sess.mu.Unlock()
+			if time.Since(idleSince) > studioIdleTimeout {
+				stale = append(stale, sess)
+			}
+		}
+		s.mu.RUnlock()
+
+		for _, sess := range stale {
+			slog.Info("studio: reaping idle session", "session", sess.ID, "project", sess.ProjectID)
+			s.Stop(sess.ID, sess.ProjectID)
+		}
 	}
 }
 
@@ -152,6 +199,7 @@ func (s *Studio) Start(ctx context.Context, projectID, target, image string) (*S
 		}
 		sess.addStep(step)
 	}, func(frame []byte) {
+		sess.rememberFrame(frame)
 		sess.broadcast(frame)
 	}); err != nil {
 		cdp.close()
@@ -257,6 +305,25 @@ func (sess *Session) addStep(step Step) {
 	sess.broadcast(payload)
 }
 
+// rememberFrame keeps the latest frame for whoever connects next.
+func (sess *Session) rememberFrame(msg []byte) {
+	sess.mu.Lock()
+	sess.lastFrame = msg
+	sess.mu.Unlock()
+}
+
+func (sess *Session) frame() []byte {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	return sess.lastFrame
+}
+
+func (sess *Session) touch() {
+	sess.mu.Lock()
+	sess.lastSeen = time.Now()
+	sess.mu.Unlock()
+}
+
 func (sess *Session) broadcast(msg []byte) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
@@ -303,11 +370,30 @@ func (s *Studio) Stream(w http.ResponseWriter, r *http.Request, sess *Session) {
 	ch := sess.subscribe()
 	defer sess.unsubscribe(ch)
 
+	sess.touch()
+
 	// Existing steps first, so a reconnecting console is not left blank.
 	if payload, err := json.Marshal(map[string]interface{}{
 		"type": "steps", "steps": sess.Steps(),
 	}); err == nil {
 		conn.WriteMessage(websocket.TextMessage, payload) //nolint:errcheck
+	}
+
+	// And a frame, at once.
+	//
+	// The screencast only emits on repaint: the frames from the initial load are
+	// broadcast before the console has the session id to connect with, and a page
+	// that has finished loading then goes silent. Without this the console sat on
+	// "Waiting for the first frame" forever against a perfectly healthy browser.
+	// Prefer a freshly captured frame (it is current); fall back to the last one
+	// seen if the capture fails.
+	if payload, err := sess.cdp.captureFrame(); err == nil {
+		sess.rememberFrame(payload)
+		conn.WriteMessage(websocket.TextMessage, payload) //nolint:errcheck
+	} else if last := sess.frame(); last != nil {
+		conn.WriteMessage(websocket.TextMessage, last) //nolint:errcheck
+	} else {
+		slog.Warn("studio: no frame for connecting console", "session", sess.ID, "error", err)
 	}
 
 	go func() {
@@ -337,6 +423,7 @@ func (s *Studio) Stream(w http.ResponseWriter, r *http.Request, sess *Session) {
 		if json.Unmarshal(data, &in) != nil {
 			continue
 		}
+		sess.touch()
 
 		switch in.Type {
 		case "click":

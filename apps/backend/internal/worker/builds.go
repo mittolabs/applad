@@ -77,6 +77,7 @@ func (w *Builds) Start(ctx context.Context) error {
 	}
 
 	w.queue.StartReaper(ctx, "builds")
+	w.startStudioReaper(ctx)
 
 	slog.Info("builds worker: listening for jobs")
 
@@ -1262,4 +1263,39 @@ func buildPlatformFor(d deploy.Detection) string {
 		return "linux/amd64"
 	}
 	return ""
+}
+
+// studioBrowserMaxAge is the hard ceiling on a recording browser's life. The API
+// reaps idle sessions it knows about; this covers the ones it cannot know about,
+// such as every session live across an API restart.
+const studioBrowserMaxAge = 2 * time.Hour
+
+// startStudioReaper sweeps abandoned recording browsers.
+//
+// Only this worker holds the Docker socket, so it is the only thing that can
+// see a container the API has forgotten. Without it an abandoned recording left
+// a Chromium running indefinitely.
+func (w *Builds) startStudioReaper(ctx context.Context) {
+	if w.deployExecutor == nil {
+		return
+	}
+	go func() {
+		t := time.NewTicker(15 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				n, err := w.deployExecutor.ReapStaleBrowsers(ctx, studioBrowserMaxAge)
+				if err != nil {
+					slog.Warn("builds worker: studio reap failed", "error", err)
+					continue
+				}
+				if n > 0 {
+					slog.Info("builds worker: reaped stale studio browsers", "count", n)
+				}
+			}
+		}
+	}()
 }

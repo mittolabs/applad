@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -214,4 +216,51 @@ func (d *DeployExecutor) StopBrowser(ctx context.Context, containerID string) er
 	}
 	d.docker.StopContainer(ctx, containerID) //nolint:errcheck
 	return d.docker.RemoveContainer(ctx, containerID)
+}
+
+// ReapStaleBrowsers removes studio browsers older than maxAge.
+//
+// The API reaps sessions it knows about, but that state is in memory: an API
+// restart forgets every live session while their containers keep running, and
+// nothing would ever clean them up. Several were found up for more than a day,
+// each holding a Chromium. This is the backstop that does not depend on anyone
+// remembering — a recording is interactive and short-lived, so a studio
+// container older than maxAge is abandoned by definition.
+func (d *DeployExecutor) ReapStaleBrowsers(ctx context.Context, maxAge time.Duration) (int, error) {
+	filter := url.QueryEscape(`{"name":["applad-studio-"]}`)
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		fmt.Sprintf(d.docker.baseURL+"/v1.44/containers/json?all=true&filters=%s", filter), nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := d.docker.httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var containers []struct {
+		ID      string   `json:"Id"`
+		Names   []string `json:"Names"`
+		Created int64    `json:"Created"` // unix seconds
+	}
+	if err := json.Unmarshal(body, &containers); err != nil {
+		return 0, err
+	}
+
+	cutoff := time.Now().Add(-maxAge).Unix()
+	reaped := 0
+	for _, c := range containers {
+		if c.Created > cutoff {
+			continue
+		}
+		if err := d.StopBrowser(ctx, c.ID); err != nil {
+			slog.Warn("runtime: could not reap studio browser", "container", c.ID, "error", err)
+			continue
+		}
+		slog.Info("runtime: reaped stale studio browser", "names", c.Names)
+		reaped++
+	}
+	return reaped, nil
 }
