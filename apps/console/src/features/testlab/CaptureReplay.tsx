@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pause, Play, X } from 'lucide-react';
-import { api } from '@/api/client';
+import { Loader2, Pause, Play, Sparkles, X } from 'lucide-react';
+import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 
 /*
@@ -50,6 +50,8 @@ interface Capture {
   console: ConsoleEvent[];
   network: NetworkEvent[];
   steps: Step[];
+  aiSummary?: string;
+  aiAvailable?: boolean;
 }
 
 export function CaptureReplay({ captureId, onClose }: { captureId: string; onClose: () => void }) {
@@ -58,15 +60,33 @@ export function CaptureReplay({ captureId, onClose }: { captureId: string; onClo
   const [ms, setMs] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<'console' | 'network'>('console');
+  const [aiSummary, setAiSummary] = useState('');
+  const [explaining, setExplaining] = useState(false);
   const raf = useRef<number | null>(null);
   const lastTick = useRef<number>(0);
 
   useEffect(() => {
     api
       .get(`/studio/captures/${captureId}`)
-      .then((r) => setCap(r.data as Capture))
+      .then((r) => {
+        const c = r.data as Capture;
+        setCap(c);
+        if (c.aiSummary) setAiSummary(c.aiSummary);
+      })
       .catch(() => setError('This recording has no replay. It was saved before capture existed.'));
   }, [captureId]);
+
+  const explain = async () => {
+    setExplaining(true);
+    try {
+      const s = (await api.post(`/studio/captures/${captureId}/explain`)).data as { summary: string };
+      setAiSummary(s.summary);
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setExplaining(false);
+    }
+  };
 
   const duration = cap?.durationMs ?? 0;
   const rel = useCallback((ts: number) => (cap ? ts - cap.startedAt : 0), [cap]);
@@ -221,6 +241,24 @@ export function CaptureReplay({ captureId, onClose }: { captureId: string; onClo
 
         {/* Console / network panels */}
         <div className="flex w-[360px] shrink-0 flex-col border-l border-border">
+          {(cap.aiAvailable || aiSummary) && (
+            <div className="border-b border-border p-2">
+              {aiSummary ? (
+                <div className="rounded-[var(--radius)] bg-fill p-2.5 text-[length:var(--text-caption)] leading-relaxed text-text-secondary">
+                  <div className="mb-1 flex items-center gap-1.5 text-text-primary">
+                    <Sparkles size={13} className="text-[var(--color-accent)]" />
+                    <span className="font-medium">Explanation</span>
+                  </div>
+                  <div className="whitespace-pre-wrap">{aiSummary}</div>
+                </div>
+              ) : (
+                <Button variant="outline" className="w-full" onClick={explain} disabled={explaining}>
+                  {explaining ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {explaining ? 'Diagnosing…' : 'Explain this capture'}
+                </Button>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-1 border-b border-border px-2">
             <PanelTab label="Console" badge={consoleErrors} danger active={tab === 'console'} onClick={() => setTab('console')} />
             <PanelTab label="Network" badge={cap.network.length} active={tab === 'network'} onClick={() => setTab('network')} />

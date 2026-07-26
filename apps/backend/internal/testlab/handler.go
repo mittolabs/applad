@@ -1,6 +1,7 @@
 package testlab
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,15 +18,27 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// AIExplainer summarises a capture. Kept as a narrow interface so testlab does
+// not depend on the AI package: the app wires the real one, a self-hosted build
+// with no AI configured wires nothing and the feature is simply absent.
+type AIExplainer interface {
+	IsConfigured() bool
+	Explain(ctx context.Context, system, user string) (string, error)
+}
+
 // Handler serves the test lab API.
 type Handler struct {
 	svc    *Service
 	studio *Studio
+	ai     AIExplainer
 }
 
 func NewHandler(svc *Service, q *queue.Queue, rdb *redis.Client) *Handler {
 	return &Handler{svc: svc, studio: NewStudio(svc, q, rdb)}
 }
+
+// SetAI wires the AI explainer, if one is configured.
+func (h *Handler) SetAI(ai AIExplainer) { h.ai = ai }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")

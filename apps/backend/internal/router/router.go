@@ -241,6 +241,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// AI chat — console JWT required, no project header needed
 		aiSvc := aichat.NewService(cfg.AIProvider, cfg.AIAPIKey, cfg.AIModel, cfg.AIBaseURL)
 		r.Mount("/ai", aichat.Routes(aichat.NewHandler(aiSvc, consoleSvc, cfg.Port)))
+		// The studio's "explain this capture" uses the same AI service; absent
+		// when none is configured.
+		testlabHandler.SetAI(aiSvc)
 
 		// Locale — no auth required
 		r.Mount("/locale", locale.Routes(locale.NewHandler()))
