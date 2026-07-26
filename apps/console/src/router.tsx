@@ -17,7 +17,7 @@ import { ProjectsPage } from './features/projects/ProjectsPage';
 import { AccountPage } from './features/account/AccountPage';
 import { OnboardingPage } from './features/onboarding/OnboardingPage';
 import { ExperimentsPage } from './features/experiments/ExperimentsPage';
-import { extensionRoutes, extensionStandaloneRoutes } from '@/extensions';
+import { extensionPublicRoutes, extensionRoutes, extensionStandaloneRoutes } from '@/extensions';
 import { AppError } from '@/components/app-error';
 // Shell feature pages are lazy-loaded so heavy deps (Monaco in databases/
 // functions, React Flow in workflows) only download when the route is visited.
@@ -211,6 +211,12 @@ export const router = createBrowserRouter([
       // Invite redemption stands apart from login: the token is the
       // credential, and it works on instances where signup is closed.
       { path: '/invite/:token', element: <InvitePage /> },
+      // Public pages a compiled-in module owns, reachable without a login (a
+      // shared capture replay). A default build contributes none.
+      ...extensionPublicRoutes().map(({ path, element: El }) => ({
+        path,
+        element: <El />,
+      })),
       // Fixed by the GitHub App's own configuration: GitHub returns everyone
       // here after an install, whichever project sent them.
       { path: '/git/setup', element: <GitHubSetupPage /> },

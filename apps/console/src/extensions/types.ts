@@ -54,6 +54,13 @@ export interface ExtensionModule {
    * `path` is absolute from the app root, e.g. "/settings/billing".
    */
   standaloneRoutes?: ExtensionRoute[];
+  /**
+   * Pages reachable WITHOUT logging in, beside /login. A public share link opens
+   * a read-only replay for anyone with the link, so it cannot sit behind auth.
+   * The route itself is the only gate; whatever it renders must authorise by
+   * some token in the path, never by the session.
+   */
+  publicRoutes?: ExtensionRoute[];
   /** Nav entries pointing at the module's own routes. */
   nav?: ExtensionNavItem[];
   /** Buttons contributed to the top nav. */

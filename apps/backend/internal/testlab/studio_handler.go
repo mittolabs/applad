@@ -3,6 +3,7 @@ package testlab
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
 	"github.com/mittolabs/applad/internal/middleware"
+	"github.com/mittolabs/applad/internal/uid"
 )
 
 // StudioRoutes serves recording sessions and the flows they produce.
@@ -36,6 +38,9 @@ func StudioRoutes(h *Handler) http.Handler {
 	r.Get("/captures/{captureId}", h.getCapture)
 	r.Get("/captures/{captureId}/frames/{seq}", h.frameOfCapture)
 	r.Post("/captures/{captureId}/explain", h.explainCapture)
+	r.Post("/captures/{captureId}/share", h.shareCapture)
+	r.Delete("/captures/{captureId}/share", h.unshareCapture)
+	r.Patch("/captures/{captureId}/annotations", h.setCaptureAnnotations)
 
 	return r
 }
@@ -270,6 +275,87 @@ func buildExplainPrompt(c *Capture) string {
 		fmt.Fprintf(&b, "- %v\n", s["description"])
 	}
 	return b.String()
+}
+
+// shareCapture mints an unguessable token for a capture, so it can be opened
+// read-only without a login. The token IS the authorisation — anyone with the
+// link sees the replay — which is why it is long and random. The unauthenticated
+// page that renders it is layered in the commercial console; core mints and
+// resolves the token, and a self-hosted build simply has no public page.
+func (h *Handler) shareCapture(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	captureID := chi.URLParam(r, "captureId")
+	if _, err := h.svc.GetCapture(r.Context(), captureID, projectID); err != nil {
+		apperr.NotFound(w, "capture")
+		return
+	}
+	token := uid.New("cap") + uid.New("")
+	if err := h.svc.SetCaptureShare(r.Context(), captureID, projectID, token); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token, "path": "/capture/" + token})
+}
+
+func (h *Handler) unshareCapture(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	captureID := chi.URLParam(r, "captureId")
+	if err := h.svc.SetCaptureShare(r.Context(), captureID, projectID, ""); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) setCaptureAnnotations(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	captureID := chi.URLParam(r, "captureId")
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if len(body) == 0 {
+		body = []byte("[]")
+	}
+	if err := h.svc.SetCaptureAnnotations(r.Context(), captureID, projectID, body); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PublicRoutes serves the read-only, unauthenticated replay a share token opens.
+// Mounted by the commercial layer (the vendor-facing public page); a self-hosted
+// build never mounts it, so a token is useless there. The token is the only
+// credential, so no project scope is applied.
+func (h *Handler) PublicRoutes() http.Handler {
+	r := chi.NewRouter()
+	r.Get("/{token}", h.publicCapture)
+	r.Get("/{token}/frames/{seq}", h.publicFrame)
+	return r
+}
+
+func (h *Handler) publicCapture(w http.ResponseWriter, r *http.Request) {
+	c, err := h.svc.GetCaptureByShare(r.Context(), chi.URLParam(r, "token"))
+	if err != nil {
+		apperr.NotFound(w, "capture")
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+func (h *Handler) publicFrame(w http.ResponseWriter, r *http.Request) {
+	c, err := h.svc.GetCaptureByShare(r.Context(), chi.URLParam(r, "token"))
+	if err != nil {
+		apperr.NotFound(w, "capture")
+		return
+	}
+	seq, err := strconv.Atoi(chi.URLParam(r, "seq"))
+	if err != nil || seq < 0 {
+		apperr.BadRequest(w, "bad frame")
+		return
+	}
+	path := filepath.Join(CapturesDir(), c.ID, fmt.Sprintf("%06d.jpg", seq))
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	http.ServeFile(w, r, path)
 }
 
 // frameOfCapture serves one frame of the video from the storage volume. The

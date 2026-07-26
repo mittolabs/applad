@@ -40,6 +40,14 @@ func NewHandler(svc *Service, q *queue.Queue, rdb *redis.Client) *Handler {
 // SetAI wires the AI explainer, if one is configured.
 func (h *Handler) SetAI(ai AIExplainer) { h.ai = ai }
 
+// PublicCaptureRoutes builds the unauthenticated, token-scoped replay routes
+// without a full studio (no browser worker needed to read a saved capture). The
+// commercial layer mounts these for the public share page; core provides them
+// but mounts nothing, so a self-hosted build has no public surface.
+func PublicCaptureRoutes(svc *Service) http.Handler {
+	return (&Handler{svc: svc}).PublicRoutes()
+}
+
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

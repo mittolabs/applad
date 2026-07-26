@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Pause, Play, Sparkles, X } from 'lucide-react';
+import { Check, Link2, Loader2, Pause, Play, Sparkles, X } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 
@@ -54,7 +54,20 @@ interface Capture {
   aiAvailable?: boolean;
 }
 
-export function CaptureReplay({ captureId, onClose }: { captureId: string; onClose: () => void }) {
+export function CaptureReplay({
+  captureId,
+  token,
+  onClose,
+}: {
+  captureId?: string;
+  token?: string;
+  onClose: () => void;
+}) {
+  // Two front doors, one component: an authed teammate opens a capture by id;
+  // anyone with a share link opens it by token, unauthenticated and read-only.
+  const authed = !!captureId;
+  const basePath = token ? `/shared-captures/${token}` : `/studio/captures/${captureId}`;
+
   const [cap, setCap] = useState<Capture | null>(null);
   const [error, setError] = useState('');
   const [ms, setMs] = useState(0);
@@ -62,29 +75,48 @@ export function CaptureReplay({ captureId, onClose }: { captureId: string; onClo
   const [tab, setTab] = useState<'console' | 'network'>('console');
   const [aiSummary, setAiSummary] = useState('');
   const [explaining, setExplaining] = useState(false);
+  const [shareLink, setShareLink] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const raf = useRef<number | null>(null);
   const lastTick = useRef<number>(0);
 
   useEffect(() => {
     api
-      .get(`/studio/captures/${captureId}`)
+      .get(basePath)
       .then((r) => {
         const c = r.data as Capture;
         setCap(c);
         if (c.aiSummary) setAiSummary(c.aiSummary);
       })
       .catch(() => setError('This recording has no replay. It was saved before capture existed.'));
-  }, [captureId]);
+  }, [basePath]);
 
   const explain = async () => {
     setExplaining(true);
     try {
-      const s = (await api.post(`/studio/captures/${captureId}/explain`)).data as { summary: string };
+      const s = (await api.post(`${basePath}/explain`)).data as { summary: string };
       setAiSummary(s.summary);
     } catch (e) {
       setError(friendlyError(e));
     } finally {
       setExplaining(false);
+    }
+  };
+
+  const share = async () => {
+    setSharing(true);
+    try {
+      const res = (await api.post(`${basePath}/share`)).data as { path: string };
+      const link = `${window.location.origin}${res.path}`;
+      setShareLink(link);
+      await navigator.clipboard?.writeText(link).catch(() => undefined);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setSharing(false);
     }
   };
 
@@ -103,12 +135,14 @@ export function CaptureReplay({ captureId, onClose }: { captureId: string; onClo
     return s;
   }, [cap, ms]);
 
-  const token = localStorage.getItem('applad_console_token') ?? '';
+  // Frames are <img> loads, so authed mode carries the credential in the query
+  // (the way the live stream does); the public token needs nothing extra.
+  const authToken = localStorage.getItem('applad_console_token') ?? '';
   const project = (api.defaults.headers.common['X-Applad-Project'] as string) ?? '';
-  const frameSrc =
-    seq >= 0
-      ? `/v1/studio/captures/${captureId}/frames/${seq}?token=${encodeURIComponent(token)}&project=${encodeURIComponent(project)}`
-      : '';
+  const frameQuery = token
+    ? ''
+    : `?token=${encodeURIComponent(authToken)}&project=${encodeURIComponent(project)}`;
+  const frameSrc = seq >= 0 ? `/v1${basePath}/frames/${seq}${frameQuery}` : '';
 
   // Play advances the clock in real time and stops at the end.
   useEffect(() => {
@@ -168,8 +202,15 @@ export function CaptureReplay({ captureId, onClose }: { captureId: string; onClo
   const activeConsole = cap.console.reduce<number>((best, c, i) => (rel(c.ts) <= ms ? i : best), -1);
   const activeNet = cap.network.reduce<number>((best, n, i) => (rel(n.ts) <= ms ? i : best), -1);
 
+  const shareButton = authed ? (
+    <Button variant="outline" onClick={share} disabled={sharing} title="Create a shareable link">
+      {copied ? <Check size={14} /> : sharing ? <Loader2 size={14} className="animate-spin" /> : <Link2 size={14} />}
+      {copied ? 'Link copied' : shareLink ? 'Copy link' : 'Share'}
+    </Button>
+  ) : null;
+
   return (
-    <Overlay onClose={onClose} target={cap.target}>
+    <Overlay onClose={onClose} target={cap.target} actions={shareButton}>
       <div className="flex min-h-0 flex-1">
         {/* Video */}
         <div className="flex min-w-0 flex-1 flex-col">
@@ -301,17 +342,30 @@ export function CaptureReplay({ captureId, onClose }: { captureId: string; onClo
   );
 }
 
-function Overlay({ target, onClose, children }: { target: string; onClose: () => void; children: React.ReactNode }) {
+function Overlay({
+  target,
+  onClose,
+  actions,
+  children,
+}: {
+  target: string;
+  onClose: () => void;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background">
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2">
         <span className="truncate font-mono text-[length:var(--text-caption)] text-text-secondary">
           {target || 'Replay'}
         </span>
-        <Button variant="outline" onClick={onClose}>
-          <X size={14} />
-          Close
-        </Button>
+        <div className="flex items-center gap-2">
+          {actions}
+          <Button variant="outline" onClick={onClose}>
+            <X size={14} />
+            Close
+          </Button>
+        </div>
       </div>
       {children}
     </div>
