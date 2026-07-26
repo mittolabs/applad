@@ -297,34 +297,43 @@ func (c *cdpClient) click(x, y float64) error {
 
 // editingKeys are the non-printable keys that must carry a virtual key code, or
 // Chromium ignores them entirely — which is why Backspace did nothing: you could
-// type but not delete. A printable character needs `text`; an editing key needs
-// the code so the browser performs the action.
+// type but not delete. Keys with a `text` (Enter → carriage return) are sent as
+// keyDown so the char event fires and the default action runs — Enter submits a
+// form only if that char event happens, which is why raw Enter did nothing. Keys
+// without text (Backspace, arrows, …) are rawKeyDown, which is enough for the
+// editing/navigation action.
 var editingKeys = map[string]struct {
 	vk   int
 	code string
+	text string
 }{
-	"Backspace":  {8, "Backspace"},
-	"Tab":        {9, "Tab"},
-	"Enter":      {13, "Enter"},
-	"Escape":     {27, "Escape"},
-	"Delete":     {46, "Delete"},
-	"ArrowLeft":  {37, "ArrowLeft"},
-	"ArrowUp":    {38, "ArrowUp"},
-	"ArrowRight": {39, "ArrowRight"},
-	"ArrowDown":  {40, "ArrowDown"},
-	"Home":       {36, "Home"},
-	"End":        {35, "End"},
+	"Backspace":  {8, "Backspace", ""},
+	"Tab":        {9, "Tab", ""},
+	"Enter":      {13, "Enter", "\r"},
+	"Escape":     {27, "Escape", ""},
+	"Delete":     {46, "Delete", ""},
+	"ArrowLeft":  {37, "ArrowLeft", ""},
+	"ArrowUp":    {38, "ArrowUp", ""},
+	"ArrowRight": {39, "ArrowRight", ""},
+	"ArrowDown":  {40, "ArrowDown", ""},
+	"Home":       {36, "Home", ""},
+	"End":        {35, "End", ""},
 }
 
 func (c *cdpClient) key(key, text string) error {
 	if sk, ok := editingKeys[key]; ok {
-		// rawKeyDown (not keyDown) for a key that produces no text, with the
-		// virtual key code so the browser actually deletes / moves / submits.
 		base := map[string]interface{}{
 			"key": key, "code": sk.code,
 			"windowsVirtualKeyCode": sk.vk, "nativeVirtualKeyCode": sk.vk,
 		}
-		down := clone(base, "type", "rawKeyDown")
+		var down map[string]interface{}
+		if sk.text != "" {
+			// keyDown + text so the char event fires and Enter actually submits.
+			down = clone(base, "type", "keyDown")
+			down["text"] = sk.text
+		} else {
+			down = clone(base, "type", "rawKeyDown")
+		}
 		if _, err := c.send("Input.dispatchKeyEvent", down); err != nil {
 			return err
 		}
@@ -352,9 +361,9 @@ func clone(m map[string]interface{}, k string, v interface{}) map[string]interfa
 	return out
 }
 
-func (c *cdpClient) scroll(x, y, deltaY float64) error {
+func (c *cdpClient) scroll(x, y, deltaX, deltaY float64) error {
 	_, err := c.send("Input.dispatchMouseEvent", map[string]interface{}{
-		"type": "mouseWheel", "x": x, "y": y, "deltaX": 0, "deltaY": deltaY,
+		"type": "mouseWheel", "x": x, "y": y, "deltaX": deltaX, "deltaY": deltaY,
 	})
 	return err
 }

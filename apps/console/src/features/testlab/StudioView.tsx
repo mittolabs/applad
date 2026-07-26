@@ -8,6 +8,8 @@ import {
   Save,
   Trash2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
@@ -85,6 +87,10 @@ export function StudioView({
   const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
   const [network, setNetwork] = useState<NetworkEvent[]>([]);
   const [tab, setTab] = useState<'steps' | 'console' | 'network'>('steps');
+  // Zoom < 1 renders the page at a larger logical viewport so more of it fits —
+  // exactly like a browser's zoom-out. Click mapping is unaffected because the
+  // frame still reports its true pixel size.
+  const [zoom, setZoom] = useState(1);
 
   const ws = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -149,11 +155,17 @@ export function StudioView({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = el.getBoundingClientRect();
+      // Trackpads report deltaX directly; a mouse with Shift held scrolls
+      // horizontally, which the browser signals as deltaX on most platforms but
+      // we also fold in shift+deltaY so a plain wheel can reach wide content.
+      const dx = e.deltaX || (e.shiftKey ? e.deltaY : 0);
+      const dy = e.shiftKey && !e.deltaX ? 0 : e.deltaY;
       send({
         type: 'scroll',
         x: ((e.clientX - rect.left) / rect.width) * size.width,
         y: ((e.clientY - rect.top) / rect.height) * size.height,
-        deltaY: e.deltaY,
+        deltaX: dx,
+        deltaY: dy,
       });
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -169,10 +181,10 @@ export function StudioView({
   const reportViewport = useCallback(() => {
     const el = frameBoxRef.current;
     if (!el) return;
-    const w = Math.round(el.clientWidth);
-    const h = Math.round(el.clientHeight);
+    const w = Math.round(el.clientWidth / zoom);
+    const h = Math.round(el.clientHeight / zoom);
     if (w > 0 && h > 0) send({ type: 'viewport', width: w, height: h });
-  }, [send]);
+  }, [send, zoom]);
 
   useEffect(() => {
     const el = frameBoxRef.current;
@@ -182,6 +194,37 @@ export function StudioView({
     ro.observe(el);
     return () => ro.disconnect();
   }, [reportViewport, connected, fullscreen, railOpen]);
+
+  const ZOOM_MIN = 0.4;
+  const ZOOM_MAX = 1;
+  const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
+  const zoomControls = (
+    <div className="flex items-center gap-0.5 rounded-[var(--radius-6)] border border-border">
+      <button
+        onClick={() => setZoom((z) => clampZoom(z - 0.1))}
+        disabled={zoom <= ZOOM_MIN}
+        className="px-2 py-1 text-text-secondary transition-colors hover:text-text-primary disabled:opacity-40"
+        title="Zoom out (show more)"
+      >
+        <ZoomOut size={14} />
+      </button>
+      <button
+        onClick={() => setZoom(1)}
+        className="min-w-[42px] px-1 text-center text-[length:var(--text-2xs)] tabular-nums text-text-muted transition-colors hover:text-text-primary"
+        title="Reset zoom"
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button
+        onClick={() => setZoom((z) => clampZoom(z + 0.1))}
+        disabled={zoom >= ZOOM_MAX}
+        className="px-2 py-1 text-text-secondary transition-colors hover:text-text-primary disabled:opacity-40"
+        title="Zoom in"
+      >
+        <ZoomIn size={14} />
+      </button>
+    </div>
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -412,6 +455,7 @@ export function StudioView({
             {session.target}
           </span>
           <div className="flex items-center gap-2">
+            {zoomControls}
             {modeButton}
             {!railOpen && (
               <Button variant="ghost" onClick={() => setRailOpen(true)}>
@@ -463,6 +507,7 @@ export function StudioView({
         </div>
 
         <div className="flex items-center gap-2">
+          {zoomControls}
           {modeButton}
           <Button variant="outline" onClick={() => setFullscreen(true)} title="Fullscreen">
             <Maximize2 size={14} />

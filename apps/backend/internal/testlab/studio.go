@@ -502,6 +502,7 @@ func (s *Studio) Stream(w http.ResponseWriter, r *http.Request, sess *Session) {
 			Button     string  `json:"button"`
 			Text       string  `json:"text"`
 			Key        string  `json:"key"`
+			DeltaX     float64 `json:"deltaX"`
 			DeltaY     float64 `json:"deltaY"`
 			AssertMode bool    `json:"assertMode"`
 			Index      int     `json:"index"`
@@ -519,7 +520,7 @@ func (s *Studio) Stream(w http.ResponseWriter, r *http.Request, sess *Session) {
 		case "key":
 			sess.cdp.key(in.Key, in.Text) //nolint:errcheck
 		case "scroll":
-			sess.cdp.scroll(in.X, in.Y, in.DeltaY) //nolint:errcheck
+			sess.cdp.scroll(in.X, in.Y, in.DeltaX, in.DeltaY) //nolint:errcheck
 		case "assertMode":
 			// Toggling is a page-side flag: in assert mode a click marks
 			// something to check instead of doing it.
