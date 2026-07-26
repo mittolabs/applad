@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Circle, Code2, Play, Trash2, Video } from 'lucide-react';
+import { Circle, Code2, Film, Play, Trash2, Video } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
 import { ConfirmDialog } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
 import { CodeBlock } from '@/components/code-block';
+import { CaptureReplay } from './CaptureReplay';
 
 /*
  * Saved recordings.
@@ -30,6 +31,20 @@ export function FlowsTab({ projectId, onRecord }: { projectId?: string; onRecord
   const [showing, setShowing] = useState<Flow | null>(null);
   const [deleting, setDeleting] = useState<Flow | null>(null);
   const [running, setRunning] = useState<string | null>(null);
+  const [replaying, setReplaying] = useState<string | null>(null);
+  const [openingReplay, setOpeningReplay] = useState<string | null>(null);
+
+  const openReplay = async (flow: Flow) => {
+    setOpeningReplay(flow.$id);
+    try {
+      const cap = (await api.get(`/studio/flows/${flow.$id}/capture`)).data as { $id: string };
+      setReplaying(cap.$id);
+    } catch {
+      toast.error('This recording has no replay yet.');
+    } finally {
+      setOpeningReplay(null);
+    }
+  };
 
   const { data: flows = [] } = useQuery({
     queryKey: ['test-flows', projectId],
@@ -102,6 +117,10 @@ export function FlowsTab({ projectId, onRecord }: { projectId?: string; onRecord
                   {f.steps?.length ?? 0} steps · {f.target}
                 </div>
               </div>
+              <Button variant="ghost" loading={openingReplay === f.$id} onClick={() => openReplay(f)}>
+                <Film size={13} />
+                Replay
+              </Button>
               <Button variant="ghost" onClick={() => setShowing(f)}>
                 <Code2 size={13} />
                 Code
@@ -144,6 +163,8 @@ export function FlowsTab({ projectId, onRecord }: { projectId?: string; onRecord
         destructive
         onConfirm={remove}
       />
+
+      {replaying && <CaptureReplay captureId={replaying} onClose={() => setReplaying(null)} />}
     </div>
   );
 }

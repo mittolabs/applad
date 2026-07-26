@@ -3,7 +3,10 @@ package testlab
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -26,7 +29,12 @@ func StudioRoutes(h *Handler) http.Handler {
 
 	r.Get("/flows", h.listFlows)
 	r.Get("/flows/{flowId}", h.getFlow)
+	r.Get("/flows/{flowId}/capture", h.getFlowCapture)
 	r.Delete("/flows/{flowId}", h.deleteFlow)
+
+	// Replay: a saved capture's timeline and its frames.
+	r.Get("/captures/{captureId}", h.getCapture)
+	r.Get("/captures/{captureId}/frames/{seq}", h.frameOfCapture)
 
 	return r
 }
@@ -136,10 +144,65 @@ func (h *Handler) saveSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Persist the capture — the console, network, environment and frame timeline
+	// gathered while recording — linked to the flow, so the saved test is also a
+	// replay. Captured before the session is torn down. Best effort: a flow saved
+	// without its replay is better than a save that fails on the extra data.
+	cap := sess.captureData()
+	cap.FlowID = flow.ID
+	if _, err := h.svc.SaveCapture(r.Context(), cap); err != nil {
+		slog.Warn("studio: could not save capture", "flow", flow.ID, "error", err)
+	}
+
 	if !body.KeepOpen {
 		h.studio.Stop(sessionID, projectID)
 	}
 	writeJSON(w, http.StatusCreated, flow)
+}
+
+// getCapture returns a capture's metadata and timeline (console, network, steps,
+// env, frame marks). The frames themselves are served by frameOfCapture.
+func (h *Handler) getCapture(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	c, err := h.svc.GetCapture(r.Context(), chi.URLParam(r, "captureId"), projectID)
+	if err != nil {
+		apperr.NotFound(w, "capture")
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+// getFlowCapture returns the capture attached to a flow, so the flow list can
+// offer "Replay".
+func (h *Handler) getFlowCapture(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	c, err := h.svc.GetCaptureForFlow(r.Context(), chi.URLParam(r, "flowId"), projectID)
+	if err != nil {
+		apperr.NotFound(w, "capture")
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+// frameOfCapture serves one frame of the video from the storage volume. The
+// filename is a fixed-width sequence number, so a path traversal cannot escape
+// the capture's directory.
+func (h *Handler) frameOfCapture(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	captureID := chi.URLParam(r, "captureId")
+	if _, err := h.svc.GetCapture(r.Context(), captureID, projectID); err != nil {
+		apperr.NotFound(w, "capture")
+		return
+	}
+	seq, err := strconv.Atoi(chi.URLParam(r, "seq"))
+	if err != nil || seq < 0 {
+		apperr.BadRequest(w, "bad frame")
+		return
+	}
+	path := filepath.Join(CapturesDir(), captureID, fmt.Sprintf("%06d.jpg", seq))
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	http.ServeFile(w, r, path)
 }
 
 func (h *Handler) listFlows(w http.ResponseWriter, r *http.Request) {

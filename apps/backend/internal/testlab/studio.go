@@ -2,9 +2,11 @@ package testlab
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -65,7 +67,20 @@ type Session struct {
 	console []json.RawMessage
 	network []json.RawMessage
 	env     json.RawMessage
+
+	// The video, as sampled frames on disk. Change-driven and throttled so a
+	// static page costs nothing and a busy one is capped; each frame carries its
+	// real offset so the replay lines the picture up with the events.
+	capDir     string
+	capStartMs int64
+	capSeq     int
+	capLastWr  int64 // last frame write, ms
+	frameMarks []FrameMark
+	lastJPEG   []byte
 }
+
+// frameThrottleMs bounds how often a frame is written: ~6fps at most.
+const frameThrottleMs = 160
 
 // captureCap bounds each capture buffer; the oldest events are dropped past it.
 const captureCap = 2000
@@ -192,6 +207,13 @@ func (s *Studio) Start(ctx context.Context, projectID, target, image string) (*S
 	}
 	sess.containerID = sess.ID
 
+	// The capture's frames land here; the timeline origin is now.
+	sess.capStartMs = nowMs()
+	sess.capDir = filepath.Join(CapturesDir(), sess.ID)
+	if err := os.MkdirAll(sess.capDir, 0o755); err != nil {
+		slog.Warn("studio: could not create capture dir", "session", sess.ID, "error", err)
+	}
+
 	cdp, err := newCDPClient(wsURL)
 	if err != nil {
 		s.releaseBrowser(sess.ID)
@@ -209,6 +231,7 @@ func (s *Studio) Start(ctx context.Context, projectID, target, image string) (*S
 		sess.addStep(step)
 	}, func(frame []byte) {
 		sess.rememberFrame(frame)
+		sess.writeFrame(frame, false)
 		sess.broadcast(frame)
 	}, func(ev []byte) {
 		sess.addCapture(ev)
@@ -330,9 +353,19 @@ func (sess *Session) DeleteStep(index int) {
 
 func (sess *Session) addStep(step Step) {
 	sess.mu.Lock()
+	if sess.capStartMs > 0 {
+		step.Ts = nowMs() - sess.capStartMs // timeline offset, for the replay
+	}
 	sess.steps = append(sess.steps, step)
 	n := len(sess.steps)
+	lastFrame := sess.lastFrame
 	sess.mu.Unlock()
+
+	// A keyframe at the moment of the interaction, so the replay always shows
+	// what the page looked like when the step happened.
+	if lastFrame != nil {
+		sess.writeFrame(lastFrame, true)
+	}
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"type": "step", "index": n - 1, "step": step,
@@ -378,6 +411,80 @@ func (sess *Session) captureSnapshot() (console, network []json.RawMessage, env 
 	console = append([]json.RawMessage(nil), sess.console...)
 	network = append([]json.RawMessage(nil), sess.network...)
 	return console, network, sess.env
+}
+
+// writeFrame persists one frame of the video. Throttled to ~6fps and skipped
+// when the picture has not changed, so a static page costs nothing; `forced`
+// (used at each interaction) writes a keyframe regardless, so the replay always
+// has a picture at the moment something happened.
+func (sess *Session) writeFrame(payload []byte, forced bool) {
+	var p struct {
+		Data string `json:"data"`
+	}
+	if json.Unmarshal(payload, &p) != nil || p.Data == "" {
+		return
+	}
+	jpeg, err := base64.StdEncoding.DecodeString(p.Data)
+	if err != nil {
+		return
+	}
+
+	sess.mu.Lock()
+	if sess.capDir == "" {
+		sess.mu.Unlock()
+		return
+	}
+	now := nowMs()
+	changed := !bytes.Equal(jpeg, sess.lastJPEG)
+	sess.lastJPEG = jpeg
+	if !forced {
+		if now-sess.capLastWr < frameThrottleMs || !changed {
+			sess.mu.Unlock()
+			return
+		}
+	}
+	sess.capLastWr = now
+	seq := sess.capSeq
+	sess.capSeq++
+	sess.frameMarks = append(sess.frameMarks, FrameMark{Seq: seq, Ms: now - sess.capStartMs})
+	dir := sess.capDir
+	sess.mu.Unlock()
+
+	path := filepath.Join(dir, fmt.Sprintf("%06d.jpg", seq))
+	if err := os.WriteFile(path, jpeg, 0o644); err != nil {
+		slog.Warn("studio: frame write failed", "session", sess.ID, "error", err)
+	}
+}
+
+// captureData assembles what to persist on save: the events, the frame timeline,
+// and the window.
+func (sess *Session) captureData() Capture {
+	console, network, env := sess.captureSnapshot()
+	sess.mu.Lock()
+	marks := append([]FrameMark(nil), sess.frameMarks...)
+	start := sess.capStartMs
+	sess.mu.Unlock()
+
+	consoleJSON, _ := json.Marshal(console)
+	networkJSON, _ := json.Marshal(network)
+	stepsJSON, _ := json.Marshal(sess.Steps())
+	envJSON := []byte(env)
+	if len(envJSON) == 0 {
+		envJSON = []byte("{}")
+	}
+	return Capture{
+		ID:         sess.ID,
+		ProjectID:  sess.ProjectID,
+		Target:     sess.Target,
+		StartedAt:  start,
+		DurationMs: nowMs() - start,
+		Status:     "ready",
+		Frames:     marks,
+		Console:    consoleJSON,
+		Network:    networkJSON,
+		Env:        envJSON,
+		Steps:      stepsJSON,
+	}
 }
 
 func appendCapped(buf []json.RawMessage, v json.RawMessage) []json.RawMessage {

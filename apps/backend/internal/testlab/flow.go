@@ -59,6 +59,10 @@ type Step struct {
 	Value  string   `json:"value,omitempty"`
 	// Description is what the step means, in the words shown in the studio.
 	Description string `json:"description"`
+	// Ts is the offset from the capture's start, in ms, so a step sits on the
+	// replay timeline beside the console and network. Zero for flows recorded
+	// before captures existed; compilers ignore it.
+	Ts int64 `json:"ts,omitempty"`
 }
 
 // Flow is a recording.
