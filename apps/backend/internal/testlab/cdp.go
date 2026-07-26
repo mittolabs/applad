@@ -295,7 +295,43 @@ func (c *cdpClient) click(x, y float64) error {
 	return nil
 }
 
+// editingKeys are the non-printable keys that must carry a virtual key code, or
+// Chromium ignores them entirely — which is why Backspace did nothing: you could
+// type but not delete. A printable character needs `text`; an editing key needs
+// the code so the browser performs the action.
+var editingKeys = map[string]struct {
+	vk   int
+	code string
+}{
+	"Backspace":  {8, "Backspace"},
+	"Tab":        {9, "Tab"},
+	"Enter":      {13, "Enter"},
+	"Escape":     {27, "Escape"},
+	"Delete":     {46, "Delete"},
+	"ArrowLeft":  {37, "ArrowLeft"},
+	"ArrowUp":    {38, "ArrowUp"},
+	"ArrowRight": {39, "ArrowRight"},
+	"ArrowDown":  {40, "ArrowDown"},
+	"Home":       {36, "Home"},
+	"End":        {35, "End"},
+}
+
 func (c *cdpClient) key(key, text string) error {
+	if sk, ok := editingKeys[key]; ok {
+		// rawKeyDown (not keyDown) for a key that produces no text, with the
+		// virtual key code so the browser actually deletes / moves / submits.
+		base := map[string]interface{}{
+			"key": key, "code": sk.code,
+			"windowsVirtualKeyCode": sk.vk, "nativeVirtualKeyCode": sk.vk,
+		}
+		down := clone(base, "type", "rawKeyDown")
+		if _, err := c.send("Input.dispatchKeyEvent", down); err != nil {
+			return err
+		}
+		_, err := c.send("Input.dispatchKeyEvent", clone(base, "type", "keyUp"))
+		return err
+	}
+
 	params := map[string]interface{}{"type": "keyDown", "key": key}
 	if text != "" {
 		params["text"] = text
@@ -305,6 +341,15 @@ func (c *cdpClient) key(key, text string) error {
 	}
 	_, err := c.send("Input.dispatchKeyEvent", map[string]interface{}{"type": "keyUp", "key": key})
 	return err
+}
+
+func clone(m map[string]interface{}, k string, v interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(m)+1)
+	for kk, vv := range m {
+		out[kk] = vv
+	}
+	out[k] = v
+	return out
 }
 
 func (c *cdpClient) scroll(x, y, deltaY float64) error {

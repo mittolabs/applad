@@ -88,6 +88,7 @@ export function StudioView({
 
   const ws = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const frameBoxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // A WebSocket carries no headers, so the token and project ride along in
@@ -159,27 +160,28 @@ export function StudioView({
     return () => el.removeEventListener('wheel', onWheel);
   }, [send, size.width, size.height, frame, fullscreen]);
 
-  // Ask the browser to match the size we are showing, so the picture is 1:1 and
-  // clicks land where they look like they should. Re-sent whenever the layout
-  // that determines the view size changes.
+  // Ask the browser to render at the size of the area we have for it, so the
+  // page fills the view crisply instead of being a small letterboxed picture,
+  // and clicks land where they look. We measure the CONTAINER, not the image:
+  // the image's size depends on the frame we are trying to size, which is
+  // circular. A ResizeObserver re-sends on any layout change (fullscreen, rail,
+  // window) with no fragile timeouts.
   const reportViewport = useCallback(() => {
-    const el = imgRef.current;
+    const el = frameBoxRef.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) {
-      send({ type: 'viewport', width: Math.round(r.width), height: Math.round(r.height) });
-    }
+    const w = Math.round(el.clientWidth);
+    const h = Math.round(el.clientHeight);
+    if (w > 0 && h > 0) send({ type: 'viewport', width: w, height: h });
   }, [send]);
 
   useEffect(() => {
-    // Give the layout a beat to settle after a fullscreen/rail change.
-    const t = setTimeout(reportViewport, 60);
-    window.addEventListener('resize', reportViewport);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener('resize', reportViewport);
-    };
-  }, [reportViewport, fullscreen, railOpen, connected]);
+    const el = frameBoxRef.current;
+    if (!el || !connected) return;
+    reportViewport();
+    const ro = new ResizeObserver(() => reportViewport());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [reportViewport, connected, fullscreen, railOpen]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -241,7 +243,7 @@ export function StudioView({
       onLoad={reportViewport}
       className={
         fullscreen
-          ? 'max-h-full max-w-full cursor-crosshair rounded-[var(--radius)] outline-none'
+          ? 'h-full w-full cursor-crosshair object-contain outline-none'
           : 'w-full cursor-crosshair rounded-[var(--radius)] border border-border outline-none focus:border-[var(--color-accent)]'
       }
     />
@@ -427,7 +429,10 @@ export function StudioView({
           </div>
         </div>
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-black/40 p-3">
+          <div
+            ref={frameBoxRef}
+            className="flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-black"
+          >
             {frameArea}
           </div>
           {railOpen && (
@@ -488,8 +493,10 @@ export function StudioView({
       </div>
 
       <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="min-w-0 flex-1">{frameArea}</div>
-        <div className="w-full lg:w-[380px]">{stepsRail}</div>
+        <div ref={frameBoxRef} className="min-w-0 flex-1">
+          {frameArea}
+        </div>
+        <div className="flex max-h-[70vh] w-full flex-col lg:w-[380px]">{stepsRail}</div>
       </div>
 
       <FormDialog
