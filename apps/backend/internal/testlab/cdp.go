@@ -269,6 +269,39 @@ func (c *cdpClient) scroll(x, y, deltaY float64) error {
 	return err
 }
 
+// setViewport resizes the page to match what the console is showing and restarts
+// the screencast at that size.
+//
+// Without this the browser is fixed at its launch size and the console scales
+// the frames down to fit, so the view is small and imprecise and a frame shown
+// larger than it was captured is blurry. Matching the viewport to the display
+// makes the picture 1:1 and crisp, and makes a click land exactly where it looks
+// like it should. Bounded so a maximised window cannot ask for an absurd canvas.
+func (c *cdpClient) setViewport(width, height int) error {
+	if width < 320 {
+		width = 320
+	}
+	if width > 2560 {
+		width = 2560
+	}
+	if height < 240 {
+		height = 240
+	}
+	if height > 1600 {
+		height = 1600
+	}
+	if _, err := c.send("Emulation.setDeviceMetricsOverride", map[string]interface{}{
+		"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false,
+	}); err != nil {
+		return err
+	}
+	// Restart the screencast so frames arrive at the new size.
+	_, err := c.send("Page.startScreencast", map[string]interface{}{
+		"format": "jpeg", "quality": 70, "maxWidth": width, "maxHeight": height, "everyNthFrame": 1,
+	})
+	return err
+}
+
 func (c *cdpClient) setAssertMode(on bool) error {
 	_, err := c.send("Runtime.evaluate", map[string]interface{}{
 		"expression": fmt.Sprintf("window.__appladAssertMode = %v", on),

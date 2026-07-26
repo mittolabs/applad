@@ -419,6 +419,8 @@ func (s *Studio) Stream(w http.ResponseWriter, r *http.Request, sess *Session) {
 			DeltaY     float64 `json:"deltaY"`
 			AssertMode bool    `json:"assertMode"`
 			Index      int     `json:"index"`
+			Width      int     `json:"width"`
+			Height     int     `json:"height"`
 		}
 		if json.Unmarshal(data, &in) != nil {
 			continue
@@ -436,6 +438,10 @@ func (s *Studio) Stream(w http.ResponseWriter, r *http.Request, sess *Session) {
 			// Toggling is a page-side flag: in assert mode a click marks
 			// something to check instead of doing it.
 			sess.cdp.setAssertMode(in.AssertMode) //nolint:errcheck
+		case "viewport":
+			// The console asks the page to match what it is showing, so the
+			// picture is 1:1 and clicks land where they look like they should.
+			sess.cdp.setViewport(in.Width, in.Height) //nolint:errcheck
 		case "deleteStep":
 			sess.DeleteStep(in.Index)
 			if payload, err := json.Marshal(map[string]interface{}{
