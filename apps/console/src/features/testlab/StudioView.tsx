@@ -36,6 +36,23 @@ interface Session {
   status: string;
 }
 
+interface ConsoleEvent {
+  ts: number;
+  level: 'info' | 'warn' | 'error';
+  text: string;
+  url?: string;
+  line?: number;
+}
+
+interface NetworkEvent {
+  ts: number;
+  method: string;
+  url: string;
+  status: number;
+  durMs: number;
+  failed?: boolean;
+}
+
 const STEP_LABEL: Record<string, string> = {
   goto: 'Open',
   tap: 'Tap',
@@ -65,6 +82,9 @@ export function StudioView({
   const [name, setName] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
+  const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
+  const [network, setNetwork] = useState<NetworkEvent[]>([]);
+  const [tab, setTab] = useState<'steps' | 'console' | 'network'>('steps');
 
   const ws = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -90,6 +110,14 @@ export function StudioView({
         setSteps((prev) => [...prev, msg.step]);
       } else if (msg.type === 'steps') {
         setSteps(msg.steps ?? []);
+      } else if (msg.type === 'console') {
+        setConsoleLog((prev) => [...prev.slice(-500), msg as ConsoleEvent]);
+      } else if (msg.type === 'network') {
+        setNetwork((prev) => [...prev.slice(-500), msg as NetworkEvent]);
+      } else if (msg.type === 'capture') {
+        // The backlog a mid-session connection missed.
+        if (msg.console) setConsoleLog(msg.console);
+        if (msg.network) setNetwork(msg.network);
       }
     };
     return () => socket.close();
@@ -223,55 +251,150 @@ export function StudioView({
     </div>
   );
 
+  const consoleErrors = consoleLog.filter((c) => c.level === 'error').length;
+
+  const tabBtn = (key: typeof tab, label: string, badge?: number, danger?: boolean) => (
+    <button
+      onClick={() => setTab(key)}
+      className={
+        'flex items-center gap-1.5 border-b-2 px-2 pb-1.5 text-[length:var(--text-label)] transition-colors ' +
+        (tab === key
+          ? 'border-[var(--color-accent)] text-text-primary'
+          : 'border-transparent text-text-muted hover:text-text-secondary')
+      }
+    >
+      {label}
+      {badge != null && badge > 0 && (
+        <span
+          className="rounded-full px-1.5 text-[length:var(--text-2xs)]"
+          style={
+            danger
+              ? { backgroundColor: '#EF444422', color: '#F87171' }
+              : { backgroundColor: 'var(--fill)', color: 'var(--text-muted)' }
+          }
+        >
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+
   const stepsRail = (
-    <div className="flex w-full flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[length:var(--text-label)] text-text-secondary">Steps ({recorded})</span>
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
+      <div className="flex items-center justify-between border-b border-border">
+        <div className="flex items-center gap-1">
+          {tabBtn('steps', 'Steps', recorded)}
+          {tabBtn('console', 'Console', consoleErrors, true)}
+          {tabBtn('network', 'Network', network.length)}
+        </div>
         {fullscreen && (
           <button
             onClick={() => setRailOpen(false)}
-            className="rounded p-0.5 text-text-subtle transition-colors hover:text-text-primary"
-            aria-label="Hide steps"
+            className="mb-1 rounded p-0.5 text-text-subtle transition-colors hover:text-text-primary"
+            aria-label="Hide panel"
           >
             <X size={14} />
           </button>
         )}
       </div>
-      {steps.length === 0 ? (
-        <div className="rounded-[var(--radius)] border border-border bg-surface p-4 text-[length:var(--text-caption)] text-text-subtle">
-          Nothing recorded yet.
-        </div>
-      ) : (
-        <div className="flex flex-col gap-1.5 overflow-y-auto">
-          {steps.map((s, i) => (
-            <div
-              key={i}
-              className="group flex items-start gap-2 rounded-[var(--radius)] border border-border bg-surface px-3 py-2"
-            >
-              <span
-                className="mt-px shrink-0 rounded-[var(--radius-6)] px-1.5 py-0.5 text-[length:var(--text-caption)]"
-                style={
-                  s.kind.startsWith('expect')
-                    ? { backgroundColor: '#F59E0B22', color: '#FBBF24' }
-                    : { backgroundColor: 'var(--fill)', color: 'var(--text-muted)' }
-                }
-              >
-                {STEP_LABEL[s.kind] ?? s.kind}
-              </span>
-              <span className="min-w-0 flex-1 text-[length:var(--text-caption)] text-text-primary">
-                {s.description}
-              </span>
-              <button
-                onClick={() => send({ type: 'deleteStep', index: i })}
-                className="shrink-0 rounded p-0.5 text-text-subtle opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100"
-                aria-label="Remove this step"
-              >
-                <X size={12} />
-              </button>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {tab === 'steps' &&
+          (steps.length === 0 ? (
+            <div className="rounded-[var(--radius)] border border-border bg-surface p-4 text-[length:var(--text-caption)] text-text-subtle">
+              Nothing recorded yet.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {steps.map((s, i) => (
+                <div
+                  key={i}
+                  className="group flex items-start gap-2 rounded-[var(--radius)] border border-border bg-surface px-3 py-2"
+                >
+                  <span
+                    className="mt-px shrink-0 rounded-[var(--radius-6)] px-1.5 py-0.5 text-[length:var(--text-caption)]"
+                    style={
+                      s.kind.startsWith('expect')
+                        ? { backgroundColor: '#F59E0B22', color: '#FBBF24' }
+                        : { backgroundColor: 'var(--fill)', color: 'var(--text-muted)' }
+                    }
+                  >
+                    {STEP_LABEL[s.kind] ?? s.kind}
+                  </span>
+                  <span className="min-w-0 flex-1 text-[length:var(--text-caption)] text-text-primary">
+                    {s.description}
+                  </span>
+                  <button
+                    onClick={() => send({ type: 'deleteStep', index: i })}
+                    className="shrink-0 rounded p-0.5 text-text-subtle opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100"
+                    aria-label="Remove this step"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
-        </div>
-      )}
+
+        {tab === 'console' &&
+          (consoleLog.length === 0 ? (
+            <div className="p-3 text-[length:var(--text-caption)] text-text-subtle">
+              No console output yet.
+            </div>
+          ) : (
+            <div className="flex flex-col font-mono text-[length:var(--text-2xs)]">
+              {consoleLog.map((c, i) => (
+                <div
+                  key={i}
+                  className="border-b border-border/50 px-1 py-1"
+                  style={{
+                    color:
+                      c.level === 'error'
+                        ? '#F87171'
+                        : c.level === 'warn'
+                          ? '#FBBF24'
+                          : 'var(--text-secondary)',
+                  }}
+                >
+                  {c.text}
+                  {c.url && (
+                    <span className="ml-1 text-text-subtle">
+                      ({c.url.split('/').pop()}
+                      {c.line ? `:${c.line}` : ''})
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+
+        {tab === 'network' &&
+          (network.length === 0 ? (
+            <div className="p-3 text-[length:var(--text-caption)] text-text-subtle">
+              No requests yet.
+            </div>
+          ) : (
+            <div className="flex flex-col font-mono text-[length:var(--text-2xs)]">
+              {network.map((n, i) => (
+                <div key={i} className="flex items-center gap-2 border-b border-border/50 px-1 py-1">
+                  <span
+                    className="w-9 shrink-0 text-right"
+                    style={{
+                      color: n.failed || n.status >= 400 ? '#F87171' : 'var(--text-muted)',
+                    }}
+                  >
+                    {n.failed ? 'ERR' : n.status || '—'}
+                  </span>
+                  <span className="w-10 shrink-0 text-text-subtle">{n.method}</span>
+                  <span className="min-w-0 flex-1 truncate text-text-secondary" title={n.url}>
+                    {n.url.replace(/^https?:\/\//, '')}
+                  </span>
+                  <span className="shrink-0 text-text-subtle">{n.durMs}ms</span>
+                </div>
+              ))}
+            </div>
+          ))}
+      </div>
     </div>
   );
 

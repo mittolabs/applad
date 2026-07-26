@@ -59,7 +59,16 @@ type Session struct {
 	// lastSeen tracks console activity so an abandoned session can be reaped
 	// instead of leaving a browser container running for days.
 	lastSeen time.Time
+	// Capture buffers: the console and network events seen so far, kept so a
+	// connecting console can replay what it missed and saving can persist them.
+	// Bounded so a chatty page cannot grow the session without limit.
+	console []json.RawMessage
+	network []json.RawMessage
+	env     json.RawMessage
 }
+
+// captureCap bounds each capture buffer; the oldest events are dropped past it.
+const captureCap = 2000
 
 // Studio owns live sessions. They are deliberately in memory: a session is
 // worthless once its browser is gone, and what survives is the saved flow.
@@ -201,6 +210,9 @@ func (s *Studio) Start(ctx context.Context, projectID, target, image string) (*S
 	}, func(frame []byte) {
 		sess.rememberFrame(frame)
 		sess.broadcast(frame)
+	}, func(ev []byte) {
+		sess.addCapture(ev)
+		sess.broadcast(ev)
 	}); err != nil {
 		cdp.close()
 		s.releaseBrowser(sess.ID)
@@ -212,6 +224,29 @@ func (s *Studio) Start(ctx context.Context, projectID, target, image string) (*S
 	}
 	// The opening step, so a saved flow starts where the recording did.
 	sess.addStep(Step{Kind: StepGoto, Value: target, Description: "open " + target})
+
+	// The environment the capture was taken in, once. userAgent is best-effort:
+	// a browser that will not answer still yields a usable url/viewport.
+	ua := ""
+	if res, err := cdp.send("Runtime.evaluate", map[string]interface{}{
+		"expression": "navigator.userAgent", "returnByValue": true,
+	}); err == nil {
+		var out struct {
+			Result struct {
+				Value string `json:"value"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(res, &out) == nil {
+			ua = out.Result.Value
+		}
+	}
+	if env, err := json.Marshal(map[string]interface{}{
+		"type": "env", "ts": nowMs(), "url": target, "userAgent": ua,
+	}); err == nil {
+		sess.addCapture(env)
+		sess.broadcast(env)
+	}
+
 	sess.Status = "ready"
 
 	s.mu.Lock()
@@ -312,6 +347,47 @@ func (sess *Session) rememberFrame(msg []byte) {
 	sess.mu.Unlock()
 }
 
+// addCapture files a console/network/env event into the right buffer, bounded so
+// a chatty page cannot grow the session without limit. The raw JSON is kept as
+// received; it already carries a timeline timestamp.
+func (sess *Session) addCapture(ev []byte) {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(ev, &head) != nil {
+		return
+	}
+	raw := json.RawMessage(append([]byte(nil), ev...))
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	switch head.Type {
+	case "console":
+		sess.console = appendCapped(sess.console, raw)
+	case "network":
+		sess.network = appendCapped(sess.network, raw)
+	case "env":
+		sess.env = raw
+	}
+}
+
+// captureSnapshot returns copies of the buffers for a connecting console or for
+// persistence, taken under the lock.
+func (sess *Session) captureSnapshot() (console, network []json.RawMessage, env json.RawMessage) {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	console = append([]json.RawMessage(nil), sess.console...)
+	network = append([]json.RawMessage(nil), sess.network...)
+	return console, network, sess.env
+}
+
+func appendCapped(buf []json.RawMessage, v json.RawMessage) []json.RawMessage {
+	buf = append(buf, v)
+	if len(buf) > captureCap {
+		buf = buf[len(buf)-captureCap:]
+	}
+	return buf
+}
+
 func (sess *Session) frame() []byte {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
@@ -394,6 +470,16 @@ func (s *Studio) Stream(w http.ResponseWriter, r *http.Request, sess *Session) {
 		conn.WriteMessage(websocket.TextMessage, last) //nolint:errcheck
 	} else {
 		slog.Warn("studio: no frame for connecting console", "session", sess.ID, "error", err)
+	}
+
+	// The capture seen so far, so a console connecting mid-session sees the
+	// console and network that already happened rather than only what comes next.
+	if console, network, env := sess.captureSnapshot(); len(console)+len(network) > 0 || env != nil {
+		if payload, err := json.Marshal(map[string]interface{}{
+			"type": "capture", "console": console, "network": network, "env": env,
+		}); err == nil {
+			conn.WriteMessage(websocket.TextMessage, payload) //nolint:errcheck
+		}
 	}
 
 	go func() {

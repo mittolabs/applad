@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,11 +28,28 @@ type cdpClient struct {
 	nextID  int
 	pending map[int]chan json.RawMessage
 
-	onStep  func(string)
-	onFrame func([]byte)
+	onStep    func(string)
+	onFrame   func([]byte)
+	onCapture func([]byte) // console/network/env timeline events
+
+	// In-flight network requests, correlated across the request/response/finish
+	// events into one complete row emitted when the request settles.
+	netMu       sync.Mutex
+	netInflight map[string]*netEntry
 
 	writeMu sync.Mutex
 	closed  bool
+}
+
+// netEntry accumulates a request as its CDP events arrive.
+type netEntry struct {
+	Method  string
+	URL     string
+	Type    string
+	Status  int
+	MIME    string
+	Size    int64
+	StartMs int64
 }
 
 type cdpMessage struct {
@@ -52,10 +70,19 @@ func newCDPClient(wsURL string) (*cdpClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &cdpClient{conn: conn, pending: map[int]chan json.RawMessage{}}
+	c := &cdpClient{
+		conn:        conn,
+		pending:     map[int]chan json.RawMessage{},
+		netInflight: map[string]*netEntry{},
+	}
 	go c.readLoop()
 	return c, nil
 }
+
+// nowMs is the shared timeline clock: every capture event and (in Phase 2) every
+// persisted frame is stamped with the server's wall clock, so the replay lines
+// console, network, steps and video up against one another.
+func nowMs() int64 { return time.Now().UnixMilli() }
 
 func (c *cdpClient) readLoop() {
 	for {
@@ -119,6 +146,22 @@ func (c *cdpClient) readLoop() {
 			if p.Name == "__appladStep" && c.onStep != nil {
 				c.onStep(p.Payload)
 			}
+
+		// ── Capture: the technical context a bug report needs ──────────────
+		case "Runtime.consoleAPICalled":
+			c.emitConsole(msg.Params)
+		case "Runtime.exceptionThrown":
+			c.emitException(msg.Params)
+		case "Log.entryAdded":
+			c.emitLogEntry(msg.Params)
+		case "Network.requestWillBeSent":
+			c.netStart(msg.Params)
+		case "Network.responseReceived":
+			c.netResponse(msg.Params)
+		case "Network.loadingFinished":
+			c.netFinish(msg.Params, false)
+		case "Network.loadingFailed":
+			c.netFinish(msg.Params, true)
 		}
 	}
 }
@@ -172,10 +215,12 @@ func (c *cdpClient) send(method string, params interface{}) (json.RawMessage, er
 
 // setup enables the domains the studio needs and installs the recorder so it
 // runs on every document, including after a navigation.
-func (c *cdpClient) setup(recorder string, onStep func(string), onFrame func([]byte)) error {
-	c.onStep, c.onFrame = onStep, onFrame
+func (c *cdpClient) setup(recorder string, onStep func(string), onFrame func([]byte), onCapture func([]byte)) error {
+	c.onStep, c.onFrame, c.onCapture = onStep, onFrame, onCapture
 
-	for _, m := range []string{"Page.enable", "Runtime.enable", "DOM.enable"} {
+	// Page/Runtime/DOM drive the recorder and screencast; Network and Log are the
+	// capture domains — the console, exceptions and requests a bug report needs.
+	for _, m := range []string{"Page.enable", "Runtime.enable", "DOM.enable", "Network.enable", "Log.enable"} {
 		if _, err := c.send(m, map[string]interface{}{}); err != nil {
 			return err
 		}
@@ -307,6 +352,188 @@ func (c *cdpClient) setAssertMode(on bool) error {
 		"expression": fmt.Sprintf("window.__appladAssertMode = %v", on),
 	})
 	return err
+}
+
+// ── Capture emitters ───────────────────────────────────────────────────────────
+//
+// Each turns a CDP event into a compact, timeline-stamped payload the console
+// can show live and the session can persist. All share the server clock (nowMs)
+// so console, network, steps and (later) video line up.
+
+func (c *cdpClient) capture(v map[string]interface{}) {
+	if c.onCapture == nil {
+		return
+	}
+	v["ts"] = nowMs()
+	if payload, err := json.Marshal(v); err == nil {
+		c.onCapture(payload)
+	}
+}
+
+func (c *cdpClient) emitConsole(params json.RawMessage) {
+	var p struct {
+		Type string `json:"type"`
+		Args []struct {
+			Value       json.RawMessage `json:"value"`
+			Description string          `json:"description"`
+		} `json:"args"`
+		StackTrace struct {
+			CallFrames []struct {
+				URL        string `json:"url"`
+				LineNumber int    `json:"lineNumber"`
+			} `json:"callFrames"`
+		} `json:"stackTrace"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	parts := make([]string, 0, len(p.Args))
+	for _, a := range p.Args {
+		if len(a.Value) > 0 && a.Value[0] == '"' {
+			var s string
+			if json.Unmarshal(a.Value, &s) == nil {
+				parts = append(parts, s)
+				continue
+			}
+		}
+		if a.Description != "" {
+			parts = append(parts, a.Description)
+		} else if len(a.Value) > 0 {
+			parts = append(parts, string(a.Value))
+		}
+	}
+	ev := map[string]interface{}{
+		"type": "console", "level": consoleLevel(p.Type), "text": truncateStr(strings.Join(parts, " "), 2000),
+	}
+	if len(p.StackTrace.CallFrames) > 0 {
+		ev["url"] = p.StackTrace.CallFrames[0].URL
+		ev["line"] = p.StackTrace.CallFrames[0].LineNumber
+	}
+	c.capture(ev)
+}
+
+func (c *cdpClient) emitException(params json.RawMessage) {
+	var p struct {
+		ExceptionDetails struct {
+			Text       string `json:"text"`
+			URL        string `json:"url"`
+			LineNumber int    `json:"lineNumber"`
+			Exception  struct {
+				Description string `json:"description"`
+			} `json:"exception"`
+		} `json:"exceptionDetails"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	text := p.ExceptionDetails.Exception.Description
+	if text == "" {
+		text = p.ExceptionDetails.Text
+	}
+	c.capture(map[string]interface{}{
+		"type": "console", "level": "error", "text": truncateStr(text, 2000),
+		"url": p.ExceptionDetails.URL, "line": p.ExceptionDetails.LineNumber,
+	})
+}
+
+func (c *cdpClient) emitLogEntry(params json.RawMessage) {
+	var p struct {
+		Entry struct {
+			Level string `json:"level"`
+			Text  string `json:"text"`
+			URL   string `json:"url"`
+		} `json:"entry"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	c.capture(map[string]interface{}{
+		"type": "console", "level": consoleLevel(p.Entry.Level),
+		"text": truncateStr(p.Entry.Text, 2000), "url": p.Entry.URL,
+	})
+}
+
+func (c *cdpClient) netStart(params json.RawMessage) {
+	var p struct {
+		RequestID string `json:"requestId"`
+		Type      string `json:"type"`
+		Request   struct {
+			Method string `json:"method"`
+			URL    string `json:"url"`
+		} `json:"request"`
+	}
+	if json.Unmarshal(params, &p) != nil || p.RequestID == "" {
+		return
+	}
+	c.netMu.Lock()
+	c.netInflight[p.RequestID] = &netEntry{
+		Method: p.Request.Method, URL: p.Request.URL, Type: p.Type, StartMs: nowMs(),
+	}
+	c.netMu.Unlock()
+}
+
+func (c *cdpClient) netResponse(params json.RawMessage) {
+	var p struct {
+		RequestID string `json:"requestId"`
+		Response  struct {
+			Status   int    `json:"status"`
+			MIMEType string `json:"mimeType"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	c.netMu.Lock()
+	if e, ok := c.netInflight[p.RequestID]; ok {
+		e.Status = p.Response.Status
+		e.MIME = p.Response.MIMEType
+	}
+	c.netMu.Unlock()
+}
+
+func (c *cdpClient) netFinish(params json.RawMessage, failed bool) {
+	var p struct {
+		RequestID         string  `json:"requestId"`
+		EncodedDataLength float64 `json:"encodedDataLength"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	c.netMu.Lock()
+	e := c.netInflight[p.RequestID]
+	delete(c.netInflight, p.RequestID)
+	c.netMu.Unlock()
+	if e == nil {
+		return
+	}
+	status := e.Status
+	if failed {
+		status = 0 // a failed request never got a status
+	}
+	c.capture(map[string]interface{}{
+		"type": "network", "method": e.Method, "url": truncateStr(e.URL, 1000),
+		"status": status, "mimeType": e.MIME, "resType": e.Type,
+		"size": int64(p.EncodedDataLength), "durMs": nowMs() - e.StartMs, "failed": failed,
+	})
+}
+
+// consoleLevel normalises CDP's console/log level names to info|warn|error.
+func consoleLevel(t string) string {
+	switch t {
+	case "error", "assert":
+		return "error"
+	case "warning", "warn":
+		return "warn"
+	default:
+		return "info"
+	}
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 func (c *cdpClient) close() {
