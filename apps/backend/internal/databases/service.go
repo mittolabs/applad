@@ -138,7 +138,9 @@ func policyRoleExpression(roles []string) string {
 		case strings.HasPrefix(role, "user:"):
 			clauses = append(clauses, fmt.Sprintf("current_setting('applad.user_id', true) = %s", pgLiteral(strings.TrimPrefix(role, "user:"))))
 		default:
-			clauses = append(clauses, fmt.Sprintf("(COALESCE(NULLIF(current_setting('request.jwt.claims', true), '')::jsonb -> 'roles', '[]'::jsonb) ? %s)", pgLiteral(role)))
+			// jsonb_exists rather than the ? operator: the query layer rewrites a
+			// literal ? into a bind placeholder, which corrupts the policy SQL.
+			clauses = append(clauses, fmt.Sprintf("jsonb_exists(COALESCE(NULLIF(current_setting('request.jwt.claims', true), '')::jsonb -> 'roles', '[]'::jsonb), %s)", pgLiteral(role)))
 		}
 	}
 	if len(clauses) == 0 {
@@ -369,14 +371,21 @@ func (s *Service) CreateTable(ctx context.Context, projectID, databaseID, tableI
 	); err != nil {
 		return nil, fmt.Errorf("insert table metadata: %w", err)
 	}
-	if rowSecurity {
-		tableContext, err := s.lookupProjectTable(ctx, id, projectID)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.syncRLSPolicies(ctx, tableContext); err != nil {
-			return nil, err
-		}
+
+	// Wire the permissions the caller passed at creation into the metadata that
+	// actually drives enforcement. This used to be dropped: the strings were
+	// stored on the tables row but never parsed into the permissions table the
+	// RLS policies and the create/read checks read from, so a table created with
+	// read("team:X") granted nothing. SetPermissions also syncs the policies.
+	parsedPerms, err := parsePermissionStrings(permissions)
+	if err != nil {
+		return nil, err
+	}
+	// SetPermissions re-syncs the RLS policies for the table, so a row-security
+	// table gets its policies here whether or not any table-level grant was given
+	// (the per-row clause still applies).
+	if err := s.SetPermissions(ctx, projectID, "table", id, parsedPerms); err != nil {
+		return nil, fmt.Errorf("apply table permissions: %w", err)
 	}
 
 	return &model.Table{
@@ -1026,6 +1035,8 @@ func checkRowPermission(permissions []string, roles []string, action string) boo
 	for _, permission := range permissions {
 		if strings.HasPrefix(permission, prefix) && strings.HasSuffix(permission, ")") {
 			role := permission[len(prefix) : len(permission)-1]
+			// The role may be quoted, e.g. delete("user:A"); compare the bare role.
+			role = strings.Trim(role, `"'`)
 			if role == "any" || roleSet[role] {
 				return true
 			}
@@ -1076,19 +1087,137 @@ type Query struct {
 }
 
 type tableContext struct {
-	ID         string
-	DatabaseID string
-	ProjectID  string
-	Name       string
-	Schema     string
+	ID          string
+	DatabaseID  string
+	ProjectID   string
+	Name        string
+	Schema      string
+	RowSecurity bool
+}
+
+// rowPermColumn is the hidden column that holds a row's own permissions on a
+// document-security table, as {"read":[...],"update":[...],"delete":[...]}. It
+// is what makes read("team:X") on a single row mean something: the RLS policies
+// consult it per row. The leading underscore keeps it clear of user columns.
+const rowPermColumn = "_permissions"
+
+// rowPermExpression is the per-row half of an RLS policy for one action: the row
+// is admitted when any role its own permissions grant that action to is among
+// the caller's resolved roles. Validated against Postgres before shipping.
+func rowPermExpression(action string) string {
+	// jsonb_exists rather than the ? operator: the query layer rewrites a literal
+	// ? into a bind placeholder, which corrupts the policy SQL.
+	return fmt.Sprintf(
+		`EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(%s -> %s, '[]'::jsonb)) AS _grant_role `+
+			`WHERE jsonb_exists(COALESCE(NULLIF(current_setting('request.jwt.claims', true), '')::jsonb -> 'roles', '[]'::jsonb), _grant_role))`,
+		pgIdent(rowPermColumn), pgLiteral(action))
+}
+
+// combinePolicyExprs ORs the non-trivial expressions. An empty or FALSE clause
+// contributes nothing; if all are empty the result is empty and the caller skips
+// the policy (nobody is granted, which is the safe default).
+func combinePolicyExprs(exprs ...string) string {
+	kept := make([]string, 0, len(exprs))
+	for _, e := range exprs {
+		if e != "" && e != "FALSE" {
+			kept = append(kept, e)
+		}
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	if len(kept) == 1 {
+		return kept[0]
+	}
+	return "(" + strings.Join(kept, " OR ") + ")"
+}
+
+// parsePermissionString turns `read("team:X")` into ("read", "team:X"). "write"
+// is accepted as a shorthand the caller expands. Anything malformed is rejected.
+func parsePermissionString(s string) (action, role string, ok bool) {
+	s = strings.TrimSpace(s)
+	open := strings.Index(s, "(")
+	if open <= 0 || !strings.HasSuffix(s, ")") {
+		return "", "", false
+	}
+	action = strings.TrimSpace(s[:open])
+	role = strings.TrimSpace(s[open+1 : len(s)-1])
+	role = strings.Trim(role, `"'`)
+	if action == "" || role == "" {
+		return "", "", false
+	}
+	return action, role, true
+}
+
+// parsePermissionStrings expands a list of permission strings into metadata
+// Permissions. "write" becomes update + delete, matching the shorthand clients
+// use. Unknown actions are rejected so a typo cannot silently grant nothing.
+func parsePermissionStrings(perms []string) ([]Permission, error) {
+	out := make([]Permission, 0, len(perms))
+	for _, p := range perms {
+		action, role, ok := parsePermissionString(p)
+		if !ok {
+			return nil, fmt.Errorf("invalid permission %q", p)
+		}
+		actions := []string{action}
+		if action == "write" {
+			actions = []string{"update", "delete"}
+		}
+		for _, a := range actions {
+			if !validActions[a] {
+				return nil, fmt.Errorf("invalid permission action %q", a)
+			}
+			out = append(out, Permission{Action: a, Role: role})
+		}
+	}
+	return out, nil
+}
+
+// rowPermissionsJSON builds the normalised {"read":[...],...} a document-security
+// row stores, from the permission strings a client sends. Create is table-level,
+// so it is ignored here; read/update/delete are what a row can carry.
+func rowPermissionsJSON(perms []string) ([]byte, error) {
+	parsed, err := parsePermissionStrings(perms)
+	if err != nil {
+		return nil, err
+	}
+	grouped := map[string][]string{}
+	for _, p := range parsed {
+		if p.Action == "create" {
+			continue
+		}
+		grouped[p.Action] = append(grouped[p.Action], p.Role)
+	}
+	return json.Marshal(grouped)
+}
+
+// rowPermissionsToStrings turns a stored {"read":[...]} object back into the
+// ["read(\"team:X\")", ...] form the API returns.
+func rowPermissionsToStrings(v interface{}) []string {
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	var out []string
+	for action, roles := range m {
+		items, ok := roles.([]interface{})
+		if !ok {
+			continue
+		}
+		for _, r := range items {
+			out = append(out, fmt.Sprintf(`%s(%q)`, action, fmt.Sprintf("%v", r)))
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *Service) lookupTableContext(ctx context.Context, tableID string) (*tableContext, error) {
 	var table tableContext
 	if err := s.db.QueryRowContext(ctx,
-		"SELECT id, database_id, project_id, name FROM tables WHERE id = $1",
+		"SELECT id, database_id, project_id, name, row_security FROM tables WHERE id = $1",
 		tableID,
-	).Scan(&table.ID, &table.DatabaseID, &table.ProjectID, &table.Name); err != nil {
+	).Scan(&table.ID, &table.DatabaseID, &table.ProjectID, &table.Name, &table.RowSecurity); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("table not found")
 		}
@@ -1175,6 +1304,16 @@ func (s *Service) syncRLSPolicies(ctx context.Context, table *tableContext) erro
 		return fmt.Errorf("force row level security: %w", err)
 	}
 
+	// The per-row permissions column backs document-level security. Added here
+	// (idempotently) so enabling row security on an existing table, or re-syncing
+	// one created before this existed, gains it without a migration.
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(
+		"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS %s JSONB NOT NULL DEFAULT '{}'::jsonb",
+		pgIdent(table.Schema), pgIdent(table.Name), pgIdent(rowPermColumn),
+	)); err != nil {
+		return fmt.Errorf("add row permissions column: %w", err)
+	}
+
 	isolationExpr := fmt.Sprintf("current_setting('applad.project_id', true) = %s", pgLiteral(table.ProjectID))
 	if _, err := s.db.ExecContext(ctx,
 		createPolicySQL(table.Schema, table.Name, "applad_project_isolation", "AS RESTRICTIVE", "ALL", isolationExpr, isolationExpr),
@@ -1206,7 +1345,15 @@ func (s *Service) syncRLSPolicies(ctx context.Context, table *tableContext) erro
 		{Action: "delete", Name: "applad_delete_access", Command: "DELETE", UseUsing: true},
 	}
 	for _, policy := range actionPolicies {
-		expr := policyRoleExpression(grouped[policy.Action])
+		// Table-level grant OR the row's own grant. Create is table-level only:
+		// a row cannot pre-authorise its own insertion. Read/update/delete also
+		// consult the row's permissions, which is what makes read("team:X") on a
+		// single document mean something.
+		tableExpr := policyRoleExpression(grouped[policy.Action])
+		expr := tableExpr
+		if policy.Action != "create" {
+			expr = combinePolicyExprs(tableExpr, rowPermExpression(policy.Action))
+		}
 		if expr == "" || expr == "FALSE" {
 			continue
 		}
@@ -1398,6 +1545,11 @@ func mapToRow(data map[string]interface{}, tableID, databaseID string) *model.Ro
 					row.Permissions = append(row.Permissions, fmt.Sprintf("%v", item))
 				}
 			}
+		case rowPermColumn:
+			// The document-security permissions column, stored as
+			// {"read":[...],...}; surface it as the row's permission strings and
+			// keep it out of the row's data.
+			row.Permissions = append(row.Permissions, rowPermissionsToStrings(value)...)
 		default:
 			row.Data[key] = value
 		}
@@ -1590,6 +1742,19 @@ func (s *Service) CreateRowWithAuth(ctx context.Context, projectID, databaseID, 
 		args = append(args, data[key])
 	}
 
+	// A document-security table carries each row's own permissions. Persist them
+	// so read/update/delete RLS can consult them; on tables without row security
+	// there is no such column and per-row permissions do not apply.
+	if table.RowSecurity && len(permissions) > 0 {
+		permJSON, perr := rowPermissionsJSON(permissions)
+		if perr != nil {
+			return nil, perr
+		}
+		idents = append(idents, pgIdent(rowPermColumn))
+		placeholders = append(placeholders, fmt.Sprintf("$%d::jsonb", len(args)+1))
+		args = append(args, string(permJSON))
+	}
+
 	tx, _, err := s.prepareDirectAccessTx(ctx, projectID, databaseID, userID, roles, false)
 	if err != nil {
 		return nil, err
@@ -1732,18 +1897,21 @@ func (s *Service) UpdateRow(ctx context.Context, rowID, tableID, databaseID, pro
 
 func (s *Service) UpdateRowWithAuth(ctx context.Context, rowID, tableID, databaseID, projectID string, data map[string]interface{}, permissions []string, userID string, roles []string) (*model.Row, error) {
 	roles = s.resolveRoles(ctx, projectID, userID, roles)
-	if userID != "" {
-		existingRow, err := s.GetRow(ctx, rowID, tableID, databaseID, projectID)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "update", existingRow.Permissions); err != nil {
-			return nil, err
-		}
-	}
 	table, err := s.lookupTableContext(ctx, tableID)
 	if err != nil {
 		return nil, err
+	}
+	if userID != "" {
+		perms, exists, err := s.existingRowPermissions(ctx, table, rowID)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fmt.Errorf("row not found")
+		}
+		if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "update", perms); err != nil {
+			return nil, err
+		}
 	}
 	if data == nil {
 		data = map[string]interface{}{}
@@ -1767,11 +1935,20 @@ func (s *Service) UpdateRowWithAuth(ctx context.Context, rowID, tableID, databas
 	}
 	sort.Strings(keys)
 
-	assignments := make([]string, 0, len(keys)+1)
-	args := make([]interface{}, 0, len(keys)+1)
+	assignments := make([]string, 0, len(keys)+2)
+	args := make([]interface{}, 0, len(keys)+2)
 	for i, key := range keys {
 		assignments = append(assignments, fmt.Sprintf("%s = $%d", pgIdent(key), i+1))
 		args = append(args, data[key])
+	}
+	// Let a row's own permissions be changed on a document-security table.
+	if table.RowSecurity && len(permissions) > 0 {
+		permJSON, perr := rowPermissionsJSON(permissions)
+		if perr != nil {
+			return nil, perr
+		}
+		assignments = append(assignments, fmt.Sprintf("%s = $%d::jsonb", pgIdent(rowPermColumn), len(args)+1))
+		args = append(args, string(permJSON))
 	}
 	assignments = append(assignments, "updated_at = NOW()")
 	args = append(args, rowID)
@@ -1802,20 +1979,58 @@ func (s *Service) DeleteRow(ctx context.Context, rowID, tableID, databaseID, pro
 	return s.DeleteRowWithAuth(ctx, rowID, tableID, databaseID, projectID, "", []string{"service"})
 }
 
+// existingRowPermissions reads a row's own permission strings (and whether it
+// exists) WITHOUT RLS, for the pre-write permission check. It must bypass RLS on
+// purpose: on a document-security table the caller may lack read access to a row
+// they are nonetheless trying to update or delete, and we still need to consult
+// that row's permissions to decide. It runs on the pooled connection, which is
+// the schema owner and not the sandboxed per-request role, so no policy applies.
+func (s *Service) existingRowPermissions(ctx context.Context, table *tableContext, rowID string) (perms []string, exists bool, err error) {
+	if table.RowSecurity {
+		var raw []byte
+		err = s.db.QueryRowContext(ctx, fmt.Sprintf(
+			"SELECT %s FROM %s.%s WHERE id = $1", pgIdent(rowPermColumn), pgIdent(table.Schema), pgIdent(table.Name),
+		), rowID).Scan(&raw)
+		if err == sql.ErrNoRows {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		var m map[string]interface{}
+		_ = json.Unmarshal(raw, &m)
+		return rowPermissionsToStrings(m), true, nil
+	}
+	var one int
+	err = s.db.QueryRowContext(ctx, fmt.Sprintf(
+		"SELECT 1 FROM %s.%s WHERE id = $1", pgIdent(table.Schema), pgIdent(table.Name),
+	), rowID).Scan(&one)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return nil, true, nil
+}
+
 func (s *Service) DeleteRowWithAuth(ctx context.Context, rowID, tableID, databaseID, projectID, userID string, roles []string) error {
 	roles = s.resolveRoles(ctx, projectID, userID, roles)
-	if userID != "" {
-		existingRow, err := s.GetRow(ctx, rowID, tableID, databaseID, projectID)
-		if err != nil {
-			return err
-		}
-		if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "delete", existingRow.Permissions); err != nil {
-			return err
-		}
-	}
 	table, err := s.lookupTableContext(ctx, tableID)
 	if err != nil {
 		return err
+	}
+	if userID != "" {
+		perms, exists, err := s.existingRowPermissions(ctx, table, rowID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("row not found")
+		}
+		if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "delete", perms); err != nil {
+			return err
+		}
 	}
 	tx, _, err := s.prepareDirectAccessTx(ctx, projectID, databaseID, userID, roles, false)
 	if err != nil {

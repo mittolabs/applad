@@ -95,7 +95,7 @@ func (s *Service) Get(ctx context.Context, teamID, projectID string) (*model.Tea
 		t.Prefs = map[string]interface{}{}
 	}
 	// count members
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM memberships WHERE team_id = $1 AND joined = 1", teamID).Scan(&t.Total) //nolint:errcheck
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM memberships WHERE team_id = $1 AND joined = TRUE", teamID).Scan(&t.Total) //nolint:errcheck
 	return &t, nil
 }
 
@@ -156,7 +156,7 @@ func (s *Service) CreateMembership(ctx context.Context, teamID, projectID, email
 	secret := uid.RandomHex(32)
 	rolesJSON, _ := json.Marshal(roles)
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO memberships (id, team_id, invited_email, roles, invited, joined, secret, created_at) VALUES ($1, $2, $3, $4, 1, 0, $5, $6)",
+		"INSERT INTO memberships (id, team_id, invited_email, roles, invited, joined, secret, created_at) VALUES ($1, $2, $3, $4, TRUE, FALSE, $5, $6)",
 		id, teamID, email, rolesJSON, secret, now)
 	if err != nil {
 		return nil, fmt.Errorf("teams: create membership: %w", err)
@@ -213,6 +213,48 @@ func (s *Service) ListMemberships(ctx context.Context, teamID, projectID string)
 // admit exactly that team's members. It reads only joined memberships, so an
 // unaccepted invite grants nothing, and it is called server-side with the
 // authenticated user id — never a value the client supplied.
+// ListForUser lists only the teams a user has joined. A plain signed-in user
+// must not see every team in the project (that would leak the name of every
+// other user's channel/workspace), so their listing is scoped to membership.
+// Admins and API keys use List for the unscoped view.
+func (s *Service) ListForUser(ctx context.Context, projectID, userID string, limit, offset int, search string) ([]*model.Team, int, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	args := []interface{}{projectID, userID}
+	query := `SELECT t.id, t.name, t.prefs, t.created_at, t.updated_at
+		        FROM teams t
+		        JOIN memberships m ON m.team_id = t.id
+		       WHERE t.project_id = $1 AND m.user_id = $2 AND m.joined = TRUE`
+	n := 2
+	if search != "" {
+		n++
+		query += fmt.Sprintf(" AND t.name LIKE $%d", n)
+		args = append(args, "%"+search+"%")
+	}
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", n+1, n+2)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var teams []*model.Team
+	for rows.Next() {
+		var t model.Team
+		var prefsJSON []byte
+		if err := rows.Scan(&t.ID, &t.Name, &prefsJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		json.Unmarshal(prefsJSON, &t.Prefs) //nolint:errcheck
+		if t.Prefs == nil {
+			t.Prefs = map[string]interface{}{}
+		}
+		teams = append(teams, &t)
+	}
+	return teams, len(teams), rows.Err()
+}
+
 func (s *Service) RolesForUser(ctx context.Context, projectID, userID string) ([]string, error) {
 	if userID == "" {
 		return nil, nil

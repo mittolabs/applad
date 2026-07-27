@@ -47,7 +47,8 @@ func TestPolicyRoleExpression_HandlesBuiltInRoles(t *testing.T) {
 	expr := policyRoleExpression([]string{"users", "admin", "user:user1"})
 	checks := []string{
 		"current_setting('applad.user_id', true)",
-		"? 'admin'",
+		"jsonb_exists(",
+		"'admin'",
 		"= 'user1'",
 	}
 	for _, check := range checks {
@@ -61,10 +62,10 @@ func TestLookupTableContext_ComputesSchema(t *testing.T) {
 	svc, mock, mockDB := newMockService(t)
 	defer mockDB.Close()
 
-	mock.ExpectQuery(`SELECT id, database_id, project_id, name FROM tables WHERE id =`).
+	mock.ExpectQuery(`SELECT id, database_id, project_id, name, row_security FROM tables WHERE id =`).
 		WithArgs("table1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name"}).
-			AddRow("table1", "db-1", "proj-1", "users"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name", "row_security"}).
+			AddRow("table1", "db-1", "proj-1", "users", false))
 
 	table, err := svc.lookupTableContext(context.Background(), "table1")
 	if err != nil {

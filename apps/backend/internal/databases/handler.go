@@ -186,6 +186,9 @@ func (h *Handler) createTable(w http.ResponseWriter, r *http.Request) {
 		Name        string   `json:"name"`
 		Permissions []string `json:"permissions"`
 		RowSecurity bool     `json:"rowSecurity"`
+		// documentSecurity is the SDKs' name for the same thing; accept both so a
+		// client that sends one is not silently ignored.
+		DocumentSecurity bool `json:"documentSecurity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
 		apperr.BadRequest(w, "name is required")
@@ -194,7 +197,8 @@ func (h *Handler) createTable(w http.ResponseWriter, r *http.Request) {
 	if body.Permissions == nil {
 		body.Permissions = []string{}
 	}
-	table, err := h.svc.CreateTable(r.Context(), projectID, dbID, body.TableID, body.Name, body.Permissions, body.RowSecurity)
+	rowSecurity := body.RowSecurity || body.DocumentSecurity
+	table, err := h.svc.CreateTable(r.Context(), projectID, dbID, body.TableID, body.Name, body.Permissions, rowSecurity)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -740,6 +744,10 @@ func (h *Handler) updateRow(w http.ResponseWriter, r *http.Request) {
 			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to update this row")
 			return
 		}
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "row")
+			return
+		}
 		if verr, ok := err.(*ValidationErr); ok {
 			apperr.ValidationError(w, []apperr.ValidationFieldError{{Field: verr.Field, Rule: verr.Rule, Message: verr.Message}})
 			return
@@ -762,6 +770,10 @@ func (h *Handler) deleteRow(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.DeleteRowWithAuth(ctx, rowID, tableID, dbID, projectID, userID, nil); err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
 			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to delete this row")
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			apperr.NotFound(w, "row")
 			return
 		}
 		apperr.Internal(w, err)
