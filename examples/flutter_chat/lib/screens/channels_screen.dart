@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../applad_service.dart';
+import '../chat_model.dart';
 import 'chat_screen.dart';
 import 'login_screen.dart';
 
@@ -61,14 +62,14 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
       hint: 'teamId:membershipId:secret',
     );
     if (token == null) return;
-    final parts = token.trim().split(':');
-    if (parts.length != 3) {
+    final invite = InviteCode.tryParse(token);
+    if (invite == null) {
       _snack('That invite code does not look right.');
       return;
     }
     try {
       await AppladService.instance.client.teams
-          .acceptMembership(parts[0], parts[1], parts[2]);
+          .acceptMembership(invite.teamId, invite.membershipId, invite.secret);
       await _load();
       _snack('Joined.');
     } catch (_) {

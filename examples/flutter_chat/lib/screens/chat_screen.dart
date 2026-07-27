@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../applad_service.dart';
+import '../chat_model.dart';
 import '../config.dart';
 
 /// One channel's conversation. Messages are rows in the `chat.messages` table,
@@ -103,11 +104,7 @@ class _ChatScreenState extends State<ChatScreen> {
         },
         // Scope the message to this channel's team: its members, and no one
         // else, can read it. Only the author may edit or delete it.
-        permissions: [
-          'read("team:${widget.channelId}")',
-          'update("user:${svc.userId}")',
-          'delete("user:${svc.userId}")',
-        ],
+        permissions: messagePermissions(widget.channelId, svc.userId),
       );
       _composer.clear();
       setState(() => _add(row));
@@ -125,7 +122,11 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final m = await _client.teams
           .createMembership(widget.channelId, email: email.trim());
-      final code = '${widget.channelId}:${m['\$id']}:${m['secret']}';
+      final code = InviteCode(
+        widget.channelId,
+        m['\$id'].toString(),
+        m['secret'].toString(),
+      ).encode();
       if (!mounted) return;
       showDialog<void>(
         context: context,

@@ -30,6 +30,7 @@ void main() {
       expect(client.regions, isA<Regions>());
       expect(client.search, isA<Search>());
       expect(client.storage, isA<Storage>());
+      expect(client.teams, isA<Teams>());
       expect(client.vectors, isA<Vectors>());
       expect(client.workflows, isA<Workflows>());
     });
