@@ -191,7 +191,7 @@ scope keys off the server-resolved identity, and only privileged callers see all
 
 ---
 
-## G7 — Per-row (document-level) permissions are accepted but not enforced 🔎 (decision needed)
+## G7 — Per-row (document-level) permissions are accepted but not enforced ✅
 
 **What is missing — the big one.** The API takes a `permissions` array on
 `createRow`/`updateRow` (e.g. `read("team:X")`), and the docs imply per-document
@@ -230,12 +230,43 @@ right now, no core change required. The cost is a physical table per channel.
    `read("team:X")` per row is correct, and the platform gains a headline
    capability it currently only pretends to have.
 
-**Security read.** The current state is not a leak — it fails **closed** (no rows
-rather than too many), which is the safe direction. But it is a correctness gap
-and a truthfulness gap: an API that accepts per-row permissions must enforce
-them or reject them. Path 2 is the real fix; path 1 is a legitimate model that
-sidesteps the gap without hiding it. **Chosen direction: pending owner decision**
-(this is a core-feature investment, so it is being surfaced rather than assumed).
+**Security read.** The pre-fix state was not a leak — it failed **closed** (no
+rows rather than too many). But it was a correctness and truthfulness gap: an API
+that accepts per-row permissions must enforce them or reject them.
+
+**What we did (path 2 chosen, implemented, verified).**
+- Document-security tables gain a hidden `_permissions` column
+  (`{"read":[...],"update":[...],"delete":[...]}`); `createRow`/`updateRow`
+  persist it.
+- The read/update/delete RLS policies now admit a row when its own permissions
+  grant the action to one of the caller's **server-resolved** roles, OR the
+  table-level grant does (`combinePolicyExprs(tableExpr, rowExpr)`). Create stays
+  table-level. The row clause was validated directly in Postgres before wiring.
+- The pre-write permission check reads the row's permissions **bypassing RLS** (a
+  caller may lack read yet still be entitled to update/delete their own row);
+  denials now map to 403/404, not 500.
+- Table permissions passed at `createTable` are finally wired into the metadata
+  the policies read (they were stored but ignored), and `documentSecurity` is
+  accepted as the SDK alias for `rowSecurity`.
+
+**Verified end to end** against a real Postgres with a two-user flow: a member
+sees a channel's message, a non-member sees nothing, joining makes it visible,
+and only the author can delete it (non-author 403, author 204).
+
+**Three latent bugs surfaced and fixed in the same path:**
+- RLS role clauses used the jsonb `?` operator, which the query layer rewrites to
+  a bind placeholder and corrupts the policy SQL. This had silently broken *every*
+  non-builtin (team) role in a policy, table-level included. Now `jsonb_exists`.
+- `CreateMembership` and the team member-count compared boolean columns to `1`/`0`
+  integers, which Postgres rejects (`operator does not exist: boolean = integer`).
+  So inviting anyone 500'd. Now `TRUE`/`FALSE`.
+- `checkRowPermission` compared a quoted role (`"user:A"`) against unquoted
+  session roles, so even the author was denied by the Go pre-check. Now trims.
+
+**DX read.** A developer writes `permissions: ['read("team:$id")']` on a row and
+membership enforcement is automatic and correct. **Security read.** Enforced in
+Postgres RLS from server-resolved identity; the bypass read is confined to
+reading a row's own permission list for the decision, never to returning data.
 
 ---
 

@@ -102,10 +102,11 @@ class _ChatScreenState extends State<ChatScreen> {
           'body': text,
         },
         // Scope the message to this channel's team: its members, and no one
-        // else, can read or moderate it.
+        // else, can read it. Only the author may edit or delete it.
         permissions: [
           'read("team:${widget.channelId}")',
-          'write("team:${widget.channelId}")',
+          'update("user:${svc.userId}")',
+          'delete("user:${svc.userId}")',
         ],
       );
       _composer.clear();

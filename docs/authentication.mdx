@@ -1,0 +1,95 @@
+---
+title: Authentication
+description: Accounts, sessions and teams — how your users sign in and how you scope access to groups.
+---
+
+Applad authenticates end users per project. A user creates an account, opens a
+**session**, and every request they make carries that session. Access to data is
+then decided by the user's identity and the **teams** they belong to.
+
+## Accounts and sessions
+
+Create an account, then open an email session to sign in:
+
+```dart
+final client = Applad(endpoint: 'https://api.applad.io', projectId: '<projectId>');
+
+await client.auth.createAccount(email: 'ada@example.com', password: 'secret', name: 'Ada');
+final session = await client.auth.createEmailSession(
+  email: 'ada@example.com', password: 'secret',
+);
+```
+
+A session is a bearer credential. On creation the response includes a `secret`
+(a signed token); send it as `Authorization: Bearer <secret>` on subsequent
+requests. The SDKs apply it for you after `createEmailSession`, and also set a
+browser cookie so a web app can rely on that instead.
+
+<Callout title="One session, every platform">
+  The `secret` is what lets a mobile app authenticate: a phone has no cookie jar,
+  so the token has to travel in the response body. Persist it in secure storage
+  (Keychain / Keystore on mobile) and restore it on launch with `setJWT`. On the
+  web, prefer the `HttpOnly` cookie the login also sets over storing the secret
+  in JavaScript-readable storage.
+</Callout>
+
+Restoring a session on the next launch:
+
+```dart
+// after reading the saved secret from secure storage
+client.setJWT(savedSecret);
+final me = await client.auth.getAccount(); // confirms it is still valid
+```
+
+Signing out deletes the session server-side and clears the token:
+
+```dart
+await client.auth.deleteSessions(); // logout everywhere
+```
+
+Sessions are also available as anonymous (`createAnonymousSession`), and the
+account API covers MFA, magic links, email verification and password reset.
+
+## Teams
+
+A **team** is Applad's unit of shared access. It is the answer to "these people,
+and only these people, may see this" — a workspace, a channel, a shared
+document, a project board. A row whose permissions name a team is visible to
+exactly that team's members (see [Databases → Permissions](/databases#permissions-and-row-level-security)).
+
+Creating a team makes the caller its first, already-joined **owner**:
+
+```dart
+final team = await client.teams.create(name: 'general');
+final teamId = team['\$id'];
+```
+
+`teams.list()` returns only the teams the signed-in user belongs to — not every
+team in the project — so it is genuinely "my teams".
+
+### Inviting and joining
+
+Invite someone by email. The invite carries a one-time `secret`; hand it to them
+(a self-hosted instance often has no SMTP to send it for you) and they redeem it:
+
+```dart
+// inviter
+final invite = await client.teams.createMembership(teamId, email: 'grace@example.com');
+final code = '$teamId:${invite['\$id']}:${invite['secret']}';
+
+// invitee, signed in as themselves
+await client.teams.acceptMembership(teamId, membershipId, secret);
+```
+
+The joining identity comes from the invitee's own session, never from the
+request, so an invite cannot be redeemed as someone else. A membership is
+inactive until accepted, and the secret is single-use.
+
+### Roles
+
+A member can carry roles within a team (for example `owner`). Membership becomes
+RLS roles automatically: a joined member of team `X` holds `team:X` (and
+`team:X/owner` for each role), which is what a row permission like
+`read("team:X")` matches. You never assemble these yourself and you never send
+them from the client; Applad resolves them server-side from the caller's own
+membership on every request.
