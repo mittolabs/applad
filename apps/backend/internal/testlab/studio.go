@@ -75,6 +75,7 @@ type Session struct {
 	capStartMs int64
 	capSeq     int
 	capLastWr  int64 // last frame write, ms
+	capWarned  bool  // a write failed and capture was disabled; warn only once
 	frameMarks []FrameMark
 	lastJPEG   []byte
 }
@@ -443,17 +444,30 @@ func (sess *Session) writeFrame(payload []byte, forced bool) {
 			return
 		}
 	}
-	sess.capLastWr = now
 	seq := sess.capSeq
-	sess.capSeq++
-	sess.frameMarks = append(sess.frameMarks, FrameMark{Seq: seq, Ms: now - sess.capStartMs})
 	dir := sess.capDir
 	sess.mu.Unlock()
 
 	path := filepath.Join(dir, fmt.Sprintf("%06d.jpg", seq))
 	if err := os.WriteFile(path, jpeg, 0o644); err != nil {
-		slog.Warn("studio: frame write failed", "session", sess.ID, "error", err)
+		// Capture is best-effort: the flow and its steps are what matter, and a
+		// storage problem must not fail recording or flood the log. Warn once,
+		// then disable capture for this session rather than retrying every frame.
+		sess.mu.Lock()
+		if !sess.capWarned {
+			sess.capWarned = true
+			slog.Warn("studio: capture disabled, frame write failed", "session", sess.ID, "error", err)
+		}
+		sess.capDir = ""
+		sess.mu.Unlock()
+		return
 	}
+	// Only record the mark once the frame is actually on disk.
+	sess.mu.Lock()
+	sess.capLastWr = now
+	sess.capSeq++
+	sess.frameMarks = append(sess.frameMarks, FrameMark{Seq: seq, Ms: now - sess.capStartMs})
+	sess.mu.Unlock()
 }
 
 // captureData assembles what to persist on save: the events, the frame timeline,

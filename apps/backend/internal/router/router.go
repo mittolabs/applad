@@ -254,6 +254,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// Regions — public catalog (no auth)
 		r.Mount("/regions", regions.PublicRoutes(regions.NewHandler(regions.NewService(database))))
 
+		// A shared capture replay, opened by anyone with the token (no auth). The
+		// token is the only credential, so it is scoped to nothing else.
+		r.Mount("/shared-captures", testlabHandler.PublicRoutes())
+
 		// Modules compiled into this build mount their own surface here. A
 		// default build registers none and this loop does nothing.
 		for _, m := range extensions.All() {

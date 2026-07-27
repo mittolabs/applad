@@ -31,10 +31,6 @@ export function extensionStandaloneRoutes(): ExtensionRoute[] {
   return registry.modules.flatMap((m) => m.standaloneRoutes ?? []);
 }
 
-export function extensionPublicRoutes(): ExtensionRoute[] {
-  return registry.modules.flatMap((m) => m.publicRoutes ?? []);
-}
-
 export function extensionNav(): ExtensionNavItem[] {
   return registry.modules.flatMap((m) => m.nav ?? []);
 }
