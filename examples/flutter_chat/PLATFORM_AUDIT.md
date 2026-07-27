@@ -191,6 +191,54 @@ scope keys off the server-resolved identity, and only privileged callers see all
 
 ---
 
+## G7 — Per-row (document-level) permissions are accepted but not enforced 🔎 (decision needed)
+
+**What is missing — the big one.** The API takes a `permissions` array on
+`createRow`/`updateRow` (e.g. `read("team:X")`), and the docs imply per-document
+security. In reality:
+- `CreateRowWithAuth` **drops the `permissions` argument** — it builds the INSERT
+  from data columns only and stores the permissions nowhere. The physical
+  row-security table is created with just `id, created_at, updated_at` plus the
+  user's columns; there is **no per-row permissions column**.
+- The RLS SELECT policy (`applad_read_access`) is derived from the **table's**
+  permissions, not the row's. So list queries are filtered only table-wide.
+
+Consequences for the two obvious chat models:
+- *Per-row* `read("team:X")` on a shared `messages` table: the permission is
+  discarded, and because a document-security table has no table-level read grant,
+  the read policy is skipped and FORCE RLS returns **no rows to anyone**. The
+  channel would always look empty.
+- The feature that would make a single shared table correct — per-row read
+  scoped to a channel's team — does not exist yet.
+
+**What works today instead.** *Table-level* RLS **is** enforced on list, and with
+the G2 resolver a table permissioned `read("team:X")` shows its rows to exactly
+that team's members. So a channel modelled as **its own table** (created with
+`read/write/create("team:<channelId>")`) is correctly and efficiently secured
+right now, no core change required. The cost is a physical table per channel.
+
+**The fork.** Two honest paths, and they change the app's data model:
+1. **Model channels as per-channel tables** — correct and enforced today; ships
+   the app immediately; exercises dynamic table creation. Downside: table
+   proliferation, and it leaves the per-row feature unbuilt.
+2. **Implement per-row document security in core (the proper BaaS feature)** — add
+   a normalised per-row permissions column on document-security tables, persist
+   permissions on write, and extend the read/update/delete policies to admit a
+   row when its own permissions grant the action to one of the caller's resolved
+   roles (`permissions->'read' ?| session_roles`). Bigger, security-critical, and
+   must be verified against a real Postgres. Then a single `messages` table with
+   `read("team:X")` per row is correct, and the platform gains a headline
+   capability it currently only pretends to have.
+
+**Security read.** The current state is not a leak — it fails **closed** (no rows
+rather than too many), which is the safe direction. But it is a correctness gap
+and a truthfulness gap: an API that accepts per-row permissions must enforce
+them or reject them. Path 2 is the real fix; path 1 is a legitimate model that
+sidesteps the gap without hiding it. **Chosen direction: pending owner decision**
+(this is a core-feature investment, so it is being surfaced rather than assumed).
+
+---
+
 ## Conventions this audit holds itself to
 - Fix in core, then consume. No app-side shims that hide a platform gap.
 - Server-derived authority only; never trust client-supplied identity/roles.
