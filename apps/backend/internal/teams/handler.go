@@ -37,6 +37,7 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/{teamId}", h.deleteTeam)
 	r.Post("/{teamId}/memberships", h.createMembership)
 	r.Get("/{teamId}/memberships", h.listMemberships)
+	r.Patch("/{teamId}/memberships/{membershipId}/status", h.acceptMembership)
 	r.Delete("/{teamId}/memberships/{membershipId}", h.deleteMembership)
 	return r
 }
@@ -52,12 +53,32 @@ func (h *Handler) createTeam(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "name is required")
 		return
 	}
-	t, err := h.svc.Create(r.Context(), projectID, body.TeamID, body.Name, body.Roles)
+	userID := middleware.UserFromContext(r.Context())
+	t, err := h.svc.Create(r.Context(), projectID, body.TeamID, body.Name, userID, body.Roles)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+func (h *Handler) acceptMembership(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "teamId")
+	membershipID := chi.URLParam(r, "membershipId")
+	userID := middleware.UserFromContext(r.Context())
+	var body struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Secret == "" {
+		apperr.BadRequest(w, "secret is required")
+		return
+	}
+	m, err := h.svc.AcceptMembership(r.Context(), teamID, membershipID, userID, body.Secret)
+	if err != nil {
+		apperr.Write(w, http.StatusUnauthorized, "membership_invalid_secret", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
 }
 
 func (h *Handler) listTeams(w http.ResponseWriter, r *http.Request) {

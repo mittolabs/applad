@@ -52,6 +52,11 @@ type Session struct {
 	IP        string    `json:"ip"`
 	UserAgent string    `json:"userAgent"`
 	Current   bool      `json:"current"`
+	// Secret is the session JWT, returned ONLY when a session is first created so
+	// a non-browser client (mobile, a server) can authenticate by header instead
+	// of relying on the Set-Cookie that only a browser honours. It is never
+	// populated when listing or fetching a session, hence omitempty.
+	Secret string `json:"secret,omitempty"`
 }
 
 // Team represents a team of users.
@@ -77,6 +82,11 @@ type Membership struct {
 	Invited   bool      `json:"invited"`
 	Joined    bool      `json:"joined"`
 	Confirm   bool      `json:"confirm"`
+	// Secret is the one-time invite token, returned ONLY when a membership is
+	// created so the inviter can hand out a join link (a self-hosted instance
+	// often has no SMTP to send one). It is never populated when listing
+	// memberships, hence omitempty.
+	Secret string `json:"secret,omitempty"`
 }
 
 // Database represents an Applad database.

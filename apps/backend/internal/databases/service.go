@@ -27,8 +27,20 @@ var safeSchemaSegment = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
 // Service handles database, table, column, and row operations.
 type Service struct {
-	db     *db.DB
-	events realtime.EventPublisher
+	db       *db.DB
+	events   realtime.EventPublisher
+	resolver RoleResolver
+}
+
+// RoleResolver returns the extra RLS role tokens a user holds, beyond the
+// built-ins (any, users, user:<id>) — for example team memberships as
+// "team:<id>". It is resolved SERVER-SIDE from membership on every request and
+// must never be sourced from anything the client sends: a client that could
+// name its own roles could satisfy any policy. An implementation that errors
+// should be treated as "no extra roles" (fail closed), never as a denial of the
+// request itself.
+type RoleResolver interface {
+	RolesForUser(ctx context.Context, projectID, userID string) ([]string, error)
 }
 
 type sqlContextExecutor interface {
@@ -45,6 +57,28 @@ func NewService(database *db.DB) *Service {
 // SetEventPublisher wires realtime event publishing into the service.
 func (s *Service) SetEventPublisher(pub realtime.EventPublisher) {
 	s.events = pub
+}
+
+// SetRoleResolver wires server-side role resolution (e.g. team memberships) into
+// RLS. Without it, only the built-in roles apply and group permissions like
+// read("team:X") match no one — which is the safe default, not a silent open.
+func (s *Service) SetRoleResolver(r RoleResolver) {
+	s.resolver = r
+}
+
+// resolveRoles fills in a caller's group roles when the caller did not pass an
+// explicit set. Handlers pass nil so this authoritative, server-derived path
+// runs; internal callers that already hold a vetted role list pass it through
+// untouched. Errors fail closed to the built-in roles only.
+func (s *Service) resolveRoles(ctx context.Context, projectID, userID string, roles []string) []string {
+	if roles != nil || s.resolver == nil || userID == "" {
+		return roles
+	}
+	resolved, err := s.resolver.RolesForUser(ctx, projectID, userID)
+	if err != nil {
+		return nil
+	}
+	return resolved
 }
 
 func schemaName(projectID, databaseID string) string {
@@ -1509,6 +1543,7 @@ func (s *Service) CreateRow(ctx context.Context, projectID, databaseID, tableID,
 }
 
 func (s *Service) CreateRowWithAuth(ctx context.Context, projectID, databaseID, tableID, rowID string, data map[string]interface{}, permissions []string, userID string, roles []string) (*model.Row, error) {
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
 	if userID != "" {
 		if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "create", nil); err != nil {
 			return nil, err
@@ -1581,6 +1616,7 @@ func (s *Service) GetRow(ctx context.Context, rowID, tableID, databaseID, projec
 }
 
 func (s *Service) GetRowWithAuth(ctx context.Context, rowID, tableID, databaseID, projectID, userID string, roles []string) (*model.Row, error) {
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
 	table, err := s.lookupTableContext(ctx, tableID)
 	if err != nil {
 		return nil, err
@@ -1619,6 +1655,7 @@ func (s *Service) ListRowsWithQuery(ctx context.Context, projectID, databaseID, 
 }
 
 func (s *Service) ListRowsWithAuth(ctx context.Context, projectID, databaseID, tableID, userID string, roles []string, params ListParams) ([]*model.Row, int, error) {
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
 	table, err := s.lookupTableContext(ctx, tableID)
 	if err != nil {
 		return nil, 0, err
@@ -1694,6 +1731,7 @@ func (s *Service) UpdateRow(ctx context.Context, rowID, tableID, databaseID, pro
 }
 
 func (s *Service) UpdateRowWithAuth(ctx context.Context, rowID, tableID, databaseID, projectID string, data map[string]interface{}, permissions []string, userID string, roles []string) (*model.Row, error) {
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
 	if userID != "" {
 		existingRow, err := s.GetRow(ctx, rowID, tableID, databaseID, projectID)
 		if err != nil {
@@ -1765,6 +1803,7 @@ func (s *Service) DeleteRow(ctx context.Context, rowID, tableID, databaseID, pro
 }
 
 func (s *Service) DeleteRowWithAuth(ctx context.Context, rowID, tableID, databaseID, projectID, userID string, roles []string) error {
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
 	if userID != "" {
 		existingRow, err := s.GetRow(ctx, rowID, tableID, databaseID, projectID)
 		if err != nil {
@@ -2043,6 +2082,7 @@ func isAlnumByte(c byte) bool {
 }
 
 func (s *Service) ExecuteSQL(ctx context.Context, projectID, databaseID, userID string, roles []string, statement string, writeAllowed bool) (*SQLExecutionResult, error) {
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
 	statement = strings.TrimSpace(statement)
 	if statement == "" {
 		return nil, fmt.Errorf("sql statement is required")

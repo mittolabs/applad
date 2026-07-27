@@ -13,6 +13,7 @@ import 'realtime.dart';
 import 'regions.dart';
 import 'search.dart';
 import 'storage.dart';
+import 'teams.dart';
 import 'vectors.dart';
 import 'workflows.dart';
 import 'observe.dart';
@@ -28,6 +29,7 @@ class Applad {
   late final Users users;
   late final Databases databases;
   late final Storage storage;
+  late final Teams teams;
   late final Deploy deploy;
   late final Edge edge;
   late final Flags flags;
@@ -54,6 +56,7 @@ class Applad {
     users = Users(_dio);
     databases = Databases(_dio);
     storage = Storage(_dio);
+    teams = Teams(_dio);
     deploy = Deploy(_dio);
     edge = Edge(_dio);
     flags = Flags(_dio);

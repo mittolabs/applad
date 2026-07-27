@@ -304,6 +304,9 @@ func (h *Handler) createEmailSession(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 3600, // 30 days
 	})
+	// Also hand the token back in the body: a browser gets the cookie, everything
+	// else (mobile, a script) needs the secret to authenticate by header.
+	sess.Secret = token
 	writeJSON(w, http.StatusCreated, sess)
 }
 
@@ -336,6 +339,7 @@ func (h *Handler) createAnonymousSession(w http.ResponseWriter, r *http.Request)
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 3600, // 30 days
 	})
+	sess.Secret = token
 	writeJSON(w, http.StatusCreated, sess)
 }
 

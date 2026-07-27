@@ -161,6 +161,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	realtimeHandler := realtime.NewHandler(hub)
 	dbSvc.SetEventPublisher(hub)
 	storageSvc.SetEventPublisher(hub)
+	// Team membership becomes RLS roles, so a row's read("team:X") admits exactly
+	// that team's members. Resolved server-side per request from the caller's own
+	// identity; without this only the built-in roles (any/users/user:<id>) apply.
+	dbSvc.SetRoleResolver(teamSvc)
 
 	// Workflows
 	workflowQueue := queue.New(cacheClient.Client())

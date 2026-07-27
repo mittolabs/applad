@@ -70,6 +70,12 @@ class Auth {
   }
 
   /// Create an email session (login).
+  ///
+  /// On success the returned session carries a `secret` (a JWT). This applies it
+  /// as the bearer token for subsequent requests, so auth works the same on
+  /// mobile and web without depending on a cookie the platform may not keep.
+  /// Persist `secret` yourself to stay signed in across launches, and restore it
+  /// with [Applad.setJWT].
   Future<Map<String, dynamic>> createEmailSession({
     required String email,
     required String password,
@@ -78,13 +84,22 @@ class Auth {
       'email': email,
       'password': password,
     });
+    _applySecret(res.data);
     return res.data;
   }
 
   /// Create an anonymous session.
   Future<Map<String, dynamic>> createAnonymousSession() async {
     final res = await _dio.post('/v1/account/sessions/anonymous');
+    _applySecret(res.data);
     return res.data;
+  }
+
+  /// Applies a freshly minted session secret as the bearer token, if present.
+  void _applySecret(dynamic data) {
+    if (data is Map && data['secret'] is String && (data['secret'] as String).isNotEmpty) {
+      _dio.options.headers['Authorization'] = 'Bearer ${data['secret']}';
+    }
   }
 
   /// List all sessions for the current user.
@@ -104,9 +119,10 @@ class Auth {
     await _dio.delete('/v1/account/sessions/$sessionId');
   }
 
-  /// Delete all sessions for the current user.
+  /// Delete all sessions for the current user (logout everywhere).
   Future<void> deleteSessions() async {
     await _dio.delete('/v1/account/sessions');
+    _dio.options.headers.remove('Authorization');
   }
 
   /// Get a short-lived JWT for the current user.

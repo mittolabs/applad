@@ -22,7 +22,7 @@ func NewService(database *db.DB) *Service {
 	return &Service{db: database}
 }
 
-func (s *Service) Create(ctx context.Context, projectID, teamID, name string, roles []string) (*model.Team, error) {
+func (s *Service) Create(ctx context.Context, projectID, teamID, name, creatorUserID string, roles []string) (*model.Team, error) {
 	id := uid.New(teamID)
 	now := time.Now().UTC()
 	prefsJSON, _ := json.Marshal(map[string]interface{}{})
@@ -32,7 +32,50 @@ func (s *Service) Create(ctx context.Context, projectID, teamID, name string, ro
 	if err != nil {
 		return nil, fmt.Errorf("teams: create: %w", err)
 	}
+	// Whoever creates a team is its first, already-joined owner. Without this a
+	// creator holds no membership, so team-scoped RLS (read("team:<id>")) would
+	// shut them out of the very team they just made. Server-side calls with no
+	// user (an API key) create an unowned team, as before.
+	if creatorUserID != "" {
+		mid := uid.New("unique()")
+		ownerRoles, _ := json.Marshal([]string{"owner"})
+		if _, err := s.db.ExecContext(ctx,
+			"INSERT INTO memberships (id, team_id, user_id, roles, invited, joined, created_at) VALUES ($1, $2, $3, $4, TRUE, TRUE, $5)",
+			mid, id, creatorUserID, ownerRoles, now); err != nil {
+			return nil, fmt.Errorf("teams: enrol creator: %w", err)
+		}
+	}
 	return &model.Team{ID: id, Name: name, Prefs: map[string]interface{}{}, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+// AcceptMembership turns an invite into a joined membership. The secret handed
+// out at invite time is the credential; the joining user's identity is taken
+// from their authenticated session, never from the request body, so nobody can
+// join a team as someone else. It binds user_id, marks the row joined, and
+// clears the one-time secret.
+func (s *Service) AcceptMembership(ctx context.Context, teamID, membershipID, userID, secret string) (*model.Membership, error) {
+	if userID == "" || secret == "" {
+		return nil, fmt.Errorf("teams: accept requires an authenticated user and the invite secret")
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE memberships SET user_id = $1, joined = TRUE, invited = TRUE, secret = NULL
+		  WHERE id = $2 AND team_id = $3 AND secret = $4 AND joined = FALSE`,
+		userID, membershipID, teamID, secret)
+	if err != nil {
+		return nil, fmt.Errorf("teams: accept membership: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, fmt.Errorf("teams: invite is invalid, already used, or expired")
+	}
+	ms, _, err := s.ListMemberships(ctx, teamID, "")
+	if err == nil {
+		for _, m := range ms {
+			if m.ID == membershipID {
+				return m, nil
+			}
+		}
+	}
+	return &model.Membership{ID: membershipID, TeamID: teamID, UserID: userID, Joined: true, Invited: true}, nil
 }
 
 func (s *Service) Get(ctx context.Context, teamID, projectID string) (*model.Team, error) {
@@ -131,6 +174,7 @@ func (s *Service) CreateMembership(ctx context.Context, teamID, projectID, email
 		UserEmail: email, Roles: roles,
 		Invited: true, Joined: false, Confirm: false,
 		CreatedAt: now,
+		Secret:    secret,
 	}, nil
 }
 
@@ -160,6 +204,45 @@ func (s *Service) ListMemberships(ctx context.Context, teamID, projectID string)
 		memberships = append(memberships, &m)
 	}
 	return memberships, len(memberships), nil
+}
+
+// RolesForUser returns the RLS role tokens a user holds through team
+// membership, scoped to one project. For each team the user has actually joined
+// it yields "team:<id>" and, for each membership role, "team:<id>/<role>" (e.g.
+// "team:abc/owner"). This is what lets a row permission like read("team:abc")
+// admit exactly that team's members. It reads only joined memberships, so an
+// unaccepted invite grants nothing, and it is called server-side with the
+// authenticated user id — never a value the client supplied.
+func (s *Service) RolesForUser(ctx context.Context, projectID, userID string) ([]string, error) {
+	if userID == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT m.team_id, m.roles FROM memberships m
+		   JOIN teams t ON t.id = m.team_id
+		  WHERE m.user_id = $1 AND m.joined = TRUE AND t.project_id = $2`,
+		userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var teamID string
+		var rolesJSON []byte
+		if err := rows.Scan(&teamID, &rolesJSON); err != nil {
+			return nil, err
+		}
+		out = append(out, "team:"+teamID)
+		var roles []string
+		_ = json.Unmarshal(rolesJSON, &roles)
+		for _, r := range roles {
+			if r != "" {
+				out = append(out, "team:"+teamID+"/"+r)
+			}
+		}
+	}
+	return out, rows.Err()
 }
 
 func (s *Service) DeleteMembership(ctx context.Context, membershipID, teamID, projectID string) error {
