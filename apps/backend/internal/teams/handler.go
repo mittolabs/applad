@@ -85,7 +85,21 @@ func (h *Handler) listTeams(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	pg := middleware.ParsePagination(r)
 	search := r.URL.Query().Get("search")
-	teams, total, err := h.svc.List(r.Context(), projectID, pg.Limit, pg.Offset, search)
+	// A plain user sees only the teams they belong to; an admin or API key sees
+	// the whole project. Scoping by membership is what stops one user learning
+	// the names of everyone else's teams.
+	userID := middleware.UserFromContext(r.Context())
+	scoped := userID != "" && !middleware.IsAPIKey(r.Context()) && !middleware.IsConsoleAdmin(r.Context())
+	var (
+		teams []*model.Team
+		total int
+		err   error
+	)
+	if scoped {
+		teams, total, err = h.svc.ListForUser(r.Context(), projectID, userID, pg.Limit, pg.Offset, search)
+	} else {
+		teams, total, err = h.svc.List(r.Context(), projectID, pg.Limit, pg.Offset, search)
+	}
 	if err != nil {
 		apperr.Internal(w, err)
 		return

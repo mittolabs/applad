@@ -64,6 +64,15 @@ func TestDocumentSecurityChatFlow(t *testing.T) {
 	}
 	teamID := team["$id"].(string)
 
+	// G6: a channel (team) must appear only to its members. The creator sees it;
+	// an unrelated user must not learn it exists via the team list.
+	if got := teamCount(t, authA); got != 1 {
+		t.Fatalf("A (member) should list 1 team, listed %d", got)
+	}
+	if got := teamCount(t, authB); got != 0 {
+		t.Fatalf("B (non-member) must list 0 teams, listed %d [team-list scoping, G6]", got)
+	}
+
 	st, msg := request(t, "POST", rows, map[string]interface{}{
 		"rowId": "unique()",
 		"data":  map[string]string{"channel_id": teamID, "user_id": uidA, "author_name": "A", "body": "hello channel"},
@@ -171,6 +180,18 @@ func signupLogin(t *testing.T, projectID, email string) (userID, secret string) 
 
 func sessionHeader(projectID, secret string) map[string]string {
 	return map[string]string{"X-Applad-Project": projectID, "Authorization": "Bearer " + secret}
+}
+
+func teamCount(t *testing.T, headers map[string]string) int {
+	t.Helper()
+	st, body := request(t, "GET", "/teams", nil, headers)
+	if st != 200 {
+		t.Fatalf("list teams: %d %v", st, body)
+	}
+	if teams, ok := body["teams"].([]interface{}); ok {
+		return len(teams)
+	}
+	return 0
 }
 
 func listCount(t *testing.T, rowsPath, channelID string, headers map[string]string) int {

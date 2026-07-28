@@ -79,4 +79,3 @@ app.*.map.json
 **/macos/**/xcuserdata/
 
 # Web
-lib/generated_plugin_registrant.dart
