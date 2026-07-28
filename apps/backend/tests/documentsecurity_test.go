@@ -87,6 +87,25 @@ func TestDocumentSecurityChatFlow(t *testing.T) {
 	}
 	msgID := msg["$id"].(string)
 
+	// Regression: a second message must not collide on the primary key. The
+	// "unique()" row id sentinel has to become a fresh id per row, or the second
+	// message in any channel fails. Remove it so the counts below stay at one.
+	st, msg2 := request(t, "POST", rows, map[string]interface{}{
+		"rowId": "unique()",
+		"data":  map[string]string{"channel_id": teamID, "user_id": uidA, "author_name": "A", "body": "second"},
+		"permissions": []string{
+			fmt.Sprintf(`read("team:%s")`, teamID),
+			fmt.Sprintf(`delete("user:%s")`, uidA),
+		},
+	}, authA)
+	if st != 201 {
+		t.Fatalf("second message must succeed (unique() id sentinel), got %d %v", st, msg2)
+	}
+	if msg2["$id"] == msgID {
+		t.Fatalf("two messages share id %v — the sentinel was stored literally", msgID)
+	}
+	request(t, "DELETE", rows+"/"+msg2["$id"].(string), nil, authA)
+
 	// --- the core assertions ---
 	if got := listCount(t, rows, teamID, authA); got != 1 {
 		t.Fatalf("A (member) should see 1 message, saw %d", got)

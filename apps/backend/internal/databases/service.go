@@ -1719,9 +1719,11 @@ func (s *Service) CreateRowWithAuth(ctx context.Context, projectID, databaseID, 
 		data = applyWriteFilter(data, writeCols)
 	}
 
-	if rowID == "" {
-		rowID = uid.New("")
-	}
+	// Translate the "unique()" sentinel (and any empty/invalid id) into a fresh
+	// id. Only checking for "" left the literal string "unique()" as the row id,
+	// so the first row took it and every subsequent insert collided on the
+	// primary key — a second message in a channel always failed.
+	rowID = uid.New(rowID)
 	data["id"] = rowID
 
 	// Filter out special/unknown fields before building the INSERT.
@@ -2076,10 +2078,7 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID 
 		result := TransactionResult{Method: operation.Method}
 		switch strings.ToUpper(operation.Method) {
 		case "POST", "CREATE":
-			rowID := operation.RowID
-			if rowID == "" {
-				rowID = uid.New("")
-			}
+			rowID := uid.New(operation.RowID) // "unique()"/empty/invalid -> fresh id
 			data := map[string]interface{}{"id": rowID}
 			for key, value := range operation.Data {
 				data[key] = value
