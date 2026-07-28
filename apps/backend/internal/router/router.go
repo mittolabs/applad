@@ -262,6 +262,12 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// token is the only credential, so it is scoped to nothing else.
 		r.Mount("/shared-captures", testlabHandler.PublicRoutes())
 
+		// The edge asks this before issuing an on-demand certificate for an
+		// <app>.applad.dev name. Unauthenticated (the edge has no credential); it
+		// answers only whether the name is a live deployed app. A top-level path,
+		// so it does not collide with the authenticated /deploy mount.
+		r.Get("/tls-authorize", deployHandler.TLSAuthorize)
+
 		// Modules compiled into this build mount their own surface here. A
 		// default build registers none and this loop does nothing.
 		for _, m := range extensions.All() {

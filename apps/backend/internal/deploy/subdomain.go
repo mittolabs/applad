@@ -63,6 +63,37 @@ func Subdomain(v string) string {
 	return strings.Trim(b.String(), "-")
 }
 
+// TLSAuthorize reports whether a hostname is allowed to obtain a certificate on
+// demand. The edge asks this before issuing, so a certificate is only ever minted
+// for a name a deployed app actually answers on: a claimed subdomain under the
+// deploy domain, or a registered custom domain. Without this gate a wildcard DNS
+// record would let anyone request `anything.applad.dev` and burn through the CA's
+// rate limit; with it, the set of issuable names is exactly the set of live apps.
+func (s *Service) TLSAuthorize(ctx context.Context, host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	var one int
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT 1 FROM custom_domains WHERE lower(domain) = $1", host).Scan(&one); err == nil {
+		return true
+	}
+	suffix := "." + strings.ToLower(s.deployDomainOr())
+	if !strings.HasSuffix(host, suffix) {
+		return false
+	}
+	sub := strings.TrimSuffix(host, suffix)
+	if sub == "" || strings.Contains(sub, ".") {
+		return false // exactly one label under the deploy domain
+	}
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT 1 FROM deploy_targets WHERE subdomain = $1", sub).Scan(&one); err == nil {
+		return true
+	}
+	return false
+}
+
 // ClaimSubdomain reserves a name's subdomain for a target, refusing one that
 // another target already answers on.
 //

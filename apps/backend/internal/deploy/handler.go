@@ -31,6 +31,18 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// TLSAuthorize is the endpoint the edge's on-demand TLS asks before issuing a
+// certificate for a hostname. It is unauthenticated by design (the edge calls it
+// server-to-server with no credential) and answers only 200 or 404, leaking
+// nothing but whether a name is a live app. Mounted in the public router.
+func (h *Handler) TLSAuthorize(w http.ResponseWriter, r *http.Request) {
+	if h.svc.TLSAuthorize(r.Context(), r.URL.Query().Get("domain")) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	w.WriteHeader(http.StatusNotFound)
+}
+
 // Routes returns the deploy router.
 func Routes(h *Handler) http.Handler {
 	r := chi.NewRouter()
