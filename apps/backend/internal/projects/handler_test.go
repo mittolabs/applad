@@ -2,6 +2,7 @@ package projects
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +35,16 @@ func TestCreateProject_MissingName(t *testing.T) {
 				t.Fatalf("expected %d, got %d: %s", tc.want, w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+// The invariant: a project cannot be created without an organization. This is
+// the service-level backstop that holds even if a handler forgot to check, and
+// it runs in every `go test` (no DB needed — the guard fires before any query).
+func TestCreate_RequiresOrganization(t *testing.T) {
+	svc := NewService(nil, "", "test-secret")
+	if _, err := svc.Create(context.Background(), "My Project", "", ""); err == nil {
+		t.Fatal("creating a project with no organization must fail")
 	}
 }
 
