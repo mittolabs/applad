@@ -1,8 +1,8 @@
 {
+  "root": true,
   "title": "Automate",
   "icon": "Zap",
   "pages": [
     "workflows"
-  ],
-  "defaultOpen": true
+  ]
 }

@@ -1,8 +1,8 @@
 {
+  "root": true,
   "title": "Plan",
   "icon": "ListTodo",
   "pages": [
     "index"
-  ],
-  "defaultOpen": true
+  ]
 }

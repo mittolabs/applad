@@ -1,8 +1,8 @@
 {
+  "root": true,
   "title": "Testing",
   "icon": "FlaskConical",
   "pages": [
     "index"
-  ],
-  "defaultOpen": true
+  ]
 }

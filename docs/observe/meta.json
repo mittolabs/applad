@@ -1,8 +1,8 @@
 {
+  "root": true,
   "title": "Observe",
   "icon": "Activity",
   "pages": [
     "index"
-  ],
-  "defaultOpen": true
+  ]
 }
