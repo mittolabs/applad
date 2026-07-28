@@ -1,5 +1,4 @@
 {
-  "root": true,
   "title": "Build",
   "icon": "Box",
   "pages": [
@@ -11,5 +10,6 @@
     "functions",
     "messaging",
     "realtime"
-  ]
+  ],
+  "defaultOpen": true
 }
