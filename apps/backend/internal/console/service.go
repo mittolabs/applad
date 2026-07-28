@@ -458,6 +458,35 @@ func (s *Service) UserOrgIDs(ctx context.Context, userID string) ([]string, erro
 	return out, rows.Err()
 }
 
+// DefaultOrg returns the org a new project should belong to for this user: their
+// chosen default if it is still one they belong to, otherwise their oldest active
+// membership. Empty means the user is in no organization at all — the caller must
+// refuse to create a project, since a project without an org would be owned by no
+// one and invisible to operators.
+func (s *Service) DefaultOrg(ctx context.Context, userID string) (string, error) {
+	var def sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT u.default_org_id
+		   FROM console_users u
+		  WHERE u.id = $1
+		    AND u.default_org_id IS NOT NULL
+		    AND EXISTS (SELECT 1 FROM organization_members m
+		                 WHERE m.org_id = u.default_org_id AND m.user_id = u.id AND m.status = 'active')`,
+		userID).Scan(&def); err == nil && def.Valid && def.String != "" {
+		return def.String, nil
+	}
+	// Fall back to the earliest org the user actually belongs to.
+	var orgID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT org_id FROM organization_members
+		  WHERE user_id = $1 AND status = 'active'
+		  ORDER BY created_at ASC LIMIT 1`, userID).Scan(&orgID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return orgID, err
+}
+
 // ProjectOrgs returns project id → owning org ("" when none), one query, so a
 // project listing can be filtered to the caller's orgs without a query per row.
 func (s *Service) ProjectOrgs(ctx context.Context) (map[string]string, error) {

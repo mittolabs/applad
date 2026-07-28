@@ -22,6 +22,8 @@ type AccessChecker interface {
 	IsOrgMember(ctx context.Context, userID, orgID string) (bool, error)
 	UserOrgIDs(ctx context.Context, userID string) ([]string, error)
 	ProjectOrgs(ctx context.Context) (map[string]string, error)
+	// DefaultOrg is the org a new project belongs to; "" when the user is in none.
+	DefaultOrg(ctx context.Context, userID string) (string, error)
 }
 
 // Handler handles HTTP requests for project management.
@@ -112,12 +114,25 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "name is required")
 		return
 	}
-	// Any signed-in console user may create a project (it starts org-less, as
-	// onboarding does); anonymous callers may not.
-	if _, ok := h.callerID(w, r); !ok {
+	userID, ok := h.callerID(w, r)
+	if !ok {
 		return
 	}
-	p, err := h.svc.Create(r.Context(), body.Name, body.Description)
+	// A project must belong to an organization. Attach the caller's; refuse if
+	// they are in none, rather than create a project owned by no one and
+	// invisible to operators. Onboarding creates the org first, so this only
+	// rejects a genuinely org-less caller.
+	orgID, err := h.access.DefaultOrg(r.Context(), userID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if orgID == "" {
+		apperr.Write(w, http.StatusConflict, "no_organization",
+			"Create an organization before creating a project.")
+		return
+	}
+	p, err := h.svc.Create(r.Context(), body.Name, body.Description, orgID)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

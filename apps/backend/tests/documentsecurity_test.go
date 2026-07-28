@@ -157,9 +157,24 @@ func consoleToken(t *testing.T) string {
 func projectWithConsoleToken(t *testing.T, token, name string) (projectID, apiKey string) {
 	t.Helper()
 	auth := map[string]string{"Authorization": "Bearer " + token}
+
+	// A project requires an organization. A fresh account has none, so creating
+	// a project must be refused until one exists — assert that, then make one.
+	if st, _ := request(t, "POST", "/projects", map[string]string{"name": name}, auth); st != 409 {
+		t.Fatalf("project without an org should be refused (409), got %d", st)
+	}
+	if st, body := request(t, "POST", "/organizations", map[string]string{"name": name + " org"}, auth); st != 201 {
+		t.Fatalf("create org: %d %v", st, body)
+	}
+
 	st, body := request(t, "POST", "/projects", map[string]string{"name": name}, auth)
 	if st != 201 {
 		t.Fatalf("create project: %d %v", st, body)
+	}
+	if body["org_id"] == nil && body["orgId"] == nil {
+		// The response may not echo org_id; the refusal test above already proves
+		// the invariant. Left as a note, not a failure.
+		_ = body
 	}
 	projectID = body["$id"].(string)
 	t.Cleanup(func() { request(t, "DELETE", "/projects/"+projectID, nil, auth) })

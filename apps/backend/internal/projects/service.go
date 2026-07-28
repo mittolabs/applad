@@ -41,12 +41,15 @@ func (s *Service) hashKey(raw string) string {
 }
 
 // Create creates a new project.
-func (s *Service) Create(ctx context.Context, name, description string) (*model.Project, error) {
+func (s *Service) Create(ctx context.Context, name, description, orgID string) (*model.Project, error) {
+	if orgID == "" {
+		return nil, fmt.Errorf("projects: create: an organization is required")
+	}
 	id := uid.New("unique()")
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO projects (id, name, description, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
-		id, name, description, now, now)
+		"INSERT INTO projects (id, name, description, org_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)",
+		id, name, description, orgID, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("projects: create: %w", err)
 	}
