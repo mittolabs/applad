@@ -1,17 +1,21 @@
 package deploy
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
 /*
  * Access log parsing.
  *
- * The container writes nginx's combined format; the console shows a table of
- * requests. Handing it raw lines filled every column with a placeholder, which
- * looked like the site had served nothing at all.
+ * A deployed site container serves through Caddy, which writes structured JSON
+ * access logs; older nginx-served containers wrote the combined text format. The
+ * console shows a table of requests, so each line is turned into columns. When
+ * the format went unrecognised every column showed a placeholder and only the
+ * raw line was legible, which looked like the site had served nothing.
  */
 
 // combined matches nginx's default log line:
@@ -42,11 +46,76 @@ type AccessEntry struct {
 	Raw string `json:"raw,omitempty"`
 }
 
+// caddyAccess is the subset of Caddy's JSON access log we render. Caddy logs one
+// JSON object per request under logger "http.log.access…", with the request
+// details nested and status/size/duration at the top level.
+type caddyAccess struct {
+	TS       float64 `json:"ts"`
+	Msg      string  `json:"msg"`
+	Status   int     `json:"status"`
+	Size     int64   `json:"size"`
+	Duration float64 `json:"duration"` // seconds
+	Request  struct {
+		ClientIP string              `json:"client_ip"`
+		RemoteIP string              `json:"remote_ip"`
+		Method   string              `json:"method"`
+		URI      string              `json:"uri"`
+		Headers  map[string][]string `json:"headers"`
+	} `json:"request"`
+}
+
+// parseCaddyAccess reads one Caddy JSON access line. The second return is false
+// for a line that is not a request (Caddy also logs startup and errors as JSON).
+func parseCaddyAccess(line string) (AccessEntry, bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "{") {
+		return AccessEntry{}, false
+	}
+	var c caddyAccess
+	if json.Unmarshal([]byte(line), &c) != nil || c.Request.Method == "" {
+		return AccessEntry{}, false
+	}
+	e := AccessEntry{
+		IP:         firstNonEmptyStr(c.Request.ClientIP, c.Request.RemoteIP),
+		Method:     c.Request.Method,
+		Path:       c.Request.URI,
+		StatusCode: c.Status,
+		Bytes:      c.Size,
+		Duration:   int64(c.Duration * 1000),
+	}
+	if ua := c.Request.Headers["User-Agent"]; len(ua) > 0 {
+		e.UserAgent = ua[0]
+	}
+	if rf := c.Request.Headers["Referer"]; len(rf) > 0 {
+		e.Referer = rf[0]
+	}
+	if c.TS > 0 {
+		sec := int64(c.TS)
+		e.CreatedAt = time.Unix(sec, int64((c.TS-float64(sec))*1e9)).UTC()
+	}
+	return e, true
+}
+
+func firstNonEmptyStr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
 // ParseAccessLog turns log lines into entries, newest last as written.
 func ParseAccessLog(lines []string, idPrefix string) []AccessEntry {
 	out := make([]AccessEntry, 0, len(lines))
 	for i, line := range lines {
 		e := AccessEntry{ID: idPrefix + strconv.Itoa(i), Raw: line}
+
+		// Caddy JSON first (what deployed sites write today), then the older
+		// nginx combined format.
+		if caddy, ok := parseCaddyAccess(line); ok {
+			caddy.ID = e.ID
+			out = append(out, caddy)
+			continue
+		}
 
 		m := combined.FindStringSubmatch(line)
 		if m == nil {
