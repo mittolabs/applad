@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +72,40 @@ type RailpackBuild struct {
 	// Env is passed to the build, for build-time configuration a framework
 	// reads (NEXT_PUBLIC_*, VITE_*, and the like).
 	Env map[string]string
+
+	// Sink, if set, receives each build output line as it is produced.
+	Sink func(string)
+}
+
+// lineWriter splits the bytes written to it into lines and calls fn for each
+// complete line, so a streamed command's output can be surfaced live. Bytes
+// after the last newline are held until the newline (or Flush) arrives.
+type lineWriter struct {
+	fn  func(string)
+	buf []byte
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimRight(string(w.buf[:i]), "\r")
+		w.buf = w.buf[i+1:]
+		if strings.TrimSpace(line) != "" {
+			w.fn(line)
+		}
+	}
+	return len(p), nil
+}
+
+func (w *lineWriter) Flush() {
+	if line := strings.TrimSpace(string(w.buf)); line != "" {
+		w.fn(line)
+	}
+	w.buf = nil
 }
 
 // BuildWithRailpack builds an image and returns the build output, whether or
@@ -119,8 +154,15 @@ func (d *DeployExecutor) BuildWithRailpack(ctx context.Context, b RailpackBuild)
 	cmd.Env = append(os.Environ(), railpackEnv(b)...)
 
 	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	if b.Sink != nil {
+		lw := &lineWriter{fn: b.Sink}
+		defer lw.Flush()
+		cmd.Stdout = io.MultiWriter(&out, lw)
+		cmd.Stderr = io.MultiWriter(&out, lw)
+	} else {
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+	}
 
 	err := cmd.Run()
 	log := out.String()

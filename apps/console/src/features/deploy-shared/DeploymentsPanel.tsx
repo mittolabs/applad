@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Play, RefreshCw, Rocket } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
@@ -22,12 +22,26 @@ type Row = Record<string, unknown>;
  * "Create deployment" trigger. Ports the _DeploymentsTab in sites_page.dart
  * and the _releasesTab in containers_page.dart. */
 
+/** Statuses that mean a build is still running, so the panel keeps refreshing. */
+const IN_PROGRESS = ['pending', 'queued', 'building', 'deploying', 'running'];
+
+function isInProgress(status: unknown): boolean {
+  return IN_PROGRESS.includes(String(status));
+}
+
 export function useReleases(targetId: string) {
   return useQuery({
     queryKey: ['deploy-releases', targetId],
     queryFn: async () => {
       const res = await api.get('/deploy/releases', { params: { targetId } });
       return res.data as Record<string, unknown>;
+    },
+    // While anything is building, refresh so status transitions and the final
+    // canonical log land without the operator hitting Refresh. The live stream
+    // fills the gap between polls.
+    refetchInterval: (query) => {
+      const releases = (query.state.data?.['releases'] as Row[] | undefined) ?? [];
+      return releases.some((r) => isInProgress(r['status'])) ? 2000 : false;
     },
   });
 }
@@ -175,17 +189,12 @@ export function DeploymentsPanel({
                           success and folded into the error on failure, so
                           there was nowhere to see what a deploy actually did. */}
                       {error && <FailureNotice error={error} />}
-                      {log ? (
-                        <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap rounded-[var(--radius)] bg-surface p-3 font-[family-name:var(--font-mono)] text-[length:var(--text-caption)] text-text-muted">
-                          {log}
-                        </pre>
-                      ) : (
-                        !error && (
-                          <span className="text-[length:var(--text-caption)] text-text-subtle">
-                            No build output recorded for this deployment.
-                          </span>
-                        )
-                      )}
+                      <LiveBuildLog
+                        releaseId={id}
+                        initialLog={log}
+                        live={isInProgress(r['status'])}
+                        hasError={!!error}
+                      />
                     </td>
                   </tr>
                 )}
@@ -197,6 +206,107 @@ export function DeploymentsPanel({
         </div>
       )}
     </div>
+  );
+}
+
+/*
+ * A deployment's build output, streamed while it runs.
+ *
+ * The persisted build_log (initialLog) is whatever the worker has flushed so
+ * far; while the build is live we also subscribe to the realtime channel the
+ * worker pushes each line to, and append lines as they arrive — so the operator
+ * watches progress the way they would on fly.io, instead of a blank until the
+ * build ends. When the poll returns the final canonical log, live lines are
+ * dropped in favour of it.
+ */
+function LiveBuildLog({
+  releaseId,
+  initialLog,
+  live,
+  hasError,
+}: {
+  releaseId: string;
+  initialLog: string;
+  live: boolean;
+  hasError: boolean;
+}) {
+  const [liveLines, setLiveLines] = useState<string[]>([]);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  // Reset the transient live buffer whenever the persisted log advances (a poll
+  // landed) or the build finishes, so we never show a line twice.
+  useEffect(() => {
+    setLiveLines([]);
+  }, [initialLog, live]);
+
+  useEffect(() => {
+    if (!live) return;
+    const token = localStorage.getItem('applad_console_token') ?? '';
+    const project = (api.defaults.headers.common['X-Applad-Project'] as string) ?? '';
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${scheme}://${window.location.host}/v1/realtime?project=${encodeURIComponent(
+      project,
+    )}&token=${encodeURIComponent(token)}`;
+    const channel = `deploy.${releaseId}`;
+
+    let socket: WebSocket | null = null;
+    try {
+      socket = new WebSocket(url);
+    } catch {
+      return; // no live stream; the poll still fills in the log
+    }
+    socket.onopen = () => socket?.send(JSON.stringify({ type: 'subscribe', channels: [channel] }));
+    socket.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data as string);
+        if (msg.channel !== channel) return;
+        const line = msg.payload?.line;
+        if (typeof line === 'string') setLiveLines((prev) => [...prev, line]);
+      } catch {
+        // ignore malformed frames
+      }
+    };
+    return () => {
+      try {
+        socket?.close();
+      } catch {
+        // already closed
+      }
+    };
+  }, [releaseId, live]);
+
+  // Auto-scroll to the newest output.
+  useEffect(() => {
+    const el = preRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [initialLog, liveLines]);
+
+  const text = [initialLog, liveLines.join('\n')].filter(Boolean).join('\n');
+
+  if (!text) {
+    if (hasError) return null;
+    if (live) {
+      return (
+        <span className="text-[length:var(--text-caption)] text-text-subtle">
+          Waiting for build output…
+        </span>
+      );
+    }
+    return (
+      <span className="text-[length:var(--text-caption)] text-text-subtle">
+        No build output recorded for this deployment.
+      </span>
+    );
+  }
+
+  return (
+    <pre
+      ref={preRef}
+      className="max-h-[360px] overflow-auto whitespace-pre-wrap rounded-[var(--radius)] bg-surface p-3 font-[family-name:var(--font-mono)] text-[length:var(--text-caption)] text-text-muted"
+    >
+      {text}
+      {live && <span className="ml-1 animate-pulse text-[var(--color-accent)]">▍</span>}
+    </pre>
   );
 }
 

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
@@ -838,6 +839,90 @@ func (w *Builds) loadPipelineConfig(ctx context.Context, pipelineID, targetID, p
 	return &cfg, nil
 }
 
+// logStreamer surfaces a release's build output as it happens. Each line is
+// pushed to subscribers immediately over realtime (pg_notify, which the API's
+// hub forwards to WebSocket clients) and buffered for a periodic append to
+// deploy_releases.build_log, so a browser that opens or refreshes mid-build sees
+// the progress so far. The final status write replaces build_log with the
+// canonical full log.
+type logStreamer struct {
+	db        *db.DB
+	releaseID string
+	mu        sync.Mutex
+	seq       int64
+	pending   strings.Builder
+}
+
+func newLogStreamer(database *db.DB, releaseID string) *logStreamer {
+	return &logStreamer{db: database, releaseID: releaseID}
+}
+
+// line is the sink handed to the build. It must not block the build goroutine,
+// so the realtime notify is best-effort and the DB append is deferred to flush.
+func (ls *logStreamer) line(s string) {
+	ls.mu.Lock()
+	ls.seq++
+	seq := ls.seq
+	ls.pending.WriteString(s)
+	ls.pending.WriteByte('\n')
+	ls.mu.Unlock()
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"kind": "deploy_log", "release_id": ls.releaseID, "seq": seq, "line": s,
+	})
+	if err != nil {
+		return
+	}
+	// Best-effort live push; a dropped notify only costs this one line's
+	// immediacy, and the periodic flush persists it regardless.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ls.db.ExecContext(ctx, "SELECT pg_notify('applad_changes', ?)", string(payload)) //nolint:errcheck
+}
+
+// flush appends everything buffered since the last flush to build_log.
+func (ls *logStreamer) flush(ctx context.Context) {
+	ls.mu.Lock()
+	chunk := ls.pending.String()
+	ls.pending.Reset()
+	ls.mu.Unlock()
+	if chunk == "" {
+		return
+	}
+	ls.db.ExecContext(ctx, //nolint:errcheck
+		"UPDATE deploy_releases SET build_log = COALESCE(build_log, '') || ? WHERE id = ?",
+		chunk, ls.releaseID)
+}
+
+// startFlushing persists buffered lines on a ticker until the returned stop is
+// called (which also does a final flush).
+func (ls *logStreamer) startFlushing() func() {
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(800 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ls.flush(ctx)
+				cancel()
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-done
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ls.flush(ctx)
+		cancel()
+	}
+}
+
 func (w *Builds) updateReleaseStatus(ctx context.Context, releaseID, status, buildLog, releaseErr string, durationMs int64) {
 	now := time.Now().UTC()
 	var completedAt interface{}
@@ -949,6 +1034,12 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 		"subdomain":         cfg.subdomain,
 	})
 
+	// Stream the build's output live and persist it as it arrives, so the
+	// console shows progress during the build instead of a blank until it ends.
+	streamer := newLogStreamer(w.db, releaseID)
+	deployConfig.LogSink = streamer.line
+	stopFlushing := streamer.startFlushing()
+
 	var deployErr error
 	var buildLog string
 	switch cfg.targetType {
@@ -964,6 +1055,7 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	default: // "web" and unknown
 		buildLog, deployErr = w.deployExecutor.DeployWeb(ctx, releaseID, projectID, deployConfig)
 	}
+	stopFlushing()
 
 	durationMs := time.Since(start).Milliseconds()
 	var imageSize int64

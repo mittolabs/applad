@@ -84,6 +84,14 @@ func NewClient() *Client {
 // it on success meant a deploy that worked left no record of what it did, so
 // there was nothing to compare against when the next one behaved differently.
 func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io.Reader) (string, error) {
+	return c.BuildImageSink(ctx, imageName, tarContext, nil)
+}
+
+// BuildImageSink is BuildImage that also streams each output line to sink as the
+// build produces it (Docker returns newline-delimited JSON), so a caller can
+// surface progress live instead of only after the build finishes. sink may be
+// nil. The full log is still returned, unchanged.
+func (c *Client) BuildImageSink(ctx context.Context, imageName string, tarContext io.Reader, sink func(string)) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST",
 		fmt.Sprintf(c.baseURL+"/v1.44/build?t=%s&rm=true&forcerm=true", imageName),
 		tarContext)
@@ -98,20 +106,50 @@ func (c *Client) BuildImage(ctx context.Context, imageName string, tarContext io
 	}
 	defer resp.Body.Close()
 
-	// Read build output to completion
-	output, _ := io.ReadAll(resp.Body)
-	log := buildStreamText(output)
+	var b strings.Builder
+	var streamErr string
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		raw := bytes.TrimSpace(scanner.Bytes())
+		if len(raw) == 0 {
+			continue
+		}
+		var msg struct {
+			Stream string `json:"stream"`
+			Error  string `json:"error"`
+			Status string `json:"status"`
+		}
+		if json.Unmarshal(raw, &msg) != nil {
+			continue
+		}
+		var text string
+		switch {
+		case msg.Error != "":
+			streamErr = msg.Error
+			text = msg.Error + "\n"
+		case msg.Stream != "":
+			text = stripANSI(msg.Stream)
+		default:
+			continue // progress noise (layer pulls) carries a status, not a stream
+		}
+		b.WriteString(text)
+		if sink != nil {
+			for _, ln := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+				if strings.TrimSpace(ln) != "" {
+					sink(ln)
+				}
+			}
+		}
+	}
 
+	log := strings.TrimSpace(b.String())
 	if resp.StatusCode != http.StatusOK {
 		return log, fmt.Errorf("docker build failed (%d): %s", resp.StatusCode, log)
 	}
-
-	// Check for error in build stream. The log is returned alongside, so the
-	// error carries only the explanation rather than a copy of the stream.
-	if bytes.Contains(output, []byte(`"error"`)) {
+	if streamErr != "" {
 		return log, errors.New(SummariseBuildFailure(log))
 	}
-
 	return log, nil
 }
 

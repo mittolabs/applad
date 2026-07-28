@@ -41,6 +41,11 @@ type DeployConfig struct {
 	// RailpackConfig describes the build for a project the builder has no
 	// provider for — Flutter, so far.
 	RailpackConfig string
+
+	// LogSink, if set, receives each build output line as it is produced, so the
+	// caller can stream progress live. It must be safe to call from the build
+	// goroutine and must not block.
+	LogSink func(string)
 }
 
 // ParseDeployConfig extracts a DeployConfig from the raw config map.
@@ -161,6 +166,7 @@ func (d *DeployExecutor) DeployWeb(ctx context.Context, deploymentID, projectID 
 			Config:     cfg.RailpackConfig,
 			Platform:   cfg.Platform,
 			Env:        cfg.Env,
+			Sink:       cfg.LogSink,
 		})
 		if err != nil {
 			return buildLog, err
@@ -247,7 +253,7 @@ EXPOSE 80
 	tw.Close()
 
 	log.Printf("deploy: building image %s for deployment %s", imageName, deploymentID)
-	buildLog, err := d.docker.BuildImage(ctx, imageName, tarBuf)
+	buildLog, err := d.docker.BuildImageSink(ctx, imageName, tarBuf, cfg.LogSink)
 	if err != nil {
 		// Already a sentence about what failed — wrapping it again would only
 		// prefix Go package names onto something a person has to read.

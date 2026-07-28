@@ -189,3 +189,31 @@ func TestHub_MultipleChannels(t *testing.T) {
 		t.Fatal("timed out waiting for ch-b event")
 	}
 }
+
+func TestHub_DeployLogNotificationRoutes(t *testing.T) {
+	hub := NewHub("", "")
+	client := newTestClient(hub)
+	hub.register <- client
+	time.Sleep(10 * time.Millisecond)
+	hub.Subscribe(client, "deploy.rel123")
+
+	// A worker's pg_notify payload for a build log line.
+	hub.publishDatabaseNotification(`{"kind":"deploy_log","release_id":"rel123","seq":1,"line":"Step 1/5"}`)
+
+	select {
+	case msg := <-client.send:
+		var ev Event
+		if err := json.Unmarshal(msg, &ev); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if ev.Type != "deploy.log" || ev.Channel != "deploy.rel123" {
+			t.Fatalf("expected deploy.log on deploy.rel123, got %s on %s", ev.Type, ev.Channel)
+		}
+		payload, _ := ev.Payload.(map[string]interface{})
+		if payload["line"] != "Step 1/5" {
+			t.Fatalf("expected line 'Step 1/5', got %v", payload["line"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for deploy log event")
+	}
+}

@@ -98,6 +98,24 @@ func (h *Hub) publishDatabaseNotification(payload string) {
 		log.Printf("realtime: invalid notification payload: %v", err)
 		return
 	}
+
+	// A build worker streams deploy build output through the same channel. It is
+	// not a row change, so it is handled here and returns before the row-event
+	// path below.
+	if kind, _ := message["kind"].(string); kind == "deploy_log" {
+		releaseID, _ := message["release_id"].(string)
+		if releaseID == "" {
+			return
+		}
+		h.Publish(Event{
+			Type:      "deploy.log",
+			Channel:   "deploy." + releaseID,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Payload:   message,
+		})
+		return
+	}
+
 	projectID, _ := message["project_id"].(string)
 	if projectID == "" {
 		return
