@@ -4,6 +4,8 @@ icon: Users
 description: Create accounts, open sessions, and sign users in with email, OAuth, magic links, MFA and more.
 ---
 
+import { ShieldCheck, Users, Database, HardDrive } from 'lucide-react';
+
 Applad authenticates end users per project. A user creates an **account**, opens
 a **session**, and every request they make carries that session as a bearer
 token. What they can then read or write is decided by their identity and the
@@ -37,13 +39,8 @@ keeps the `secret` and sends it as the header above.
 
 Point an SDK client at your endpoint and project to begin:
 
-```dart
-final client = Applad(
-  endpoint: 'https://api.applad.io',
-  projectId: '<projectId>',
-);
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 import { Applad } from '@mittolabs/applad';
 
@@ -52,12 +49,31 @@ const client = new Applad({
   projectId: '<projectId>',
 });
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+final client = Applad(
+  endpoint: 'https://api.applad.io',
+  projectId: '<projectId>',
+);
+```
+</Tab>
+</Tabs>
 
 ## Create an account
 
 Register a user with an email and password. `userId` defaults to a generated ID
 (`unique()`); pass your own if you want to choose it. `name` is optional.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const user = await client.auth.createAccount('ada@example.com', 'super-secret', {
+  name: 'Ada',
+});
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 final user = await client.auth.createAccount(
   email: 'ada@example.com',
@@ -65,12 +81,8 @@ final user = await client.auth.createAccount(
   name: 'Ada',
 );
 ```
-
-```ts
-const user = await client.auth.createAccount('ada@example.com', 'super-secret', {
-  name: 'Ada',
-});
-```
+</Tab>
+</Tabs>
 
 Creating an account does not sign the user in. Open a session next.
 
@@ -103,6 +115,16 @@ The returned user object looks like this (`POST /v1/account`, `201`):
 Sign a user in with their email and password. The response is a session whose
 `secret` is the bearer token for everything that follows.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const session = await client.auth.createEmailSession('ada@example.com', 'super-secret');
+client.setJWT(session.secret); // the JS SDK does not apply it for you
+
+const me = await client.auth.getAccount();
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 final session = await client.auth.createEmailSession(
   email: 'ada@example.com',
@@ -112,13 +134,8 @@ final session = await client.auth.createEmailSession(
 
 final me = await client.auth.getAccount(); // already authenticated
 ```
-
-```ts
-const session = await client.auth.createEmailSession('ada@example.com', 'super-secret');
-client.setJWT(session.secret); // the JS SDK does not apply it for you
-
-const me = await client.auth.getAccount();
-```
+</Tab>
+</Tabs>
 
 <Callout title="The secret is what makes one session work everywhere">
   On the web, prefer the `HttpOnly` cookie the login also sets over keeping the
@@ -152,16 +169,21 @@ it.
 Save the `secret` when you create the session, then restore it with `setJWT`
 before making authenticated calls:
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+client.setJWT(savedSecret);
+const me = await client.auth.getAccount();
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 // after reading the saved secret from secure storage
 client.setJWT(savedSecret);
 final me = await client.auth.getAccount(); // confirms it is still valid
 ```
-
-```ts
-client.setJWT(savedSecret);
-const me = await client.auth.getAccount();
-```
+</Tab>
+</Tabs>
 
 By default a session lasts up to a year (a self-hoster can shorten this per
 project). `getAccount` failing means the secret is expired or revoked; send the
@@ -173,14 +195,19 @@ Open a session with no account, so a user can start using your app before
 signing up. Applad creates a throwaway user (labelled `anonymous`) and returns a
 session exactly like an email session.
 
-```dart
-final session = await client.auth.createAnonymousSession();
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 const session = await client.auth.createAnonymousSession();
 client.setJWT(session.secret);
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+final session = await client.auth.createAnonymousSession();
+```
+</Tab>
+</Tabs>
 
 The anonymous user is a real user row, so anything they create belongs to them.
 To turn it into a permanent account later, set an email and password with the
@@ -192,38 +219,53 @@ Every call below requires an active session.
 
 ### Read the account
 
-```dart
-final me = await client.auth.getAccount();
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 const me = await client.auth.getAccount();
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+final me = await client.auth.getAccount();
+```
+</Tab>
+</Tabs>
 
 ### Update the name
 
-```dart
-await client.auth.updateName('Ada Lovelace');
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 await client.auth.updateName('Ada Lovelace');
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+await client.auth.updateName('Ada Lovelace');
+```
+</Tab>
+</Tabs>
 
 ### Update the email
 
 Changing an email requires the current password.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+await client.auth.updateEmail('ada@newmail.com', 'super-secret');
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 await client.auth.updateEmail(
   email: 'ada@newmail.com',
   password: 'super-secret',
 );
 ```
-
-```ts
-await client.auth.updateEmail('ada@newmail.com', 'super-secret');
-```
+</Tab>
+</Tabs>
 
 ### Update the password
 
@@ -231,16 +273,21 @@ Pass the old password to prove ownership. Changing the password invalidates the
 user's other sessions by default, so they stay signed in only on the current
 device.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+await client.auth.updatePassword('a-new-secret', 'super-secret');
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 await client.auth.updatePassword(
   password: 'a-new-secret',
   oldPassword: 'super-secret',
 );
 ```
-
-```ts
-await client.auth.updatePassword('a-new-secret', 'super-secret');
-```
+</Tab>
+</Tabs>
 
 ### Preferences
 
@@ -248,23 +295,33 @@ Prefs are an arbitrary JSON object stored on the user, handy for per-user
 settings. Updating replaces the whole object, so read, merge, then write if you
 want to keep existing keys.
 
-```dart
-await client.auth.updatePrefs({'theme': 'dark', 'locale': 'en'});
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 await client.auth.updatePrefs({ theme: 'dark', locale: 'en' });
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+await client.auth.updatePrefs({'theme': 'dark', 'locale': 'en'});
+```
+</Tab>
+</Tabs>
 
 ### Delete the account
 
-```dart
-await client.auth.deleteAccount();
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 await client.auth.deleteAccount();
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+await client.auth.deleteAccount();
+```
+</Tab>
+</Tabs>
 
 ## Managing sessions
 
@@ -273,31 +330,41 @@ A user can be signed in on several devices at once, each with its own session.
 List every session for the current user (`GET /v1/account/sessions` returns
 `{ total, sessions }`):
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const { sessions } = await client.auth.listSessions();
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 final result = await client.auth.listSessions();
 for (final s in result['sessions']) {
   print('${s['provider']} from ${s['ip']}, current: ${s['current']}');
 }
 ```
-
-```ts
-const { sessions } = await client.auth.listSessions();
-```
+</Tab>
+</Tabs>
 
 Fetch one session, delete one session (sign out a single device), or delete all
 of them (sign out everywhere):
 
-```dart
-await client.auth.getSession(sessionId);
-await client.auth.deleteSession(sessionId); // one device
-await client.auth.deleteSessions();          // everywhere; also clears the local token
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 await client.auth.getSession(sessionId);
 await client.auth.deleteSession(sessionId);
 await client.auth.deleteSessions();
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+await client.auth.getSession(sessionId);
+await client.auth.deleteSession(sessionId); // one device
+await client.auth.deleteSessions();          // everywhere; also clears the local token
+```
+</Tab>
+</Tabs>
 
 <Callout title="Session limit">
   A user may hold up to 10 active sessions by default. When the limit is reached,
@@ -311,13 +378,18 @@ Ask Applad for a fresh JWT scoped to the current user, valid for 15 minutes. Use
 it to authenticate the user to a service of your own, or to pass identity to
 another system without handing over the long-lived session secret.
 
-```dart
-final jwt = await client.auth.getJWT();
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 const jwt = await client.auth.getJWT();
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+final jwt = await client.auth.getJWT();
+```
+</Tab>
+</Tabs>
 
 `POST /v1/account/jwt` returns `{ "jwt": "eyJ..." }`.
 
@@ -381,8 +453,12 @@ MFA uses time-based one-time passwords, the kind an authenticator app generates.
 These endpoints require an active session and are not yet wrapped by the client
 SDKs, so call them directly.
 
-Enable MFA. Applad generates a TOTP secret and recovery codes, and returns an
-`otpauth://` URI you can render as a QR code:
+<Steps>
+<Step>
+### Enable MFA
+
+Applad generates a TOTP secret and recovery codes, and returns an `otpauth://`
+URI you can render as a QR code:
 
 ```bash
 curl -X POST https://api.applad.io/v1/account/mfa \
@@ -397,6 +473,9 @@ curl -X POST https://api.applad.io/v1/account/mfa \
   "uri": "otpauth://totp/Applad?secret=JBSWY3DPEHPK3PXP&issuer=Applad"
 }
 ```
+</Step>
+<Step>
+### Confirm a code
 
 Confirm the user has added the secret to their authenticator by verifying a code.
 MFA becomes enabled only after a code verifies:
@@ -408,6 +487,8 @@ curl -X PUT https://api.applad.io/v1/account/mfa \
   -H "Content-Type: application/json" \
   -d '{"code": "123456"}'
 ```
+</Step>
+</Steps>
 
 Disable MFA (clears the secret and recovery codes):
 
@@ -431,9 +512,12 @@ Send a one-time link that signs a user in without a password. If no account
 exists for the email, one is created. These endpoints are not in the client
 SDKs.
 
-Request the link. `url` is your app's callback; Applad appends `?secret=<token>`
-to it and emails the link (if SMTP is configured on the instance). The link
-expires in 15 minutes.
+<Steps>
+<Step>
+### Request the link
+
+`url` is your app's callback; Applad appends `?secret=<token>` to it and emails
+the link (if SMTP is configured on the instance). The link expires in 15 minutes.
 
 ```bash
 curl -X POST https://api.applad.io/v1/account/sessions/magic-link \
@@ -441,6 +525,9 @@ curl -X POST https://api.applad.io/v1/account/sessions/magic-link \
   -H "Content-Type: application/json" \
   -d '{"email": "ada@example.com", "url": "https://yourapp.com/callback"}'
 ```
+</Step>
+<Step>
+### Redeem the token
 
 When the user lands on your callback, read `secret` from the query string and
 redeem it to open a session:
@@ -455,13 +542,19 @@ curl -X PUT https://api.applad.io/v1/account/sessions/magic-link \
 Redeeming returns the session and sets the session cookie. It also marks the
 email verified. The `secret` field is not included in the redeem response, so
 this flow is browser-oriented, the same as OAuth.
+</Step>
+</Steps>
 
 ## Email verification
 
 Verification confirms a user controls their email. It takes the user's ID, so
 call it while they are signed in.
 
-Send the verification email (link expires in 24 hours):
+<Steps>
+<Step>
+### Send the verification email
+
+The link expires in 24 hours:
 
 ```bash
 curl -X POST https://api.applad.io/v1/account/verification \
@@ -470,6 +563,9 @@ curl -X POST https://api.applad.io/v1/account/verification \
   -H "Content-Type: application/json" \
   -d '{"userId": "<userId>", "url": "https://yourapp.com/verify"}'
 ```
+</Step>
+<Step>
+### Confirm the token
 
 Confirm the token from the emailed link:
 
@@ -481,14 +577,20 @@ curl -X PUT https://api.applad.io/v1/account/verification \
 ```
 
 On success the user's `emailVerification` flag becomes `true`.
+</Step>
+</Steps>
 
 ## Password recovery
 
 Recovery lets a user who forgot their password set a new one over email.
 
-Request the reset. Applad always responds `{"status": "sent"}`, whether or not
-the email exists, so the endpoint never reveals which addresses have accounts.
-The link expires in one hour.
+<Steps>
+<Step>
+### Request the reset
+
+Applad always responds `{"status": "sent"}`, whether or not the email exists, so
+the endpoint never reveals which addresses have accounts. The link expires in one
+hour.
 
 ```bash
 curl -X POST https://api.applad.io/v1/account/recovery \
@@ -496,6 +598,9 @@ curl -X POST https://api.applad.io/v1/account/recovery \
   -H "Content-Type: application/json" \
   -d '{"email": "ada@example.com", "url": "https://yourapp.com/reset"}'
 ```
+</Step>
+<Step>
+### Set the new password
 
 Set the new password with the token from the link:
 
@@ -505,6 +610,8 @@ curl -X PUT https://api.applad.io/v1/account/recovery \
   -H "Content-Type: application/json" \
   -d '{"secret": "<token-from-the-link>", "password": "a-new-secret"}'
 ```
+</Step>
+</Steps>
 
 ## Server-side user management
 
@@ -532,5 +639,17 @@ user's sessions. Creating a user this way skips email verification.
 
 ## Next steps
 
-- [Permissions](/build/permissions): how a user's identity decides what they can read and write.
-- [Teams](/build/teams): group users so a resource is visible to exactly the right people.
+<Cards>
+  <Card icon={<ShieldCheck />} title="Permissions" href="/build/permissions">
+    How a user's identity decides what they can read and write.
+  </Card>
+  <Card icon={<Users />} title="Teams" href="/build/teams">
+    Group users so a resource is visible to exactly the right people.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    Store and query your app's data with row-level access rules.
+  </Card>
+  <Card icon={<HardDrive />} title="Storage" href="/build/storage">
+    Buckets and files scoped to the users and teams you choose.
+  </Card>
+</Cards>

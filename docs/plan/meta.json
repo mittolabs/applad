@@ -1,1 +1,8 @@
-{ "root": true, "title": "Plan", "icon": "ListTodo", "pages": ["index"] }
+{
+  "title": "Plan",
+  "icon": "ListTodo",
+  "pages": [
+    "index"
+  ],
+  "defaultOpen": true
+}

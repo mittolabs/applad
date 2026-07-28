@@ -1,8 +1,10 @@
 ---
 title: Storage
 icon: FolderOpen
-description: Buckets and files: upload, download, view, transform images, and control access with permissions.
+description: "Buckets and files: upload, download, view, transform images, and control access with permissions."
 ---
+
+import { ShieldCheck, Database, Users, Radio } from 'lucide-react';
 
 Applad storage keeps your files in **buckets**. A bucket is a container with its
 own settings (size limit, allowed file types, permissions) and the files you
@@ -20,6 +22,18 @@ API key (`x-applad-key`). Both send the project header `x-applad-project`.
 Create a bucket before you upload anything. You can pass a `bucketId` of your
 own or let Applad generate one with `unique()`.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const bucket = await client.storage.createBucket('avatars', {
+  bucketId: 'avatars',
+  permissions: ['read("any")', 'create("users")'],
+  maximumFileSize: 5 * 1024 * 1024,
+  allowedFileExtensions: ['jpg', 'png', 'webp'],
+});
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 final storage = client.storage;
 
@@ -31,15 +45,8 @@ final bucket = await storage.createBucket(
   allowedFileExtensions: ['jpg', 'png', 'webp'],
 );
 ```
-
-```ts
-const bucket = await client.storage.createBucket('avatars', {
-  bucketId: 'avatars',
-  permissions: ['read("any")', 'create("users")'],
-  maximumFileSize: 5 * 1024 * 1024,
-  allowedFileExtensions: ['jpg', 'png', 'webp'],
-});
-```
+</Tab>
+</Tabs>
 
 Underlying route: `POST /v1/storage/buckets`. The response is the bucket:
 
@@ -81,6 +88,20 @@ remove one with `deleteBucket(id)` (`DELETE /v1/storage/buckets/{bucketId}`).
 Upload sends a multipart form with the file bytes, an optional `fileId`, and
 optional per-file `permissions`.
 
+Underlying route: `POST /v1/storage/buckets/{bucketId}/files` (multipart:
+`file`, `fileId`, `permissions`).
+
+<Tabs items={['JavaScript', 'Dart', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+// `file` is a browser File or Blob
+const uploaded = await client.storage.createFile('avatars', file, 'me.png', {
+  fileId: 'unique()',
+  permissions: ['read("any")'],
+});
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 final file = await storage.createFile(
   bucketId: 'avatars',
@@ -92,18 +113,8 @@ final file = await storage.createFile(
 );
 print(file['\$id']);
 ```
-
-```ts
-// `file` is a browser File or Blob
-const uploaded = await client.storage.createFile('avatars', file, 'me.png', {
-  fileId: 'unique()',
-  permissions: ['read("any")'],
-});
-```
-
-Underlying route: `POST /v1/storage/buckets/{bucketId}/files` (multipart:
-`file`, `fileId`, `permissions`). With curl and a server API key:
-
+</Tab>
+<Tab value="cURL">
 ```bash
 curl -X POST https://api.applad.io/v1/storage/buckets/avatars/files \
   -H "x-applad-project: <projectId>" \
@@ -111,6 +122,8 @@ curl -X POST https://api.applad.io/v1/storage/buckets/avatars/files \
   -F "fileId=unique()" \
   -F "file=@me.png"
 ```
+</Tab>
+</Tabs>
 
 The response is the file's metadata:
 
@@ -138,36 +151,56 @@ bucket settings.
 For large files, upload in chunks. This is a three-step flow over `/v1` routes;
 the client SDKs do not wrap it yet, so call the routes directly.
 
-1. **Init**, declare the file and get its `fileId`:
+<Steps>
+<Step>
+### Init
 
-   ```bash
-   curl -X POST https://api.applad.io/v1/storage/buckets/avatars/files/chunked \
-     -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
-     -H "Content-Type: application/json" \
-     -d '{"name":"video.mp4","mimeType":"video/mp4","size":52428800}'
-   # -> {"fileId":"...","uploadUrl":"/v1/storage/buckets/avatars/files/<fileId>/chunks"}
-   ```
+Declare the file and get its `fileId`:
 
-2. **Upload each chunk** to that URL with `PATCH`, numbering it with the `chunk`
-   query parameter (0-based). Each chunk is capped at 10 MB.
+```bash
+curl -X POST https://api.applad.io/v1/storage/buckets/avatars/files/chunked \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"video.mp4","mimeType":"video/mp4","size":52428800}'
+# -> {"fileId":"...","uploadUrl":"/v1/storage/buckets/avatars/files/<fileId>/chunks"}
+```
+</Step>
+<Step>
+### Upload each chunk
 
-   ```bash
-   curl -X PATCH "https://api.applad.io/v1/storage/buckets/avatars/files/<fileId>/chunks?chunk=0" \
-     -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
-     --data-binary @chunk-0.bin
-   ```
+Send each chunk to that URL with `PATCH`, numbering it with the `chunk`
+query parameter (0-based). Each chunk is capped at 10 MB.
 
-3. **Complete** to assemble the file:
+```bash
+curl -X PATCH "https://api.applad.io/v1/storage/buckets/avatars/files/<fileId>/chunks?chunk=0" \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  --data-binary @chunk-0.bin
+```
+</Step>
+<Step>
+### Complete
 
-   ```bash
-   curl -X POST https://api.applad.io/v1/storage/buckets/avatars/files/<fileId>/chunks/complete \
-     -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>"
-   ```
+Assemble the file:
+
+```bash
+curl -X POST https://api.applad.io/v1/storage/buckets/avatars/files/<fileId>/chunks/complete \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>"
+```
+</Step>
+</Steps>
 
 Complete returns the same file metadata shape as a normal upload.
 
 ## List and get files
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const page = await client.storage.listFiles('avatars', { limit: 25, offset: 0 });
+const meta = await client.storage.getFile('avatars', fileId);
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 final page = await storage.listFiles(bucketId: 'avatars', limit: 25, offset: 0);
 print(page['total']);
@@ -177,11 +210,8 @@ for (final f in page['files']) {
 
 final meta = await storage.getFile(bucketId: 'avatars', fileId: fileId);
 ```
-
-```ts
-const page = await client.storage.listFiles('avatars', { limit: 25, offset: 0 });
-const meta = await client.storage.getFile('avatars', fileId);
-```
+</Tab>
+</Tabs>
 
 Routes: `GET /v1/storage/buckets/{bucketId}/files` (paginated with `limit` and
 `offset`, default `limit` 25) returns `{ "total": n, "files": [...] }`;
@@ -194,15 +224,20 @@ Two endpoints return the file's bytes. **Download** sets a
 it inline (`Content-Disposition: inline`), which is what you want for an `<img>`
 `src` or a preview.
 
-```dart
-final bytes = await storage.downloadFile(bucketId: 'avatars', fileId: fileId);
-final inline = await storage.viewFile(bucketId: 'avatars', fileId: fileId);
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 const blob = await client.storage.downloadFile('avatars', fileId);
 const inline = await client.storage.viewFile('avatars', fileId);
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+final bytes = await storage.downloadFile(bucketId: 'avatars', fileId: fileId);
+final inline = await storage.viewFile(bucketId: 'avatars', fileId: fileId);
+```
+</Tab>
+</Tabs>
 
 Routes: `GET /v1/storage/buckets/{bucketId}/files/{fileId}/download` and
 `.../view`.
@@ -214,6 +249,8 @@ images; ask for a resized thumbnail, a different format, or a rotated crop with
 query parameters. If the file is not an image (or you pass no transformation
 parameters), the original bytes are served unchanged.
 
+<Tabs items={['Dart', 'cURL']}>
+<Tab value="Dart">
 ```dart
 // There is no SDK wrapper; use the client's Dio instance directly.
 // GET /v1/storage/buckets/{bucketId}/files/{fileId}/preview
@@ -223,12 +260,15 @@ final thumb = await client.dio.get(
   options: Options(responseType: ResponseType.bytes),
 );
 ```
-
+</Tab>
+<Tab value="cURL">
 ```bash
 curl "https://api.applad.io/v1/storage/buckets/avatars/files/<fileId>/preview?width=200&height=200&output=jpg&quality=80" \
   -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
   -o thumb.jpg
 ```
+</Tab>
+</Tabs>
 
 Supported query parameters:
 
@@ -253,13 +293,18 @@ Supported query parameters:
 
 ## Delete a file
 
-```dart
-await storage.deleteFile(bucketId: 'avatars', fileId: fileId);
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 await client.storage.deleteFile('avatars', fileId);
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+await storage.deleteFile(bucketId: 'avatars', fileId: fileId);
+```
+</Tab>
+</Tabs>
 
 Route: `DELETE /v1/storage/buckets/{bucketId}/files/{fileId}` (returns `204`).
 This removes both the stored bytes and the metadata record.
@@ -302,3 +347,20 @@ replayed against another file or after its TTL.
   depend on how the instance is configured and are not covered here; treat the
   local-disk driver with the flags off as the documented behaviour.
 </Callout>
+
+## Related
+
+<Cards>
+  <Card icon={<ShieldCheck />} title="Permissions" href="/build/permissions">
+    The `action("role")` model that governs bucket and file access.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    Store structured data alongside your files, with the same permission rules.
+  </Card>
+  <Card icon={<Users />} title="Teams" href="/build/teams">
+    Grant file access to a whole team with `team:<id>` roles.
+  </Card>
+  <Card icon={<Radio />} title="Realtime" href="/build/realtime">
+    Subscribe to changes as your data and files update.
+  </Card>
+</Cards>

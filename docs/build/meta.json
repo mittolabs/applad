@@ -1,1 +1,15 @@
-{ "root": true, "title": "Build", "icon": "Box", "pages": ["authentication", "databases", "permissions", "teams", "storage", "functions", "messaging", "realtime"] }
+{
+  "title": "Build",
+  "icon": "Box",
+  "pages": [
+    "authentication",
+    "databases",
+    "permissions",
+    "teams",
+    "storage",
+    "functions",
+    "messaging",
+    "realtime"
+  ],
+  "defaultOpen": true
+}

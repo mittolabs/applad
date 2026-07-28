@@ -1,8 +1,10 @@
 ---
 title: Sites and deployments
 icon: Globe
-description: Deploy an app from source and serve it at its own <name>.applad.dev address with automatic HTTPS.
+description: "Deploy an app from source and serve it at its own <name>.applad.dev address with automatic HTTPS."
 ---
+
+import { KeyRound, Database, Zap, Workflow } from 'lucide-react';
 
 Applad can build your app from source and run it for you. You describe **what**
 to run as a deploy target, give it the code, and Applad builds an image, starts
@@ -88,7 +90,11 @@ Deploying takes three steps: create a **pipeline** (where the code comes from an
 how to build it), give it the source, and **trigger** a build. Each trigger
 produces a **release**, one build-and-deploy run.
 
-### 1. Create a pipeline
+<Steps>
+
+<Step>
+
+### Create a pipeline
 
 A pipeline is tied to a target and names the source and build plan. `sourceType`
 is `upload` (the default) or `git`.
@@ -113,7 +119,11 @@ repository deploys by URL directly. (Connecting a private GitHub repo needs the
 Applad Cloud GitHub App, which a self-hosted instance does not have; public
 repositories still deploy by URL.)
 
-### 2. Upload the source
+</Step>
+
+<Step>
+
+### Upload the source
 
 For an `upload` pipeline, POST a gzipped tarball of your app's source. The upload
 is capped at 512 MB.
@@ -125,7 +135,11 @@ curl -X POST "$APPLAD/v1/deploy/pipelines/$PIPELINE/source" \
   --data-binary @app.tar.gz
 ```
 
-### 3. Trigger a build
+</Step>
+
+<Step>
+
+### Trigger a build
 
 ```bash
 curl -X POST "$APPLAD/v1/deploy/pipelines/$PIPELINE/trigger" \
@@ -141,6 +155,10 @@ and then `success` or `failed`.
 ```json
 { "$id": "9a1e...", "targetId": "6f2c...", "status": "pending", "triggerType": "manual" }
 ```
+
+</Step>
+
+</Steps>
 
 ## Watching a build
 
@@ -283,6 +301,17 @@ stack.
 
 ## Related
 
-- [Authentication](/build/authentication) for issuing the API key these calls use.
-- [Databases](/build/databases) and [permissions](/concepts) for the data your
-  deployed app reads and writes.
+<Cards>
+  <Card icon={<KeyRound />} title="Authentication" href="/build/authentication">
+    Issue the API key these calls use.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    The data your deployed app reads and writes.
+  </Card>
+  <Card icon={<Zap />} title="Functions" href="/build/functions">
+    The serverless runtimes a target can invoke on demand.
+  </Card>
+  <Card icon={<Workflow />} title="Workflows" href="/automate/workflows">
+    Trigger a deploy or build as part of an automation.
+  </Card>
+</Cards>

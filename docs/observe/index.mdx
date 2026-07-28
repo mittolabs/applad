@@ -4,6 +4,8 @@ description: Monitor your live app with error tracking, logs, performance, uptim
 icon: Activity
 ---
 
+import { Bug, ScrollText, Gauge, HeartPulse, CalendarClock, BellRing, LayoutDashboard, Tag, Video } from 'lucide-react';
+
 Most backends stop at deploy. Observe is the stage after: once your app is
 running in production, it tells you how it is actually doing. Errors, logs,
 request performance, uptime, scheduled-job health, and alert rules all live
@@ -253,6 +255,48 @@ Three smaller capabilities round out the module:
 - **Session replays** (`GET/POST /observe/replays`) store and read back a
   recording of a session (its events, network calls, and console output). The
   API is ingest-and-fetch; the replay player itself is in the console UI.
+
+## The capabilities at a glance
+
+Every capability below shares the same `/v1/observe` API and project scope.
+Each has its own console view; dedicated deep-dive pages are on the way.
+
+<Cards>
+  <Card icon={<Bug />} title="Error tracking">
+    Capture exceptions, group them by fingerprint, and triage (resolve,
+    ignore, assign, prioritise).
+  </Card>
+  <Card icon={<ScrollText />} title="Logs">
+    Ship structured log lines with level, source, and trace or span IDs, then
+    query them back.
+  </Card>
+  <Card icon={<Gauge />} title="Performance">
+    Per-endpoint latency percentiles, throughput, error rate, and browser web
+    vitals.
+  </Card>
+  <Card icon={<HeartPulse />} title="Uptime monitors">
+    Applad polls a URL on a schedule and records status, latency, and uptime
+    percentage.
+  </Card>
+  <Card icon={<CalendarClock />} title="Cron monitors">
+    Scheduled jobs check in when they run; the monitor records duration and
+    history.
+  </Card>
+  <Card icon={<BellRing />} title="Alert rules">
+    Define threshold rules on a metric and list any open incidents.
+  </Card>
+  <Card icon={<LayoutDashboard />} title="Overview">
+    One rolled-up snapshot: errors today, logs last hour, p95, and uptime.
+  </Card>
+  <Card icon={<Tag />} title="Releases">
+    Record a release version with its commits and read release-level issue
+    counts.
+  </Card>
+  <Card icon={<Video />} title="Session replays">
+    Store and read back session recordings (events, network, and console
+    output).
+  </Card>
+</Cards>
 
 ## How the pieces connect
 

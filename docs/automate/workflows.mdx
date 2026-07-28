@@ -4,6 +4,8 @@ description: Build and run native DAG workflows on Applad, triggered manually, o
 icon: Workflow
 ---
 
+import { Zap, Database, ShieldCheck, Send } from 'lucide-react';
+
 A workflow is a graph of steps that Applad runs for you. You describe the steps
 (**nodes**) and how they connect (**edges**), pick how the workflow starts (a
 manual call, a cron schedule, or an incoming webhook), and the engine walks the
@@ -101,8 +103,18 @@ The engine supports the following node types. Use the exact `type` string.
 
 ## Create a workflow
 
+<Steps>
+
+<Step>
+
+### Send the definition
+
 Send the name, the trigger, and the graph. `triggerType` defaults to `manual`,
 and a new workflow starts in `draft` status.
+
+<Tabs items={['Dart', 'cURL']}>
+
+<Tab value="Dart">
 
 ```dart
 final wf = await client.workflows.create(
@@ -128,7 +140,9 @@ final wf = await client.workflows.create(
 // wf['$id'] is the workflow ID
 ```
 
-The same call over the REST API:
+</Tab>
+
+<Tab value="cURL">
 
 ```bash
 curl -X POST https://api.applad.io/v1/workflows \
@@ -153,8 +167,16 @@ curl -X POST https://api.applad.io/v1/workflows \
   }'
 ```
 
+</Tab>
+
+</Tabs>
+
 The response is the full workflow object, including `$id`, `status`
 (`"draft"`), and the nodes and edges you sent.
+
+</Step>
+
+<Step>
 
 ### Activate it
 
@@ -177,6 +199,10 @@ await client.workflows.update(wf['\$id'], {
   `draft`, `triggerType` to `manual`), so always send the complete definition,
   not a partial patch.
 </Callout>
+
+</Step>
+
+</Steps>
 
 ## Triggers
 
@@ -260,6 +286,10 @@ curl -X POST https://api.applad.io/v1/workflows/$WORKFLOW_ID/webhook-secret \
 Run a workflow on demand with an optional trigger payload. The payload is what
 your nodes read as `{{.trigger.*}}`.
 
+<Tabs items={['Dart', 'cURL']}>
+
+<Tab value="Dart">
+
 ```dart
 final exec = await client.workflows.execute(
   workflowId,
@@ -268,12 +298,20 @@ final exec = await client.workflows.execute(
 // exec['$id'] is the execution ID; exec['status'] is 'pending'
 ```
 
+</Tab>
+
+<Tab value="cURL">
+
 ```bash
 curl -X POST https://api.applad.io/v1/workflows/$WORKFLOW_ID/execute \
   -H "x-applad-key: $APPLAD_API_KEY" \
   -H "content-type: application/json" \
   -d '{ "triggerData": { "email": "ada@example.com", "name": "Ada" } }'
 ```
+
+</Tab>
+
+</Tabs>
 
 Execution is **asynchronous**. The endpoint returns `202 Accepted` with a
 `pending` execution record; a background worker then runs the graph. Poll the
@@ -283,26 +321,50 @@ execution (below) to see the result.
 
 List the runs of a workflow, most recent first:
 
+<Tabs items={['Dart', 'cURL']}>
+
+<Tab value="Dart">
+
 ```dart
 final res = await client.workflows.listExecutions(workflowId);
 // res['total'], res['executions']
 ```
+
+</Tab>
+
+<Tab value="cURL">
 
 ```bash
 curl https://api.applad.io/v1/workflows/$WORKFLOW_ID/executions \
   -H "x-applad-key: $APPLAD_API_KEY"
 ```
 
+</Tab>
+
+</Tabs>
+
 Fetch one execution to see its per-node log:
+
+<Tabs items={['Dart', 'cURL']}>
+
+<Tab value="Dart">
 
 ```dart
 final exec = await client.workflows.getExecution(workflowId, executionId);
 ```
 
+</Tab>
+
+<Tab value="cURL">
+
 ```bash
 curl https://api.applad.io/v1/workflows/$WORKFLOW_ID/executions/$EXECUTION_ID \
   -H "x-applad-key: $APPLAD_API_KEY"
 ```
+
+</Tab>
+
+</Tabs>
 
 An execution looks like this:
 
@@ -417,6 +479,19 @@ string you can match.
   those third parties, so they need network egress and the relevant credentials
   in the node `config`; the core, flow, data, and `applad_*` nodes do not.
 
-See also [Functions](/build/functions) for single-purpose serverless code,
-[Databases](/build/databases) for the tables a workflow reads and writes, and
-[Permissions](/build/permissions) for how access is enforced.
+## Related
+
+<Cards>
+  <Card icon={<Zap />} title="Functions" href="/build/functions">
+    Single-purpose serverless code a workflow can call.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    The tables a workflow reads and writes.
+  </Card>
+  <Card icon={<Send />} title="Messaging" href="/build/messaging">
+    Email, SMS, and push a workflow can send.
+  </Card>
+  <Card icon={<ShieldCheck />} title="Permissions" href="/build/permissions">
+    How access to your resources is enforced.
+  </Card>
+</Cards>

@@ -4,6 +4,8 @@ icon: Radio
 description: Subscribe to live row changes over a WebSocket and react to inserts, updates and deletes as they happen.
 ---
 
+import { Database, ShieldCheck, KeyRound } from 'lucide-react';
+
 Realtime lets your app react to data as it changes instead of polling for it.
 Open one WebSocket, subscribe to a table, and Applad pushes an event every time
 a row is inserted, updated or deleted, so a chat updates, a dashboard ticks and
@@ -14,23 +16,35 @@ Under the hood Applad listens to PostgreSQL itself, so any write to a table
 event. You do not publish events yourself; writing to a [database](/build/databases)
 is what publishes them.
 
+<Steps>
+<Step>
+### Connect
+
+Open a single WebSocket with `client.realtime.connect()`. The SDK points it at
+`/v1/realtime` on your API and reuses the same socket for every subscription.
+</Step>
+<Step>
+### Subscribe
+
+Pick a table and attach callbacks. In Dart the `.database(databaseId, tableName)`
+builder does this; in JS you pass the channel string to `subscribe(channel, callback)`.
+</Step>
+<Step>
+### React and tidy up
+
+Handle inserts, updates and deletes as events arrive, then call the returned
+handle to stop listening and `disconnect()` when you are done.
+</Step>
+</Steps>
+
 ## Connecting
 
 Realtime is exposed on the client SDK as `client.realtime`. It connects to the
 `/v1/realtime` WebSocket endpoint on your API, passing the project as a query
 parameter.
 
-```dart
-import 'package:applad/applad.dart';
-
-final client = Applad(
-  endpoint: 'https://api.applad.io',
-  projectId: 'your-project-id',
-);
-
-client.realtime.connect();
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 import { Applad } from '@mittolabs/applad';
 
@@ -41,6 +55,20 @@ const client = new Applad({
 
 client.realtime.connect();
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+import 'package:applad/applad.dart';
+
+final client = Applad(
+  endpoint: 'https://api.applad.io',
+  projectId: 'your-project-id',
+);
+
+client.realtime.connect();
+```
+</Tab>
+</Tabs>
 
 The SDK rewrites the `http`/`https` endpoint to `ws`/`wss` for you, so the
 socket opens at `wss://api.applad.io/v1/realtime?project=your-project-id`.
@@ -49,25 +77,13 @@ already open.
 
 ## Subscribing to table changes
 
-The Dart client exposes a fluent builder for the common case: watch one table
-and attach a callback per event type. Each callback receives the affected row as
-a plain map.
-
-```dart
-final sub = client.realtime
-    .database('app', 'messages')      // databaseId, tableName
-    .onInsert((row) => print('new message: ${row['body']}'))
-    .onUpdate((row) => print('edited: ${row['body']}'))
-    .onDelete((row) => print('removed: ${row['id']}'))
-    .subscribe();
-```
-
-You do not have to handle every event type. Attach only the callbacks you care
-about; the others are ignored.
-
 The JS client subscribes to a channel directly and gives you the full event, so
-you branch on `event.type` yourself:
+you branch on `event.type` yourself. The Dart client exposes a fluent builder
+for the common case: watch one table and attach a callback per event type. Each
+callback receives the affected row as a plain map.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 const channel = `databases.${client.projectId}.app.messages`;
 
@@ -91,6 +107,21 @@ const unsubscribe = client.realtime.subscribe(channel, (event) => {
   }
 });
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+final sub = client.realtime
+    .database('app', 'messages')      // databaseId, tableName
+    .onInsert((row) => print('new message: ${row['body']}'))
+    .onUpdate((row) => print('edited: ${row['body']}'))
+    .onDelete((row) => print('removed: ${row['id']}'))
+    .subscribe();
+```
+</Tab>
+</Tabs>
+
+You do not have to handle every event type. Attach only the callbacks you care
+about; the others are ignored.
 
 ## Channels
 
@@ -157,15 +188,20 @@ getters.
 `subscribe()` returns a handle you use to stop listening. Cancelling one
 subscription leaves the socket open for the others.
 
-```dart
-sub.cancel();              // stop this subscription
-client.realtime.disconnect();   // close the socket entirely
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 unsubscribe();             // stop this subscription
 client.realtime.disconnect();   // close the socket and clear listeners
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+sub.cancel();              // stop this subscription
+client.realtime.disconnect();   // close the socket entirely
+```
+</Tab>
+</Tabs>
 
 Always cancel a subscription when the view that owns it goes away (a disposed
 widget, an unmounted component) so callbacks do not fire into dead state, and
@@ -175,37 +211,8 @@ call `disconnect()` when your app no longer needs realtime at all.
 
 Connect, keep a local list in sync with a table, then tear everything down.
 
-```dart
-import 'package:applad/applad.dart';
-
-Future<void> main() async {
-  final client = Applad(
-    endpoint: 'https://api.applad.io',
-    projectId: 'your-project-id',
-  );
-
-  final messages = <Map<String, dynamic>>[];
-
-  client.realtime.connect();
-
-  final sub = client.realtime
-      .database('app', 'messages')
-      .onInsert((row) => messages.add(row))
-      .onUpdate((row) {
-        final i = messages.indexWhere((m) => m['id'] == row['id']);
-        if (i != -1) messages[i] = row;
-      })
-      .onDelete((row) => messages.removeWhere((m) => m['id'] == row['id']))
-      .subscribe();
-
-  // ... run your app; events arrive as rows change ...
-
-  // When you are done:
-  sub.cancel();
-  client.realtime.disconnect();
-}
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 import { Applad } from '@mittolabs/applad';
 
@@ -238,6 +245,40 @@ const unsubscribe = client.realtime.subscribe(channel, (event) => {
 unsubscribe();
 client.realtime.disconnect();
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+import 'package:applad/applad.dart';
+
+Future<void> main() async {
+  final client = Applad(
+    endpoint: 'https://api.applad.io',
+    projectId: 'your-project-id',
+  );
+
+  final messages = <Map<String, dynamic>>[];
+
+  client.realtime.connect();
+
+  final sub = client.realtime
+      .database('app', 'messages')
+      .onInsert((row) => messages.add(row))
+      .onUpdate((row) {
+        final i = messages.indexWhere((m) => m['id'] == row['id']);
+        if (i != -1) messages[i] = row;
+      })
+      .onDelete((row) => messages.removeWhere((m) => m['id'] == row['id']))
+      .subscribe();
+
+  // ... run your app; events arrive as rows change ...
+
+  // When you are done:
+  sub.cancel();
+  client.realtime.disconnect();
+}
+```
+</Tab>
+</Tabs>
 
 ## Notes for self-hosting
 
@@ -251,7 +292,14 @@ rest of the API, so the Caddy edge proxies it with no special configuration.
 
 ## Related
 
-- [Databases](/build/databases): the tables whose row changes you subscribe to.
-- [Permissions](/build/permissions): how reads and writes are authorised (and why
-  realtime delivery is not yet filtered by them).
-- [Authentication](/build/authentication): establishing the session your client uses.
+<Cards>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    The tables whose row changes you subscribe to.
+  </Card>
+  <Card icon={<ShieldCheck />} title="Permissions" href="/build/permissions">
+    How reads and writes are authorised, and why realtime delivery is not yet filtered by them.
+  </Card>
+  <Card icon={<KeyRound />} title="Authentication" href="/build/authentication">
+    Establishing the session your client uses.
+  </Card>
+</Cards>

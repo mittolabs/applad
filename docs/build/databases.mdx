@@ -4,6 +4,8 @@ icon: Database
 description: Create databases, define typed tables, write rows, and query them with a fluent builder, all backed by real PostgreSQL with permissions enforced in the database.
 ---
 
+import { ShieldCheck, KeyRound, Radio, FolderClosed } from 'lucide-react';
+
 An Applad database is real PostgreSQL. You define **tables** with typed
 **columns**, write **rows**, and read them back through a fluent query builder or
 the REST API. Access is governed by [permissions](/build/permissions) that Applad
@@ -28,30 +30,50 @@ Client examples below use a project-scoped SDK client. See
 [authentication](/build/authentication) for how a user signs in and how the session
 token is attached.
 
-```dart
-final client = Applad(endpoint: 'https://api.applad.io', projectId: '<projectId>');
-final db = client.databases;
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 import { Applad } from '@mittolabs/applad';
 
 const client = new Applad({ endpoint: 'https://api.applad.io', projectId: '<projectId>' });
 const db = client.databases;
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+final client = Applad(endpoint: 'https://api.applad.io', projectId: '<projectId>');
+final db = client.databases;
+```
+</Tab>
+</Tabs>
 
-## Databases
+## Build a database
+
+Defining the schema and writing the first rows follows one path: create a
+database, add a table, give it typed columns, refine it with indexes and
+relationships, then write rows.
+
+<Steps>
+
+<Step>
+
+### Databases
 
 A database is a namespace for tables. Create one, and pass its id to everything
 below.
 
-```dart
-final database = await db.createDatabase(name: 'app', databaseId: 'app');
-```
-
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
 ```ts
 const database = await db.createDatabase('app', 'app');
 ```
+</Tab>
+<Tab value="Dart">
+```dart
+final database = await db.createDatabase(name: 'app', databaseId: 'app');
+```
+</Tab>
+</Tabs>
 
 `databaseId` is optional. Omit it and Applad generates one (the SDKs send
 `unique()`). The full set of database operations:
@@ -66,11 +88,26 @@ const database = await db.createDatabase('app', 'app');
 
 `listDatabases()` returns `{ "total": <n>, "databases": [...] }`.
 
-## Tables
+</Step>
+
+<Step>
+
+### Tables
 
 A table is a typed collection of rows. Create it with the permissions that decide
 who may read and write it:
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+await db.createTable('app', 'messages', {
+  tableId: 'messages',
+  permissions: ['read("users")', 'create("users")'],
+  documentSecurity: true,
+});
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 await db.createTable(
   databaseId: 'app',
@@ -80,14 +117,8 @@ await db.createTable(
   documentSecurity: true,   // each row may also carry its own permissions
 );
 ```
-
-```ts
-await db.createTable('app', 'messages', {
-  tableId: 'messages',
-  permissions: ['read("users")', 'create("users")'],
-  documentSecurity: true,
-});
-```
+</Tab>
+</Tabs>
 
 `permissions` are `action("role")` strings applied to every row in the table.
 `documentSecurity` turns on per-row permissions in addition to the table ones.
@@ -102,12 +133,25 @@ Both are covered under [Permissions](#permissions) below and in full on the
 | Update table (`name`, `permissions`, `enabled`) | `PUT /v1/databases/{databaseId}/tables/{tableId}` |
 | Delete table | `DELETE /v1/databases/{databaseId}/tables/{tableId}` |
 
-## Columns
+</Step>
+
+<Step>
+
+### Columns
 
 Columns are typed and added one at a time, each with its own type-specific
 options. Every column type accepts `required` (reject rows that omit it),
 `array` (store a list of that type), and `default`.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+await db.createStringColumn('app', 'messages', 'body', { required: true, size: 8000 });
+await db.createIntegerColumn('app', 'messages', 'priority', { min: 0, max: 5, defaultValue: 0 });
+await db.createBooleanColumn('app', 'messages', 'pinned', { defaultValue: false });
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 // A required string, capped at 8000 characters.
 await db.createStringColumn(
@@ -133,12 +177,8 @@ await db.createEnumColumn(
   key: 'status', elements: ['sent', 'delivered', 'read'], required_: true,
 );
 ```
-
-```ts
-await db.createStringColumn('app', 'messages', 'body', { required: true, size: 8000 });
-await db.createIntegerColumn('app', 'messages', 'priority', { min: 0, max: 5, defaultValue: 0 });
-await db.createBooleanColumn('app', 'messages', 'pinned', { defaultValue: false });
-```
+</Tab>
+</Tabs>
 
 Type-specific options:
 
@@ -170,11 +210,22 @@ await db.deleteColumn('app', 'messages', 'priority');
 
 `listColumns` returns `{ "total": <n>, "columns": [...] }`.
 
-## Indexes
+</Step>
+
+<Step>
+
+### Indexes
 
 Add an index to speed up filters and ordering on a column. Give it a key, a type
 (`key`, `unique`, or `fulltext`), and the columns it covers:
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+await db.createIndex('app', 'messages', 'by_created', 'key', ['created_at'], ['DESC']);
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 await db.createIndex(
   databaseId: 'app', tableId: 'messages',
@@ -182,15 +233,17 @@ await db.createIndex(
   columns: ['created_at'], orders: ['DESC'],
 );
 ```
-
-```ts
-await db.createIndex('app', 'messages', 'by_created', 'key', ['created_at'], ['DESC']);
-```
+</Tab>
+</Tabs>
 
 `orders` is optional and pairs positionally with `columns`. List with
 `listIndexes('app', 'messages')`, remove with `deleteIndex('app', 'messages', 'by_created')`.
 
-## Relationships
+</Step>
+
+<Step>
+
+### Relationships
 
 A relationship is a typed link between two tables. Create it as a column on the
 source table, naming the related table and the relationship type:
@@ -221,11 +274,30 @@ delete with `DELETE .../relationships/{relationshipId}`.
   applied by the server today. Fetch the related row by its id in a second call.
 </Callout>
 
-## Rows
+</Step>
+
+<Step>
+
+### Rows
 
 A row is one record. Create, read, update and delete them at runtime with the
 signed-in user's session.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const row = await db.createRow('app', 'messages', { body: 'hello', status: 'sent' }, {
+  permissions: ['read("users")'],
+});
+const rowId = row['$id'];
+
+await db.getRow('app', 'messages', rowId);
+await db.listRows('app', 'messages', { limit: 25, offset: 0 });
+await db.updateRow('app', 'messages', rowId, { data: { status: 'read' } });
+await db.deleteRow('app', 'messages', rowId);
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 // Create
 final row = await db.createRow(
@@ -250,22 +322,16 @@ await db.updateRow(
 // Delete
 await db.deleteRow(databaseId: 'app', tableId: 'messages', rowId: rowId);
 ```
-
-```ts
-const row = await db.createRow('app', 'messages', { body: 'hello', status: 'sent' }, {
-  permissions: ['read("users")'],
-});
-const rowId = row['$id'];
-
-await db.getRow('app', 'messages', rowId);
-await db.listRows('app', 'messages', { limit: 25, offset: 0 });
-await db.updateRow('app', 'messages', rowId, { data: { status: 'read' } });
-await db.deleteRow('app', 'messages', rowId);
-```
+</Tab>
+</Tabs>
 
 `rowId` is optional on create; omit it for a generated id. `updateRow` is a
 `PATCH` and merges: fields you leave out keep their current value. `listRows`
 returns `{ "total": <n>, "rows": [...] }`.
+
+</Step>
+
+</Steps>
 
 ### System fields on a row
 
@@ -304,6 +370,22 @@ print(row['body']);     // your column, top-level
 `from(databaseId, tableId)` starts a query. Filters, ordering and pagination
 chain onto it, and `get()` runs it:
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const result = await db
+  .from('app', 'messages')
+  .equal('status', 'sent')
+  .greaterThan('priority', 0)
+  .orderDesc('created_at')
+  .limit(50)
+  .get();
+
+console.log(result.total);
+for (const row of result.rows) console.log(row['body']);
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 final result = await db
     .from('app', 'messages')
@@ -318,19 +400,8 @@ for (final row in result.rows) {
   print(row['body']);
 }
 ```
-
-```ts
-const result = await db
-  .from('app', 'messages')
-  .equal('status', 'sent')
-  .greaterThan('priority', 0)
-  .orderDesc('created_at')
-  .limit(50)
-  .get();
-
-console.log(result.total);
-for (const row of result.rows) console.log(row['body']);
-```
+</Tab>
+</Tabs>
 
 Chained filters combine with **AND**. The builder returns `{ total, rows }`.
 
@@ -343,10 +414,10 @@ matches (`contains`, `startsWith`, `endsWith`) are case-insensitive.
 | --- | --- |
 | `equal(field, value)` | `field` equals `value` |
 | `notEqual(field, value)` | `field` does not equal `value` |
-| `lessThan(field, value)` | `field` < `value` |
-| `lessThanOrEqual(field, value)` | `field` <= `value` |
-| `greaterThan(field, value)` | `field` > `value` |
-| `greaterThanOrEqual(field, value)` | `field` >= `value` |
+| `lessThan(field, value)` | `field` is less than `value` |
+| `lessThanOrEqual(field, value)` | `field` is less than or equal to `value` |
+| `greaterThan(field, value)` | `field` is greater than `value` |
+| `greaterThanOrEqual(field, value)` | `field` is greater than or equal to `value` |
 | `contains(field, value)` | `field` contains the substring `value` |
 | `startsWith(field, value)` | `field` starts with `value` |
 | `endsWith(field, value)` | `field` ends with `value` |
@@ -459,3 +530,20 @@ own rows, without you setting per-row permissions for them.
 A row that fails a column's validation rule (a required field left out, an enum
 value outside `elements`, a number outside `min`/`max`) returns a validation
 error naming the offending field.
+
+## Related
+
+<Cards>
+  <Card icon={<ShieldCheck />} title="Permissions" href="/build/permissions">
+    The action and role strings and row-level security that decide who reads and writes each row.
+  </Card>
+  <Card icon={<KeyRound />} title="Authentication" href="/build/authentication">
+    Sign users in and attach the session token that row permissions resolve from.
+  </Card>
+  <Card icon={<Radio />} title="Realtime" href="/build/realtime">
+    Subscribe to row changes over WebSocket, filtered by the same permissions.
+  </Card>
+  <Card icon={<FolderClosed />} title="Storage" href="/build/storage">
+    Store files and images alongside your rows with the same permission model.
+  </Card>
+</Cards>

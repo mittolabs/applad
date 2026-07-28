@@ -4,6 +4,8 @@ description: Decide and prioritise the work before you build it, with plan items
 icon: ListTodo
 ---
 
+import { Database, ShieldCheck, FlaskConical, Rocket } from 'lucide-react';
+
 Plan is the stage that comes before [Build](/build/databases). Most backends
 start at "here is a database, write some code". Applad gives you a place to
 decide *what* to build first, record *why*, and carry that decision into the
@@ -246,6 +248,11 @@ into a level. One option can force the top of the scale on its own (for example,
 "is data at risk of being lost or wrong?"), so a decisive fact does not have to
 out-argue three milder ones.
 
+<Steps>
+
+<Step>
+### Fetch the questions
+
 Fetch the questions for an item with `GET /items/{itemId}/questions`. The
 response carries the questions (each annotated with the option already chosen for
 this item, in `answeredWith`), the scoring `bands`, and the `cells` of the grid,
@@ -275,6 +282,11 @@ so a caller can preview the verdict the server would reach:
 }
 ```
 
+</Step>
+
+<Step>
+### Record an answer
+
 Record an answer with `POST /items/{itemId}/answers`. Each answer re-scores both
 dimensions from everything answered so far and rates the item, so a half-answered
 assessment still moves the priority rather than making you finish before you see
@@ -287,6 +299,10 @@ curl -X POST https://api.applad.io/v1/plan/items/{itemId}/answers \
   -H "Content-Type: application/json" \
   -d '{ "questionId": "q1...", "optionId": "o2..." }'
 ```
+
+</Step>
+
+</Steps>
 
 `GET /questions` (without an item) returns the project's question set alone, for
 editing or display. The questions and bands are seeded per project on first
@@ -377,8 +393,9 @@ curl -X POST https://api.applad.io/v1/plan/milestones \
 across the milestone's items has actually become checkable behaviour, which is a
 different fact from "5 of 12 items done".
 
-Update a milestone with `PATCH /milestones/{milestoneId}` (including `completed:
-true` to mark it done), and remove one with `DELETE /milestones/{milestoneId}`.
+Update a milestone with `PATCH /milestones/{milestoneId}` (including
+`completed: true` to mark it done), and remove one with
+`DELETE /milestones/{milestoneId}`.
 Deleting a milestone leaves its items in place, unassigned: work outlives the
 date somebody hoped to finish it by.
 
@@ -395,8 +412,8 @@ curl -X POST https://api.applad.io/v1/plan/items/{itemId}/comments \
   -d '{ "body": "Let us reuse the magic-link mailer." }'
 ```
 
-`GET /items/{itemId}/comments` lists the thread oldest first; `DELETE
-/comments/{commentId}` removes one.
+`GET /items/{itemId}/comments` lists the thread oldest first;
+`DELETE /comments/{commentId}` removes one.
 
 `GET /items/{itemId}/activity` returns what changed on an item, newest first.
 Activity is derived by comparing before and after on each update, so a field set
@@ -468,3 +485,20 @@ caller.
 Once you have decided and prioritised the work, the rest of Applad is where you
 carry it out: define the schema in [Build](/build/databases), prove the criteria
 in [Test](/test), and ship it from [Deploy](/deploy/sites).
+
+## Where to next
+
+<Cards>
+  <Card icon={<Database />} title="Build" href="/build/databases">
+    Turn a prioritised item into schema: tables, columns and relationships.
+  </Card>
+  <Card icon={<ShieldCheck />} title="Authentication" href="/build/authentication">
+    Sign a user in and get the session `secret` these routes expect.
+  </Card>
+  <Card icon={<FlaskConical />} title="Test" href="/test">
+    Prove acceptance criteria with executable tests a `specRef` points at.
+  </Card>
+  <Card icon={<Rocket />} title="Deploy" href="/deploy/sites">
+    Ship the work once its milestone is done.
+  </Card>
+</Cards>

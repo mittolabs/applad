@@ -4,6 +4,8 @@ icon: Boxes
 description: Official client and server SDKs for Applad, and when to use each.
 ---
 
+import { Braces, Server, Smartphone, Boxes, FileCode, KeyRound, Lock, Database, Users } from 'lucide-react';
+
 Applad ships five SDKs. They all speak the same [`/v1` REST API](/), so anything
 an SDK does you can also do with a plain HTTP request. The SDK just handles the
 headers, the JSON, and the method names for you.
@@ -56,24 +58,48 @@ The Dart package is both a client and a server SDK in one; you choose by which
 file you import. The JavaScript SDK is client-only; for a Node backend use the
 separate `@mittolabs/applad-node` package.
 
+<Cards>
+  <Card icon={<Braces />} title="JavaScript (client)" href="#javascript-client">Browser and mobile web, acting as the signed-in user.</Card>
+  <Card icon={<Server />} title="Node.js (server)" href="#nodejs-server">Full-access backend SDK, keyed by an API key.</Card>
+  <Card icon={<Smartphone />} title="Dart (client and server)" href="#dart-client">One package for Flutter apps and trusted backends.</Card>
+  <Card icon={<Boxes />} title="Go (server)" href="#go-server">Zero-dependency server SDK with a fluent query builder.</Card>
+  <Card icon={<FileCode />} title="Python (server)" href="#python-server">Stdlib-only server SDK for scripts and backends.</Card>
+</Cards>
+
 ## Install
 
-```bash
-# JavaScript client (browser / mobile web)
-npm install @mittolabs/applad
-
-# Node.js server
-npm install @mittolabs/applad-node
-
-# Dart / Flutter (client and server in one package)
-dart pub add applad
-
-# Go server
-go get github.com/mittolabs/applad-go
-
-# Python server
-pip install applad
-```
+<Tabs items={['JavaScript', 'Node.js', 'Dart', 'Go', 'Python']}>
+  <Tab value="JavaScript">
+  ```bash
+  # JavaScript client (browser / mobile web)
+  npm install @mittolabs/applad
+  ```
+  </Tab>
+  <Tab value="Node.js">
+  ```bash
+  # Node.js server
+  npm install @mittolabs/applad-node
+  ```
+  </Tab>
+  <Tab value="Dart">
+  ```bash
+  # Dart / Flutter (client and server in one package)
+  dart pub add applad
+  ```
+  </Tab>
+  <Tab value="Go">
+  ```bash
+  # Go server
+  go get github.com/mittolabs/applad-go
+  ```
+  </Tab>
+  <Tab value="Python">
+  ```bash
+  # Python server
+  pip install applad
+  ```
+  </Tab>
+</Tabs>
 
 The `endpoint` you pass to every SDK is your Applad base URL **without** `/v1`
 (the SDK appends it). On Mittolabs Cloud that is `https://api.applad.io`; on a
@@ -295,7 +321,9 @@ secret store, never in client code or version control.
 
 ## Related
 
-- [Authentication](/build/authentication): sessions, OAuth, MFA, and how login works
-- [Permissions](/build/permissions): what a client user is allowed to do
-- [Databases](/build/databases): tables, rows, and queries
-- [Teams](/build/teams): grouping users for shared access
+<Cards>
+  <Card icon={<KeyRound />} title="Authentication" href="/build/authentication">Sessions, OAuth, MFA, and how login works.</Card>
+  <Card icon={<Lock />} title="Permissions" href="/build/permissions">What a client user is allowed to do.</Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">Tables, rows, and queries.</Card>
+  <Card icon={<Users />} title="Teams" href="/build/teams">Grouping users for shared access.</Card>
+</Cards>

@@ -4,6 +4,8 @@ icon: UsersRound
 description: Group users into teams so a single permission grants a whole group shared access to data.
 ---
 
+import { ShieldCheck, KeyRound, Database, FolderArchive } from 'lucide-react';
+
 A **team** is Applad's unit of shared access. It answers one question: "these
 people, and only these people, may see this." A workspace, a channel, a shared
 document, a project board. Instead of listing every user on every row, you name
@@ -19,7 +21,16 @@ Team calls are client-side: they run as the signed-in user (see
 `x-applad-project: <projectId>` header and, after login, the session bearer
 token `Authorization: Bearer <secret>`. The SDK sets both for you.
 
-## Creating a team
+## The team lifecycle
+
+A team goes from creation to a joined member in three calls: create the team,
+invite someone, and have them accept.
+
+<Steps>
+
+<Step>
+
+### Creating a team
 
 Creating a team makes the caller its first, already-joined **owner**. Without
 that, the person who made the team would hold no membership and could be locked
@@ -44,8 +55,7 @@ Future<Map<String, dynamic>> create({
 });
 ```
 
-Under the hood this is `POST /v1/teams` with `{ "name": ..., "teamId": ...,
-"roles": [...] }`, returning the new team:
+Under the hood this is `POST /v1/teams` with `{ "name": ..., "teamId": ..., "roles": [...] }`, returning the new team:
 
 ```json
 {
@@ -65,40 +75,11 @@ Under the hood this is `POST /v1/teams` with `{ "name": ..., "teamId": ...,
   when you want the creator to be a member.
 </Callout>
 
-## Listing teams
+</Step>
 
-```dart
-final res = await client.teams.list();
-final teams = res['teams']; // List<Map>
-final total = res['total']; // int
-```
+<Step>
 
-```dart
-Future<Map<String, dynamic>> list({ int? limit, int? offset, String? search });
-```
-
-What you get back depends on who is asking. This is deliberate:
-
-- A **signed-in user** sees only the teams they have actually joined. They never
-  learn the names of other users' teams.
-- A **server API key** or **console admin** sees every team in the project.
-
-`limit`, `offset` and `search` (a name substring) page and filter the list. The
-underlying route is `GET /v1/teams`, returning `{ "total": <int>, "teams":
-[...] }`.
-
-Read one team by ID with `client.teams.get(teamId)` (`GET
-/v1/teams/{teamId}`). A single team's `total` field is its count of **joined**
-members.
-
-## Renaming and deleting a team
-
-```dart
-await client.teams.update(teamId, 'platform');   // PUT /v1/teams/{teamId}
-await client.teams.delete(teamId);               // DELETE /v1/teams/{teamId} -> 204
-```
-
-## Inviting a member
+### Inviting a member
 
 Invite someone by email. The returned membership carries a one-time `secret`.
 Hand that secret to the invitee (as a join link, say) and they redeem it to
@@ -124,8 +105,7 @@ Future<Map<String, dynamic>> createMembership(
 });
 ```
 
-This is `POST /v1/teams/{teamId}/memberships` with `{ "email": ..., "roles":
-[...] }`. The membership is created `invited: true`, `joined: false`, it grants
+This is `POST /v1/teams/{teamId}/memberships` with `{ "email": ..., "roles": [...] }`. The membership is created `invited: true`, `joined: false`, it grants
 nothing until accepted:
 
 ```json
@@ -147,7 +127,11 @@ nothing until accepted:
   includes it. Capture it when you invite; it cannot be read back later.
 </Callout>
 
-## Accepting an invite
+</Step>
+
+<Step>
+
+### Accepting an invite
 
 The invitee, signed in as themselves, redeems the secret. The joining identity
 comes from their **session**, never from the request body, so an invite cannot
@@ -166,11 +150,46 @@ Future<Map<String, dynamic>> acceptMembership(
 );
 ```
 
-This is `PATCH /v1/teams/{teamId}/memberships/{membershipId}/status` with `{
-"secret": ... }`. It binds the membership to the current user, marks it
+This is `PATCH /v1/teams/{teamId}/memberships/{membershipId}/status` with `{ "secret": ... }`. It binds the membership to the current user, marks it
 `joined: true`, and clears the one-time secret. If the secret is wrong or the
 invite was already used, the call fails with `401` and error code
 `membership_invalid_secret`.
+
+</Step>
+
+</Steps>
+
+## Listing teams
+
+```dart
+final res = await client.teams.list();
+final teams = res['teams']; // List<Map>
+final total = res['total']; // int
+```
+
+```dart
+Future<Map<String, dynamic>> list({ int? limit, int? offset, String? search });
+```
+
+What you get back depends on who is asking. This is deliberate:
+
+- A **signed-in user** sees only the teams they have actually joined. They never
+  learn the names of other users' teams.
+- A **server API key** or **console admin** sees every team in the project.
+
+`limit`, `offset` and `search` (a name substring) page and filter the list. The
+underlying route is `GET /v1/teams`, which returns a `total` count and a `teams`
+array.
+
+Read one team by ID with `client.teams.get(teamId)` (`GET /v1/teams/{teamId}`). A single team's `total` field is its count of **joined**
+members.
+
+## Renaming and deleting a team
+
+```dart
+await client.teams.update(teamId, 'platform');   // PUT /v1/teams/{teamId}
+await client.teams.delete(teamId);               // DELETE /v1/teams/{teamId} -> 204
+```
 
 ## Listing and removing members
 
@@ -234,3 +253,20 @@ curl -X POST https://api.applad.io/v1/teams \
 
 A key sees the unscoped team list, and (as noted above) a team it creates has
 no owner membership, since there is no user session to enrol.
+
+## Related
+
+<Cards>
+  <Card icon={<ShieldCheck />} title="Permissions" href="/build/permissions">
+    Attach the team roles above to rows, files, and functions.
+  </Card>
+  <Card icon={<KeyRound />} title="Authentication" href="/build/authentication">
+    Sign users in so team calls run as them.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    Permission rows to a team so its members share access.
+  </Card>
+  <Card icon={<FolderArchive />} title="Storage" href="/build/storage">
+    Scope buckets and files to a team.
+  </Card>
+</Cards>

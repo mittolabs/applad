@@ -1,8 +1,10 @@
 ---
 title: Functions
 icon: Code2
-description: Run your own code on Applad: pick a runtime, provide source, and invoke it through the API.
+description: "Run your own code on Applad: pick a runtime, provide source, and invoke it through the API."
 ---
+
+import { Rocket, Workflow, Send, Package } from 'lucide-react';
 
 An Applad function is a piece of code you deploy to your project and invoke on
 demand. You give Applad a **runtime** (a language and version), some **source**
@@ -55,6 +57,9 @@ a handler. Applad wraps it in a tiny HTTP server for you, so your code does not
 need to open a port itself. Your handler receives the invocation payload as its
 argument and returns a value that becomes the execution output.
 
+<Tabs items={['Node.js', 'Python']}>
+<Tab value="Node.js">
+
 ```js
 // Node.js: export a function that takes the payload and returns a result
 module.exports = async (payload) => {
@@ -62,11 +67,17 @@ module.exports = async (payload) => {
 };
 ```
 
+</Tab>
+<Tab value="Python">
+
 ```python
 # Python: define handler(payload) (main or default also work)
 def handler(payload):
     return {"hello": payload.get("name", "world")}
 ```
+
+</Tab>
+</Tabs>
 
 <Callout title="Export name">
   The wrapper looks for an exported `handler`, then `main`, then `default` (Go
@@ -75,9 +86,34 @@ def handler(payload):
   Applad detects that and runs it directly instead of wrapping it.
 </Callout>
 
-## Creating a function
+## Function lifecycle
 
-The minimum is a `name`, a `runtime`, and some source. With the client SDK:
+A function moves through a short lifecycle: you create it, Applad builds and
+pre-warms it, and then you invoke it and read the result back.
+
+<Steps>
+
+<Step>
+
+### Creating a function
+
+The minimum is a `name`, a `runtime`, and some source. With the client SDK you
+pass inline `source`; over the REST API the inline-code field is `source` and
+the source kind is `sourceType`.
+
+<Tabs items={['JavaScript', 'Dart', 'cURL']}>
+<Tab value="JavaScript">
+
+```ts
+const fn = await client.functions.create('greet', 'node-20', {
+  source: "module.exports = async (p) => ({ hello: p.name || 'world' });",
+  timeout: 15,
+});
+const functionId = fn.$id;
+```
+
+</Tab>
+<Tab value="Dart">
 
 ```dart
 final fn = await client.functions.create(
@@ -89,16 +125,8 @@ final fn = await client.functions.create(
 final functionId = fn['\$id'];
 ```
 
-```ts
-const fn = await client.functions.create('greet', 'node-20', {
-  source: "module.exports = async (p) => ({ hello: p.name || 'world' });",
-  timeout: 15,
-});
-const functionId = fn.$id;
-```
-
-The same call over the REST API. Note the request field for inline code is
-`source` and the source kind is `sourceType`:
+</Tab>
+<Tab value="cURL">
 
 ```bash
 curl -X POST https://api.applad.io/v1/functions \
@@ -114,6 +142,9 @@ curl -X POST https://api.applad.io/v1/functions \
     "envVars": {}
   }'
 ```
+
+</Tab>
+</Tabs>
 
 The response is the function object:
 
@@ -150,6 +181,133 @@ Fields:
 | `timeout` | Seconds a single execution may run. Defaults to `15`. |
 | `envVars` | Map of environment variables (see [Configuration](#configuration)). |
 | `cron` | Cron expression for scheduled runs, or empty for manual only. |
+
+</Step>
+
+<Step>
+
+### Building
+
+Creating or updating a function sets its `status` to `building` and queues a
+build. Applad builds the container image and pre-warms an instance so the first
+invocation is fast. Poll the function until its `status` is `active`:
+
+<Tabs items={['Dart', 'cURL']}>
+<Tab value="Dart">
+
+```dart
+final fn = await client.functions.get(functionId);
+print(fn['status']); // building -> active
+```
+
+</Tab>
+<Tab value="cURL">
+
+```bash
+curl https://api.applad.io/v1/functions/<functionId> \
+  -H "x-applad-key: <apiKey>"
+```
+
+</Tab>
+</Tabs>
+
+A build only runs when there is source to build (inline `source` set, or a git
+`repository` set).
+
+</Step>
+
+<Step>
+
+### Executing a function
+
+Invoke a function by creating an execution. The call returns immediately with a
+`pending` execution; the run happens on a worker.
+
+<Tabs items={['JavaScript', 'Dart', 'cURL']}>
+<Tab value="JavaScript">
+
+```ts
+const exec = await client.functions.execute(functionId);
+const executionId = exec.$id;
+```
+
+</Tab>
+<Tab value="Dart">
+
+```dart
+final exec = await client.functions.execute(functionId);
+final executionId = exec['\$id'];
+```
+
+</Tab>
+<Tab value="cURL">
+
+```bash
+curl -X POST https://api.applad.io/v1/functions/<functionId>/executions \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+</Tab>
+</Tabs>
+
+The response:
+
+```json
+{
+  "$id": "e1f2...",
+  "functionId": "a1b2c3...",
+  "projectId": "<projectId>",
+  "status": "pending",
+  "output": "",
+  "errors": "",
+  "duration": 0,
+  "$createdAt": "2026-07-23T10:05:00Z"
+}
+```
+
+Because execution is asynchronous, read the result back by fetching the
+execution until its `status` is `completed` or `failed`:
+
+<Tabs items={['Dart', 'cURL']}>
+<Tab value="Dart">
+
+```dart
+final result = await client.functions.getExecution(functionId, executionId);
+if (result['status'] == 'completed') {
+  print(result['output']); // the response your handler returned, as a string
+} else if (result['status'] == 'failed') {
+  print(result['errors']);
+}
+```
+
+</Tab>
+<Tab value="cURL">
+
+```bash
+curl https://api.applad.io/v1/functions/<functionId>/executions/<executionId> \
+  -H "x-applad-key: <apiKey>"
+```
+
+</Tab>
+</Tabs>
+
+An execution moves through `pending` -> `processing` -> `completed` (or
+`failed`). `output` holds what your handler returned, serialized as a string;
+`errors` holds the error message when it failed; `duration` is the run time in
+seconds.
+
+<Callout title="Invocation payload">
+  Execution runs today with an empty JSON payload (`{}`). The SDK `execute`
+  methods accept a `data` argument, but that request data is not yet forwarded
+  into the function, so do not rely on reading it inside your handler. Your
+  handler still receives an argument, it is an empty object.
+</Callout>
+
+</Step>
+
+</Steps>
 
 ## Providing source
 
@@ -195,94 +353,12 @@ function from an SDK, use the REST call above, or `update` with a raw body (see
   not reachable through the public API yet. Use one of the language runtimes.
 </Callout>
 
-## Building
-
-Creating or updating a function sets its `status` to `building` and queues a
-build. Applad builds the container image and pre-warms an instance so the first
-invocation is fast. Poll the function until its `status` is `active`:
-
-```dart
-final fn = await client.functions.get(functionId);
-print(fn['status']); // building -> active
-```
-
-```bash
-curl https://api.applad.io/v1/functions/<functionId> \
-  -H "x-applad-key: <apiKey>"
-```
-
-A build only runs when there is source to build (inline `source` set, or a git
-`repository` set).
-
-## Executing a function
-
-Invoke a function by creating an execution. The call returns immediately with a
-`pending` execution; the run happens on a worker.
-
-```dart
-final exec = await client.functions.execute(functionId);
-final executionId = exec['\$id'];
-```
-
-```ts
-const exec = await client.functions.execute(functionId);
-const executionId = exec.$id;
-```
-
-```bash
-curl -X POST https://api.applad.io/v1/functions/<functionId>/executions \
-  -H "x-applad-key: <apiKey>" \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-The response:
-
-```json
-{
-  "$id": "e1f2...",
-  "functionId": "a1b2c3...",
-  "projectId": "<projectId>",
-  "status": "pending",
-  "output": "",
-  "errors": "",
-  "duration": 0,
-  "$createdAt": "2026-07-23T10:05:00Z"
-}
-```
-
-Because execution is asynchronous, read the result back by fetching the
-execution until its `status` is `completed` or `failed`:
-
-```dart
-final result = await client.functions.getExecution(functionId, executionId);
-if (result['status'] == 'completed') {
-  print(result['output']); // the response your handler returned, as a string
-} else if (result['status'] == 'failed') {
-  print(result['errors']);
-}
-```
-
-```bash
-curl https://api.applad.io/v1/functions/<functionId>/executions/<executionId> \
-  -H "x-applad-key: <apiKey>"
-```
-
-An execution moves through `pending` -> `processing` -> `completed` (or
-`failed`). `output` holds what your handler returned, serialized as a string;
-`errors` holds the error message when it failed; `duration` is the run time in
-seconds.
-
-<Callout title="Invocation payload">
-  Execution runs today with an empty JSON payload (`{}`). The SDK `execute`
-  methods accept a `data` argument, but that request data is not yet forwarded
-  into the function, so do not rely on reading it inside your handler. Your
-  handler still receives an argument, it is an empty object.
-</Callout>
-
 ## Execution history
 
 List every execution for a function, newest first:
+
+<Tabs items={['Dart', 'cURL']}>
+<Tab value="Dart">
 
 ```dart
 final history = await client.functions.listExecutions(functionId);
@@ -291,10 +367,16 @@ for (final e in history['executions']) {
 }
 ```
 
+</Tab>
+<Tab value="cURL">
+
 ```bash
 curl https://api.applad.io/v1/functions/<functionId>/executions \
   -H "x-applad-key: <apiKey>"
 ```
+
+</Tab>
+</Tabs>
 
 ```json
 {
@@ -369,12 +451,18 @@ An empty `cron` means the function only runs when you invoke it.
 change; omitted fields keep their current values (send `cron: ""` to clear a
 schedule).
 
+<Tabs items={['Dart', 'cURL']}>
+<Tab value="Dart">
+
 ```dart
 await client.functions.update(functionId, {
   'source': "module.exports = async (p) => ({ hi: p.name });",
   'timeout': 30,
 });
 ```
+
+</Tab>
+<Tab value="cURL">
 
 ```bash
 curl -X PUT https://api.applad.io/v1/functions/<functionId> \
@@ -383,16 +471,28 @@ curl -X PUT https://api.applad.io/v1/functions/<functionId> \
   -d '{ "timeout": 30 }'
 ```
 
+</Tab>
+</Tabs>
+
 Delete a function and all of its executions:
+
+<Tabs items={['Dart', 'cURL']}>
+<Tab value="Dart">
 
 ```dart
 await client.functions.delete(functionId);
 ```
 
+</Tab>
+<Tab value="cURL">
+
 ```bash
 curl -X DELETE https://api.applad.io/v1/functions/<functionId> \
   -H "x-applad-key: <apiKey>"
 ```
+
+</Tab>
+</Tabs>
 
 ## API reference
 
@@ -408,4 +508,11 @@ curl -X DELETE https://api.applad.io/v1/functions/<functionId> \
 | `GET` | `/v1/functions/{functionId}/executions` | List executions |
 | `GET` | `/v1/functions/{functionId}/executions/{executionId}` | Get one execution |
 
-See also [Sites](/deploy/sites) for shipping whole apps and the [SDKs](/sdks) overview.
+## Related
+
+<Cards>
+  <Card icon={<Rocket />} title="Sites" href="/deploy/sites">Ship whole apps and connect a git repository for private builds.</Card>
+  <Card icon={<Workflow />} title="Workflows" href="/automate/workflows">Compose functions and other steps into a DAG.</Card>
+  <Card icon={<Send />} title="Messaging" href="/build/messaging">Send email, SMS, and push from your backend code.</Card>
+  <Card icon={<Package />} title="SDKs" href="/sdks">Call functions from the client and server SDKs.</Card>
+</Cards>

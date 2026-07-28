@@ -4,6 +4,8 @@ icon: Mail
 description: Send transactional email, SMS, and push notifications from your project, and fan a single message out to a topic of subscribers.
 ---
 
+import { ShieldCheck, Server, SquareFunction, Workflow } from 'lucide-react';
+
 Applad's messaging service sends three kinds of message from your project:
 **email** (SMTP), **SMS** (Twilio), and **push** notifications (Firebase Cloud
 Messaging). You can send a message directly to recipients, or send once to a
@@ -23,16 +25,11 @@ your server with an API key rather than from untrusted clients.
 ## Send an email
 
 The client SDKs expose `messaging.sendEmail`, which sends immediately and returns
-once the provider has accepted (or rejected) the message.
+once the provider has accepted (or rejected) the message. Under the hood this is
+`POST /v1/messaging/email`, which you can also call directly from your server.
 
-```dart
-await client.messaging.sendEmail(
-  to: ['alice@example.com'],
-  subject: 'Welcome to Acme',
-  html: '<h1>Hello</h1><p>Thanks for signing up.</p>',
-);
-```
-
+<Tabs items={['JavaScript', 'Dart', 'cURL']}>
+<Tab value="JavaScript">
 ```ts
 await client.messaging.sendEmail(
   ['alice@example.com'],
@@ -40,9 +37,17 @@ await client.messaging.sendEmail(
   '<h1>Hello</h1><p>Thanks for signing up.</p>',
 );
 ```
-
-Under the hood this is `POST /v1/messaging/email`. From your server:
-
+</Tab>
+<Tab value="Dart">
+```dart
+await client.messaging.sendEmail(
+  to: ['alice@example.com'],
+  subject: 'Welcome to Acme',
+  html: '<h1>Hello</h1><p>Thanks for signing up.</p>',
+);
+```
+</Tab>
+<Tab value="cURL">
 ```bash
 curl -X POST https://api.applad.io/v1/messaging/email \
   -H "x-applad-project: <projectId>" \
@@ -54,13 +59,14 @@ curl -X POST https://api.applad.io/v1/messaging/email \
     "html": "<h1>Hello</h1>"
   }'
 ```
+</Tab>
+</Tabs>
 
 A successful send returns `{ "status": "sent" }`. `to` is a list, `subject` is
 required, and `html` is the message body (sent as `text/html`).
 
 <Callout title="Email needs SMTP configured">
-If no email provider is set up, this call fails with `messaging: SMTP not
-configured`. Configure SMTP as shown in [Configuring providers](#configuring-providers).
+If no email provider is set up, this call fails with `messaging: SMTP not configured`. Configure SMTP as shown in [Configuring providers](#configuring-providers).
 </Callout>
 
 ## Send an SMS
@@ -181,25 +187,44 @@ the `target`:
 - contains `@` (for example `alice@example.com`): sent as **email**
 - anything else: treated as a **push** device token
 
+<Steps>
+
+<Step>
+### Create a topic
+
 ```bash
-# Create a topic
 curl -X POST https://api.applad.io/v1/messaging/topics \
   -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
   -H "Content-Type: application/json" \
   -d '{ "name": "product-updates" }'
+```
+</Step>
 
-# Add a subscriber (target is an email, phone number, or device token)
+<Step>
+### Add a subscriber
+
+The `target` is an email, phone number, or device token.
+
+```bash
 curl -X POST https://api.applad.io/v1/messaging/topics/<topicId>/subscribers \
   -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
   -H "Content-Type: application/json" \
   -d '{ "target": "alice@example.com" }'
+```
+</Step>
 
-# Send to everyone subscribed
+<Step>
+### Send to everyone subscribed
+
+```bash
 curl -X POST https://api.applad.io/v1/messaging/topics/<topicId>/messages \
   -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
   -H "Content-Type: application/json" \
   -d '{ "subject": "This week at Acme", "body": "<p>News</p>" }'
 ```
+</Step>
+
+</Steps>
 
 `GET /v1/messaging/topics` lists topics with their subscribers, and
 `GET /v1/messaging/topics/{topicId}` returns one. `subject` is used for the email
@@ -211,6 +236,23 @@ Templates hold reusable copy with `{{variable}}` placeholders, so you keep the
 wording out of your code. A template has a `type` (`email`, `sms`, or `push`), a
 `subject`, and a `body`.
 
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+await client.messaging.createTemplate(
+  'welcome',
+  'email',
+  'Welcome, {{name}}',
+  '<p>Hi {{name}}, thanks for joining.</p>',
+  { variables: ['name'] },
+);
+
+await client.messaging.sendTemplate('<templateId>', ['alice@example.com'], {
+  name: 'Alice',
+});
+```
+</Tab>
+<Tab value="Dart">
 ```dart
 await client.messaging.createTemplate(
   name: 'welcome',
@@ -226,20 +268,8 @@ await client.messaging.sendTemplate(
   variables: {'name': 'Alice'},
 );
 ```
-
-```ts
-await client.messaging.createTemplate(
-  'welcome',
-  'email',
-  'Welcome, {{name}}',
-  '<p>Hi {{name}}, thanks for joining.</p>',
-  { variables: ['name'] },
-);
-
-await client.messaging.sendTemplate('<templateId>', ['alice@example.com'], {
-  name: 'Alice',
-});
-```
+</Tab>
+</Tabs>
 
 On send, every `{{key}}` in the subject and body is replaced with the matching
 value from `variables`, and the result goes out on the template's own channel.
@@ -295,5 +325,17 @@ messaging falls back to the instance-wide environment configuration above.
 
 ## Related
 
-- [Authentication](/build/authentication) for how requests are authenticated and how API keys are issued.
-- [Self-hosting](/self-hosting) for setting provider environment variables.
+<Cards>
+  <Card icon={<ShieldCheck />} title="Authentication" href="/build/authentication">
+    How requests are authenticated and how API keys are issued.
+  </Card>
+  <Card icon={<Server />} title="Self-hosting" href="/self-hosting">
+    Set provider environment variables for email, SMS, and push.
+  </Card>
+  <Card icon={<SquareFunction />} title="Functions" href="/build/functions">
+    Run server-side code that sends messages from your project.
+  </Card>
+  <Card icon={<Workflow />} title="Workflows" href="/automate/workflows">
+    Automate multi-step processes across your project.
+  </Card>
+</Cards>

@@ -4,109 +4,165 @@ icon: Play
 description: Create a project and make your first Applad call in a few minutes.
 ---
 
+import { Rocket, Database, ShieldCheck, Users, Radio } from 'lucide-react';
+
 This guide takes you from nothing to reading and writing data through an SDK. It
 assumes you have an Applad instance to talk to. If you do not, bring one up first
 with [Self-hosting](/self-hosting) (a single `docker compose up`), or use a hosted
 instance.
 
-## 1. Create a project
+<Steps>
+
+<Step>
+
+### Create a project
 
 Open the admin console and sign in (on a fresh self-hosted instance the first
-account you create becomes the owner). Then:
+account you create becomes the owner). Then create an **organization**, create a
+**project** inside it, and copy the project's **ID** from its settings.
 
-1. Create an **organization** (your account needs one before it can hold
-   projects).
-2. Create a **project** inside it. A project is an isolated backend with its own
-   database, users, and API keys.
-3. Copy the project's **ID** from its settings. Your app uses this to point at
-   the project.
+A project is an isolated backend with its own database, users, and API keys.
 
 <Callout title="Client keys vs server keys">
   Client SDKs need only the project ID: they act as the signed-in user, and
-  [permissions](/build/permissions) decide what that user can do. Server SDKs also need
-  an **API key** (console, under the project's Settings), which acts with full
-  access for trusted backend work.
+  [permissions](/build/permissions) decide what that user can do. Server SDKs also
+  need an **API key** (under the project's Settings), which acts with full access
+  for trusted backend work.
 </Callout>
 
-## 2. Connect an SDK
+</Step>
+
+<Step>
+
+### Connect an SDK
 
 Install a client SDK and point it at your instance and project.
 
-```bash
-# JavaScript / TypeScript
-npm install @mittolabs/applad
-```
+<Tabs items={['JavaScript', 'Dart']}>
+  <Tab value="JavaScript">
+    ```bash
+    npm install @mittolabs/applad
+    ```
 
-```ts
-import { Applad } from '@mittolabs/applad';
+    ```ts
+    import { Applad } from '@mittolabs/applad';
 
-const applad = new Applad({
-  endpoint: 'https://api.applad.io', // your instance's API base
-  projectId: 'YOUR_PROJECT_ID',
-});
-```
+    const applad = new Applad({
+      endpoint: 'https://api.applad.io', // your instance's API base
+      projectId: 'YOUR_PROJECT_ID',
+    });
+    ```
+  </Tab>
+  <Tab value="Dart">
+    Add `applad` to your `pubspec.yaml`, then:
 
-```dart
-// Dart / Flutter: add `applad` to pubspec.yaml
-import 'package:applad/applad.dart';
+    ```dart
+    import 'package:applad/applad.dart';
 
-final applad = Applad(
-  endpoint: 'https://api.applad.io',
-  projectId: 'YOUR_PROJECT_ID',
-);
-```
+    final applad = Applad(
+      endpoint: 'https://api.applad.io',
+      projectId: 'YOUR_PROJECT_ID',
+    );
+    ```
+  </Tab>
+</Tabs>
 
 There are SDKs for [JavaScript, Dart, Node, Go and Python](/sdks).
 
-## 3. Sign a user in
+</Step>
+
+<Step>
+
+### Sign a user in
 
 Create an account and open a session. The session is what makes the following
 requests act as that user.
 
-```ts
-await applad.auth.createAccount('ada@example.com', 'a-strong-password', { name: 'Ada' });
-const session = await applad.auth.createEmailSession('ada@example.com', 'a-strong-password');
-applad.setJWT(session.secret); // authenticate subsequent requests as this user
-```
-
-```dart
-await applad.auth.createAccount(email: 'ada@example.com', password: 'a-strong-password', name: 'Ada');
-await applad.auth.createEmailSession(email: 'ada@example.com', password: 'a-strong-password');
-// the Dart SDK applies the session token for you
-```
+<Tabs items={['JavaScript', 'Dart']}>
+  <Tab value="JavaScript">
+    ```ts
+    await applad.auth.createAccount('ada@example.com', 'a-strong-password', { name: 'Ada' });
+    const session = await applad.auth.createEmailSession('ada@example.com', 'a-strong-password');
+    applad.setJWT(session.secret); // authenticate subsequent requests as this user
+    ```
+  </Tab>
+  <Tab value="Dart">
+    ```dart
+    await applad.auth.createAccount(email: 'ada@example.com', password: 'a-strong-password', name: 'Ada');
+    await applad.auth.createEmailSession(email: 'ada@example.com', password: 'a-strong-password');
+    // the Dart SDK applies the session token for you
+    ```
+  </Tab>
+</Tabs>
 
 See [Authentication](/build/authentication) for OAuth, MFA, magic links, and more.
 
-## 4. Store and read data
+</Step>
+
+<Step>
+
+### Store and read data
 
 Create a table (once, from the console or a setup script) and start writing rows.
-A row can carry its own [permissions](/build/permissions) so only the right people can
-read it.
+A row can carry its own [permissions](/build/permissions) so only the right people
+can read it.
 
-```dart
-// Create a row
-final row = await applad.databases.createRow(
-  databaseId: 'app',
-  tableId: 'messages',
-  data: {'body': 'Hello, Applad'},
-);
+<Tabs items={['Dart', 'JavaScript']}>
+  <Tab value="Dart">
+    ```dart
+    // Create a row
+    final row = await applad.databases.createRow(
+      databaseId: 'app',
+      tableId: 'messages',
+      data: {'body': 'Hello, Applad'},
+    );
 
-// Query rows
-final result = await applad.databases
-    .from('app', 'messages')
-    .orderDesc('created_at')
-    .limit(20)
-    .get();
+    // Query rows
+    final result = await applad.databases
+        .from('app', 'messages')
+        .orderDesc('created_at')
+        .limit(20)
+        .get();
 
-for (final r in result.rows) {
-  print(r['body']);
-}
-```
+    for (final r in result.rows) {
+      print(r['body']);
+    }
+    ```
+  </Tab>
+  <Tab value="JavaScript">
+    ```ts
+    // Create a row
+    const row = await applad.databases.createRow('app', 'messages', { body: 'Hello, Applad' });
+
+    // Query rows
+    const result = await applad.databases
+      .from('app', 'messages')
+      .orderDesc('created_at')
+      .limit(20)
+      .get();
+
+    for (const r of result.rows) console.log(r.body);
+    ```
+  </Tab>
+</Tabs>
+
+</Step>
+
+</Steps>
 
 ## Next steps
 
-- [Databases](/build/databases) and the query builder
-- [Permissions](/build/permissions), the model that decides who can read and write
-- [Teams](/build/teams) for shared access
-- [Realtime](/build/realtime) to react to changes as they happen
-- [Storage](/build/storage), [Functions](/build/functions), [Messaging](/build/messaging), [Sites](/deploy/sites)
+<Cards>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    The query builder, columns, indexes and relationships.
+  </Card>
+  <Card icon={<ShieldCheck />} title="Permissions" href="/build/permissions">
+    The model that decides who can read and write each row.
+  </Card>
+  <Card icon={<Users />} title="Teams" href="/build/teams">
+    Group users so a resource is visible to exactly the right people.
+  </Card>
+  <Card icon={<Radio />} title="Realtime" href="/build/realtime">
+    React to changes as they happen.
+  </Card>
+</Cards>

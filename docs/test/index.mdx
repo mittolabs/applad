@@ -4,6 +4,8 @@ description: Run your project's own test suite in a container, record per-case r
 icon: FlaskConical
 ---
 
+import { Rocket, Workflow, Activity, Code } from 'lucide-react';
+
 Most backends stop at build and deploy. Applad also runs **your project's own
 tests**. You point it at a body of tests (a git repo or an upload), it builds an
 image, runs it to completion in a container, and reads the JUnit XML report the
@@ -47,7 +49,16 @@ deploys without being deleted.
 The **target** belongs to the run, not the test, so one suite can check `main`
 and a branch rather than being duplicated per environment.
 
-## Create a runner
+## From runner to run
+
+The path from nothing to a verdict is a handful of steps: describe how your
+tests run, give the worker your source, emit a JUnit report, then trigger a run
+and read the verdict.
+
+<Steps>
+
+<Step>
+### Create a runner
 
 A runner says how your tests run. `name` and `command` are required; everything
 else has a sensible default.
@@ -86,7 +97,9 @@ curl -X POST https://api.applad.io/v1/tests/runners \
 
 The response is the created runner with its generated `$id`. That id is what you
 run against below.
+</Step>
 
+<Step>
 ### Provide the source
 
 If `sourceType` is `git`, the worker clones `sourceUrl` at `branch` for each run.
@@ -101,7 +114,9 @@ curl -X POST https://api.applad.io/v1/tests/runners/<runnerId>/source \
   -H "x-applad-key: <apiKey>" \
   --data-binary @project.tar.gz
 ```
+</Step>
 
+<Step>
 ### The report is the contract
 
 Your `command` must leave a JUnit XML file at `reportPath`. Applad reads the
@@ -122,8 +137,10 @@ export default {
   reporter: [['junit', { outputFile: 'junit.xml' }]],
 };
 ```
+</Step>
 
-## Run it and read the results
+<Step>
+### Trigger a run
 
 Trigger a run of the runner. You can pass a `target` (the URL the tests run
 against, exposed to the container as the `BASE_URL` environment variable) and a
@@ -143,6 +160,10 @@ stream while it runs:
 curl https://api.applad.io/v1/tests/runs/<runId> -H "x-applad-key: <apiKey>"
 curl https://api.applad.io/v1/tests/runs/<runId>/stream -H "x-applad-key: <apiKey>"
 ```
+</Step>
+
+<Step>
+### Read the results
 
 A finished run carries the verdict and the tallies:
 
@@ -186,6 +207,9 @@ curl https://api.applad.io/v1/tests/runs/<runId>/cases -H "x-applad-key: <apiKey
 
 List past runs with `GET /v1/tests/runs` (optionally `?runnerId=<id>&limit=<n>`,
 newest first).
+</Step>
+
+</Steps>
 
 ## The test catalogue
 
@@ -308,23 +332,37 @@ curl https://api.applad.io/v1/tests/artifacts/<artifactId> -H "x-applad-key: <ap
 
 The studio records a browser flow against a running target and compiles it to a
 runnable Playwright suite, so you get an end-to-end test without writing one.
+
+<Steps>
+
+<Step>
+### Open a recording session
+
 In the console, **Test → Flows → Record** opens a real browser in a container,
 streams it to you over a WebSocket, and forwards your clicks and keystrokes back.
+</Step>
+
+<Step>
+### Record steps, not coordinates
+
 Each interaction becomes a step with a durable selector (a role and name, a test
 id, a label) rather than a coordinate. Assert mode turns a click into an
 assertion instead of an action.
+</Step>
 
-<Callout title="Live recording is a console feature">
-  The live browser stream needs the console UI and the browser worker; it is not
-  something you drive from a script. The underlying API lives under `/v1/studio`
-  (`POST /sessions`, `GET /sessions/{id}/stream`, `POST /sessions/{id}/save`).
-</Callout>
+<Step>
+### Save the flow
 
 Flows are stored as steps, not code. Saving a session writes a complete
 generated Playwright project into a single shared **recorded-flows** runner, so a
-recording is immediately a suite that runs on every change. You can preview what
-a recording compiles to before keeping it, and read the generated spec of any
-saved flow:
+recording is immediately a suite that runs on every change.
+</Step>
+
+<Step>
+### Read the compiled suite
+
+You can preview what a recording compiles to before keeping it, and read the
+generated spec of any saved flow:
 
 ```bash
 curl https://api.applad.io/v1/studio/flows -H "x-applad-key: <apiKey>"
@@ -336,6 +374,15 @@ source. The generated project is rebuilt from all flows whenever one is added or
 removed, so the runnable source and the catalogue stay in step. A saved flow also
 keeps a **capture** (the frame timeline, console, and network gathered while
 recording) so the test doubles as a replay.
+</Step>
+
+</Steps>
+
+<Callout title="Live recording is a console feature">
+  The live browser stream needs the console UI and the browser worker; it is not
+  something you drive from a script. The underlying API lives under `/v1/studio`
+  (`POST /sessions`, `GET /sessions/{id}/stream`, `POST /sessions/{id}/save`).
+</Callout>
 
 <Callout title="Web only, for now">
   Steps also compile to Maestro for devices, but device platforms need an
@@ -373,3 +420,12 @@ All routes require a server API key and live under `/v1`.
 | `POST /studio/sessions/{id}/save` | Save a recording as a flow and suite |
 | `GET /studio/flows` · `GET /studio/flows/{flowId}` | List flows, or one flow with its compiled Playwright |
 | `DELETE /studio/flows/{flowId}` | Delete a flow and its generated suite |
+
+## Related
+
+<Cards>
+  <Card icon={<Rocket />} title="Sites" href="/deploy/sites">Deploy the app your suites run against, and connect a private repo through the GitHub App.</Card>
+  <Card icon={<Workflow />} title="Workflows" href="/automate/workflows">Compose runs with other steps, or trigger a suite from a workflow.</Card>
+  <Card icon={<Activity />} title="Observe" href="/observe">Watch run verdicts, logs, and history once suites are live.</Card>
+  <Card icon={<Code />} title="Functions" href="/build/functions">Write the serverless code your tests exercise.</Card>
+</Cards>
