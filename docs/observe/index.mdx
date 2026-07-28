@@ -1,0 +1,268 @@
+---
+title: Observe
+description: Monitor your live app with error tracking, logs, performance, uptime and cron checks, and alert rules, all under one /v1/observe API.
+icon: Activity
+---
+
+Most backends stop at deploy. Observe is the stage after: once your app is
+running in production, it tells you how it is actually doing. Errors, logs,
+request performance, uptime, scheduled-job health, and alert rules all live
+under a single `/v1/observe` API and share the same project scope as the rest
+of Applad. You capture events from your app (or let Applad collect them for
+you), then query them back or watch them in the console.
+
+This is the piece a plain BaaS usually leaves you to bolt on with a separate
+Sentry or an uptime service. Here it is part of the same project as your
+[databases](/build/databases), [functions](/build/functions), and
+[deployed sites](/deploy/sites), reachable with the same key.
+
+<Callout title="Everything here is project-scoped">
+Every route below lives under `/v1/observe` and requires the project header
+`x-applad-project: <projectId>` plus authentication. Client SDKs send the
+session bearer token after [login](/build/authentication); server code sends an API
+key header `x-applad-key: <apiKey>`. Ingestion (capturing errors, logs, and
+web vitals) is typically done from your running app, so most examples use the
+client SDK.
+</Callout>
+
+## Setup
+
+The examples use the Dart client SDK and raw `curl`. Configure a client once:
+
+```dart
+final client = Applad()
+    .setEndpoint('https://api.applad.io/v1')
+    .setProject('<projectId>');
+// after client.auth.createEmailSession(...) the SDK sends the session token
+```
+
+For server-side or ad-hoc calls, set these and reuse them:
+
+```bash
+export APPLAD=https://api.applad.io
+export PROJECT=<projectId>
+export KEY=<apiKey>
+```
+
+## What Observe gives you
+
+| Capability | What it does | Real endpoints |
+|---|---|---|
+| Error tracking | Capture exceptions, group them by fingerprint, triage (resolve / ignore / assign / prioritise), and read per-issue activity | `GET/POST /observe/errors`, `.../{errorId}` and status routes |
+| Logs | Ship structured log lines with level, source, trace/span IDs, and metadata; query them back | `GET/POST /observe/logs` |
+| Performance | Per-endpoint latency percentiles (p50/p75/p95/p99), throughput, error rate, and browser web vitals | `GET/POST /observe/performance`, `POST /observe/performance/vitals` |
+| Uptime monitors | Applad polls a URL on a schedule and records status, latency, and uptime percentage | `GET/POST/DELETE /observe/uptime` |
+| Cron monitors | Scheduled jobs check in when they run; the monitor records duration and history | `GET/POST/DELETE /observe/crons`, `.../{monitorId}/checkin` |
+| Alert rules | Define threshold rules on a metric (error rate, latency, and so on) and list open incidents | `GET/POST/DELETE /observe/alerts` |
+| Overview | A single rolled-up snapshot: errors today, logs last hour, p95, uptime | `GET /observe/overview` |
+| Releases | Record a release version with its commits and read release-level issue counts | `GET/POST /observe/releases` |
+| Session replays | Store and read back session recordings (events, network, console) | `GET/POST /observe/replays` |
+
+The sections below show how to send and query each. The linked pages go deeper
+on the ones with the most surface area.
+
+## Error tracking
+
+Capture an error and it is grouped by a fingerprint of project, title, and
+type. A repeat of the same error increments a counter and updates `lastSeen`
+rather than creating a new row, so a noisy exception is one issue with a count,
+not thousands of duplicates.
+
+```dart
+await client.observe.captureError(
+  'Null check operator used on a null value',
+  errorType: 'TypeError',
+  level: 'error', // fatal | error | warning | info
+  stackTrace: stack.toString(),
+  environment: 'production',
+  release: '1.4.0',
+  tags: {'screen': 'checkout'},
+);
+```
+
+List and triage issues:
+
+```bash
+# open issues, most recently seen first
+curl "$APPLAD/v1/observe/errors?status=unresolved&level=error&limit=50" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+
+# resolve one
+curl -X PATCH "$APPLAD/v1/observe/errors/<errorId>/resolve" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+Alongside resolve, an issue can be ignored, unresolved, assigned
+(`PATCH .../assign`), prioritised P1 to P4 (`PATCH .../priority`), and annotated
+with a note (`POST .../activity`). `POST /observe/errors/bulk` applies resolve,
+ignore, or unresolve to a list of IDs at once. See
+Error tracking for the full triage flow.
+
+<Callout title="Search is not filtered server-side yet">
+`GET /observe/errors` accepts `status`, `level`, and `limit`. A `search`
+parameter is accepted but currently ignored by the API, so filter by text on
+the client for now.
+</Callout>
+
+## Logs
+
+Send structured log entries and query them by level or source. Levels are
+`debug`, `info`, `warn`, `error`, `fatal`.
+
+```dart
+await client.observe.captureLog(
+  'checkout completed',
+  level: 'info',
+  source: 'payments',
+  release: '1.4.0',
+  traceId: traceId,
+  meta: {'orderId': order.id, 'amount': 4200},
+);
+```
+
+```bash
+curl "$APPLAD/v1/observe/logs?level=error&source=payments&limit=100" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+## Performance
+
+Applad already records latency for you. A built-in collector samples every
+request the API serves and flushes per-endpoint percentiles (p50/p75/p95/p99),
+requests per second, and error rate to hourly buckets. Read the last 24 hours,
+aggregated per endpoint with an Apdex score:
+
+```bash
+curl "$APPLAD/v1/observe/performance" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+You can also push your own numbers. `POST /observe/performance` records a
+snapshot for a path you name, and browser clients report Core Web Vitals:
+
+```dart
+await client.observe.reportWebVitals(
+  pageUrl: '/checkout',
+  lcp: 1800, cls: 0.02, inp: 120, ttfb: 320,
+);
+```
+
+## Uptime monitors
+
+Create a monitor and Applad polls the URL itself. A background worker checks
+every enabled monitor at its interval, records each result, and keeps a rolling
+uptime percentage and latency. This one is fully wired up server-side.
+
+```dart
+await client.observe.createMonitor(
+  'API health',
+  'https://api.example.com/health',
+  checkType: 'http',
+  intervalSecs: 60,
+  keyword: 'ok', // optional body match
+);
+```
+
+```bash
+curl "$APPLAD/v1/observe/uptime" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+A monitor starts as `pending` and becomes `up`, `degraded`, or `down` after its
+first check. Its `uptimePct`, `latencyMs`, and `lastChecked` are `null` until
+then, because a URL nobody has fetched has no measured uptime. Delete with
+`DELETE /observe/uptime/{monitorId}`. More in Uptime.
+
+## Cron monitors
+
+A cron monitor watches a scheduled job by having the job check in when it runs.
+Create the monitor with the schedule it should keep, then have the job POST a
+check-in at the end of each run:
+
+```bash
+# define the monitor
+curl -X POST "$APPLAD/v1/observe/crons" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"nightly-report","schedule":"0 2 * * *","timezone":"UTC","gracePeriod":5}'
+
+# the job checks in
+curl -X POST "$APPLAD/v1/observe/crons/<monitorId>/checkin" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"ok","durationMs":8200}'
+```
+
+Each check-in records status, duration, and history, and updates the monitor's
+`lastRunAt`. Monitors can be toggled (`PATCH .../toggle`) and deleted. See
+Cron monitors.
+
+<Callout title="Check-ins are recorded, not yet policed">
+Check-ins and their history are stored, and a monitor carries a `gracePeriod`.
+Automatic detection of a missed run (marking a monitor failed when a check-in
+does not arrive in time) is not wired up in this build, so treat cron
+monitoring as a check-in log for now.
+</Callout>
+
+## Alert rules
+
+Define a rule over a metric with a threshold and a notification channel:
+
+```dart
+await client.observe.createAlertRule(
+  'High error rate',
+  metric: 'error_rate',
+  operator: 'gt',
+  threshold: 5,
+  window: '5m',
+  severity: 'warning',
+  channel: 'email',
+);
+```
+
+List rules and any open incidents:
+
+```bash
+curl "$APPLAD/v1/observe/alerts" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+Rules can be toggled and deleted. See Alert rules.
+
+<Callout title="Rules are stored; evaluation is not automated yet">
+You can create, list, toggle, and delete alert rules, and the alerts response
+returns any open incidents. This build has no server-side evaluator that
+watches metrics and fires those incidents, so rules are configuration that
+nothing acts on automatically yet. Use them together with uptime checks and
+error triage rather than as a paging system.
+</Callout>
+
+## Overview, releases, and replays
+
+Three smaller capabilities round out the module:
+
+- **Overview** (`GET /observe/overview`) returns one rolled-up snapshot for a
+  dashboard: errors in the last 24 hours, logs in the last hour, average p95,
+  average uptime, and web vitals. Unmeasured numbers are omitted rather than
+  reported as a perfect value, so an instance with no monitors does not claim
+  100% uptime.
+- **Releases** (`GET/POST /observe/releases`) record a version and its commits,
+  and read back release-scoped issue counts (`newIssues`, `regressedIssues`,
+  `fixedIssues`) and crash-free sessions. Pass a `release` when capturing errors
+  and logs to tie them to a version.
+- **Session replays** (`GET/POST /observe/replays`) store and read back a
+  recording of a session (its events, network calls, and console output). The
+  API is ingest-and-fetch; the replay player itself is in the console UI.
+
+## How the pieces connect
+
+Tag your errors and logs with the same `release` and `environment` you record
+in Releases, and one version's issues line up across all three. Uptime and
+cron monitors run independently of your app and keep reporting even when it is
+down. The Overview endpoint reads across errors, logs, performance, and uptime,
+so it is the natural thing to put on a project dashboard.
+
+For self-hosters: Observe needs no extra services. Error, log, performance, and
+replay data live in PostgreSQL alongside everything else, and the uptime worker
+and performance collector start with the API. See [self-hosting](/self-hosting)
+for the base stack.

@@ -1,0 +1,375 @@
+---
+title: Testing
+description: Run your project's own test suite in a container, record per-case results from JUnit XML, and turn recorded browser flows into Playwright suites that run on every deploy.
+icon: FlaskConical
+---
+
+Most backends stop at build and deploy. Applad also runs **your project's own
+tests**. You point it at a body of tests (a git repo or an upload), it builds an
+image, runs it to completion in a container, and reads the JUnit XML report the
+run leaves behind. From that one report Applad records every case, keeps its
+history across runs, marks the ones that failed-then-passed as flaky, and stores
+any screenshots or videos the run produced.
+
+Because the interchange format is JUnit XML, Applad never has to know whether you
+use Jest, pytest, `go test`, `flutter test`, or Playwright. You describe how your
+suite runs, and the report says what happened.
+
+<Callout title="This is an operator and CI task">
+  Test configuration and runs are server-side work: you drive them with a
+  **server API key** (`x-applad-key`), from CI or a trusted environment, not from
+  end-user code. All routes live under `/v1/tests` (and `/v1/studio` for the
+  recording studio). The 5 client/server SDKs do not wrap the Test module yet, so
+  the examples below use the REST API directly and the console UI.
+</Callout>
+
+<Callout title="Runs need Docker">
+  Runs execute on Applad's builds worker, which holds the Docker socket. A
+  self-hosted install already runs this worker as part of `docker compose up`, so
+  no extra setup is required. Test containers join the deploy network, so a
+  browser suite can reach a deployed app by container name (see
+  [Sites](/deploy/sites)).
+</Callout>
+
+## Four objects
+
+The Test module is built from four objects. Keeping them separate is what lets
+one suite check several environments and lets a known-flaky test stop blocking
+deploys without being deleted.
+
+| Object | What it is |
+| --- | --- |
+| **runner** | How tests execute: the image, the setup command, the test command, and where the JUnit report lands. A project usually has one or two. |
+| **test** | One behaviour. Recorded flows create one directly; authored tests are discovered the first time a run reports them. Tagged, quarantinable, carries history. |
+| **suite** | A selection of tests by tag, plus its triggers: on deploy, on a schedule. |
+| **run** | A suite (or a whole runner) executed against a target, at a moment. |
+
+The **target** belongs to the run, not the test, so one suite can check `main`
+and a branch rather than being duplicated per environment.
+
+## Create a runner
+
+A runner says how your tests run. `name` and `command` are required; everything
+else has a sensible default.
+
+```bash
+curl -X POST https://api.applad.io/v1/tests/runners \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "API tests",
+    "sourceType": "git",
+    "sourceUrl": "https://github.com/acme/app.git",
+    "branch": "main",
+    "image": "node:20",
+    "setupCmd": "npm ci",
+    "command": "npm test",
+    "reportPath": "junit.xml",
+    "artifactsPath": "test-results",
+    "envVars": { "CI": "true" },
+    "timeoutMs": 900000
+  }'
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Required. Display name. |
+| `sourceType` | `git` or `upload` (default `upload`). `generated` is reserved for recorded flows. |
+| `sourceUrl`, `branch` | Repository and branch, when `sourceType` is `git`. |
+| `image` | Base image the tests run in. |
+| `setupCmd` | Shell command run before the tests (install dependencies, build). |
+| `command` | Required. The shell command that runs the suite. |
+| `reportPath` | Where the suite writes its JUnit XML. Defaults to `junit.xml`. |
+| `artifactsPath` | A directory the suite writes recordings and screenshots into. Empty means none. |
+| `envVars` | Environment variables passed into the container. |
+| `timeoutMs` | Run timeout. Defaults to `900000` (15 minutes). |
+
+The response is the created runner with its generated `$id`. That id is what you
+run against below.
+
+### Provide the source
+
+If `sourceType` is `git`, the worker clones `sourceUrl` at `branch` for each run.
+For a private repository, see the GitHub App connection in [Sites](/deploy/sites).
+
+If `sourceType` is `upload`, push a gzipped tar or zip of your project to the
+runner. This shares the deploy module's storage, and the archive is capped at
+512 MB.
+
+```bash
+curl -X POST https://api.applad.io/v1/tests/runners/<runnerId>/source \
+  -H "x-applad-key: <apiKey>" \
+  --data-binary @project.tar.gz
+```
+
+### The report is the contract
+
+Your `command` must leave a JUnit XML file at `reportPath`. Applad reads the
+union of what runners actually emit: a bare `<testsuite>` or a `<testsuites>`
+wrapper, nested suites, failures as elements or attributes, and time in seconds.
+Each `<testcase>` becomes one recorded case:
+
+- an `<error>` marks the case **errored** (the framework failed to run it),
+- a `<failure>` marks it **failed** (the test disagreed with the code),
+- a `<skipped>` marks it **skipped**,
+- anything else is **passed**.
+
+Configure your framework to emit JUnit. For example, Playwright:
+
+```ts
+// playwright.config.ts
+export default {
+  reporter: [['junit', { outputFile: 'junit.xml' }]],
+};
+```
+
+## Run it and read the results
+
+Trigger a run of the runner. You can pass a `target` (the URL the tests run
+against, exposed to the container as the `BASE_URL` environment variable) and a
+`suiteId` to narrow which tests execute.
+
+```bash
+curl -X POST https://api.applad.io/v1/tests/runners/<runnerId>/run \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "triggerType": "manual", "target": "https://staging.example.com" }'
+```
+
+The response is a run with `status: "queued"`. Poll it, or watch the live log
+stream while it runs:
+
+```bash
+curl https://api.applad.io/v1/tests/runs/<runId> -H "x-applad-key: <apiKey>"
+curl https://api.applad.io/v1/tests/runs/<runId>/stream -H "x-applad-key: <apiKey>"
+```
+
+A finished run carries the verdict and the tallies:
+
+```json
+{
+  "$id": "run_...",
+  "status": "passed",
+  "target": "container",
+  "targetUrl": "https://staging.example.com",
+  "triggerType": "manual",
+  "total": 42, "passed": 40, "failed": 0, "skipped": 2,
+  "flaky": 1, "quarantined": 0,
+  "durationMs": 18320
+}
+```
+
+`status` is `passed`, `failed` (a blocking case failed), or `errored` (the run
+itself could not complete). List the individual cases, failures and errors
+first:
+
+```bash
+curl https://api.applad.io/v1/tests/runs/<runId>/cases -H "x-applad-key: <apiKey>"
+```
+
+```json
+{
+  "total": 42,
+  "cases": [
+    {
+      "$id": "case_...",
+      "suiteName": "checkout",
+      "name": "applies a discount code",
+      "status": "failed",
+      "durationMs": 512,
+      "failureMessage": "expected 90, received 100",
+      "failureDetails": "at checkout.spec.ts:44"
+    }
+  ]
+}
+```
+
+List past runs with `GET /v1/tests/runs` (optionally `?runnerId=<id>&limit=<n>`,
+newest first).
+
+## The test catalogue
+
+You never register tests by hand. Every case a run reports is upserted into the
+catalogue, so authored tests appear the first time they run, and recorded flows
+appear the moment they are saved. The catalogue is what makes "when did this
+start failing" and "is this flaky" answerable.
+
+```bash
+curl https://api.applad.io/v1/tests/tests -H "x-applad-key: <apiKey>"
+```
+
+Each entry carries a short recent `history` (newest first), its `lastStatus`,
+and its `tags`. To see everything one test has done across runs, with the
+recording each run left behind:
+
+```bash
+curl https://api.applad.io/v1/tests/<testId>/history -H "x-applad-key: <apiKey>"
+```
+
+### Tags
+
+Tags are how you build a suite. Replace a test's tags:
+
+```bash
+curl -X PUT https://api.applad.io/v1/tests/<testId>/tags \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "tags": ["smoke", "checkout"] }'
+```
+
+## Suites: which tests, run when
+
+A suite is a named selection of tests (by tag) plus its triggers. An empty tag
+list means every test the runner produces.
+
+```bash
+curl -X POST https://api.applad.io/v1/tests/suites \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Smoke",
+    "tags": ["smoke"],
+    "defaultTarget": "https://staging.example.com",
+    "runOnDeploy": true,
+    "cron": "0 * * * *"
+  }'
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Required. |
+| `tags` | Tests carrying any of these tags are selected. Empty means all. |
+| `runnerId` | Pin the suite to one runner. Omit to use the project's recorded-flows runner. |
+| `defaultTarget` | The URL to run against when a run does not name one. |
+| `runOnDeploy` | Run this suite automatically after a deploy. |
+| `cron` | A standard 5-field cron expression; the scheduler runs the suite when due. |
+
+Run a suite, optionally against a target other than its default. This is exactly
+how the same suite checks `main` and a branch:
+
+```bash
+curl -X POST https://api.applad.io/v1/tests/suites/<suiteId>/run \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "target": "https://pr-42.example.com" }'
+```
+
+### Triggers
+
+- **On deploy.** A suite with `runOnDeploy: true` runs after every deploy, and
+  the just-deployed URL becomes its target, so it checks what actually shipped.
+  See [Sites](/deploy/sites).
+- **On a schedule.** A suite with a `cron` expression runs when due. Expressions
+  are validated when written, so an unusable schedule is rejected at the API
+  rather than silently never running. A backlog fires once and resyncs rather
+  than replaying every missed occurrence.
+
+## Flaky and quarantine
+
+Retries are honoured. When a runner retries a test, the report lists each
+attempt; Applad collapses them to one result, where the last attempt is the
+outcome. A test that **failed and then passed within the same run** is recorded
+as `flaky` rather than failing the run. The `flaky` count on a run and the
+`flaky` flag on a history entry make "sometimes red" a fact instead of an
+argument.
+
+A **quarantined** test still runs and still reports, but no longer decides the
+verdict. This is how a known-flaky test stops blocking deploys without being
+deleted and forgotten. A quarantined failure shows up in the run's `quarantined`
+count instead of its `failed` count.
+
+```bash
+curl -X PUT https://api.applad.io/v1/tests/<testId>/quarantine \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "quarantined": true }'
+```
+
+## Artifacts
+
+If your runner names an `artifactsPath`, that directory is copied out of the
+container after the run and stored as artifacts. Where a runner names its output
+after the test (as Playwright does), the artifact is attached to that case, so a
+failing browser test shows its own recording.
+
+```bash
+curl https://api.applad.io/v1/tests/runs/<runId>/artifacts -H "x-applad-key: <apiKey>"
+```
+
+Each artifact has a `kind` (`video`, `screenshot`, `trace`, `report`, or
+`other`), inferred from the file extension. Videos are listed first. Open one
+directly; it is served as a file (with range requests, so a video seeks):
+
+```bash
+curl https://api.applad.io/v1/tests/artifacts/<artifactId> -H "x-applad-key: <apiKey>"
+```
+
+## The recording studio
+
+The studio records a browser flow against a running target and compiles it to a
+runnable Playwright suite, so you get an end-to-end test without writing one.
+In the console, **Test → Flows → Record** opens a real browser in a container,
+streams it to you over a WebSocket, and forwards your clicks and keystrokes back.
+Each interaction becomes a step with a durable selector (a role and name, a test
+id, a label) rather than a coordinate. Assert mode turns a click into an
+assertion instead of an action.
+
+<Callout title="Live recording is a console feature">
+  The live browser stream needs the console UI and the browser worker; it is not
+  something you drive from a script. The underlying API lives under `/v1/studio`
+  (`POST /sessions`, `GET /sessions/{id}/stream`, `POST /sessions/{id}/save`).
+</Callout>
+
+Flows are stored as steps, not code. Saving a session writes a complete
+generated Playwright project into a single shared **recorded-flows** runner, so a
+recording is immediately a suite that runs on every change. You can preview what
+a recording compiles to before keeping it, and read the generated spec of any
+saved flow:
+
+```bash
+curl https://api.applad.io/v1/studio/flows -H "x-applad-key: <apiKey>"
+curl https://api.applad.io/v1/studio/flows/<flowId> -H "x-applad-key: <apiKey>"
+```
+
+`GET /v1/studio/flows/{flowId}` returns the flow and its compiled `playwright`
+source. The generated project is rebuilt from all flows whenever one is added or
+removed, so the runnable source and the catalogue stay in step. A saved flow also
+keeps a **capture** (the frame timeline, console, and network gathered while
+recording) so the test doubles as a replay.
+
+<Callout title="Web only, for now">
+  Steps also compile to Maestro for devices, but device platforms need an
+  emulator or a Mac and are not wired up. Only web recording runs end to end
+  today. AI capture summaries (`explain`) and the public share page for a capture
+  appear only when an AI provider is configured and on the hosted product
+  respectively; a plain self-hosted install has neither.
+</Callout>
+
+## Route reference
+
+All routes require a server API key and live under `/v1`.
+
+| Route | Description |
+| --- | --- |
+| `POST /tests/runners` · `GET /tests/runners` | Create or list runners |
+| `GET·PUT·DELETE /tests/runners/{runnerId}` | Get, update, delete a runner |
+| `POST /tests/runners/{runnerId}/source` | Upload project source (tar.gz or zip) |
+| `POST /tests/runners/{runnerId}/run` | Trigger a run |
+| `GET /tests/tests` | The catalogue |
+| `PUT /tests/{testId}/tags` | Set a test's tags |
+| `PUT /tests/{testId}/quarantine` | Quarantine or release a test |
+| `GET /tests/{testId}/history` | A test's history across runs |
+| `POST /tests/suites` · `GET /tests/suites` | Create or list suites |
+| `PUT·DELETE /tests/suites/{suiteId}` | Update or delete a suite |
+| `POST /tests/suites/{suiteId}/run` | Run a suite, optionally against a target |
+| `GET /tests/runs` | List runs (`?runnerId=`, `?limit=`) |
+| `GET /tests/runs/{runId}` | A run and its verdict |
+| `GET /tests/runs/{runId}/cases` | The run's individual cases |
+| `GET /tests/runs/{runId}/artifacts` | The run's artifacts |
+| `GET /tests/runs/{runId}/stream` | Live log stream while running |
+| `GET /tests/artifacts/{artifactId}` | Download one artifact |
+| `POST /studio/sessions` | Start a recording session (console) |
+| `GET /studio/sessions/{id}/stream` | Live browser stream (console) |
+| `POST /studio/sessions/{id}/save` | Save a recording as a flow and suite |
+| `GET /studio/flows` · `GET /studio/flows/{flowId}` | List flows, or one flow with its compiled Playwright |
+| `DELETE /studio/flows/{flowId}` | Delete a flow and its generated suite |

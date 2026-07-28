@@ -1,4 +1,5 @@
 {
-  "title": "Documentation",
-  "pages": ["index", "getting-started", "concepts", "authentication", "databases", "sdks"]
+  "title": "Get started",
+  "icon": "Compass",
+  "pages": ["index", "getting-started", "concepts", "sdks", "self-hosting", "plan", "build", "test", "deploy", "automate", "observe"]
 }

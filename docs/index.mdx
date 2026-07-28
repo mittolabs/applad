@@ -1,41 +1,74 @@
 ---
 title: Introduction
-description: Applad is a self-hosted backend-as-a-service with a built-in workflow engine.
+icon: Rocket
+description: Applad is an open-source backend for your app: auth, databases, storage, functions, messaging, realtime and deploy behind one API.
 ---
 
-Applad gives your app every backend service it needs — **databases, authentication,
-storage, functions, messaging, realtime and workflows** — behind one consistent REST API
-and admin console, running from a single `docker compose up`.
+Applad gives your app every backend it needs, so you can ship features instead of
+building and running plumbing. Authentication, a database with fine-grained
+permissions, file storage, serverless functions, messaging, realtime updates, and
+a place to deploy your app all sit behind **one `/v1` API** with SDKs for
+JavaScript, Dart, Node, Go and Python.
 
-## Why Applad
+It is open source and self-hosted. You run it, you own the data, and there is no
+per-seat pricing or vendor lock-in.
 
-- **Self-hosted.** It runs on your infrastructure. No vendor lock-in, no per-seat pricing.
-- **Batteries included.** Postgres, Redis, the API, background workers and the console all
-  ship together.
-- **One API.** Every service is reachable under `/v1` with the same auth model, and there
-  are SDKs for JavaScript, Node, Dart, Go and Python.
+## What you can build
 
-## Where things live
+Reach for Applad when you would otherwise wire together a database, an auth
+provider, an object store, and a queue by hand. A few things it makes short work
+of:
 
-| Surface | URL |
+- A web or mobile app with sign-in, user data, and a database that enforces
+  **who can read and write each row** for you.
+- A team or workspace app, where a [team](/build/teams) is the unit of shared access
+  and its members automatically get access to the right data.
+- A realtime app (chat, presence, live dashboards) that pushes database changes
+  to clients as they happen.
+- A site or service you [deploy](/deploy/sites) and serve on its own subdomain with
+  automatic HTTPS.
+
+## Two ways to use it
+
+<Callout title="Build on it">
+  You are writing an app and want a backend. Point an SDK at your Applad
+  instance, create a project, and start calling services. Begin with
+  [Getting started](/getting-started).
+</Callout>
+
+<Callout title="Self-host it">
+  You want to run Applad yourself. It comes up with a single `docker compose up`
+  (PostgreSQL, Redis, the API, workers and the admin console). See
+  [Self-hosting](/self-hosting).
+</Callout>
+
+## The services
+
+| Service | What it does |
 | --- | --- |
-| Marketing site | `applad.io` |
-| Admin console | `console.applad.io` |
-| API (what your SDKs talk to) | `api.applad.io` |
-| These docs | `docs.applad.io` |
-| Your deployed apps | `<app>.applad.dev` |
+| [Authentication](/build/authentication) | Accounts, email/password and anonymous sessions, OAuth, MFA, magic links |
+| [Databases](/build/databases) | Tables, typed columns, indexes, rows, and a fluent query builder |
+| [Permissions](/build/permissions) | Row-level security deciding who can read and write each row |
+| [Teams](/build/teams) | Shared access: a team's members get access to the team's data |
+| [Storage](/build/storage) | Buckets, file uploads, and image transformations |
+| [Functions](/build/functions) | Serverless code in managed runtimes |
+| [Messaging](/build/messaging) | Email, SMS, and push notifications |
+| [Realtime](/build/realtime) | Subscribe to database changes over a WebSocket |
+| [Sites](/deploy/sites) | Deploy an app and serve it on its own subdomain with HTTPS |
 
-<Callout title="Why two domains">
-  Everything of ours lives on `applad.io`; deployed apps get `applad.dev` to
-  themselves. Since deployed apps run your code, keeping them on a separate
-  registrable domain means one app can never set cookies the console would
-  read, or count as same-site with it.
-</Callout>
+## How it fits together
 
-<Callout title="Local development">
-  Locally the same hosts are used with a `.localhost` suffix (e.g.
-  `console.applad.io.localhost`), which every Chromium browser resolves to
-  `127.0.0.1` automatically.
-</Callout>
+You create a **project** (an isolated backend with its own database, users, and
+API keys). Your app talks to it two ways:
 
-Head to [Getting started](/getting-started) to bring the stack up.
+- **Client SDKs** run in your app and act as the **signed-in user**. Requests
+  carry the user's session, and [permissions](/build/permissions) decide what they can
+  see and do.
+- **Server SDKs** run on your own backend and act with an **API key** that has
+  full access, for trusted server-side work.
+
+Every service uses the same auth model and lives under `/v1`, so once you have
+learned one, the rest follow.
+
+Head to [Getting started](/getting-started) to create a project and make your
+first call.

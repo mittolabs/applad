@@ -1,0 +1,288 @@
+---
+title: Sites and deployments
+icon: Globe
+description: Deploy an app from source and serve it at its own <name>.applad.dev address with automatic HTTPS.
+---
+
+Applad can build your app from source and run it for you. You describe **what**
+to run as a deploy target, give it the code, and Applad builds an image, starts
+a container, and serves it at `<name>.applad.dev` with a certificate issued
+automatically. A target can be a web app, a serverless function, or a
+long-running container.
+
+Everything on this page lives under `/v1/deploy` and needs the project header
+plus a key. Deploy management is a server-side task, so the examples use an API
+key (`x-applad-key`). Set these once:
+
+```bash
+export APPLAD=https://api.applad.io
+export PROJECT=<projectId>
+export KEY=<apiKey>
+```
+
+<Callout title="Client SDK coverage">
+The Dart client SDK's `deploy` helper currently wraps only a minimal surface and
+does not cover targets, pipelines, or releases. Manage deployments from the
+console or the REST routes shown here.
+</Callout>
+
+## Deploy targets
+
+A **target** is the thing you deploy. It has a `type`:
+
+| Type | What it is | Address |
+|---|---|---|
+| `web` | An app served over HTTP (static site or a server) | `<name>.applad.dev` |
+| `serverless` | A function you invoke on demand | none (invoked via the API) |
+| `container` | A long-running container from a registry image | assigned per target |
+
+`web` is the default if you omit `type`. Mobile and desktop targets are surfaced
+in the console's navigation but are not built by this API; only `web`,
+`serverless`, and `container` are handled by the deploy engine.
+
+### Create a target
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/targets" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "The Range", "type": "web"}'
+```
+
+For a `web` target, Applad derives a **subdomain** from the name and claims it at
+creation time: `"The Range"` becomes `the-range`, served at
+`https://the-range.applad.dev`. The response includes the derived `subdomain`
+and the full `url`:
+
+```json
+{
+  "$id": "6f2c...",
+  "name": "The Range",
+  "type": "web",
+  "subdomain": "the-range",
+  "url": "https://the-range.applad.dev"
+}
+```
+
+A subdomain is global across every project, so two sites cannot claim the same
+one. If the name reduces to a subdomain another site already answers on, the
+create returns `409 Conflict` and you pick a different name. This is deliberate:
+a silently different address is a worse surprise than being told.
+
+Optional fields on create: `runtime` and `entrypoint` (serverless),
+`timeoutMs` (default `30000`), `memoryMb` (default `256`), `envVars`
+(a string map), `permissions`, and `cron` (a schedule; validated when written,
+so a bad expression is rejected at the API).
+
+List, fetch, update, and delete targets:
+
+```bash
+curl "$APPLAD/v1/deploy/targets"            -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+curl "$APPLAD/v1/deploy/targets/$TARGET"    -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+curl -X DELETE "$APPLAD/v1/deploy/targets/$TARGET" -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+## Deploying: pipelines and releases
+
+Deploying takes three steps: create a **pipeline** (where the code comes from and
+how to build it), give it the source, and **trigger** a build. Each trigger
+produces a **release**, one build-and-deploy run.
+
+### 1. Create a pipeline
+
+A pipeline is tied to a target and names the source and build plan. `sourceType`
+is `upload` (the default) or `git`.
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/pipelines" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "targetId": "'"$TARGET"'",
+        "name": "production",
+        "sourceType": "upload",
+        "installCmd": "npm ci",
+        "buildCmd": "npm run build",
+        "outputDir": "dist"
+      }'
+```
+
+Leave a build phase empty to have Applad infer it from the source. For a git
+source, set `sourceType` to `git` with a `sourceUrl` and `branch`. A public
+repository deploys by URL directly. (Connecting a private GitHub repo needs the
+Applad Cloud GitHub App, which a self-hosted instance does not have; public
+repositories still deploy by URL.)
+
+### 2. Upload the source
+
+For an `upload` pipeline, POST a gzipped tarball of your app's source. The upload
+is capped at 512 MB.
+
+```bash
+tar czf app.tar.gz -C ./my-app .
+curl -X POST "$APPLAD/v1/deploy/pipelines/$PIPELINE/source" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  --data-binary @app.tar.gz
+```
+
+### 3. Trigger a build
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/pipelines/$PIPELINE/trigger" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"triggerType": "manual"}'
+```
+
+This returns `202 Accepted` with a release. The build runs asynchronously on the
+builds worker; the release moves through `pending` to `building`, `deploying`,
+and then `success` or `failed`.
+
+```json
+{ "$id": "9a1e...", "targetId": "6f2c...", "status": "pending", "triggerType": "manual" }
+```
+
+## Watching a build
+
+Poll the release for its status, and read its logs:
+
+```bash
+curl "$APPLAD/v1/deploy/releases/$RELEASE" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+
+curl "$APPLAD/v1/deploy/releases/$RELEASE/logs" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+The logs endpoint returns the build output as it accumulates, so poll it while
+the status is `building`:
+
+```json
+{
+  "$id": "9a1e...",
+  "buildLog": "npm ci\nadded 214 packages...\n",
+  "deployLog": "starting container the-range...\n",
+  "error": ""
+}
+```
+
+List releases for a target or pipeline, optionally filtered by status:
+
+```bash
+curl "$APPLAD/v1/deploy/releases?targetId=$TARGET&status=success" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+### Rolling back
+
+Roll a target back to a previous successful release:
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/releases/$RELEASE/rollback" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+## Access logs
+
+Once a `web` target is live, its request log is available from the target. Each
+entry is one HTTP request served by the site's container, newest first:
+
+```bash
+curl "$APPLAD/v1/deploy/targets/$TARGET/logs" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+```json
+{
+  "total": 2,
+  "logs": [
+    {
+      "$id": "6f2c-1",
+      "ip": "203.0.113.7",
+      "method": "GET",
+      "path": "/about.html",
+      "statusCode": 200,
+      "bytes": 11199,
+      "duration": 3,
+      "userAgent": "curl/8.7",
+      "$createdAt": "2026-07-21T12:28:36Z"
+    }
+  ]
+}
+```
+
+`duration` is in milliseconds. These are live requests read from the running
+container, so a target that has not been deployed, or has served nothing, returns
+an empty `logs` array.
+
+## Serverless targets
+
+A `serverless` target is invoked rather than served. Pick a `runtime` when you
+create it, then invoke it:
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/targets/$TARGET/executions" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"request": "{\"name\":\"ada\"}", "trigger": "api"}'
+```
+
+This returns `202 Accepted` with an execution whose `status` moves from
+`pending` through `running` to `completed` or `failed`, carrying `statusCode`,
+`response`, `stdout`, `stderr`, and `durationMs`. Only serverless targets can be
+invoked; calling this on a `web` or `container` target is a `400`. List past
+executions at `GET /v1/deploy/targets/{targetId}/executions`.
+
+The available runtimes (Node.js, Bun, Python, Go, Dart, Ruby, PHP, Java, Kotlin,
+Swift, .NET, and more) are listed at:
+
+```bash
+curl "$APPLAD/v1/deploy/runtimes" -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+## Custom domains
+
+A `web` target already answers on its `<name>.applad.dev` address. To serve it
+on a domain you own, add the domain and verify ownership over DNS.
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/targets/$TARGET/domains" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "app.example.com"}'
+```
+
+The response carries a `verification` token and starts as `verified: false` with
+`sslStatus: "pending"`. Add a TXT record containing the token, either on the
+domain itself or on `_applad-verification.<domain>` (a CNAME containing the token
+also works), then verify:
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/targets/$TARGET/domains/$DOMAIN/verify" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+On success the domain flips to `verified: true` and `sslStatus: "active"`. List
+a target's domains at `GET /v1/deploy/targets/{targetId}/domains`; the assigned
+`.applad.dev` address is included there too, since it is the domain that serves
+traffic by default.
+
+## How TLS and DNS work
+
+You do not request certificates or add a DNS record per site. A single wildcard
+record covers every app subdomain (`*.applad.dev` points at the edge), and
+certificates are issued on demand, per hostname, the first time a name is
+requested. The edge only obtains a certificate for a name that belongs to a live
+app: a subdomain currently claimed by a deploy target, or a verified custom
+domain. A name that matches no live app gets no certificate, so the wildcard
+record cannot be used to mint certificates for arbitrary hostnames.
+
+A self-hosted instance follows the same model against whatever deploy domain it
+is configured with. See [getting started](/getting-started) for bringing up the
+stack.
+
+## Related
+
+- [Authentication](/build/authentication) for issuing the API key these calls use.
+- [Databases](/build/databases) and [permissions](/concepts) for the data your
+  deployed app reads and writes.

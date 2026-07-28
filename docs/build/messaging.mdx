@@ -1,0 +1,299 @@
+---
+title: Messaging
+icon: Mail
+description: Send transactional email, SMS, and push notifications from your project, and fan a single message out to a topic of subscribers.
+---
+
+Applad's messaging service sends three kinds of message from your project:
+**email** (SMTP), **SMS** (Twilio), and **push** notifications (Firebase Cloud
+Messaging). You can send a message directly to recipients, or send once to a
+**topic** and have every subscriber receive it. Reusable **templates** let you
+keep the copy in one place and fill in `{{variables}}` per send.
+
+Every channel talks to an outside provider, so it only works once that provider
+is configured. If you are running Applad yourself, see
+[Configuring providers](#configuring-providers) below and the
+[self-hosting guide](/self-hosting) for where to set the environment variables.
+
+All routes live under `/v1/messaging` and require [authentication](/build/authentication):
+a client session token or a project API key, plus the `x-applad-project` header.
+Because sending costs real money and reputation, messaging is usually driven from
+your server with an API key rather than from untrusted clients.
+
+## Send an email
+
+The client SDKs expose `messaging.sendEmail`, which sends immediately and returns
+once the provider has accepted (or rejected) the message.
+
+```dart
+await client.messaging.sendEmail(
+  to: ['alice@example.com'],
+  subject: 'Welcome to Acme',
+  html: '<h1>Hello</h1><p>Thanks for signing up.</p>',
+);
+```
+
+```ts
+await client.messaging.sendEmail(
+  ['alice@example.com'],
+  'Welcome to Acme',
+  '<h1>Hello</h1><p>Thanks for signing up.</p>',
+);
+```
+
+Under the hood this is `POST /v1/messaging/email`. From your server:
+
+```bash
+curl -X POST https://api.applad.io/v1/messaging/email \
+  -H "x-applad-project: <projectId>" \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": ["alice@example.com"],
+    "subject": "Welcome to Acme",
+    "html": "<h1>Hello</h1>"
+  }'
+```
+
+A successful send returns `{ "status": "sent" }`. `to` is a list, `subject` is
+required, and `html` is the message body (sent as `text/html`).
+
+<Callout title="Email needs SMTP configured">
+If no email provider is set up, this call fails with `messaging: SMTP not
+configured`. Configure SMTP as shown in [Configuring providers](#configuring-providers).
+</Callout>
+
+## Send an SMS
+
+`POST /v1/messaging/sms` sends a single text message through Twilio.
+
+```bash
+curl -X POST https://api.applad.io/v1/messaging/sms \
+  -H "x-applad-project: <projectId>" \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "+15551234567",
+    "body": "Your code is 123456"
+  }'
+```
+
+Both `to` (a single E.164 number) and `body` are required. A successful send
+returns `{ "status": "sent" }`. If Twilio is not configured the call fails with
+`messaging: Twilio not configured`.
+
+## Send a push notification
+
+`POST /v1/messaging/push` sends a notification to one device token through
+Firebase Cloud Messaging.
+
+```bash
+curl -X POST https://api.applad.io/v1/messaging/push \
+  -H "x-applad-project: <projectId>" \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "<device-fcm-token>",
+    "title": "New message",
+    "body": "You have a new message from Alice"
+  }'
+```
+
+`token` and `title` are required; `body` is optional. A successful send returns
+`{ "status": "sent" }`. If FCM is not configured the call fails with
+`messaging: FCM not configured`.
+
+## Recorded messages
+
+The endpoints above send and forget. If you want a stored record of what was
+sent (to show a message history, for example), use the `messages` endpoints
+instead. They persist the message, send it in the background, and update its
+status.
+
+| Channel | Route | Body |
+| --- | --- | --- |
+| Email | `POST /v1/messaging/messages/email` | `to` (list), `subject`, `html`, `draft` |
+| SMS | `POST /v1/messaging/messages/sms` | `to`, `body`, `draft` |
+| Push | `POST /v1/messaging/messages/push` | `token`, `title`, `body`, `draft` |
+
+```bash
+curl -X POST https://api.applad.io/v1/messaging/messages/email \
+  -H "x-applad-project: <projectId>" \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "to": ["alice@example.com"], "subject": "Receipt", "html": "<p>Thanks</p>" }'
+```
+
+This returns `201` with the stored message right away, before delivery finishes:
+
+```json
+{
+  "id": "6f2a...",
+  "projectId": "acme",
+  "type": "email",
+  "subject": "Receipt",
+  "body": "<p>Thanks</p>",
+  "recipients": ["alice@example.com"],
+  "status": "processing",
+  "scheduledAt": null,
+  "deliveredAt": null,
+  "createdAt": "2026-07-28T10:00:00Z"
+}
+```
+
+<Callout title="Status is not the send result">
+Because delivery happens in the background, a `201` here means the message was
+recorded, not that it was delivered. The `status` starts at `processing` and
+becomes `sent` or `failed` once the provider responds. Poll the message to see
+the outcome. A provider that is not configured leaves the message `failed`, so
+this path will not surface a "not configured" error to the caller the way the
+direct-send endpoints do.
+</Callout>
+
+Pass `"draft": true` to store the message without sending it (its status stays
+`draft`).
+
+Read messages back:
+
+```bash
+# List, newest first, with optional ?search= and ?limit=&offset=
+curl "https://api.applad.io/v1/messaging/messages?limit=25" \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>"
+
+# One message
+curl "https://api.applad.io/v1/messaging/messages/<msgId>" \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>"
+
+# Delete a message record
+curl -X DELETE "https://api.applad.io/v1/messaging/messages/<msgId>" \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>"
+```
+
+`GET /v1/messaging/messages` returns `{ "messages": [...], "total": <n> }`.
+
+## Topics and subscribers
+
+A **topic** is a named list of recipients. Add subscribers to it, then send once
+to reach all of them. Applad picks the channel per subscriber from the shape of
+the `target`:
+
+- starts with `+` (for example `+15551234567`): sent as **SMS**
+- contains `@` (for example `alice@example.com`): sent as **email**
+- anything else: treated as a **push** device token
+
+```bash
+# Create a topic
+curl -X POST https://api.applad.io/v1/messaging/topics \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "product-updates" }'
+
+# Add a subscriber (target is an email, phone number, or device token)
+curl -X POST https://api.applad.io/v1/messaging/topics/<topicId>/subscribers \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "target": "alice@example.com" }'
+
+# Send to everyone subscribed
+curl -X POST https://api.applad.io/v1/messaging/topics/<topicId>/messages \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "subject": "This week at Acme", "body": "<p>News</p>" }'
+```
+
+`GET /v1/messaging/topics` lists topics with their subscribers, and
+`GET /v1/messaging/topics/{topicId}` returns one. `subject` is used for the email
+subscribers; SMS and push subscribers get `body`.
+
+## Templates
+
+Templates hold reusable copy with `{{variable}}` placeholders, so you keep the
+wording out of your code. A template has a `type` (`email`, `sms`, or `push`), a
+`subject`, and a `body`.
+
+```dart
+await client.messaging.createTemplate(
+  name: 'welcome',
+  type: 'email',
+  subject: 'Welcome, {{name}}',
+  body: '<p>Hi {{name}}, thanks for joining.</p>',
+  variables: ['name'],
+);
+
+await client.messaging.sendTemplate(
+  templateId: '<templateId>',
+  to: ['alice@example.com'],
+  variables: {'name': 'Alice'},
+);
+```
+
+```ts
+await client.messaging.createTemplate(
+  'welcome',
+  'email',
+  'Welcome, {{name}}',
+  '<p>Hi {{name}}, thanks for joining.</p>',
+  { variables: ['name'] },
+);
+
+await client.messaging.sendTemplate('<templateId>', ['alice@example.com'], {
+  name: 'Alice',
+});
+```
+
+On send, every `{{key}}` in the subject and body is replaced with the matching
+value from `variables`, and the result goes out on the template's own channel.
+The full set of routes is `POST/GET/PUT/DELETE /v1/messaging/templates`,
+`GET /v1/messaging/templates/{templateId}`, and
+`POST /v1/messaging/templates/{templateId}/send`.
+
+## Configuring providers
+
+Each channel is off until its provider is configured, and returns a clear
+`not configured` error otherwise. This matters most when self-hosting, so
+nothing sends silently. Set these environment variables on the API and workers
+(see the [self-hosting guide](/self-hosting)):
+
+| Channel | Variables | Not-configured error |
+| --- | --- | --- |
+| Email (SMTP) | `SMTP_HOST`, `SMTP_PORT` (default `587`), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | `messaging: SMTP not configured` |
+| SMS (Twilio) | `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` | `messaging: Twilio not configured` |
+| Push (FCM) | `FCM_SERVER_KEY` | `messaging: FCM not configured` |
+
+Email needs at least `SMTP_HOST`; SMS needs `TWILIO_SID` and `TWILIO_TOKEN`;
+push needs `FCM_SERVER_KEY`.
+
+### Per-project providers
+
+Beyond the instance-wide environment variables, a project can register its own
+providers, which take priority over the global config for that project. This lets
+one project send through a different account, or use a provider other than the
+three defaults. Manage them under `/v1/messaging/providers` (`GET`, `POST`,
+`GET/PUT/DELETE /{providerId}`). Each provider has a `type` (`email`, `sms`, or
+`push`), a `provider` name, and a `config` object:
+
+- **email**: `smtp`, `mailgun`, `sendgrid`, `resend`
+- **sms**: `twilio`, `vonage`, `msg91`
+- **push**: `fcm`
+
+```bash
+curl -X POST https://api.applad.io/v1/messaging/providers \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Acme SMTP",
+    "type": "email",
+    "provider": "smtp",
+    "config": { "host": "smtp.example.com", "port": "587",
+                "username": "acme", "password": "secret",
+                "from": "noreply@acme.com" }
+  }'
+```
+
+The first **enabled** provider of a given type is used; if a project has none,
+messaging falls back to the instance-wide environment configuration above.
+
+## Related
+
+- [Authentication](/build/authentication) for how requests are authenticated and how API keys are issued.
+- [Self-hosting](/self-hosting) for setting provider environment variables.

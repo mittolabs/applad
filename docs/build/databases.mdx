@@ -1,0 +1,461 @@
+---
+title: Databases
+icon: Database
+description: Create databases, define typed tables, write rows, and query them with a fluent builder, all backed by real PostgreSQL with permissions enforced in the database.
+---
+
+An Applad database is real PostgreSQL. You define **tables** with typed
+**columns**, write **rows**, and read them back through a fluent query builder or
+the REST API. Access is governed by [permissions](/build/permissions) that Applad
+enforces with PostgreSQL row-level security, so a rule you set is a rule the
+database keeps, not one your client is trusted to honour.
+
+The shape is: a **database** holds **tables**, a table has **columns** and
+**rows**. You define the schema once (from the console, a migration, or a setup
+script), then your app reads and writes rows.
+
+<Callout title="Two kinds of caller">
+  Defining databases, tables, columns and indexes is an operator task. Do it with
+  a **server API key** (`x-applad-key`) from a trusted environment, not from
+  end-user code. Reading and writing rows is what your app does at runtime, with
+  the signed-in user's **session** (`Authorization: Bearer <secret>`). Both hit
+  the same `/v1/databases` routes.
+</Callout>
+
+## The client
+
+Client examples below use a project-scoped SDK client. See
+[authentication](/build/authentication) for how a user signs in and how the session
+token is attached.
+
+```dart
+final client = Applad(endpoint: 'https://api.applad.io', projectId: '<projectId>');
+final db = client.databases;
+```
+
+```ts
+import { Applad } from '@mittolabs/applad';
+
+const client = new Applad({ endpoint: 'https://api.applad.io', projectId: '<projectId>' });
+const db = client.databases;
+```
+
+## Databases
+
+A database is a namespace for tables. Create one, and pass its id to everything
+below.
+
+```dart
+final database = await db.createDatabase(name: 'app', databaseId: 'app');
+```
+
+```ts
+const database = await db.createDatabase('app', 'app');
+```
+
+`databaseId` is optional. Omit it and Applad generates one (the SDKs send
+`unique()`). The full set of database operations:
+
+| SDK (Dart) | SDK (JS) | Route |
+| --- | --- | --- |
+| `createDatabase(name:, databaseId:)` | `createDatabase(name, databaseId?)` | `POST /v1/databases` |
+| `listDatabases()` | `listDatabases()` | `GET /v1/databases` |
+| `getDatabase(id)` | `getDatabase(id)` | `GET /v1/databases/{id}` |
+| `updateDatabase(id, name)` | `updateDatabase(id, name)` | `PUT /v1/databases/{id}` |
+| `deleteDatabase(id)` | `deleteDatabase(id)` | `DELETE /v1/databases/{id}` |
+
+`listDatabases()` returns `{ "total": <n>, "databases": [...] }`.
+
+## Tables
+
+A table is a typed collection of rows. Create it with the permissions that decide
+who may read and write it:
+
+```dart
+await db.createTable(
+  databaseId: 'app',
+  name: 'messages',
+  tableId: 'messages',
+  permissions: ['read("users")', 'create("users")'], // any signed-in user
+  documentSecurity: true,   // each row may also carry its own permissions
+);
+```
+
+```ts
+await db.createTable('app', 'messages', {
+  tableId: 'messages',
+  permissions: ['read("users")', 'create("users")'],
+  documentSecurity: true,
+});
+```
+
+`permissions` are `action("role")` strings applied to every row in the table.
+`documentSecurity` turns on per-row permissions in addition to the table ones.
+Both are covered under [Permissions](#permissions) below and in full on the
+[permissions](/build/permissions) page. Omit `tableId` to have one generated.
+
+| Operation | Route |
+| --- | --- |
+| Create table | `POST /v1/databases/{databaseId}/tables` |
+| List tables | `GET /v1/databases/{databaseId}/tables` |
+| Get table | `GET /v1/databases/{databaseId}/tables/{tableId}` |
+| Update table (`name`, `permissions`, `enabled`) | `PUT /v1/databases/{databaseId}/tables/{tableId}` |
+| Delete table | `DELETE /v1/databases/{databaseId}/tables/{tableId}` |
+
+## Columns
+
+Columns are typed and added one at a time, each with its own type-specific
+options. Every column type accepts `required` (reject rows that omit it),
+`array` (store a list of that type), and `default`.
+
+```dart
+// A required string, capped at 8000 characters.
+await db.createStringColumn(
+  databaseId: 'app', tableId: 'messages',
+  key: 'body', required_: true, size: 8000,
+);
+
+// An integer with a range.
+await db.createIntegerColumn(
+  databaseId: 'app', tableId: 'messages',
+  key: 'priority', min: 0, max: 5, defaultValue: 0,
+);
+
+// A boolean with a default.
+await db.createBooleanColumn(
+  databaseId: 'app', tableId: 'messages',
+  key: 'pinned', defaultValue: false,
+);
+
+// An enum constrained to a fixed set.
+await db.createEnumColumn(
+  databaseId: 'app', tableId: 'messages',
+  key: 'status', elements: ['sent', 'delivered', 'read'], required_: true,
+);
+```
+
+```ts
+await db.createStringColumn('app', 'messages', 'body', { required: true, size: 8000 });
+await db.createIntegerColumn('app', 'messages', 'priority', { min: 0, max: 5, defaultValue: 0 });
+await db.createBooleanColumn('app', 'messages', 'pinned', { defaultValue: false });
+```
+
+Type-specific options:
+
+| Type | Route suffix | Options |
+| --- | --- | --- |
+| String | `/columns/string` | `size` |
+| Integer | `/columns/integer` | `min`, `max` |
+| Float | `/columns/float` | `min`, `max` |
+| Boolean | `/columns/boolean` | None |
+| Enum | `/columns/enum` | `elements` (required) |
+| Email | `/columns/email` | None |
+| URL | `/columns/url` | None |
+| Datetime | `/columns/datetime` | None |
+
+<Callout title="Not every type has a typed SDK helper">
+  The Dart client ships helpers for string, integer, boolean and enum columns;
+  the JS client ships string, integer and boolean. The other types (float, email,
+  url, datetime, and enum from JS) are created by calling the route directly, for
+  example `POST /v1/databases/{databaseId}/tables/{tableId}/columns/email` with a
+  JSON body `{ "key": "contact", "required": true }`.
+</Callout>
+
+List and delete columns:
+
+```dart
+await db.listColumns('app', 'messages');
+await db.deleteColumn('app', 'messages', 'priority');
+```
+
+`listColumns` returns `{ "total": <n>, "columns": [...] }`.
+
+## Indexes
+
+Add an index to speed up filters and ordering on a column. Give it a key, a type
+(`key`, `unique`, or `fulltext`), and the columns it covers:
+
+```dart
+await db.createIndex(
+  databaseId: 'app', tableId: 'messages',
+  key: 'by_created', type: 'key',
+  columns: ['created_at'], orders: ['DESC'],
+);
+```
+
+```ts
+await db.createIndex('app', 'messages', 'by_created', 'key', ['created_at'], ['DESC']);
+```
+
+`orders` is optional and pairs positionally with `columns`. List with
+`listIndexes('app', 'messages')`, remove with `deleteIndex('app', 'messages', 'by_created')`.
+
+## Relationships
+
+A relationship is a typed link between two tables. Create it as a column on the
+source table, naming the related table and the relationship type:
+
+```bash
+curl -X POST https://api.applad.io/v1/databases/app/tables/messages/columns/relationship \
+  -H "x-applad-key: <apiKey>" \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "relatedTableId": "users",
+    "type": "manyToOne",
+    "key": "author",
+    "twoWay": false,
+    "onDelete": "setNull"
+  }'
+```
+
+`type` is one of `oneToOne`, `oneToMany`, `manyToOne`, `manyToMany` (defaults to
+`oneToMany`). `twoWay` and `twoWayKey` create the reverse link on the related
+table; `onDelete` controls what happens to a row when its related row is removed.
+List with `GET /v1/databases/{databaseId}/tables/{tableId}/relationships` and
+delete with `DELETE .../relationships/{relationshipId}`.
+
+<Callout title="Related-column selection is not wired up yet">
+  You can define relationships and they exist as real foreign keys, but expanding
+  a related column inside a row query (the `select('author(name)')` form) is not
+  applied by the server today. Fetch the related row by its id in a second call.
+</Callout>
+
+## Rows
+
+A row is one record. Create, read, update and delete them at runtime with the
+signed-in user's session.
+
+```dart
+// Create
+final row = await db.createRow(
+  databaseId: 'app', tableId: 'messages',
+  data: {'body': 'hello', 'status': 'sent'},
+  permissions: ['read("users")'],
+);
+final rowId = row['\$id'];
+
+// Read one
+final one = await db.getRow(databaseId: 'app', tableId: 'messages', rowId: rowId);
+
+// List (offset pagination)
+final page = await db.listRows(databaseId: 'app', tableId: 'messages', limit: 25, offset: 0);
+
+// Update (partial, send only the fields that change)
+await db.updateRow(
+  databaseId: 'app', tableId: 'messages', rowId: rowId,
+  data: {'status': 'read'},
+);
+
+// Delete
+await db.deleteRow(databaseId: 'app', tableId: 'messages', rowId: rowId);
+```
+
+```ts
+const row = await db.createRow('app', 'messages', { body: 'hello', status: 'sent' }, {
+  permissions: ['read("users")'],
+});
+const rowId = row['$id'];
+
+await db.getRow('app', 'messages', rowId);
+await db.listRows('app', 'messages', { limit: 25, offset: 0 });
+await db.updateRow('app', 'messages', rowId, { data: { status: 'read' } });
+await db.deleteRow('app', 'messages', rowId);
+```
+
+`rowId` is optional on create; omit it for a generated id. `updateRow` is a
+`PATCH` and merges: fields you leave out keep their current value. `listRows`
+returns `{ "total": <n>, "rows": [...] }`.
+
+### System fields on a row
+
+Every row carries system fields alongside your own columns. Your columns sit at
+the **top level** of the row object, merged with these:
+
+| Field | Meaning |
+| --- | --- |
+| `$id` | The row's id |
+| `$tableId` | The table it belongs to |
+| `$databaseId` | The database it belongs to |
+| `$createdAt` | When it was created (RFC 3339) |
+| `$updatedAt` | When it was last updated |
+| `$permissions` | The row's own permission strings (present when document security is on) |
+
+```json
+{
+  "$id": "a1b2c3",
+  "$tableId": "messages",
+  "$databaseId": "app",
+  "$createdAt": "2026-01-04T10:00:00Z",
+  "$updatedAt": "2026-01-04T10:00:00Z",
+  "$permissions": ["read(\"users\")"],
+  "body": "hello",
+  "status": "sent"
+}
+```
+
+```dart
+print(row['\$id']);      // system field
+print(row['body']);     // your column, top-level
+```
+
+## Querying
+
+`from(databaseId, tableId)` starts a query. Filters, ordering and pagination
+chain onto it, and `get()` runs it:
+
+```dart
+final result = await db
+    .from('app', 'messages')
+    .equal('status', 'sent')
+    .greaterThan('priority', 0)
+    .orderDesc('created_at')
+    .limit(50)
+    .get();
+
+print(result.total);          // total matching rows (before limit/offset)
+for (final row in result.rows) {
+  print(row['body']);
+}
+```
+
+```ts
+const result = await db
+  .from('app', 'messages')
+  .equal('status', 'sent')
+  .greaterThan('priority', 0)
+  .orderDesc('created_at')
+  .limit(50)
+  .get();
+
+console.log(result.total);
+for (const row of result.rows) console.log(row['body']);
+```
+
+Chained filters combine with **AND**. The builder returns `{ total, rows }`.
+
+### Operators
+
+Each of these is a method on the builder. `field` is a column name; string
+matches (`contains`, `startsWith`, `endsWith`) are case-insensitive.
+
+| Method | Matches |
+| --- | --- |
+| `equal(field, value)` | `field` equals `value` |
+| `notEqual(field, value)` | `field` does not equal `value` |
+| `lessThan(field, value)` | `field` < `value` |
+| `lessThanOrEqual(field, value)` | `field` <= `value` |
+| `greaterThan(field, value)` | `field` > `value` |
+| `greaterThanOrEqual(field, value)` | `field` >= `value` |
+| `contains(field, value)` | `field` contains the substring `value` |
+| `startsWith(field, value)` | `field` starts with `value` |
+| `endsWith(field, value)` | `field` ends with `value` |
+| `search(field, value)` | full-text search on `field` (PostgreSQL `tsvector`) |
+| `isNull(field)` | `field` is `NULL` |
+| `isNotNull(field)` | `field` is not `NULL` |
+
+```dart
+// Everything unread that mentions "deploy", newest first.
+final hits = await db
+    .from('app', 'messages')
+    .notEqual('status', 'read')
+    .search('body', 'deploy')
+    .orderDesc('created_at')
+    .get();
+```
+
+### Ordering and pagination
+
+`orderAsc(field)` / `orderDesc(field)` sort the result; without one, rows come
+back newest-first (`created_at` descending). `limit(n)` caps the page (default
+25) and `offset(n)` skips rows:
+
+```dart
+// Page 2 of 25.
+final page2 = await db
+    .from('app', 'messages')
+    .orderDesc('created_at')
+    .limit(25)
+    .offset(25)
+    .get();
+```
+
+<Callout title="Supported today vs. present but not applied">
+  Offset pagination (`limit` + `offset`), the operators in the table above, and
+  `orderAsc`/`orderDesc` all run server-side. The builder also exposes
+  `between(...)`, `cursorAfter(...)` and `select(...)`, but the server does not
+  apply these yet, so a query that relies on one of them will not filter,
+  paginate or project the way its name suggests. Stick to `offset` for paging and
+  fetch the columns you need from the full row until these are wired up.
+</Callout>
+
+## Permissions
+
+Access to every table and row is governed by [permissions](/build/permissions), which
+Applad enforces with PostgreSQL row-level security. Because the rule lives in the
+database, it holds for the query builder, the REST API and the realtime read path
+alike. The [permissions](/build/permissions) page is the full reference; the essentials
+for databases:
+
+A permission is an `action("role")` string. Actions are `read`, `create`,
+`update` and `delete`. Roles are resolved **server-side from the caller's own
+identity and team memberships** on every request. A client never sends its own
+roles.
+
+| Role | Matches |
+| --- | --- |
+| `any` | everyone, signed in or not |
+| `users` | any signed-in user |
+| `user:<id>` | one specific user |
+| `team:<id>` | every member of a team |
+| `team:<id>/<role>` | members of a team who hold a role |
+
+### Table permissions vs. document security
+
+A permission set on the **table** applies to every row in it, which is right for
+"any signed-in user may read this table". Turn on **document security**
+(`documentSecurity: true` when you create the table) and each row *also* carries
+its own `$permissions`: access is granted when the table grants it **or** the row
+grants it. That is what lets one shared table hold data that different groups see
+different slices of.
+
+```dart
+// Readable by the channel's team, editable and deletable only by its author.
+await db.createRow(
+  databaseId: 'app', tableId: 'messages',
+  data: {'channel_id': channelId, 'body': 'hello'},
+  permissions: [
+    'read("team:$channelId")',
+    'update("user:$myUserId")',
+    'delete("user:$myUserId")',
+  ],
+);
+```
+
+With that in place a member of the channel's team sees the message, a non-member
+sees nothing, and only the author can change or remove it.
+
+<Callout title="Fails closed">
+  A row that does not grant a caller `read` is simply invisible to them. List
+  queries skip it rather than erroring. If you build a document-security table and
+  see no rows, check that each row grants `read` to a role the caller actually
+  holds.
+</Callout>
+
+### Owner column
+
+If a table has an owner column (a column named `owner_id` or `user_id` holding
+the id of the user who owns each row), that user always has full access to their
+own rows, without you setting per-row permissions for them.
+
+## Errors
+
+| Status | When |
+| --- | --- |
+| `400` | Missing required field on a create call, or an invalid request body |
+| `403` | The caller lacks permission to create, read, update or delete (code `permission_denied`) |
+| `404` | The database, table, column or row does not exist |
+
+A row that fails a column's validation rule (a required field left out, an enum
+value outside `elements`, a number outside `min`/`max`) returns a validation
+error naming the offending field.

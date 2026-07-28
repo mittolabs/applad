@@ -1,0 +1,257 @@
+---
+title: Realtime
+icon: Radio
+description: Subscribe to live row changes over a WebSocket and react to inserts, updates and deletes as they happen.
+---
+
+Realtime lets your app react to data as it changes instead of polling for it.
+Open one WebSocket, subscribe to a table, and Applad pushes an event every time
+a row is inserted, updated or deleted, so a chat updates, a dashboard ticks and
+a list re-renders the moment the data behind it moves.
+
+Under the hood Applad listens to PostgreSQL itself, so any write to a table
+(from an SDK call, an API request, a function, or hand-written SQL) produces an
+event. You do not publish events yourself; writing to a [database](/build/databases)
+is what publishes them.
+
+## Connecting
+
+Realtime is exposed on the client SDK as `client.realtime`. It connects to the
+`/v1/realtime` WebSocket endpoint on your API, passing the project as a query
+parameter.
+
+```dart
+import 'package:applad/applad.dart';
+
+final client = Applad(
+  endpoint: 'https://api.applad.io',
+  projectId: 'your-project-id',
+);
+
+client.realtime.connect();
+```
+
+```ts
+import { Applad } from '@mittolabs/applad';
+
+const client = new Applad({
+  endpoint: 'https://api.applad.io',
+  projectId: 'your-project-id',
+});
+
+client.realtime.connect();
+```
+
+The SDK rewrites the `http`/`https` endpoint to `ws`/`wss` for you, so the
+socket opens at `wss://api.applad.io/v1/realtime?project=your-project-id`.
+`connect()` is idempotent; calling it twice does nothing while a socket is
+already open.
+
+## Subscribing to table changes
+
+The Dart client exposes a fluent builder for the common case: watch one table
+and attach a callback per event type. Each callback receives the affected row as
+a plain map.
+
+```dart
+final sub = client.realtime
+    .database('app', 'messages')      // databaseId, tableName
+    .onInsert((row) => print('new message: ${row['body']}'))
+    .onUpdate((row) => print('edited: ${row['body']}'))
+    .onDelete((row) => print('removed: ${row['id']}'))
+    .subscribe();
+```
+
+You do not have to handle every event type. Attach only the callbacks you care
+about; the others are ignored.
+
+The JS client subscribes to a channel directly and gives you the full event, so
+you branch on `event.type` yourself:
+
+```ts
+const channel = `databases.${client.projectId}.app.messages`;
+
+const unsubscribe = client.realtime.subscribe(channel, (event) => {
+  const payload = event.payload as {
+    action: string;
+    new?: Record<string, unknown>;
+    old?: Record<string, unknown>;
+  };
+
+  switch (event.type) {
+    case 'databases.rows.create':
+      console.log('new message', payload.new);
+      break;
+    case 'databases.rows.update':
+      console.log('edited', payload.new);
+      break;
+    case 'databases.rows.delete':
+      console.log('removed', payload.old);
+      break;
+  }
+});
+```
+
+## Channels
+
+A subscription is scoped by a **channel** string. Table-level row changes use:
+
+```
+databases.<projectId>.<databaseId>.<tableName>
+```
+
+For example, `databases.proj_123.app.messages` is every row change in the
+`messages` table of the `app` database. This is exactly the channel the Dart
+`.database(databaseId, tableName)` builder computes for you, and the one you
+pass by hand to `subscribe(channel, callback)` in JS.
+
+<Callout title="Delivery is table-scoped, not permission-filtered">
+Today, realtime delivers a table's changes to every subscriber on that table's
+channel. It does **not** yet apply row-level [permissions](/build/permissions) to the
+stream, so a subscriber receives events for rows it might not be allowed to read
+through the REST API. Treat a channel as a broadcast within a table: only
+subscribe from contexts allowed to see the whole table, and do not rely on
+realtime to hide rows. This is a known limitation, tracked separately from the
+permission checks enforced on reads and writes.
+</Callout>
+
+## The event payload
+
+Every message the server sends has the same envelope:
+
+| Field | Description |
+| --- | --- |
+| `type` | `databases.rows.create`, `databases.rows.update`, or `databases.rows.delete` |
+| `channel` | the channel the event was published to |
+| `timestamp` | RFC 3339 UTC time of the change |
+| `payload` | the change itself (see below) |
+
+The `payload` describes the row that changed:
+
+```json
+{
+  "project_id": "proj_123",
+  "database_id": "app",
+  "schema": "p_proj_123_app",
+  "table": "messages",
+  "action": "insert",
+  "old": null,
+  "new": { "id": "m_9", "body": "hello", "created_at": "2026-07-28T12:00:00Z" },
+  "timestamp": "2026-07-28T12:00:00Z"
+}
+```
+
+- `new` holds the row after the change and is present for inserts and updates.
+- `old` holds the row before the change and is present for updates and deletes.
+- The row objects carry your table's real column names at the top level.
+
+In Dart you rarely touch the payload directly. The builder callbacks already
+hand you the right row: `onInsert`/`onUpdate` receive `new`, and `onDelete`
+receives `old`. If you subscribe to a raw channel with
+`client.realtime.subscribe`, the `RealtimeEvent` exposes `event.row` (the `new`
+row, falling back to `old`) and `event.oldRow` (the `old` row) as convenience
+getters.
+
+## Unsubscribing and disconnecting
+
+`subscribe()` returns a handle you use to stop listening. Cancelling one
+subscription leaves the socket open for the others.
+
+```dart
+sub.cancel();              // stop this subscription
+client.realtime.disconnect();   // close the socket entirely
+```
+
+```ts
+unsubscribe();             // stop this subscription
+client.realtime.disconnect();   // close the socket and clear listeners
+```
+
+Always cancel a subscription when the view that owns it goes away (a disposed
+widget, an unmounted component) so callbacks do not fire into dead state, and
+call `disconnect()` when your app no longer needs realtime at all.
+
+## A complete example
+
+Connect, keep a local list in sync with a table, then tear everything down.
+
+```dart
+import 'package:applad/applad.dart';
+
+Future<void> main() async {
+  final client = Applad(
+    endpoint: 'https://api.applad.io',
+    projectId: 'your-project-id',
+  );
+
+  final messages = <Map<String, dynamic>>[];
+
+  client.realtime.connect();
+
+  final sub = client.realtime
+      .database('app', 'messages')
+      .onInsert((row) => messages.add(row))
+      .onUpdate((row) {
+        final i = messages.indexWhere((m) => m['id'] == row['id']);
+        if (i != -1) messages[i] = row;
+      })
+      .onDelete((row) => messages.removeWhere((m) => m['id'] == row['id']))
+      .subscribe();
+
+  // ... run your app; events arrive as rows change ...
+
+  // When you are done:
+  sub.cancel();
+  client.realtime.disconnect();
+}
+```
+
+```ts
+import { Applad } from '@mittolabs/applad';
+
+const client = new Applad({
+  endpoint: 'https://api.applad.io',
+  projectId: 'your-project-id',
+});
+
+const messages: Record<string, unknown>[] = [];
+client.realtime.connect();
+
+const channel = `databases.${client.projectId}.app.messages`;
+const unsubscribe = client.realtime.subscribe(channel, (event) => {
+  const p = event.payload as {
+    new?: Record<string, unknown>;
+    old?: Record<string, unknown>;
+  };
+  if (event.type === 'databases.rows.create' && p.new) {
+    messages.push(p.new);
+  } else if (event.type === 'databases.rows.update' && p.new) {
+    const i = messages.findIndex((m) => m.id === p.new!.id);
+    if (i !== -1) messages[i] = p.new;
+  } else if (event.type === 'databases.rows.delete' && p.old) {
+    const i = messages.findIndex((m) => m.id === p.old!.id);
+    if (i !== -1) messages.splice(i, 1);
+  }
+});
+
+// When you are done:
+unsubscribe();
+client.realtime.disconnect();
+```
+
+## Notes for self-hosting
+
+Realtime needs the PostgreSQL change-capture trigger, which ships in the initial
+migration and is installed automatically, so no extra setup is required for a
+single instance. If you run more than one API instance behind a load balancer,
+set `REDIS_ADDR` (Redis is already part of the default stack) so events fan out
+across instances: without it, a client connected to one instance only sees
+changes that instance observed. The WebSocket rides the same `/v1` origin as the
+rest of the API, so the Caddy edge proxies it with no special configuration.
+
+## Related
+
+- [Databases](/build/databases): the tables whose row changes you subscribe to.
+- [Permissions](/build/permissions): how reads and writes are authorised (and why
+  realtime delivery is not yet filtered by them).
+- [Authentication](/build/authentication): establishing the session your client uses.

@@ -1,56 +1,69 @@
 ---
 title: Core concepts
-description: The building blocks of an Applad project.
+icon: BookOpen
+description: Projects, organizations, users, sessions, and how a request is authorized.
 ---
 
-## Projects
+A handful of ideas run through every part of Applad. Learn these once and the
+rest of the docs read easily.
 
-A **project** is an isolated backend. Each project has its own database schema, storage
-bucket namespace, users, functions and API keys, and is served at
-`<app>.applad.dev` when you deploy an app to it.
+## Organizations and projects
 
-## Services
+A **project** is an isolated backend: its own database, users, files, functions,
+and API keys. Nothing in one project can see anything in another.
 
-| Service | What it does |
-| --- | --- |
-| Databases | Postgres tables, relationships, indexes and row-level security |
-| Auth | Email, magic links, MFA and OAuth (15 providers), sessions, teams |
-| Storage | Buckets, chunked uploads, image transforms, antivirus |
-| Functions | Serverless code in 8 pre-warmed runtimes |
-| Messaging | Email, SMS and push, plus topics and subscribers |
-| Workflows | A native DAG engine with a visual builder and webhooks |
-| Realtime | WebSocket subscriptions to database changes and events |
-| Deploy | Ship sites and containers from git, with previews and rollbacks |
+A project always belongs to an **organization**. An organization is a group of
+people (your team) that owns projects and billing. You create an organization
+first, then create projects inside it. A project can never exist without one.
 
-## Content mode
+## Users vs. operators
 
-There is no separate CMS. Any Databases table can be turned into an editorial
-collection instead, so content and application data share one storage engine and
-one API.
+Two different kinds of identity, and it is worth keeping them straight:
 
-Turn it on for a table and its rows gain:
+- **App users** are the people who use the app you build. They live inside a
+  project, sign in with [authentication](/build/authentication), and are subject to
+  [permissions](/build/permissions). Your app creates and manages them.
+- **Console users** are you and your teammates, the operators who administer the
+  instance through the admin console. They belong to organizations, not to a
+  single project.
 
-- a **draft / published** workflow, with a `published_at` timestamp
-- a **slug** and a **locale**, so the same entry can exist in several languages
-- **version snapshots** on every write, so you can see what changed
-- the **richtext** and **media** column types for bodies and images
+## Sessions and API keys
 
-The rows API is unchanged, with a few editorial additions:
+There are two ways to authenticate a request, and they mean very different things:
+
+- A **session** identifies an app user. It is created at sign-in and carried as a
+  bearer token. A request with a session acts as that user, and permissions
+  decide what it can do. This is what [client SDKs](/sdks) use.
+- An **API key** is a project-scoped secret for trusted server-side code. A
+  request with an API key has full access and bypasses user permissions. This is
+  what [server SDKs](/sdks) use. Never ship an API key in a client app.
+
+## Permissions and roles
+
+Access to data is decided by [permissions](/build/permissions): short strings like
+`read("team:abc")` attached to a table or an individual row. A request carries
+**roles** derived from the caller's identity (`any`, `users`, `user:<id>`, and
+the [teams](/build/teams) they belong to as `team:<id>`), and access is granted when a
+permission matches one of those roles. Roles are always resolved on the server
+from who the caller actually is, never from anything the client sends.
+
+Enforcement is real PostgreSQL row-level security, so a row a caller may not read
+is simply invisible to them, in the query builder and in raw SQL alike.
+
+## Content mode (optional)
+
+Any [databases](/build/databases) table can be turned into an editorial collection
+instead of a plain data table, so content and application data share one engine
+and one API. A content-mode table gains a draft and published workflow, a slug
+and locale for translations, and a version snapshot on every write, while the
+rows API stays the same with a few editorial additions:
 
 ```bash
 # only published English entries
 GET  /v1/databases/{db}/tables/{table}/rows?status=published&locale=en
 
 POST /v1/databases/{db}/tables/{table}/rows/{row}/publish
-POST /v1/databases/{db}/tables/{table}/rows/{row}/unpublish
 GET  /v1/databases/{db}/tables/{table}/rows/{row}/versions
 ```
 
-In the console the table gains an **Entries** tab for editing, alongside the raw
-row grid. Turning content mode off only hides the editorial tools — nothing is
-deleted.
-
-## API keys
-
-Server-to-server access uses **API keys** scoped to a project. Client apps use session
-tokens issued at sign-in. Both are managed from the console.
+Turning content mode off only hides the editorial tools. Nothing is deleted.

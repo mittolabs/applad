@@ -1,0 +1,470 @@
+---
+title: Plan
+description: Decide and prioritise the work before you build it, with plan items, an impact and urgency priority grid, guided scoring, acceptance criteria, and milestones.
+icon: ListTodo
+---
+
+Plan is the stage that comes before [Build](/build/databases). Most backends
+start at "here is a database, write some code". Applad gives you a place to
+decide *what* to build first, record *why*, and carry that decision into the
+tables, functions and tests that follow. It is a planning and prioritisation
+surface, not a generic issue tracker: the priority of a piece of work is
+*derived* from two answers rather than picked from a dropdown, and the things
+the work is agreed against can point straight at the [tests](/test) that prove
+them.
+
+The shape is: a project holds **plan items**. Each item is one decision. An
+item has a **kind** (a change or a defect), a **status**, a derived
+**priority**, **acceptance criteria**, optional **links**, and it can sit in a
+**milestone** on the roadmap.
+
+<Callout title="Console-first, API-backed">
+  Plan is driven mainly from the Applad console (the **Plan** section, with its
+  roadmap view and item detail panel). There is no dedicated client SDK service
+  for it yet. Everything below is reachable over the `/v1/plan` REST API, which
+  is what the console itself calls, so you can automate it. All routes are
+  project-scoped and require a signed-in caller: send the project header and a
+  session token exactly as for any other authenticated route.
+</Callout>
+
+```bash
+# Every request in this page carries these two headers.
+-H "x-applad-project: <projectId>" \
+-H "Authorization: Bearer <secret>"
+```
+
+See [authentication](/build/authentication) for how a user signs in and where the
+session `secret` comes from.
+
+## Plan items
+
+An item is one piece of work stated in a sentence somebody would say out loud.
+Create one with a title. Everything else has a sensible default.
+
+```bash
+curl -X POST https://api.applad.io/v1/plan/items \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Users can reset their password by email",
+    "body": "Send a one-time link that expires in an hour.",
+    "kind": "change",
+    "labels": ["auth"]
+  }'
+```
+
+A new item defaults to `status: "todo"`, `priority: "medium"`, `kind: "change"`
+and no labels. The response is the created item:
+
+```json
+{
+  "$id": "a1b2c3...",
+  "projectId": "<projectId>",
+  "title": "Users can reset their password by email",
+  "body": "Send a one-time link that expires in an hour.",
+  "status": "todo",
+  "priority": "medium",
+  "priorityIsManual": false,
+  "kind": "change",
+  "labels": ["auth"],
+  "rank": 3000,
+  "links": [],
+  "criteriaCount": 0,
+  "criteriaSpecified": 0,
+  "$createdAt": "2026-07-23T10:00:00Z",
+  "$updatedAt": "2026-07-23T10:00:00Z"
+}
+```
+
+The writable fields on create and update are:
+
+| Field | Type | Notes |
+|---|---|---|
+| `title` | string | Required on create. |
+| `body` | string | Free text describing the work. |
+| `status` | string | One of `todo`, `in_progress`, `in_review`, `blocked`, `done`, `cancelled`. |
+| `priority` | string | One of `low`, `medium`, `high`, `urgent`. Setting it by hand marks the item as a manual override (see below). |
+| `kind` | string | `change` or `defect`. |
+| `assigneeId` | string | Who the work is given to (see [Assignees](#assignees)). |
+| `parentId` | string | The id of a parent item, to nest a sub-task. |
+| `milestoneId` | string | The milestone this item belongs to. |
+| `targetDate` | string | A day you are aiming at, as `YYYY-MM-DD`. |
+| `labels` | string[] | Free-form tags. |
+| `rank` | number | Manual sort order (see [Ordering](#ordering)). |
+
+<Callout title="Change or defect">
+  `kind` is not a taxonomy of ticket types, it is one real distinction: whether
+  the system already claimed to do this. A **defect** is something broken; a
+  **change** is something new or wanted. The distinction matters because the two
+  are scored with different questions, as shown under
+  [Prioritisation](#prioritisation).
+</Callout>
+
+### Listing and filtering
+
+`GET /items` returns a project's items, ordered by rank. By default it hides
+closed work (`done` and `cancelled`), because a backlog that shows everything
+ever finished is not a backlog.
+
+```bash
+curl "https://api.applad.io/v1/plan/items?status=in_progress&assignee=<userId>" \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>"
+```
+
+Supported query parameters:
+
+| Parameter | Effect |
+|---|---|
+| `status` | Only items in that status. |
+| `assignee` | Only items assigned to that id. |
+| `label` | Only items carrying that label. |
+| `search` | Case-insensitive match on title or body. |
+| `parentId` | Only the children of that item. |
+| `milestoneId` | Only items in that milestone. |
+| `includeClosed` | Set to `true` to keep `done` and `cancelled` items in the list. |
+
+The response is `{ "total": <n>, "items": [ ... ] }`.
+
+Read a single item with `GET /items/{itemId}`, which includes its links and its
+criteria counts.
+
+### Updating
+
+Update with `PATCH /items/{itemId}`. Only the fields you send are changed. A
+field you omit is left alone, and a field you set to `null` or an empty value is
+cleared, so the two are different requests.
+
+```bash
+curl -X PATCH https://api.applad.io/v1/plan/items/{itemId} \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "status": "in_progress", "assigneeId": "<userId>" }'
+```
+
+Moving an item to `done` or `cancelled` stamps a `closedAt` time; moving it back
+out clears it, so a reopened item does not carry a date saying it finished.
+
+`DELETE /items/{itemId}` removes an item. Its children are not deleted, they are
+left orphaned, because the sub-tasks of an abandoned item are usually still work.
+
+### Ordering
+
+Items are hand-ordered by an integer `rank`, ascending. New items are appended
+with a sparse rank (the previous maximum plus 1000), which leaves room to drop an
+item between two others without renumbering the rest. Set `rank` in a `PATCH` to
+reorder.
+
+## Prioritisation
+
+This is what makes Plan more than a list. Rather than typing a priority (where
+nothing costs anything to call "urgent", so everything becomes urgent), you
+answer two questions about an item and the priority is *derived*:
+
+- **Impact** is a property of the problem: how much this matters.
+- **Urgency** is a property of the calendar: how soon it is needed.
+
+Each is a level from 1 to 3 (low, medium, high). A grid maps the pair to a
+priority.
+
+### Rating an item
+
+`POST /items/{itemId}/rate` records the two levels and returns the item with its
+priority re-derived from the grid.
+
+```bash
+curl -X POST https://api.applad.io/v1/plan/items/{itemId}/rate \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "impact": 3, "urgency": 2 }'
+```
+
+`impact` and `urgency` must each be `1`, `2` or `3`. A rated item carries
+`impact` and `urgency` on it, and `priorityIsManual` is `false`, meaning the
+priority came from the grid rather than from a person. An item that has never
+been rated has no `impact` or `urgency` at all: an unrated item is not a middling
+one.
+
+### The priority grid
+
+The default grid encodes a deliberate asymmetry: high impact never falls below
+`high`, however soft the deadline, and `low` survives only when both answers are
+low.
+
+|            | urgency low | urgency medium | urgency high |
+|------------|-------------|----------------|--------------|
+| **impact high**   | high   | high   | urgent |
+| **impact medium** | medium | medium | high   |
+| **impact low**    | low    | medium | medium |
+
+Read the grid for a kind with `GET /matrix?kind=change` (the default kind is
+`change`; pass `kind=defect` for the defect grid). It is seeded the first time
+you ask for it.
+
+```json
+{
+  "kind": "change",
+  "cells": [
+    { "kind": "change", "impact": 3, "urgency": 1, "priority": "high" },
+    { "kind": "change", "impact": 3, "urgency": 2, "priority": "high" }
+  ]
+}
+```
+
+A project can edit the grid, because a shop where every item comes from a paying
+client calibrates differently from one building its own product. `PUT /matrix`
+changes what one square resolves to and re-derives every non-manual item sitting
+in that square, so an edit never leaves items showing a priority their own
+answers no longer produce.
+
+```bash
+curl -X PUT https://api.applad.io/v1/plan/matrix \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "kind": "change", "impact": 2, "urgency": 3, "priority": "urgent" }'
+```
+
+### Setting a priority by hand
+
+You can still set `priority` directly in a `PATCH /items/{itemId}`. Doing so sets
+`priorityIsManual` to `true`, and the item is then left out of grid re-derivation.
+An override made deliberately reads as a decision rather than as stale data, and
+is worth keeping. Rating the item again (or answering the guided questions)
+returns it to grid-derived priority.
+
+### Guided scoring
+
+Choosing "impact: high" is still a guess, just one level up. So each dimension
+can instead be scored by answering concrete questions people can actually
+answer ("Is there a workaround?" has an answer; "what is the impact?" does not).
+Options carry scores, the scores sum per dimension, and a **band** turns the sum
+into a level. One option can force the top of the scale on its own (for example,
+"is data at risk of being lost or wrong?"), so a decisive fact does not have to
+out-argue three milder ones.
+
+Fetch the questions for an item with `GET /items/{itemId}/questions`. The
+response carries the questions (each annotated with the option already chosen for
+this item, in `answeredWith`), the scoring `bands`, and the `cells` of the grid,
+so a caller can preview the verdict the server would reach:
+
+```json
+{
+  "questions": [
+    {
+      "$id": "q1...",
+      "dimension": "impact",
+      "text": "Is data at risk of being lost or wrong?",
+      "help": "Decides the priority on its own.",
+      "options": [
+        { "$id": "o1...", "label": "No",  "score": 0, "forcesTop": false },
+        { "$id": "o2...", "label": "Yes", "score": 5, "forcesTop": true }
+      ],
+      "answeredWith": ""
+    }
+  ],
+  "bands": [
+    { "dimension": "impact", "level": 1, "minScore": 0, "maxScore": 3 },
+    { "dimension": "impact", "level": 2, "minScore": 4, "maxScore": 7 },
+    { "dimension": "impact", "level": 3, "minScore": 8, "maxScore": 999 }
+  ],
+  "cells": [ ... ]
+}
+```
+
+Record an answer with `POST /items/{itemId}/answers`. Each answer re-scores both
+dimensions from everything answered so far and rates the item, so a half-answered
+assessment still moves the priority rather than making you finish before you see
+anything.
+
+```bash
+curl -X POST https://api.applad.io/v1/plan/items/{itemId}/answers \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "questionId": "q1...", "optionId": "o2..." }'
+```
+
+`GET /questions` (without an item) returns the project's question set alone, for
+editing or display. The questions and bands are seeded per project on first
+access, so what counts as impact on a support desk can differ from what counts on
+a product team.
+
+## Acceptance criteria
+
+Criteria are the constraints the work was agreed against, written before anyone
+has decided how the behaviour will be expressed. Each criterion can carry a
+`specRef` that points at the executable behaviour (a rule or [test](/test)) that
+proves it. A criterion with no `specRef` is visibly still an intention, and the
+item counts how many of its criteria have become executable
+(`criteriaSpecified` of `criteriaCount`).
+
+```bash
+# Add a criterion.
+curl -X POST https://api.applad.io/v1/plan/items/{itemId}/criteria \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "text": "The reset link expires after one hour." }'
+```
+
+List them with `GET /items/{itemId}/criteria`. Update text, attach a `specRef`,
+or mark one met with `PATCH /criteria/{criterionId}`:
+
+```bash
+curl -X PATCH https://api.applad.io/v1/plan/criteria/{criterionId} \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "specRef": "<testId>", "met": true }'
+```
+
+`DELETE /criteria/{criterionId}` removes one.
+
+## Links
+
+An item can point at other things: a pull request, a design, a related item. Add
+a link with a `kind`, a `ref`, and an optional `label`.
+
+```bash
+curl -X POST https://api.applad.io/v1/plan/items/{itemId}/links \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "kind": "pr", "ref": "https://github.com/acme/app/pull/42", "label": "Reset flow" }'
+```
+
+The same `kind` and `ref` on one item are de-duplicated. Remove a link with
+`DELETE /links/{linkId}`.
+
+## Milestones and the roadmap
+
+A milestone is a dated container of work: it gives the roadmap its time axis.
+Progress is *counted* from the items in the milestone, never typed by anyone, so
+the number is always current.
+
+```bash
+curl -X POST https://api.applad.io/v1/plan/milestones \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Beta", "description": "First public cut", "targetDate": "2026-09-01" }'
+```
+
+`GET /milestones` returns each milestone with its progress:
+
+```json
+{
+  "total": 1,
+  "milestones": [
+    {
+      "$id": "m1...",
+      "name": "Beta",
+      "targetDate": "2026-09-01T00:00:00Z",
+      "progress": {
+        "total": 12, "done": 5, "inProgress": 3, "blocked": 1,
+        "criteria": 30, "specified": 14
+      }
+    }
+  ]
+}
+```
+
+`progress.criteria` and `progress.specified` report how much of what was agreed
+across the milestone's items has actually become checkable behaviour, which is a
+different fact from "5 of 12 items done".
+
+Update a milestone with `PATCH /milestones/{milestoneId}` (including `completed:
+true` to mark it done), and remove one with `DELETE /milestones/{milestoneId}`.
+Deleting a milestone leaves its items in place, unassigned: work outlives the
+date somebody hoped to finish it by.
+
+## Discussion and history
+
+Each item has a comment thread and an activity log.
+
+```bash
+# Comment on an item.
+curl -X POST https://api.applad.io/v1/plan/items/{itemId}/comments \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "body": "Let us reuse the magic-link mailer." }'
+```
+
+`GET /items/{itemId}/comments` lists the thread oldest first; `DELETE
+/comments/{commentId}` removes one.
+
+`GET /items/{itemId}/activity` returns what changed on an item, newest first.
+Activity is derived by comparing before and after on each update, so a field set
+to the value it already had produces no entry. Each event names the `field`, its
+`oldValue` and `newValue`, and the actor who made the change.
+
+## Assignees
+
+`GET /assignees` lists who can be given work on the project: Applad itself, and
+the people who have accepted membership of the organisation that owns the
+project. Pending invitations are left out, because somebody who has not accepted
+cannot be given work.
+
+```json
+{
+  "assignees": [
+    { "$id": "applad", "name": "Applad", "kind": "ai" },
+    { "$id": "<userId>", "name": "Ada", "email": "ada@acme.com", "kind": "person" }
+  ]
+}
+```
+
+The reserved id `applad` (kind `ai`) is the platform itself: an item can be
+assigned to Applad. Pass any of these ids as an item's `assigneeId`.
+
+## Metadata
+
+`GET /meta` returns the vocabulary the console validates against, so a client
+never has to keep its own copy: the allowed `statuses`, `priorities` and `kinds`,
+plus `hints`, the plain-language anchor for each impact and urgency level, keyed
+by kind. Fixing something broken ("an easy workaround exists") is anchored
+differently from building something wanted ("one person asked").
+
+## Route reference
+
+Everything under `/v1/plan` is project-scoped and requires an authenticated
+caller.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/plan/items` | List items, with filters. |
+| `POST` | `/plan/items` | Create an item. |
+| `GET` | `/plan/items/{itemId}` | Read one item. |
+| `PATCH` | `/plan/items/{itemId}` | Update an item. |
+| `DELETE` | `/plan/items/{itemId}` | Delete an item. |
+| `POST` | `/plan/items/{itemId}/rate` | Set impact and urgency, derive priority. |
+| `GET` | `/plan/matrix` | Read the priority grid for a kind. |
+| `PUT` | `/plan/matrix` | Change a grid cell and re-derive items. |
+| `GET` | `/plan/questions` | The project's scoring questions, bands and grid. |
+| `GET` | `/plan/items/{itemId}/questions` | Questions annotated with this item's answers. |
+| `POST` | `/plan/items/{itemId}/answers` | Answer a question and re-score. |
+| `GET` | `/plan/items/{itemId}/criteria` | List acceptance criteria. |
+| `POST` | `/plan/items/{itemId}/criteria` | Add a criterion. |
+| `PATCH` | `/plan/criteria/{criterionId}` | Update a criterion (text, `specRef`, `met`). |
+| `DELETE` | `/plan/criteria/{criterionId}` | Delete a criterion. |
+| `POST` | `/plan/items/{itemId}/links` | Add a link. |
+| `DELETE` | `/plan/links/{linkId}` | Remove a link. |
+| `GET` | `/plan/items/{itemId}/comments` | List comments. |
+| `POST` | `/plan/items/{itemId}/comments` | Add a comment. |
+| `DELETE` | `/plan/comments/{commentId}` | Delete a comment. |
+| `GET` | `/plan/items/{itemId}/activity` | Item change history. |
+| `GET` | `/plan/milestones` | List milestones with progress. |
+| `POST` | `/plan/milestones` | Create a milestone. |
+| `PATCH` | `/plan/milestones/{milestoneId}` | Update or complete a milestone. |
+| `DELETE` | `/plan/milestones/{milestoneId}` | Delete a milestone. |
+| `GET` | `/plan/assignees` | Who work can be assigned to. |
+| `GET` | `/plan/meta` | Allowed statuses, priorities, kinds and level hints. |
+
+Once you have decided and prioritised the work, the rest of Applad is where you
+carry it out: define the schema in [Build](/build/databases), prove the criteria
+in [Test](/test), and ship it from [Deploy](/deploy/sites).

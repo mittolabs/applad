@@ -1,0 +1,144 @@
+---
+title: Self-hosting
+icon: Server
+description: Run your own Applad instance with Docker, and configure auth, storage, email, and OAuth providers.
+---
+
+Applad runs entirely on your own infrastructure. One `docker compose up` brings
+up everything: PostgreSQL, Redis, the API, the background workers, and the admin
+console. You own the data and there is nothing to phone home to.
+
+## Run the stack
+
+```bash
+git clone https://github.com/mittolabs/applad
+cd applad
+docker compose up -d
+```
+
+That starts the database, cache, API, workers, and console together. To bring up
+only the backend and skip building the console:
+
+```bash
+docker compose up api postgres redis proxy -d
+```
+
+Open the console, create the first account (which becomes the owner of your
+instance), then create an organization and a project. See
+[Getting started](/getting-started) to connect an app.
+
+## Who can register
+
+The `CONSOLE_SIGNUP_ENABLED` setting decides who may create a console account:
+
+| Value | Behavior |
+| --- | --- |
+| `auto` (default) | The first account can register; after that, registration closes. |
+| `true` | Anyone can register. |
+| `false` | Registration is closed entirely. |
+
+<Callout title="Adding people without reopening signup">
+  On a closed instance, invite colleagues from the organization's Members tab.
+  The invite creates their account and adds them to the organization, and you are
+  shown a link to send them (handy when no email is configured). Signup stays
+  closed.
+</Callout>
+
+## Configuration
+
+Applad is configured with environment variables. The ones you are most likely to
+set:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `JWT_SECRET` | `change-me-in-production` | **Required.** Signs session tokens. The API refuses to start in production if this is left at the default. |
+| `DATABASE_DSN` | `postgres://applad:applad@postgres:5432/applad?sslmode=disable` | PostgreSQL connection string. |
+| `REDIS_ADDR` | `redis:6379` | Redis address. |
+| `STORAGE_PATH` | `/var/applad/storage` | Where uploaded files are stored on disk. |
+| `APP_ENV` | `development` | `development` or `production`. Production turns on stricter checks. |
+| `PORT` | `8080` | API port. |
+| `CONSOLE_SIGNUP_ENABLED` | `auto` | Registration mode (see above). |
+| `SESSION_COOKIE_DOMAIN` | (empty) | Overrides the session cookie scope. Normally derived from the console's host. |
+
+<Callout title="Set a real JWT_SECRET">
+  Generate a long random value (for example `openssl rand -hex 32`) and set
+  `JWT_SECRET` before you serve real traffic. It signs every session, so changing
+  it later signs everyone out.
+</Callout>
+
+### Email (SMTP)
+
+[Messaging](/build/messaging) email, verification links, magic links, and invites all
+send through SMTP. Until it is configured, those features return a
+"not configured" error.
+
+```
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=...
+SMTP_FROM=no-reply@yourdomain.com
+```
+
+### OAuth providers
+
+To offer social sign-in, set the client id and secret for each provider you
+enable (see [Authentication](/build/authentication) for the list of supported
+providers and the redirect flow):
+
+```
+OAUTH_GOOGLE_CLIENT_ID=...
+OAUTH_GOOGLE_CLIENT_SECRET=...
+OAUTH_GITHUB_CLIENT_ID=...
+OAUTH_GITHUB_CLIENT_SECRET=...
+```
+
+Each provider follows the same `OAUTH_<PROVIDER>_CLIENT_ID` /
+`OAUTH_<PROVIDER>_CLIENT_SECRET` pattern.
+
+### SMS and push
+
+[Messaging](/build/messaging) SMS goes through Twilio and push goes through Firebase
+Cloud Messaging. Configure the one you need:
+
+```
+TWILIO_SID=...
+TWILIO_TOKEN=...
+TWILIO_FROM=+15550100
+
+FCM_SERVER_KEY=...
+```
+
+### Deploying from private git repositories
+
+Public repositories deploy by URL with no setup. To deploy from a private
+repository, register your own GitHub App and set its credentials
+(`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` or `GITHUB_APP_PRIVATE_KEY_PATH`,
+`GITHUB_APP_WEBHOOK_SECRET`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`).
+Without them, git deploys fall back to public repositories, and the console says
+so rather than offering a button that cannot work. See [Sites](/deploy/sites).
+
+## Storage and backups
+
+Uploaded files live on disk under `STORAGE_PATH`, and all structured data lives
+in PostgreSQL. Back up both: the `STORAGE_PATH` volume and a regular `pg_dump` of
+the database. A move to a new host is those two plus your environment variables.
+
+## Optional: antivirus scanning
+
+File uploads can be scanned by ClamAV, which is off by default. Enable it with the
+antivirus profile:
+
+```bash
+docker compose --profile antivirus up -d
+```
+
+## Upgrading
+
+Pull the newer images and recreate the stack. Database migrations run
+automatically on API startup, so there is no separate migration step.
+
+```bash
+docker compose pull
+docker compose up -d
+```

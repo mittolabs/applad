@@ -1,30 +1,301 @@
 ---
 title: SDKs
-description: Official client and server SDKs.
+icon: Boxes
+description: Official client and server SDKs for Applad, and when to use each.
 ---
 
-Applad ships five SDKs that all speak the same `/v1` API.
+Applad ships five SDKs. They all speak the same [`/v1` REST API](/), so anything
+an SDK does you can also do with a plain HTTP request. The SDK just handles the
+headers, the JSON, and the method names for you.
 
-| SDK | Package | Use |
+Before you pick one, decide which side of the line you are on.
+
+## Client SDKs vs server SDKs
+
+This is the most important distinction, and it decides which SDK you install.
+
+**Client SDKs run inside your app** (a browser page, a Flutter app, a mobile
+binary) where the code and its traffic are visible to the user. A client acts
+**as the signed-in user**: it identifies your project with an
+`x-applad-project` header, and after login it carries that user's session as a
+bearer token. Every call is checked against [permissions](/build/permissions), so a
+user only ever reads and writes what they are allowed to. A client SDK never
+holds an API key.
+
+**Server SDKs run on your backend**, where secrets stay secret. A server acts
+**with an API key** (`x-applad-key`) and has full, permission-bypassing access
+to the project. Use one for trusted work: provisioning users, running admin
+jobs, reacting to webhooks, sending mail. Never ship an API key to a client.
+
+| | Client SDK | Server SDK |
 | --- | --- | --- |
-| JavaScript (client) | `@mittolabs/applad` | Browser / mobile apps |
-| Node (server) | `@mittolabs/applad-node` | Backend services |
-| Dart | `applad` | Flutter apps |
-| Go | `github.com/mittolabs/applad-go` | Go services |
-| Python | `applad` | Python services |
+| Runs in | Browser, mobile, Flutter | Your backend |
+| Identifies with | `x-applad-project` header | `x-applad-project` + `x-applad-key` |
+| Acts as | The signed-in user | The project (full access) |
+| Permissions | Enforced | Bypassed |
+| Holds an API key | No | Yes |
+
+<Callout title="Never put an API key in a client">
+An API key bypasses every permission rule. Anything holding one can read and
+delete all project data. Keys belong only in code your users cannot see. In a
+browser or mobile app, use a client SDK and log the user in instead.
+</Callout>
+
+## The five SDKs
+
+| SDK | Kind | Package / import | Auth |
+| --- | --- | --- | --- |
+| Dart (client) | Client | `applad` → `package:applad/applad.dart` | Project + session |
+| Dart (server) | Server | `applad` → `package:applad/applad_server.dart` | API key |
+| JavaScript | Client | `@mittolabs/applad` | Project + session |
+| Node.js | Server | `@mittolabs/applad-node` | API key |
+| Go | Server | `github.com/mittolabs/applad-go` | API key |
+| Python | Server | `applad` (PyPI) | API key |
+
+The Dart package is both a client and a server SDK in one; you choose by which
+file you import. The JavaScript SDK is client-only; for a Node backend use the
+separate `@mittolabs/applad-node` package.
 
 ## Install
 
 ```bash
-# JavaScript / client
+# JavaScript client (browser / mobile web)
 npm install @mittolabs/applad
 
-# Node / server
+# Node.js server
 npm install @mittolabs/applad-node
 
-# Python
-pip install applad
+# Dart / Flutter (client and server in one package)
+dart pub add applad
 
-# Go
+# Go server
 go get github.com/mittolabs/applad-go
+
+# Python server
+pip install applad
 ```
+
+The `endpoint` you pass to every SDK is your Applad base URL **without** `/v1`
+(the SDK appends it). On Mittolabs Cloud that is `https://api.applad.io`; on a
+self-hosted instance it is wherever your API is reachable.
+
+## JavaScript (client)
+
+A client SDK for the browser and mobile web. Initialize it with your endpoint
+and project ID, log a user in, then make calls as that user. `createEmailSession`
+returns a session whose `secret` is the bearer token; apply it with `setJWT` to
+authenticate the rest of the session.
+
+```ts
+import { Applad } from '@mittolabs/applad';
+
+const client = new Applad({
+  endpoint: 'https://api.applad.io',
+  projectId: 'my-project',
+});
+
+// Log the user in and carry their session.
+const session = await client.auth.createEmailSession('ada@example.com', 'hunter2');
+client.setJWT(session.secret);
+
+// This call now runs as Ada, subject to her permissions.
+const { rows } = await client.databases.listRows('main', 'posts', { limit: 25 });
+```
+
+Services: `auth`, `databases`, `storage`, `functions`, `messaging`, `realtime`,
+`deploy`, `workflows`, `flags`, `analytics`, `search`, `vectors`, `edge`,
+`billing`, `regions`, `observe`, `avatars`, `locale`.
+
+<Callout title="Anonymous sessions">
+Not every app starts with a login. `client.auth.createAnonymousSession()`
+returns a session too, so a user can start acting immediately and you can
+convert them to a full account later.
+</Callout>
+
+## Node.js (server)
+
+The server SDK for a Node backend. It takes an API key and acts with full
+project access, so keep it server-side.
+
+```ts
+import { ApplAdServer } from '@mittolabs/applad-node';
+
+const server = new ApplAdServer({
+  endpoint: 'https://api.applad.io',
+  projectId: 'my-project',
+  apiKey: process.env.APPLAD_API_KEY!,
+});
+
+// Full access: provision a user from your backend.
+const user = await server.users.createUser('ada@example.com', 'hunter2', {
+  name: 'Ada Lovelace',
+});
+```
+
+Services: `users`, `databases`, `storage`, `functions`, `teams`, `workflows`,
+`messaging`, `deploy`, `flags`, `analytics`, `search`, `vectors`, `edge`,
+`billing`, `regions`, `observe`.
+
+## Dart (client)
+
+Import `package:applad/applad.dart` for the client SDK. It uses Dio and is the
+one to use in a Flutter app. On login, `createEmailSession` applies the session
+secret as the bearer token for you, so later calls are already authenticated.
+
+```dart
+import 'package:applad/applad.dart';
+
+final client = Applad(
+  endpoint: 'https://api.applad.io',
+  projectId: 'my-project',
+);
+
+// Log in. The returned secret is applied automatically.
+await client.auth.createEmailSession(
+  email: 'ada@example.com',
+  password: 'hunter2',
+);
+
+// Runs as the signed-in user.
+final posts = await client.databases.listRows('main', 'posts');
+```
+
+To restore a saved session on the next launch, persist `session['secret']`
+yourself and pass it back with `client.setJWT(secret)`.
+
+Services: `auth`, `users`, `databases`, `storage`, `teams`, `functions`,
+`messaging`, `realtime`, `deploy`, `workflows`, `flags`, `analytics`, `search`,
+`vectors`, `edge`, `billing`, `regions`, `observe`.
+
+## Dart (server)
+
+Import `package:applad/applad_server.dart` from the same package for the
+server SDK. It uses `package:http` (no Flutter dependency) and takes an API key.
+
+```dart
+import 'package:applad/applad_server.dart';
+
+final server = ApplAdServer(
+  endpoint: 'https://api.applad.io',
+  projectId: 'my-project',
+  apiKey: 'applad_key_abc123',
+);
+
+final users = await server.users.listUsers();
+```
+
+A non-2xx response throws `AppladException`, which carries `statusCode`,
+`message`, and an optional `type`.
+
+Services: `users`, `databases`, `storage`, `functions`, `teams`, `workflows`,
+`messaging`, `deploy`, `flags`, `analytics`, `search`, `vectors`, `edge`,
+`billing`, `regions`.
+
+## Go (server)
+
+A zero-dependency server SDK. `applad.New` returns a client; each service is a
+method on it.
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+
+	applad "github.com/mittolabs/applad-go"
+)
+
+func main() {
+	client := applad.New("https://api.applad.io", "my-project", "applad_key_abc123")
+
+	user, err := client.Users().CreateUser("ada@example.com", "hunter2", "Ada Lovelace")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(user["id"])
+}
+```
+
+The Go SDK also has a fluent query builder for reads:
+
+```go
+result, err := client.Databases().From("main", "posts").
+	Equal("published", "true").
+	OrderDesc("created_at").
+	Limit(25).
+	Get()
+```
+
+Services: `Users`, `Databases`, `Storage`, `Functions`, `Teams`, `Workflows`,
+`Messaging`, `Deploy`, `Flags`, `Analytics`, `Search`, `Vectors`, `Edge`,
+`Billing`, `Regions`, `Observe`.
+
+## Python (server)
+
+A stdlib-only server SDK. `applad.Client` takes the endpoint, project ID, and
+API key; services are attributes on it.
+
+```python
+from applad import Client
+
+client = Client("https://api.applad.io", "my-project", "applad_key_abc123")
+
+user = client.users.create_user("ada@example.com", "hunter2", name="Ada Lovelace")
+print(user["id"])
+```
+
+A non-2xx response raises an exception carrying the method, path, status, and
+response body.
+
+Services: `users`, `databases`, `storage`, `functions`, `teams`, `workflows`,
+`messaging`, `deploy`, `flags`, `analytics`, `search`, `vectors`, `edge`,
+`billing`, `regions`, `observe`.
+
+## The auth model, in headers
+
+Whichever SDK you use, the traffic on the wire is the same small set of headers.
+It is worth knowing them, both for debugging and for calling `/v1` directly.
+
+**Client** requests always send the project header, and after login they add the
+session bearer token:
+
+```bash
+curl https://api.applad.io/v1/account \
+  -H "x-applad-project: my-project" \
+  -H "Authorization: Bearer <session-secret>"
+```
+
+The `<session-secret>` is the `secret` field returned when the session was
+created (`POST /v1/account/sessions/email`). A client SDK sets this for you when
+you call `setJWT` (JavaScript, Dart) or `setSession` for the alternate
+`x-applad-session` header.
+
+**Server** requests send the project header plus the API key, and skip the user
+session entirely:
+
+```bash
+curl https://api.applad.io/v1/users \
+  -H "x-applad-project: my-project" \
+  -H "x-applad-key: applad_key_abc123"
+```
+
+Create an API key in the console under a project's **Settings**. Because a key
+is full access, treat it like a password: keep it in an environment variable or
+secret store, never in client code or version control.
+
+## Choosing an SDK
+
+- Building the app your users run (web, Flutter, mobile)? Use a **client SDK**
+  (`@mittolabs/applad` or `package:applad/applad.dart`) and log the user in.
+- Building a backend, script, or webhook handler? Use a **server SDK**
+  (Node, Go, Python, or `package:applad/applad_server.dart`) with an API key.
+- Need something an SDK does not expose? Call the underlying [`/v1` API](/)
+  directly with the headers above.
+
+## Related
+
+- [Authentication](/build/authentication): sessions, OAuth, MFA, and how login works
+- [Permissions](/build/permissions): what a client user is allowed to do
+- [Databases](/build/databases): tables, rows, and queries
+- [Teams](/build/teams): grouping users for shared access

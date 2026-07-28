@@ -1,0 +1,228 @@
+---
+title: Permissions
+icon: ShieldCheck
+description: How Applad decides who can read, create, update, and delete your data, enforced inside PostgreSQL with row-level security.
+---
+
+Every read and write in Applad passes a permission check. You describe who may do
+what with short strings like `read("users")` or `delete("user:$id")`, and Applad
+enforces them in the database itself using PostgreSQL row-level security. A rule
+you set is a rule the database keeps, not one your client is trusted to honour.
+
+This page explains the permission string format, the roles you can grant to, the
+two layers where permissions live (the table and the row), and how enforcement
+actually behaves. It applies anywhere data is accessed: the query builder, a
+single row read, and schema-scoped SQL alike.
+
+## Permission strings
+
+A permission is a string of the form `action("role")`:
+
+```text
+read("users")
+create("team:sales")
+update("user:64b7f...")
+delete("team:sales/owner")
+```
+
+The **action** is what the grant allows. The **role** in quotes is who it is
+granted to.
+
+### Actions
+
+| Action | Allows |
+|---|---|
+| `read` | Reading the row (it appears in queries and single-row reads) |
+| `create` | Inserting a new row into the table |
+| `update` | Changing an existing row |
+| `delete` | Removing a row |
+| `write` | Shorthand that expands to `update` **and** `delete` |
+
+`write` is a convenience the SDKs accept. `write("user:$id")` is stored as
+`update("user:$id")` and `delete("user:$id")`. There is no separate "write"
+grant at rest, and no other actions exist. A permission with any other action is
+rejected when you set it.
+
+## Roles
+
+A role names an identity or a group. Applad recognises exactly these:
+
+| Role | Matches |
+|---|---|
+| `any` | Everyone, including unauthenticated callers |
+| `users` | Any signed-in user |
+| `user:<id>` | One specific user, by their user ID |
+| `team:<id>` | Every member of a team |
+| `team:<id>/<role>` | Only team members who hold a given role (for example `owner`, `admin`) |
+
+```dart
+'read("any")'                 // public
+'read("users")'               // any signed-in user
+'update("user:$authorId")'    // just this user
+'read("team:$channelId")'     // members of a team
+'delete("team:$orgId/owner")' // team members with the "owner" role
+```
+
+Team roles come from [teams](/build/teams): when you add a member you may give them
+roles, and each `team:<id>/<role>` grant matches members holding that role.
+
+<Callout title="Roles are resolved on the server, never sent by the client">
+The caller never states their own roles. On every request Applad derives them
+from the authenticated identity: `any` for everyone, plus `users` and
+`user:<id>` once signed in, plus one `team:<id>` for each team the user belongs
+to and one `team:<id>/<role>` for each role they hold in it. A client cannot add
+`team:sales` to its request to read a team's data. This is why the permission
+model is safe to expose to end-user code.
+</Callout>
+
+## Two layers: table and document
+
+Permissions live in two places, and access is granted when **either** grants it.
+
+### Table-level permissions
+
+Set on the table, these apply to every row in it. Pass them when you create the
+table (see [databases](/build/databases)):
+
+```dart
+final db = client.databases;
+
+await db.createTable(
+  databaseId: 'app',
+  tableId: 'posts',
+  name: 'posts',
+  permissions: [
+    'read("any")',      // anyone may read any post
+    'create("users")',  // any signed-in user may add one
+  ],
+);
+```
+
+Here every post is world-readable and any signed-in user can create one.
+`update` and `delete` are granted to nobody, so no one can edit or remove a post
+through the API.
+
+### Document (per-row) security
+
+Turn on `documentSecurity` and each row can also carry its own permissions. A
+row is then reachable if the table grants access **or** the row grants it:
+
+```dart
+await db.createTable(
+  databaseId: 'app',
+  tableId: 'messages',
+  name: 'messages',
+  permissions: ['create("users")'], // who may insert; no table-wide read
+  documentSecurity: true,           // each row also carries its own permissions
+);
+
+await db.createRow(
+  databaseId: 'app',
+  tableId: 'messages',
+  data: {'body': 'hello'},
+  permissions: [
+    'read("team:$channelId")',   // the channel's team can read
+    'update("user:$authorId")',  // only the author can edit
+    'delete("user:$authorId")',  // only the author can delete
+  ],
+);
+```
+
+With no table-level `read` grant, a message is visible only to those its own
+`read(...)` permissions name. Per-row permissions cover `read`, `update`, and
+`delete`. **`create` is table-level only**: a row cannot pre-authorise its own
+insertion, so a `create(...)` entry in a row's permissions is ignored. To insert
+a row, the table's `create` grant must admit the caller.
+
+`updateRow` and `createRow` both take a `permissions` list, so you can change a
+row's own permissions the same way you change its data.
+
+## Enforcement
+
+Permissions are compiled into PostgreSQL row-level security policies on the
+underlying table. Applad runs each request under a restricted database role with
+the caller's identity and resolved roles set on the session, so the policies
+decide every query, not the API code around them.
+
+Two consequences worth relying on:
+
+- **It holds everywhere.** The fluent query builder, a direct row read, and
+  schema-scoped SQL run under the same policies. There is no privileged read
+  path that skips them.
+- **It fails closed and stays quiet.** A row you lack `read` on is not an error,
+  it is simply absent from your results. A query returns the rows you may see and
+  no indication that others exist. An update or delete you are not granted
+  affects nothing.
+
+## A worked example: a chat app
+
+Messages readable by everyone in a channel but editable only by their author:
+
+```dart
+// Once, at setup (from an API key, migration, or the console):
+await db.createTable(
+  databaseId: 'chat',
+  tableId: 'messages',
+  name: 'messages',
+  permissions: ['create("users")'], // any signed-in user may post
+  documentSecurity: true,
+);
+
+// Each time a user sends a message:
+await db.createRow(
+  databaseId: 'chat',
+  tableId: 'messages',
+  data: {'channel_id': channelId, 'body': body},
+  permissions: [
+    'read("team:$channelId")',   // the channel team reads it
+    'update("user:$authorId")',  // the author edits it
+    'delete("user:$authorId")',  // the author deletes it
+  ],
+);
+```
+
+Now a member of the channel's team sees the message when they list the channel,
+a non-member's query never returns it, and only the author's session can edit or
+remove it. No check runs in your app code, and none can be bypassed by a crafted
+request.
+
+## Owner columns
+
+If a `documentSecurity` table has a column named `owner_id` (or `user_id`),
+Applad adds an owner policy: the signed-in user whose ID matches that column has
+full access to the row, in addition to any table or row grants. This lets a
+"belongs to me" table work from the column alone, without writing a
+`user:<id>` permission onto every row.
+
+```dart
+await db.createTable(
+  databaseId: 'app',
+  tableId: 'notes',
+  name: 'notes',
+  permissions: ['create("users")'],
+  documentSecurity: true,
+);
+await db.createStringColumn(
+  databaseId: 'app', tableId: 'notes', key: 'owner_id', required_: true,
+);
+// A row where owner_id equals the caller's user ID is fully theirs.
+```
+
+Set `owner_id` to the creating user's ID and that user can read, update, and
+delete their own notes with no per-row permissions at all. `owner_id` is
+preferred over `user_id` if both are present.
+
+## Setting permissions from the console or an API key
+
+Defining tables, columns, and their table-level permissions is a setup task. Do
+it once from the console, a migration, or a server script authenticated with an
+API key, not from end-user code. Per-row permissions, by contrast, are set on
+each write and are safe to build from client code, because the roles a caller
+can grant to are still resolved from that caller's own identity.
+
+## Related
+
+- [databases](/build/databases) for tables, columns, rows, and querying.
+- [teams](/build/teams) for the memberships and roles behind `team:<id>` grants.
+- [authentication](/build/authentication) for the sessions that give a caller its
+  identity and, in turn, its roles.

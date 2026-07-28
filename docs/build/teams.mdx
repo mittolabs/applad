@@ -1,0 +1,236 @@
+---
+title: Teams
+icon: UsersRound
+description: Group users into teams so a single permission grants a whole group shared access to data.
+---
+
+A **team** is Applad's unit of shared access. It answers one question: "these
+people, and only these people, may see this." A workspace, a channel, a shared
+document, a project board. Instead of listing every user on every row, you name
+a team once, and everyone in that team is admitted.
+
+Teams work hand in hand with [permissions](/build/permissions). A row (or file, or
+function) whose permissions name a team is reachable by exactly that team's
+members. Add someone to the team and they gain access; remove them and they
+lose it, with nothing else to update.
+
+Team calls are client-side: they run as the signed-in user (see
+[authentication](/build/authentication)). Each request carries the
+`x-applad-project: <projectId>` header and, after login, the session bearer
+token `Authorization: Bearer <secret>`. The SDK sets both for you.
+
+## Creating a team
+
+Creating a team makes the caller its first, already-joined **owner**. Without
+that, the person who made the team would hold no membership and could be locked
+out of the very team they just created by its own team-scoped permissions.
+
+```dart
+final client = Applad(endpoint: 'https://api.applad.io', projectId: '<projectId>');
+// (already signed in, see the authentication guide)
+
+final team = await client.teams.create(name: 'engineering');
+final teamId = team['\$id'];
+```
+
+`create` takes an optional `teamId` (default `unique()`, a generated ID) and an
+optional list of `roles` to record on the creator's owner membership.
+
+```dart
+Future<Map<String, dynamic>> create({
+  required String name,
+  String? teamId,
+  List<String>? roles,
+});
+```
+
+Under the hood this is `POST /v1/teams` with `{ "name": ..., "teamId": ...,
+"roles": [...] }`, returning the new team:
+
+```json
+{
+  "$id": "6f2b...",
+  "$createdAt": "2026-07-28T10:00:00Z",
+  "$updatedAt": "2026-07-28T10:00:00Z",
+  "name": "engineering",
+  "total": 0,
+  "prefs": {}
+}
+```
+
+<Callout title="Server-created teams have no owner">
+  When a team is created with a server [API key](/build/authentication) (header
+  `x-applad-key`) rather than a user session, there is no user to enrol, so the
+  team is created with no owner membership. Create teams as the signed-in user
+  when you want the creator to be a member.
+</Callout>
+
+## Listing teams
+
+```dart
+final res = await client.teams.list();
+final teams = res['teams']; // List<Map>
+final total = res['total']; // int
+```
+
+```dart
+Future<Map<String, dynamic>> list({ int? limit, int? offset, String? search });
+```
+
+What you get back depends on who is asking. This is deliberate:
+
+- A **signed-in user** sees only the teams they have actually joined. They never
+  learn the names of other users' teams.
+- A **server API key** or **console admin** sees every team in the project.
+
+`limit`, `offset` and `search` (a name substring) page and filter the list. The
+underlying route is `GET /v1/teams`, returning `{ "total": <int>, "teams":
+[...] }`.
+
+Read one team by ID with `client.teams.get(teamId)` (`GET
+/v1/teams/{teamId}`). A single team's `total` field is its count of **joined**
+members.
+
+## Renaming and deleting a team
+
+```dart
+await client.teams.update(teamId, 'platform');   // PUT /v1/teams/{teamId}
+await client.teams.delete(teamId);               // DELETE /v1/teams/{teamId} -> 204
+```
+
+## Inviting a member
+
+Invite someone by email. The returned membership carries a one-time `secret`.
+Hand that secret to the invitee (as a join link, say) and they redeem it to
+join. A self-hosted instance often has no SMTP configured, so Applad returns the
+secret to you rather than assuming it can email it.
+
+```dart
+final invite = await client.teams.createMembership(
+  teamId,
+  email: 'grace@example.com',
+  roles: ['developer'],
+);
+
+final membershipId = invite['\$id'];
+final secret = invite['secret']; // present ONLY on this create response
+```
+
+```dart
+Future<Map<String, dynamic>> createMembership(
+  String teamID, {
+  required String email,
+  List<String>? roles,
+});
+```
+
+This is `POST /v1/teams/{teamId}/memberships` with `{ "email": ..., "roles":
+[...] }`. The membership is created `invited: true`, `joined: false`, it grants
+nothing until accepted:
+
+```json
+{
+  "$id": "a1b2...",
+  "teamId": "6f2b...",
+  "teamName": "engineering",
+  "userEmail": "grace@example.com",
+  "roles": ["developer"],
+  "invited": true,
+  "joined": false,
+  "confirm": false,
+  "secret": "7d9f...e0"
+}
+```
+
+<Callout title="The secret is shown once">
+  `secret` is returned only on the create response. Listing memberships never
+  includes it. Capture it when you invite; it cannot be read back later.
+</Callout>
+
+## Accepting an invite
+
+The invitee, signed in as themselves, redeems the secret. The joining identity
+comes from their **session**, never from the request body, so an invite cannot
+be redeemed on someone else's behalf. The secret is the credential; the session
+says who is joining.
+
+```dart
+await client.teams.acceptMembership(teamId, membershipId, secret);
+```
+
+```dart
+Future<Map<String, dynamic>> acceptMembership(
+  String teamID,
+  String membershipID,
+  String secret,
+);
+```
+
+This is `PATCH /v1/teams/{teamId}/memberships/{membershipId}/status` with `{
+"secret": ... }`. It binds the membership to the current user, marks it
+`joined: true`, and clears the one-time secret. If the secret is wrong or the
+invite was already used, the call fails with `401` and error code
+`membership_invalid_secret`.
+
+## Listing and removing members
+
+```dart
+final res = await client.teams.listMemberships(teamId); // GET .../memberships
+final members = res['memberships'];
+
+await client.teams.deleteMembership(teamId, membershipId); // DELETE -> 204
+```
+
+```dart
+Future<Map<String, dynamic>> listMemberships(String teamID);
+Future<void> deleteMembership(String teamID, String membershipID);
+```
+
+Removing a membership revokes that person's team access immediately: they no
+longer resolve the team's roles, so any data permissioned to the team closes to
+them.
+
+## Roles
+
+A membership carries a list of `roles` (for example `owner`, `developer`) that
+you choose. The team creator is enrolled with the role `owner`. Roles are plain
+strings you define for your app; Applad does not attach fixed capabilities to
+them beyond turning them into permission roles (below).
+
+## How membership becomes a permission role
+
+This is why teams exist. When a signed-in user makes a request, Applad resolves
+their **joined** memberships in the current project and grants, for each team:
+
+- `team:<teamId>`, held by every joined member of the team.
+- `team:<teamId>/<role>`, held for each role on that membership, e.g.
+  `team:6f2b.../owner`.
+
+A row permissioned `read("team:6f2b...")` therefore admits exactly that team's
+members, and `update("team:6f2b.../owner")` admits only its owners. You never
+assemble or send these strings from the client; Applad derives them
+server-side from the caller's own membership on every request, so they cannot be
+forged.
+
+Only **joined** memberships count. An outstanding invite grants nothing until
+it is accepted, and a removed member stops resolving the role at once.
+
+See [permissions](/build/permissions) for the full set of permission roles and how to
+attach them to data.
+
+## Server-side management
+
+The same operations are available to a backend using a server
+[API key](/build/authentication) (header `x-applad-key`), for example to provision a
+team from your own signup flow:
+
+```bash
+curl -X POST https://api.applad.io/v1/teams \
+  -H "x-applad-project: <projectId>" \
+  -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "engineering"}'
+```
+
+A key sees the unscoped team list, and (as noted above) a team it creates has
+no owner membership, since there is no user session to enrol.

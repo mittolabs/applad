@@ -1,0 +1,422 @@
+---
+title: Workflows
+description: Build and run native DAG workflows on Applad, triggered manually, on a cron schedule, or by a public webhook, and read their step-by-step execution history.
+icon: Workflow
+---
+
+A workflow is a graph of steps that Applad runs for you. You describe the steps
+(**nodes**) and how they connect (**edges**), pick how the workflow starts (a
+manual call, a cron schedule, or an incoming webhook), and the engine walks the
+graph in dependency order, passing each node's output to the next.
+
+This is what sets Applad apart from a plain backend-as-a-service: the workflow
+engine is built in and runs on your own instance. You do not stand up a separate
+automation service to send a welcome email after signup, roll up yesterday's
+rows on a schedule, or react to a third-party webhook. A workflow can call your
+[databases](/build/databases), [functions](/build/functions), storage, and
+messaging directly, plus HTTP and a set of third-party integrations.
+
+The shape is: a **workflow** holds **nodes** and **edges**, a **trigger** says
+when it runs, and each run is an **execution** with a log entry per node.
+
+<Callout title="Who calls what">
+  Defining and running workflows is an operator task. Do it with a **server API
+  key** (`x-applad-key`) from a trusted environment. The client SDKs also expose
+  workflows for signed-in callers (`x-applad-project` plus
+  `Authorization: Bearer <secret>`). The one public, unauthenticated surface is
+  the webhook trigger, which is protected by a signature instead of a key.
+</Callout>
+
+## Nodes and edges
+
+A **node** is one step:
+
+```json
+{
+  "id": "fetch",
+  "type": "http_request",
+  "label": "Fetch order",
+  "config": { "method": "GET", "url": "https://api.example.com/orders/1" },
+  "position": { "x": 100, "y": 80 }
+}
+```
+
+- `id` is yours to choose and must be unique within the workflow. Other nodes
+  read this node's output by its `id`.
+- `type` selects which step runs (see the table below).
+- `config` holds that node type's settings.
+- `position` is optional and only used to lay the node out in the console editor.
+
+An **edge** connects a source node to a target node:
+
+```json
+{ "id": "e1", "source": "fetch", "target": "notify" }
+```
+
+The engine builds the graph from the edges, sorts it topologically, and runs
+nodes in that order. A node's output is stored under its `id` and made available
+to every later node.
+
+### Referencing earlier data
+
+String fields in a node's `config` are Go templates. The trigger payload is
+under `trigger`, and each node's output is under its node `id`. So a later node
+can read `{{.trigger.email}}` or `{{.fetch.body.total}}`. Fields that take a
+path (like the `field` on an `if_condition`) use dot notation without the
+braces, for example `trigger.status` or `fetch.statusCode`.
+
+### Node types
+
+The engine supports the following node types. Use the exact `type` string.
+
+| Group | `type` | What it does |
+|---|---|---|
+| Core | `http_request` | Makes an HTTP request. `config`: `method`, `url`, optional `headers`, `body`. Returns `{ statusCode, headers, body }`. |
+| Core | `send_email` | Sends an email over SMTP. `config`: `smtpHost`, `smtpPort`, `smtpUser`, `smtpPass`, `from`, `to`, `subject`, `body`. |
+| Core | `set_variable` | Stores a value in the run context. `config`: `key`, `value`. |
+| Core | `code` | Resolves a template string. `config`: `expression`. Returns `{ result }`. |
+| Core | `javascript` | Runs JavaScript in a sandbox (goja, 5s limit). `config`: `code`. Exposes `$input`/`$json`, `$env(key)`, `$now`, `console.log`, `JSON`. |
+| Flow | `if_condition` | Branches. `config`: `field`, `operator`, `value`, `trueBranch`, `falseBranch` (node IDs). Skips the branch that does not match. |
+| Flow | `switch` | Multi-way branch. |
+| Flow | `filter` | Continues only when a condition holds. |
+| Flow | `loop` | Iterates over a list. |
+| Flow | `merge` | Joins branches back together. |
+| Flow | `delay` / `wait` | Pauses. `delay` `config`: `durationMs` (capped at 5 min). |
+| Flow | `no_operation` | Does nothing. Useful as a join point. |
+| Flow | `try_catch` | Routes failures of named `tryNodes` to a `catchTarget`. |
+| Flow | `stop_and_error` | Fails the run deliberately. |
+| Flow | `execute_sub_workflow` | Runs another workflow. `config`: `workflowId` (max nesting depth 5). |
+| Data | `edit_fields`, `aggregate`, `summarize`, `limit`, `split_out`, `remove_duplicates`, `sort`, `rename_keys`, `compare_datasets` | Reshape data flowing between nodes. |
+| Data | `date_time`, `crypto`, `html_parse`, `convert_to_json`, `extract_from_json` | Format dates, hash/encode, parse HTML, and move between JSON and objects. |
+| Applad | `applad_auth`, `applad_database`, `applad_storage`, `applad_functions`, `applad_messaging` | Call your own Applad services. `config`: `action` plus the fields that action needs (for example `databaseId`, `tableId`, `data`). |
+| Integrations | `slack`, `discord`, `telegram`, `github`, `google_sheets`, `notion`, `stripe`, `twilio_sms`, `sendgrid`, `jira` | Post to or call third-party services. |
+| Integrations | `postgres_query`, `mysql_query`, `redis_command`, `s3` | Talk to external data stores. |
+| AI | `ai_transform`, `ai_summarize`, `ai_agent` | Run AI steps over the run data. |
+
+<Callout title="Unknown types do not fail">
+  A node whose `type` the engine does not recognise returns
+  `{ "message": "unknown node type: ..." }` and the run continues. Check the
+  spelling against the table if a step is quietly doing nothing.
+</Callout>
+
+## Create a workflow
+
+Send the name, the trigger, and the graph. `triggerType` defaults to `manual`,
+and a new workflow starts in `draft` status.
+
+```dart
+final wf = await client.workflows.create(
+  name: 'Welcome email',
+  description: 'Email a new user after signup',
+  triggerType: 'manual',
+  nodes: [
+    {
+      'id': 'welcome',
+      'type': 'send_email',
+      'label': 'Send welcome',
+      'config': {
+        'smtpHost': 'smtp.example.com',
+        'from': 'hello@example.com',
+        'to': '{{.trigger.email}}',
+        'subject': 'Welcome to Acme',
+        'body': 'Hi {{.trigger.name}}, thanks for joining.',
+      },
+    },
+  ],
+  edges: [],
+);
+// wf['$id'] is the workflow ID
+```
+
+The same call over the REST API:
+
+```bash
+curl -X POST https://api.applad.io/v1/workflows \
+  -H "x-applad-key: $APPLAD_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{
+    "name": "Welcome email",
+    "triggerType": "manual",
+    "nodes": [{
+      "id": "welcome",
+      "type": "send_email",
+      "label": "Send welcome",
+      "config": {
+        "smtpHost": "smtp.example.com",
+        "from": "hello@example.com",
+        "to": "{{.trigger.email}}",
+        "subject": "Welcome to Acme",
+        "body": "Hi {{.trigger.name}}, thanks for joining."
+      }
+    }],
+    "edges": []
+  }'
+```
+
+The response is the full workflow object, including `$id`, `status`
+(`"draft"`), and the nodes and edges you sent.
+
+### Activate it
+
+A workflow only runs on a schedule or a webhook once its `status` is `active`,
+and a `paused` workflow refuses manual execution. Update it to go live:
+
+```dart
+await client.workflows.update(wf['\$id'], {
+  'name': 'Welcome email',
+  'status': 'active',
+  'triggerType': 'manual',
+  'nodes': wf['nodes'],
+  'edges': wf['edges'],
+});
+```
+
+<Callout title="Update replaces the whole definition">
+  `PUT /v1/workflows/{id}` overwrites name, status, trigger, nodes, and edges
+  with what you send. Omitted fields fall back to defaults (`status` to
+  `draft`, `triggerType` to `manual`), so always send the complete definition,
+  not a partial patch.
+</Callout>
+
+## Triggers
+
+Pick the trigger with `triggerType` when you create or update the workflow.
+
+### Manual
+
+The default. The workflow runs only when you call the execute endpoint (below).
+Good for workflows you kick off from your own backend, or from a
+[function](/build/functions) or [site](/deploy/sites).
+
+### Cron schedule
+
+Set `triggerType` to `cron` and put the expression in `triggerConfig.cron`. The
+scheduler fires active cron workflows once a minute when they are due.
+
+```dart
+await client.workflows.create(
+  name: 'Nightly rollup',
+  triggerType: 'cron',
+  triggerConfig: { 'cron': '0 2 * * *' }, // 02:00 every day
+  nodes: [ /* ... */ ],
+  edges: [],
+);
+```
+
+Expressions are standard 5-field cron (minute, hour, day-of-month, month,
+day-of-week) and also accept ranges and lists (`0 9 * * 1-5`), names, and
+descriptors like `@daily` and `@hourly`. Seconds are not supported. Without a
+timezone the expression is interpreted in **UTC**; prefix it to change that:
+
+```
+CRON_TZ=Africa/Nairobi 0 9 * * *
+```
+
+An invalid expression is rejected at create/update time with a `400`, so a
+schedule that could never run is caught immediately rather than silently never
+firing.
+
+### Webhook
+
+Set `triggerType` to `webhook`. On create, the response includes a
+`webhookSecret` **once** (it is not returned again), and the workflow becomes
+callable at a public URL:
+
+```
+POST /v1/workflows/webhooks/{workflowId}
+```
+
+This route needs no API key. The workflow must be `active` and its
+`triggerType` must be `webhook`, or the call is rejected. The request body is
+parsed as JSON and becomes the trigger payload; the engine also adds
+`_method` and `_headers` to it. The body is limited to 10 MB.
+
+When the workflow has a secret, every call must be signed. Compute
+`hex(HMAC-SHA256(secret, rawBody))` and send it as `X-Applad-Signature`:
+
+```bash
+BODY='{"email":"ada@example.com"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $2}')
+
+curl -X POST https://api.applad.io/v1/workflows/webhooks/$WORKFLOW_ID \
+  -H "content-type: application/json" \
+  -H "X-Applad-Signature: $SIG" \
+  -d "$BODY"
+```
+
+A missing signature returns `401 missing_signature`; a wrong one returns
+`401 invalid_signature`.
+
+If you need to rotate the secret, generate a new one (this invalidates the old):
+
+```bash
+curl -X POST https://api.applad.io/v1/workflows/$WORKFLOW_ID/webhook-secret \
+  -H "x-applad-key: $APPLAD_API_KEY"
+# => { "webhookSecret": "..." }
+```
+
+## Execute a workflow
+
+Run a workflow on demand with an optional trigger payload. The payload is what
+your nodes read as `{{.trigger.*}}`.
+
+```dart
+final exec = await client.workflows.execute(
+  workflowId,
+  triggerData: { 'email': 'ada@example.com', 'name': 'Ada' },
+);
+// exec['$id'] is the execution ID; exec['status'] is 'pending'
+```
+
+```bash
+curl -X POST https://api.applad.io/v1/workflows/$WORKFLOW_ID/execute \
+  -H "x-applad-key: $APPLAD_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{ "triggerData": { "email": "ada@example.com", "name": "Ada" } }'
+```
+
+Execution is **asynchronous**. The endpoint returns `202 Accepted` with a
+`pending` execution record; a background worker then runs the graph. Poll the
+execution (below) to see the result.
+
+## Read execution history and logs
+
+List the runs of a workflow, most recent first:
+
+```dart
+final res = await client.workflows.listExecutions(workflowId);
+// res['total'], res['executions']
+```
+
+```bash
+curl https://api.applad.io/v1/workflows/$WORKFLOW_ID/executions \
+  -H "x-applad-key: $APPLAD_API_KEY"
+```
+
+Fetch one execution to see its per-node log:
+
+```dart
+final exec = await client.workflows.getExecution(workflowId, executionId);
+```
+
+```bash
+curl https://api.applad.io/v1/workflows/$WORKFLOW_ID/executions/$EXECUTION_ID \
+  -H "x-applad-key: $APPLAD_API_KEY"
+```
+
+An execution looks like this:
+
+```json
+{
+  "$id": "exec_9f2c...",
+  "workflowId": "wf_1a2b...",
+  "status": "completed",
+  "triggerData": { "email": "ada@example.com", "name": "Ada" },
+  "startedAt": "2026-07-28T02:00:00Z",
+  "completedAt": "2026-07-28T02:00:01Z",
+  "durationMs": 812,
+  "error": "",
+  "logs": [
+    {
+      "nodeId": "welcome",
+      "nodeType": "send_email",
+      "label": "Send welcome",
+      "status": "completed",
+      "input": { "trigger": { "email": "ada@example.com", "name": "Ada" } },
+      "output": { "status": "sent", "to": "ada@example.com" },
+      "durationMs": 802
+    }
+  ]
+}
+```
+
+The `status` is `pending`, `running`, `completed`, or `failed`. Each entry in
+`logs` is one node, with its `input`, its `output`, a `status` (`completed`,
+`failed`, or `skipped`), a `durationMs`, and an `error` string when it failed.
+A node skipped by an `if_condition` branch shows `status: "skipped"`.
+
+## Worked example: branch on a webhook
+
+This webhook workflow reads an incoming order, and only emails when the amount
+crosses a threshold. It shows edges, an `if_condition` branch, and templating.
+
+```dart
+final wf = await client.workflows.create(
+  name: 'Large order alert',
+  triggerType: 'webhook',
+  nodes: [
+    {
+      'id': 'check',
+      'type': 'if_condition',
+      'label': 'Over 100?',
+      'config': {
+        'field': 'trigger.amount',
+        'operator': 'contains',   // string compare; see operators below
+        'value': '1',
+        'trueBranch': 'alert',
+        'falseBranch': 'skip',
+      },
+    },
+    {
+      'id': 'alert',
+      'type': 'send_email',
+      'label': 'Email ops',
+      'config': {
+        'smtpHost': 'smtp.example.com',
+        'from': 'bot@example.com',
+        'to': 'ops@example.com',
+        'subject': 'Large order {{.trigger.orderId}}',
+        'body': 'Order {{.trigger.orderId}} came to {{.trigger.amount}}.',
+      },
+    },
+    { 'id': 'skip', 'type': 'no_operation', 'label': 'Ignore', 'config': {} },
+  ],
+  edges: [
+    { 'id': 'e1', 'source': 'check', 'target': 'alert' },
+    { 'id': 'e2', 'source': 'check', 'target': 'skip' },
+  ],
+);
+
+// Save the returned webhookSecret now, it is only shown once.
+final secret = wf['webhookSecret'];
+
+// Activate so the webhook accepts calls.
+await client.workflows.update(wf['\$id'], {
+  'name': 'Large order alert',
+  'status': 'active',
+  'triggerType': 'webhook',
+  'nodes': wf['nodes'],
+  'edges': wf['edges'],
+});
+```
+
+When your store POSTs `{ "orderId": "A1", "amount": "150" }` (signed with the
+secret) to `/v1/workflows/webhooks/{id}`, the `if_condition` evaluates, one
+branch is skipped, and the execution log records exactly which node ran.
+
+`if_condition` (and `filter`, `switch`) compare as strings using these
+operators: `eq` / `==` / `equals`, `neq` / `!=` / `not_equals`, `contains`,
+`not_contains`, `starts_with`, `ends_with`, `empty`, `not_empty`. There is no
+numeric greater-than, so compare against known values or shape the number into a
+string you can match.
+
+## Notes and limits
+
+- **HTTP is guarded.** `http_request` runs behind an SSRF guard and cannot reach
+  cloud metadata or your compose-internal services. Response bodies are capped
+  at 1 MB.
+- **Sub-workflows nest to depth 5.** Deeper recursion fails the run.
+- **Retries.** A workflow object carries `retryAttempts` and `retryDelayMs`
+  fields that the engine honours (default 1s between attempts). The create and
+  update endpoints do not currently accept these fields, so they stay at their
+  defaults unless set another way.
+- **Deleting** a workflow (`DELETE /v1/workflows/{id}`) also removes its
+  executions.
+- **Self-hosting.** The engine runs inside your instance with no external
+  dependency. Integration nodes (`slack`, `stripe`, and so on) reach out to
+  those third parties, so they need network egress and the relevant credentials
+  in the node `config`; the core, flow, data, and `applad_*` nodes do not.
+
+See also [Functions](/build/functions) for single-purpose serverless code,
+[Databases](/build/databases) for the tables a workflow reads and writes, and
+[Permissions](/build/permissions) for how access is enforced.

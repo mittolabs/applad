@@ -1,0 +1,536 @@
+---
+title: Authentication
+icon: Users
+description: Create accounts, open sessions, and sign users in with email, OAuth, magic links, MFA and more.
+---
+
+Applad authenticates end users per project. A user creates an **account**, opens
+a **session**, and every request they make carries that session as a bearer
+token. What they can then read or write is decided by their identity and the
+[teams](/build/teams) they belong to (see [permissions](/build/permissions)).
+
+This page covers the client-side account API: the endpoints your app calls on
+behalf of the person using it. It runs under `/v1/account`. For creating and
+managing users from your own backend (with an API key, no user session), see
+[Server-side user management](#server-side-user-management) at the end.
+
+## How a request authenticates
+
+Every client request sends your project ID as a header:
+
+```
+x-applad-project: <projectId>
+```
+
+After a session is created, the request also carries the session's `secret` as a
+bearer token:
+
+```
+Authorization: Bearer <secret>
+```
+
+The `secret` is a signed JWT returned once, in the body, when the session is
+created. A browser also receives it as an `HttpOnly` cookie (`a_session_<projectId>`),
+so a web app can rely on the cookie instead of storing the token in
+JavaScript-readable storage. A mobile app or a script has no cookie jar, so it
+keeps the `secret` and sends it as the header above.
+
+Point an SDK client at your endpoint and project to begin:
+
+```dart
+final client = Applad(
+  endpoint: 'https://api.applad.io',
+  projectId: '<projectId>',
+);
+```
+
+```ts
+import { Applad } from '@mittolabs/applad';
+
+const client = new Applad({
+  endpoint: 'https://api.applad.io',
+  projectId: '<projectId>',
+});
+```
+
+## Create an account
+
+Register a user with an email and password. `userId` defaults to a generated ID
+(`unique()`); pass your own if you want to choose it. `name` is optional.
+
+```dart
+final user = await client.auth.createAccount(
+  email: 'ada@example.com',
+  password: 'super-secret',
+  name: 'Ada',
+);
+```
+
+```ts
+const user = await client.auth.createAccount('ada@example.com', 'super-secret', {
+  name: 'Ada',
+});
+```
+
+Creating an account does not sign the user in. Open a session next.
+
+The returned user object looks like this (`POST /v1/account`, `201`):
+
+```json
+{
+  "$id": "a1b2c3...",
+  "$createdAt": "2026-01-01T12:00:00Z",
+  "$updatedAt": "2026-01-01T12:00:00Z",
+  "name": "Ada",
+  "email": "ada@example.com",
+  "phone": "",
+  "emailVerification": false,
+  "phoneVerification": false,
+  "status": true,
+  "labels": [],
+  "prefs": {}
+}
+```
+
+<Callout title="Password length">
+  Passwords must meet the project's minimum length (8 characters by default).
+  A shorter password is rejected. A self-hoster can raise the minimum, and set
+  a per-project user cap, in the project's auth security config.
+</Callout>
+
+## Email sessions
+
+Sign a user in with their email and password. The response is a session whose
+`secret` is the bearer token for everything that follows.
+
+```dart
+final session = await client.auth.createEmailSession(
+  email: 'ada@example.com',
+  password: 'super-secret',
+);
+// The Dart SDK applies session['secret'] as the bearer token automatically.
+
+final me = await client.auth.getAccount(); // already authenticated
+```
+
+```ts
+const session = await client.auth.createEmailSession('ada@example.com', 'super-secret');
+client.setJWT(session.secret); // the JS SDK does not apply it for you
+
+const me = await client.auth.getAccount();
+```
+
+<Callout title="The secret is what makes one session work everywhere">
+  On the web, prefer the `HttpOnly` cookie the login also sets over keeping the
+  secret in JavaScript. On mobile, persist the `secret` in secure storage
+  (Keychain / Keystore) and restore it on the next launch. The Dart SDK applies
+  the secret to subsequent requests for you; in the JS SDK, call
+  `client.setJWT(session.secret)` yourself.
+</Callout>
+
+The session object (`POST /v1/account/sessions/email`, `201`):
+
+```json
+{
+  "$id": "9f8e7d...",
+  "$createdAt": "2026-01-01T12:05:00Z",
+  "userId": "a1b2c3...",
+  "expire": "2027-01-01T12:05:00Z",
+  "provider": "email",
+  "ip": "203.0.113.7",
+  "userAgent": "Dart/3.3 (dart:io)",
+  "current": true,
+  "secret": "eyJhbGciOi..."
+}
+```
+
+`secret` is present only on creation. Listing or fetching a session never returns
+it.
+
+### Restoring a session on the next launch
+
+Save the `secret` when you create the session, then restore it with `setJWT`
+before making authenticated calls:
+
+```dart
+// after reading the saved secret from secure storage
+client.setJWT(savedSecret);
+final me = await client.auth.getAccount(); // confirms it is still valid
+```
+
+```ts
+client.setJWT(savedSecret);
+const me = await client.auth.getAccount();
+```
+
+By default a session lasts up to a year (a self-hoster can shorten this per
+project). `getAccount` failing means the secret is expired or revoked; send the
+user back to sign in.
+
+## Anonymous sessions
+
+Open a session with no account, so a user can start using your app before
+signing up. Applad creates a throwaway user (labelled `anonymous`) and returns a
+session exactly like an email session.
+
+```dart
+final session = await client.auth.createAnonymousSession();
+```
+
+```ts
+const session = await client.auth.createAnonymousSession();
+client.setJWT(session.secret);
+```
+
+The anonymous user is a real user row, so anything they create belongs to them.
+To turn it into a permanent account later, set an email and password with the
+account-update endpoints below while the anonymous session is still active.
+
+## The current account
+
+Every call below requires an active session.
+
+### Read the account
+
+```dart
+final me = await client.auth.getAccount();
+```
+
+```ts
+const me = await client.auth.getAccount();
+```
+
+### Update the name
+
+```dart
+await client.auth.updateName('Ada Lovelace');
+```
+
+```ts
+await client.auth.updateName('Ada Lovelace');
+```
+
+### Update the email
+
+Changing an email requires the current password.
+
+```dart
+await client.auth.updateEmail(
+  email: 'ada@newmail.com',
+  password: 'super-secret',
+);
+```
+
+```ts
+await client.auth.updateEmail('ada@newmail.com', 'super-secret');
+```
+
+### Update the password
+
+Pass the old password to prove ownership. Changing the password invalidates the
+user's other sessions by default, so they stay signed in only on the current
+device.
+
+```dart
+await client.auth.updatePassword(
+  password: 'a-new-secret',
+  oldPassword: 'super-secret',
+);
+```
+
+```ts
+await client.auth.updatePassword('a-new-secret', 'super-secret');
+```
+
+### Preferences
+
+Prefs are an arbitrary JSON object stored on the user, handy for per-user
+settings. Updating replaces the whole object, so read, merge, then write if you
+want to keep existing keys.
+
+```dart
+await client.auth.updatePrefs({'theme': 'dark', 'locale': 'en'});
+```
+
+```ts
+await client.auth.updatePrefs({ theme: 'dark', locale: 'en' });
+```
+
+### Delete the account
+
+```dart
+await client.auth.deleteAccount();
+```
+
+```ts
+await client.auth.deleteAccount();
+```
+
+## Managing sessions
+
+A user can be signed in on several devices at once, each with its own session.
+
+List every session for the current user (`GET /v1/account/sessions` returns
+`{ total, sessions }`):
+
+```dart
+final result = await client.auth.listSessions();
+for (final s in result['sessions']) {
+  print('${s['provider']} from ${s['ip']}, current: ${s['current']}');
+}
+```
+
+```ts
+const { sessions } = await client.auth.listSessions();
+```
+
+Fetch one session, delete one session (sign out a single device), or delete all
+of them (sign out everywhere):
+
+```dart
+await client.auth.getSession(sessionId);
+await client.auth.deleteSession(sessionId); // one device
+await client.auth.deleteSessions();          // everywhere; also clears the local token
+```
+
+```ts
+await client.auth.getSession(sessionId);
+await client.auth.deleteSession(sessionId);
+await client.auth.deleteSessions();
+```
+
+<Callout title="Session limit">
+  A user may hold up to 10 active sessions by default. When the limit is reached,
+  creating a new session evicts the oldest one. Self-hosters can change this per
+  project.
+</Callout>
+
+## Short-lived JWT
+
+Ask Applad for a fresh JWT scoped to the current user, valid for 15 minutes. Use
+it to authenticate the user to a service of your own, or to pass identity to
+another system without handing over the long-lived session secret.
+
+```dart
+final jwt = await client.auth.getJWT();
+```
+
+```ts
+const jwt = await client.auth.getJWT();
+```
+
+`POST /v1/account/jwt` returns `{ "jwt": "eyJ..." }`.
+
+## OAuth2 sign-in
+
+OAuth is a browser redirect flow, so it has no SDK method: you send the user to
+an Applad URL, they authorise with the provider, and Applad redirects them back
+with a session cookie set.
+
+Start the flow by navigating the browser to:
+
+```
+GET /v1/account/sessions/oauth/{provider}?success=<path>&failure=<path>
+```
+
+`success` and `failure` are relative paths in your app that Applad redirects to
+afterwards (absolute URLs are rejected to prevent open redirects). For example,
+to sign in with Google:
+
+```ts
+const projectId = '<projectId>';
+window.location.href =
+  `https://api.applad.io/v1/account/sessions/oauth/google` +
+  `?success=/dashboard&failure=/login`;
+```
+
+Applad handles the provider callback at
+`/v1/account/sessions/oauth/{provider}/callback`, creates or links the user
+(matching on the OAuth identity, then on the email), sets the session cookie, and
+redirects to your `success` path.
+
+<Callout title="OAuth sets a cookie, not a body token">
+  The callback authenticates the browser by cookie and does not return the
+  session `secret`. That makes it a good fit for web apps. For a native mobile
+  OAuth flow you would capture the cookie or session yourself; the plain
+  redirect flow documented here is browser-oriented.
+</Callout>
+
+### Available providers
+
+A provider is active only when its credentials are configured. On a self-hosted
+instance you enable one by setting `OAUTH_<PROVIDER>_CLIENT_ID` and
+`OAUTH_<PROVIDER>_CLIENT_SECRET` (for example `OAUTH_GOOGLE_CLIENT_ID`). Applad
+defines these providers:
+
+`google`, `github`, `apple`, `facebook`, `discord`, `twitter`, `microsoft`,
+`slack`, `spotify`, `linkedin`, `gitlab`, `bitbucket`, `twitch`, `notion`,
+`stripe`, `amazon`, `autodesk`, `bitly`, `box`, `dailymotion`, `disqus`,
+`dropbox`, `etsy`, `figma`, `hubspot`, `kakao`, `line`, `mailchimp`, `patreon`,
+`paypal`, `podio`, `reddit`, `salesforce`, `tradeshift`, `wordpress`, `yahoo`,
+`yammer`, `yandex`, `zoho`, `zoom`.
+
+Three more are configurable against your own identity provider and need a domain
+or endpoints as well as credentials: `auth0` (`OAUTH_AUTH0_DOMAIN`), `okta`
+(`OAUTH_OKTA_DOMAIN`), and a generic `oidc` (`OAUTH_OIDC_AUTH_URL`,
+`OAUTH_OIDC_TOKEN_URL`, `OAUTH_OIDC_USERINFO_URL`).
+
+## Multi-factor authentication (TOTP)
+
+MFA uses time-based one-time passwords, the kind an authenticator app generates.
+These endpoints require an active session and are not yet wrapped by the client
+SDKs, so call them directly.
+
+Enable MFA. Applad generates a TOTP secret and recovery codes, and returns an
+`otpauth://` URI you can render as a QR code:
+
+```bash
+curl -X POST https://api.applad.io/v1/account/mfa \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>"
+```
+
+```json
+{
+  "secret": "JBSWY3DPEHPK3PXP",
+  "recoveryCodes": ["01928374", "..."],
+  "uri": "otpauth://totp/Applad?secret=JBSWY3DPEHPK3PXP&issuer=Applad"
+}
+```
+
+Confirm the user has added the secret to their authenticator by verifying a code.
+MFA becomes enabled only after a code verifies:
+
+```bash
+curl -X PUT https://api.applad.io/v1/account/mfa \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{"code": "123456"}'
+```
+
+Disable MFA (clears the secret and recovery codes):
+
+```bash
+curl -X DELETE https://api.applad.io/v1/account/mfa \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>"
+```
+
+<Callout title="Enrollment vs enforcement">
+  These endpoints enroll and remove a factor. Store the recovery codes safely,
+  since each is single-use if you later add a code challenge to your sign-in
+  flow. The email-session endpoint does not itself prompt for the TOTP code, so
+  gate sensitive actions on MFA in your own flow rather than assuming
+  `createEmailSession` challenges for it.
+</Callout>
+
+## Magic-link login
+
+Send a one-time link that signs a user in without a password. If no account
+exists for the email, one is created. These endpoints are not in the client
+SDKs.
+
+Request the link. `url` is your app's callback; Applad appends `?secret=<token>`
+to it and emails the link (if SMTP is configured on the instance). The link
+expires in 15 minutes.
+
+```bash
+curl -X POST https://api.applad.io/v1/account/sessions/magic-link \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "ada@example.com", "url": "https://yourapp.com/callback"}'
+```
+
+When the user lands on your callback, read `secret` from the query string and
+redeem it to open a session:
+
+```bash
+curl -X PUT https://api.applad.io/v1/account/sessions/magic-link \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{"secret": "<token-from-the-link>"}'
+```
+
+Redeeming returns the session and sets the session cookie. It also marks the
+email verified. The `secret` field is not included in the redeem response, so
+this flow is browser-oriented, the same as OAuth.
+
+## Email verification
+
+Verification confirms a user controls their email. It takes the user's ID, so
+call it while they are signed in.
+
+Send the verification email (link expires in 24 hours):
+
+```bash
+curl -X POST https://api.applad.io/v1/account/verification \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{"userId": "<userId>", "url": "https://yourapp.com/verify"}'
+```
+
+Confirm the token from the emailed link:
+
+```bash
+curl -X PUT https://api.applad.io/v1/account/verification \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{"secret": "<token-from-the-link>"}'
+```
+
+On success the user's `emailVerification` flag becomes `true`.
+
+## Password recovery
+
+Recovery lets a user who forgot their password set a new one over email.
+
+Request the reset. Applad always responds `{"status": "sent"}`, whether or not
+the email exists, so the endpoint never reveals which addresses have accounts.
+The link expires in one hour.
+
+```bash
+curl -X POST https://api.applad.io/v1/account/recovery \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "ada@example.com", "url": "https://yourapp.com/reset"}'
+```
+
+Set the new password with the token from the link:
+
+```bash
+curl -X PUT https://api.applad.io/v1/account/recovery \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{"secret": "<token-from-the-link>", "password": "a-new-secret"}'
+```
+
+## Server-side user management
+
+The endpoints above act on the signed-in user. To manage users from your own
+backend, use the server SDK with an API key (header `x-applad-key`), which reaches
+`/v1/users`. There is no user session involved; the key authorises the whole
+project.
+
+```dart
+// server SDK, authenticated with an API key
+final user = await client.users.create(
+  email: 'grace@example.com',
+  name: 'Grace',
+  password: 'temporary',
+);
+
+await client.users.list(search: 'grace', limit: 25);
+await client.users.updateStatus(user['\$id'], false); // block a user
+await client.users.deleteSessions(user['\$id']);       // force sign-out
+```
+
+Server-side you can also create users without a password (for invite flows),
+update a user's email without their current password, and list or revoke any
+user's sessions. Creating a user this way skips email verification.
+
+## Next steps
+
+- [Permissions](/build/permissions): how a user's identity decides what they can read and write.
+- [Teams](/build/teams): group users so a resource is visible to exactly the right people.
