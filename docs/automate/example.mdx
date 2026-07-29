@@ -1,0 +1,67 @@
+---
+title: Worked example
+description: A webhook workflow that reads an incoming order and emails only when the amount crosses a threshold.
+---
+
+This webhook workflow reads an incoming order, and only emails when the amount
+crosses a threshold. It shows edges, an `if_condition` branch, and templating.
+
+```dart
+final wf = await client.workflows.create(
+  name: 'Large order alert',
+  triggerType: 'webhook',
+  nodes: [
+    {
+      'id': 'check',
+      'type': 'if_condition',
+      'label': 'Over 100?',
+      'config': {
+        'field': 'trigger.amount',
+        'operator': 'contains',   // string compare; see operators below
+        'value': '1',
+        'trueBranch': 'alert',
+        'falseBranch': 'skip',
+      },
+    },
+    {
+      'id': 'alert',
+      'type': 'send_email',
+      'label': 'Email ops',
+      'config': {
+        'smtpHost': 'smtp.example.com',
+        'from': 'bot@example.com',
+        'to': 'ops@example.com',
+        'subject': 'Large order {{.trigger.orderId}}',
+        'body': 'Order {{.trigger.orderId}} came to {{.trigger.amount}}.',
+      },
+    },
+    { 'id': 'skip', 'type': 'no_operation', 'label': 'Ignore', 'config': {} },
+  ],
+  edges: [
+    { 'id': 'e1', 'source': 'check', 'target': 'alert' },
+    { 'id': 'e2', 'source': 'check', 'target': 'skip' },
+  ],
+);
+
+// Save the returned webhookSecret now, it is only shown once.
+final secret = wf['webhookSecret'];
+
+// Activate so the webhook accepts calls.
+await client.workflows.update(wf['\$id'], {
+  'name': 'Large order alert',
+  'status': 'active',
+  'triggerType': 'webhook',
+  'nodes': wf['nodes'],
+  'edges': wf['edges'],
+});
+```
+
+When your store POSTs `{ "orderId": "A1", "amount": "150" }` (signed with the
+secret) to `/v1/workflows/webhooks/{id}`, the `if_condition` evaluates, one
+branch is skipped, and the execution log records exactly which node ran.
+
+`if_condition` (and `filter`, `switch`) compare as strings using these
+operators: `eq` / `==` / `equals`, `neq` / `!=` / `not_equals`, `contains`,
+`not_contains`, `starts_with`, `ends_with`, `empty`, `not_empty`. There is no
+numeric greater-than, so compare against known values or shape the number into a
+string you can match.

@@ -2,7 +2,15 @@
   "title": "Automate",
   "icon": "Zap",
   "pages": [
-    "workflows"
-  ],
-  "defaultOpen": true
+    "---Getting started---",
+    "workflows",
+    "---Guides---",
+    "create",
+    "triggers",
+    "execute",
+    "history",
+    "example",
+    "---Reference---",
+    "limits"
+  ]
 }

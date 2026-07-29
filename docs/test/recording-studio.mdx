@@ -1,0 +1,66 @@
+---
+title: The recording studio
+description: "Record a browser flow against a running target and compile it to a runnable Playwright suite, without writing one."
+---
+
+The studio records a browser flow against a running target and compiles it to a
+runnable Playwright suite, so you get an end-to-end test without writing one.
+
+<Steps>
+
+<Step>
+## Open a recording session
+
+In the console, **Test → Flows → Record** opens a real browser in a container,
+streams it to you over a WebSocket, and forwards your clicks and keystrokes back.
+</Step>
+
+<Step>
+## Record steps, not coordinates
+
+Each interaction becomes a step with a durable selector (a role and name, a test
+id, a label) rather than a coordinate. Assert mode turns a click into an
+assertion instead of an action.
+</Step>
+
+<Step>
+## Save the flow
+
+Flows are stored as steps, not code. Saving a session writes a complete
+generated Playwright project into a single shared **recorded-flows** runner, so a
+recording is immediately a suite that runs on every change.
+</Step>
+
+<Step>
+## Read the compiled suite
+
+You can preview what a recording compiles to before keeping it, and read the
+generated spec of any saved flow:
+
+```bash
+curl https://api.applad.io/v1/studio/flows -H "x-applad-key: <apiKey>"
+curl https://api.applad.io/v1/studio/flows/<flowId> -H "x-applad-key: <apiKey>"
+```
+
+`GET /v1/studio/flows/{flowId}` returns the flow and its compiled `playwright`
+source. The generated project is rebuilt from all flows whenever one is added or
+removed, so the runnable source and the catalogue stay in step. A saved flow also
+keeps a **capture** (the frame timeline, console, and network gathered while
+recording) so the test doubles as a replay.
+</Step>
+
+</Steps>
+
+<Callout title="Live recording is a console feature">
+  The live browser stream needs the console UI and the browser worker; it is not
+  something you drive from a script. The underlying API lives under `/v1/studio`
+  (`POST /sessions`, `GET /sessions/{id}/stream`, `POST /sessions/{id}/save`).
+</Callout>
+
+<Callout title="Web only, for now">
+  Steps also compile to Maestro for devices, but device platforms need an
+  emulator or a Mac and are not wired up. Only web recording runs end to end
+  today. AI capture summaries (`explain`) and the public share page for a capture
+  appear only when an AI provider is configured and on the hosted product
+  respectively; a plain self-hosted install has neither.
+</Callout>

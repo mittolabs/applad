@@ -1,0 +1,79 @@
+---
+title: Triggers
+description: Pick how a workflow starts, manually, on a cron schedule, or by a public webhook.
+---
+
+Pick the trigger with `triggerType` when you create or update the workflow.
+
+## Manual
+
+The default. The workflow runs only when you call the execute endpoint (below).
+Good for workflows you kick off from your own backend, or from a
+[function](/build/functions) or [site](/deploy/sites).
+
+## Cron schedule
+
+Set `triggerType` to `cron` and put the expression in `triggerConfig.cron`. The
+scheduler fires active cron workflows once a minute when they are due.
+
+```dart
+await client.workflows.create(
+  name: 'Nightly rollup',
+  triggerType: 'cron',
+  triggerConfig: { 'cron': '0 2 * * *' }, // 02:00 every day
+  nodes: [ /* ... */ ],
+  edges: [],
+);
+```
+
+Expressions are standard 5-field cron (minute, hour, day-of-month, month,
+day-of-week) and also accept ranges and lists (`0 9 * * 1-5`), names, and
+descriptors like `@daily` and `@hourly`. Seconds are not supported. Without a
+timezone the expression is interpreted in **UTC**; prefix it to change that:
+
+```
+CRON_TZ=Africa/Nairobi 0 9 * * *
+```
+
+An invalid expression is rejected at create/update time with a `400`, so a
+schedule that could never run is caught immediately rather than silently never
+firing.
+
+## Webhook
+
+Set `triggerType` to `webhook`. On create, the response includes a
+`webhookSecret` **once** (it is not returned again), and the workflow becomes
+callable at a public URL:
+
+```
+POST /v1/workflows/webhooks/{workflowId}
+```
+
+This route needs no API key. The workflow must be `active` and its
+`triggerType` must be `webhook`, or the call is rejected. The request body is
+parsed as JSON and becomes the trigger payload; the engine also adds
+`_method` and `_headers` to it. The body is limited to 10 MB.
+
+When the workflow has a secret, every call must be signed. Compute
+`hex(HMAC-SHA256(secret, rawBody))` and send it as `X-Applad-Signature`:
+
+```bash
+BODY='{"email":"ada@example.com"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $2}')
+
+curl -X POST https://api.applad.io/v1/workflows/webhooks/$WORKFLOW_ID \
+  -H "content-type: application/json" \
+  -H "X-Applad-Signature: $SIG" \
+  -d "$BODY"
+```
+
+A missing signature returns `401 missing_signature`; a wrong one returns
+`401 invalid_signature`.
+
+If you need to rotate the secret, generate a new one (this invalidates the old):
+
+```bash
+curl -X POST https://api.applad.io/v1/workflows/$WORKFLOW_ID/webhook-secret \
+  -H "x-applad-key: $APPLAD_API_KEY"
+# => { "webhookSecret": "..." }
+```

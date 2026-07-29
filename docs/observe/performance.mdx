@@ -1,0 +1,24 @@
+---
+title: Performance
+description: Per-endpoint latency percentiles, throughput, and error rate, recorded automatically, plus browser Core Web Vitals you push yourself.
+---
+
+Applad already records latency for you. A built-in collector samples every
+request the API serves and flushes per-endpoint percentiles (p50/p75/p95/p99),
+requests per second, and error rate to hourly buckets. Read the last 24 hours,
+aggregated per endpoint with an Apdex score:
+
+```bash
+curl "$APPLAD/v1/observe/performance" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+You can also push your own numbers. `POST /observe/performance` records a
+snapshot for a path you name, and browser clients report Core Web Vitals:
+
+```dart
+await client.observe.reportWebVitals(
+  pageUrl: '/checkout',
+  lcp: 1800, cls: 0.02, inp: 120, ttfb: 320,
+);
+```

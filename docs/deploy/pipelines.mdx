@@ -1,0 +1,78 @@
+---
+title: "Pipelines and releases"
+description: "Create a pipeline, give it the source, and trigger a build. Each trigger produces a release."
+---
+
+Deploying takes three steps: create a **pipeline** (where the code comes from and
+how to build it), give it the source, and **trigger** a build. Each trigger
+produces a **release**, one build-and-deploy run.
+
+<Steps>
+
+<Step>
+
+## Create a pipeline
+
+A pipeline is tied to a target and names the source and build plan. `sourceType`
+is `upload` (the default) or `git`.
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/pipelines" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "targetId": "'"$TARGET"'",
+        "name": "production",
+        "sourceType": "upload",
+        "installCmd": "npm ci",
+        "buildCmd": "npm run build",
+        "outputDir": "dist"
+      }'
+```
+
+Leave a build phase empty to have Applad infer it from the source. For a git
+source, set `sourceType` to `git` with a `sourceUrl` and `branch`. A public
+repository deploys by URL directly. (Connecting a private GitHub repo needs the
+Applad Cloud GitHub App, which a self-hosted instance does not have; public
+repositories still deploy by URL.)
+
+</Step>
+
+<Step>
+
+## Upload the source
+
+For an `upload` pipeline, POST a gzipped tarball of your app's source. The upload
+is capped at 512 MB.
+
+```bash
+tar czf app.tar.gz -C ./my-app .
+curl -X POST "$APPLAD/v1/deploy/pipelines/$PIPELINE/source" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  --data-binary @app.tar.gz
+```
+
+</Step>
+
+<Step>
+
+## Trigger a build
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/pipelines/$PIPELINE/trigger" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"triggerType": "manual"}'
+```
+
+This returns `202 Accepted` with a release. The build runs asynchronously on the
+builds worker; the release moves through `pending` to `building`, `deploying`,
+and then `success` or `failed`.
+
+```json
+{ "$id": "9a1e...", "targetId": "6f2c...", "status": "pending", "triggerType": "manual" }
+```
+
+</Step>
+
+</Steps>

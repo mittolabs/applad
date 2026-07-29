@@ -1,0 +1,31 @@
+---
+title: Route reference
+description: "All routes require a server API key and live under /v1."
+---
+
+All routes require a server API key and live under `/v1`.
+
+| Route | Description |
+| --- | --- |
+| `POST /tests/runners` · `GET /tests/runners` | Create or list runners |
+| `GET·PUT·DELETE /tests/runners/{runnerId}` | Get, update, delete a runner |
+| `POST /tests/runners/{runnerId}/source` | Upload project source (tar.gz or zip) |
+| `POST /tests/runners/{runnerId}/run` | Trigger a run |
+| `GET /tests/tests` | The catalogue |
+| `PUT /tests/{testId}/tags` | Set a test's tags |
+| `PUT /tests/{testId}/quarantine` | Quarantine or release a test |
+| `GET /tests/{testId}/history` | A test's history across runs |
+| `POST /tests/suites` · `GET /tests/suites` | Create or list suites |
+| `PUT·DELETE /tests/suites/{suiteId}` | Update or delete a suite |
+| `POST /tests/suites/{suiteId}/run` | Run a suite, optionally against a target |
+| `GET /tests/runs` | List runs (`?runnerId=`, `?limit=`) |
+| `GET /tests/runs/{runId}` | A run and its verdict |
+| `GET /tests/runs/{runId}/cases` | The run's individual cases |
+| `GET /tests/runs/{runId}/artifacts` | The run's artifacts |
+| `GET /tests/runs/{runId}/stream` | Live log stream while running |
+| `GET /tests/artifacts/{artifactId}` | Download one artifact |
+| `POST /studio/sessions` | Start a recording session (console) |
+| `GET /studio/sessions/{id}/stream` | Live browser stream (console) |
+| `POST /studio/sessions/{id}/save` | Save a recording as a flow and suite |
+| `GET /studio/flows` · `GET /studio/flows/{flowId}` | List flows, or one flow with its compiled Playwright |
+| `DELETE /studio/flows/{flowId}` | Delete a flow and its generated suite |

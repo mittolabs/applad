@@ -1,0 +1,23 @@
+---
+title: Logs
+description: Ship structured log entries with level, source, trace and span IDs, and metadata, then query them back.
+---
+
+Send structured log entries and query them by level or source. Levels are
+`debug`, `info`, `warn`, `error`, `fatal`.
+
+```dart
+await client.observe.captureLog(
+  'checkout completed',
+  level: 'info',
+  source: 'payments',
+  release: '1.4.0',
+  traceId: traceId,
+  meta: {'orderId': order.id, 'amount': 4200},
+);
+```
+
+```bash
+curl "$APPLAD/v1/observe/logs?level=error&source=payments&limit=100" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```

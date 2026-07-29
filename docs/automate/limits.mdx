@@ -1,0 +1,19 @@
+---
+title: Notes and limits
+description: Guards, nesting depth, retries, deletion, and self-hosting notes for the workflow engine.
+---
+
+- **HTTP is guarded.** `http_request` runs behind an SSRF guard and cannot reach
+  cloud metadata or your compose-internal services. Response bodies are capped
+  at 1 MB.
+- **Sub-workflows nest to depth 5.** Deeper recursion fails the run.
+- **Retries.** A workflow object carries `retryAttempts` and `retryDelayMs`
+  fields that the engine honours (default 1s between attempts). The create and
+  update endpoints do not currently accept these fields, so they stay at their
+  defaults unless set another way.
+- **Deleting** a workflow (`DELETE /v1/workflows/{id}`) also removes its
+  executions.
+- **Self-hosting.** The engine runs inside your instance with no external
+  dependency. Integration nodes (`slack`, `stripe`, and so on) reach out to
+  those third parties, so they need network egress and the relevant credentials
+  in the node `config`; the core, flow, data, and `applad_*` nodes do not.

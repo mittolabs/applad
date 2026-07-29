@@ -1,0 +1,42 @@
+---
+title: Watching a build
+description: "Poll a release for its status, read its build and deploy logs, and roll back to a previous release."
+---
+
+Poll the release for its status, and read its logs:
+
+```bash
+curl "$APPLAD/v1/deploy/releases/$RELEASE" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+
+curl "$APPLAD/v1/deploy/releases/$RELEASE/logs" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+The logs endpoint returns the build output as it accumulates, so poll it while
+the status is `building`:
+
+```json
+{
+  "$id": "9a1e...",
+  "buildLog": "npm ci\nadded 214 packages...\n",
+  "deployLog": "starting container the-range...\n",
+  "error": ""
+}
+```
+
+List releases for a target or pipeline, optionally filtered by status:
+
+```bash
+curl "$APPLAD/v1/deploy/releases?targetId=$TARGET&status=success" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+## Rolling back
+
+Roll a target back to a previous successful release:
+
+```bash
+curl -X POST "$APPLAD/v1/deploy/releases/$RELEASE/rollback" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```

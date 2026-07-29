@@ -1,0 +1,105 @@
+---
+title: Create a workflow
+description: Send a workflow's name, trigger, and graph, then activate it to go live.
+---
+
+<Steps>
+
+<Step>
+
+## Send the definition
+
+Send the name, the trigger, and the graph. `triggerType` defaults to `manual`,
+and a new workflow starts in `draft` status.
+
+<Tabs items={['Dart', 'cURL']}>
+
+<Tab value="Dart">
+
+```dart
+final wf = await client.workflows.create(
+  name: 'Welcome email',
+  description: 'Email a new user after signup',
+  triggerType: 'manual',
+  nodes: [
+    {
+      'id': 'welcome',
+      'type': 'send_email',
+      'label': 'Send welcome',
+      'config': {
+        'smtpHost': 'smtp.example.com',
+        'from': 'hello@example.com',
+        'to': '{{.trigger.email}}',
+        'subject': 'Welcome to Acme',
+        'body': 'Hi {{.trigger.name}}, thanks for joining.',
+      },
+    },
+  ],
+  edges: [],
+);
+// wf['$id'] is the workflow ID
+```
+
+</Tab>
+
+<Tab value="cURL">
+
+```bash
+curl -X POST https://api.applad.io/v1/workflows \
+  -H "x-applad-key: $APPLAD_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{
+    "name": "Welcome email",
+    "triggerType": "manual",
+    "nodes": [{
+      "id": "welcome",
+      "type": "send_email",
+      "label": "Send welcome",
+      "config": {
+        "smtpHost": "smtp.example.com",
+        "from": "hello@example.com",
+        "to": "{{.trigger.email}}",
+        "subject": "Welcome to Acme",
+        "body": "Hi {{.trigger.name}}, thanks for joining."
+      }
+    }],
+    "edges": []
+  }'
+```
+
+</Tab>
+
+</Tabs>
+
+The response is the full workflow object, including `$id`, `status`
+(`"draft"`), and the nodes and edges you sent.
+
+</Step>
+
+<Step>
+
+## Activate it
+
+A workflow only runs on a schedule or a webhook once its `status` is `active`,
+and a `paused` workflow refuses manual execution. Update it to go live:
+
+```dart
+await client.workflows.update(wf['\$id'], {
+  'name': 'Welcome email',
+  'status': 'active',
+  'triggerType': 'manual',
+  'nodes': wf['nodes'],
+  'edges': wf['edges'],
+});
+```
+
+<Callout title="Update replaces the whole definition">
+  `PUT /v1/workflows/{id}` overwrites name, status, trigger, nodes, and edges
+  with what you send. Omitted fields fall back to defaults (`status` to
+  `draft`, `triggerType` to `manual`), so always send the complete definition,
+  not a partial patch.
+</Callout>
+
+</Step>
+
+</Steps>

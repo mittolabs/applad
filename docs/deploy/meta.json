@@ -2,7 +2,13 @@
   "title": "Deploy",
   "icon": "Rocket",
   "pages": [
-    "sites"
-  ],
-  "defaultOpen": true
+    "---Getting started---",
+    "sites",
+    "---Guides---",
+    "pipelines",
+    "builds",
+    "access-logs",
+    "serverless",
+    "domains"
+  ]
 }

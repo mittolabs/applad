@@ -2,7 +2,16 @@
   "title": "Testing",
   "icon": "FlaskConical",
   "pages": [
-    "index"
-  ],
-  "defaultOpen": true
+    "---Getting started---",
+    "index",
+    "---Concepts---",
+    "runners-and-runs",
+    "catalogue",
+    "suites",
+    "flaky",
+    "artifacts",
+    "recording-studio",
+    "---Reference---",
+    "reference"
+  ]
 }

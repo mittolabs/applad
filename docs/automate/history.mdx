@@ -1,0 +1,82 @@
+---
+title: Execution history and logs
+description: List a workflow's runs and read the per-node log of any execution.
+---
+
+List the runs of a workflow, most recent first:
+
+<Tabs items={['Dart', 'cURL']}>
+
+<Tab value="Dart">
+
+```dart
+final res = await client.workflows.listExecutions(workflowId);
+// res['total'], res['executions']
+```
+
+</Tab>
+
+<Tab value="cURL">
+
+```bash
+curl https://api.applad.io/v1/workflows/$WORKFLOW_ID/executions \
+  -H "x-applad-key: $APPLAD_API_KEY"
+```
+
+</Tab>
+
+</Tabs>
+
+Fetch one execution to see its per-node log:
+
+<Tabs items={['Dart', 'cURL']}>
+
+<Tab value="Dart">
+
+```dart
+final exec = await client.workflows.getExecution(workflowId, executionId);
+```
+
+</Tab>
+
+<Tab value="cURL">
+
+```bash
+curl https://api.applad.io/v1/workflows/$WORKFLOW_ID/executions/$EXECUTION_ID \
+  -H "x-applad-key: $APPLAD_API_KEY"
+```
+
+</Tab>
+
+</Tabs>
+
+An execution looks like this:
+
+```json
+{
+  "$id": "exec_9f2c...",
+  "workflowId": "wf_1a2b...",
+  "status": "completed",
+  "triggerData": { "email": "ada@example.com", "name": "Ada" },
+  "startedAt": "2026-07-28T02:00:00Z",
+  "completedAt": "2026-07-28T02:00:01Z",
+  "durationMs": 812,
+  "error": "",
+  "logs": [
+    {
+      "nodeId": "welcome",
+      "nodeType": "send_email",
+      "label": "Send welcome",
+      "status": "completed",
+      "input": { "trigger": { "email": "ada@example.com", "name": "Ada" } },
+      "output": { "status": "sent", "to": "ada@example.com" },
+      "durationMs": 802
+    }
+  ]
+}
+```
+
+The `status` is `pending`, `running`, `completed`, or `failed`. Each entry in
+`logs` is one node, with its `input`, its `output`, a `status` (`completed`,
+`failed`, or `skipped`), a `durationMs`, and an `error` string when it failed.
+A node skipped by an `if_condition` branch shows `status: "skipped"`.

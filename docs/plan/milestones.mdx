@@ -1,0 +1,45 @@
+---
+title: "Milestones and the roadmap"
+description: A milestone is a dated container of work that gives the roadmap its time axis, with progress counted from its items.
+---
+
+A milestone is a dated container of work: it gives the roadmap its time axis.
+Progress is *counted* from the items in the milestone, never typed by anyone, so
+the number is always current.
+
+```bash
+curl -X POST https://api.applad.io/v1/plan/milestones \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Beta", "description": "First public cut", "targetDate": "2026-09-01" }'
+```
+
+`GET /milestones` returns each milestone with its progress:
+
+```json
+{
+  "total": 1,
+  "milestones": [
+    {
+      "$id": "m1...",
+      "name": "Beta",
+      "targetDate": "2026-09-01T00:00:00Z",
+      "progress": {
+        "total": 12, "done": 5, "inProgress": 3, "blocked": 1,
+        "criteria": 30, "specified": 14
+      }
+    }
+  ]
+}
+```
+
+`progress.criteria` and `progress.specified` report how much of what was agreed
+across the milestone's items has actually become checkable behaviour, which is a
+different fact from "5 of 12 items done".
+
+Update a milestone with `PATCH /milestones/{milestoneId}` (including
+`completed: true` to mark it done), and remove one with
+`DELETE /milestones/{milestoneId}`.
+Deleting a milestone leaves its items in place, unassigned: work outlives the
+date somebody hoped to finish it by.

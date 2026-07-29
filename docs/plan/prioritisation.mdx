@@ -1,0 +1,152 @@
+---
+title: Prioritisation
+description: Rather than typing a priority, you answer two questions about an item, impact and urgency, and the priority is derived.
+---
+
+This is what makes Plan more than a list. Rather than typing a priority (where
+nothing costs anything to call "urgent", so everything becomes urgent), you
+answer two questions about an item and the priority is *derived*:
+
+- **Impact** is a property of the problem: how much this matters.
+- **Urgency** is a property of the calendar: how soon it is needed.
+
+Each is a level from 1 to 3 (low, medium, high). A grid maps the pair to a
+priority.
+
+## Rating an item
+
+`POST /items/{itemId}/rate` records the two levels and returns the item with its
+priority re-derived from the grid.
+
+```bash
+curl -X POST https://api.applad.io/v1/plan/items/{itemId}/rate \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "impact": 3, "urgency": 2 }'
+```
+
+`impact` and `urgency` must each be `1`, `2` or `3`. A rated item carries
+`impact` and `urgency` on it, and `priorityIsManual` is `false`, meaning the
+priority came from the grid rather than from a person. An item that has never
+been rated has no `impact` or `urgency` at all: an unrated item is not a middling
+one.
+
+## The priority grid
+
+The default grid encodes a deliberate asymmetry: high impact never falls below
+`high`, however soft the deadline, and `low` survives only when both answers are
+low.
+
+|            | urgency low | urgency medium | urgency high |
+|------------|-------------|----------------|--------------|
+| **impact high**   | high   | high   | urgent |
+| **impact medium** | medium | medium | high   |
+| **impact low**    | low    | medium | medium |
+
+Read the grid for a kind with `GET /matrix?kind=change` (the default kind is
+`change`; pass `kind=defect` for the defect grid). It is seeded the first time
+you ask for it.
+
+```json
+{
+  "kind": "change",
+  "cells": [
+    { "kind": "change", "impact": 3, "urgency": 1, "priority": "high" },
+    { "kind": "change", "impact": 3, "urgency": 2, "priority": "high" }
+  ]
+}
+```
+
+A project can edit the grid, because a shop where every item comes from a paying
+client calibrates differently from one building its own product. `PUT /matrix`
+changes what one square resolves to and re-derives every non-manual item sitting
+in that square, so an edit never leaves items showing a priority their own
+answers no longer produce.
+
+```bash
+curl -X PUT https://api.applad.io/v1/plan/matrix \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "kind": "change", "impact": 2, "urgency": 3, "priority": "urgent" }'
+```
+
+## Setting a priority by hand
+
+You can still set `priority` directly in a `PATCH /items/{itemId}`. Doing so sets
+`priorityIsManual` to `true`, and the item is then left out of grid re-derivation.
+An override made deliberately reads as a decision rather than as stale data, and
+is worth keeping. Rating the item again (or answering the guided questions)
+returns it to grid-derived priority.
+
+## Guided scoring
+
+Choosing "impact: high" is still a guess, just one level up. So each dimension
+can instead be scored by answering concrete questions people can actually
+answer ("Is there a workaround?" has an answer; "what is the impact?" does not).
+Options carry scores, the scores sum per dimension, and a **band** turns the sum
+into a level. One option can force the top of the scale on its own (for example,
+"is data at risk of being lost or wrong?"), so a decisive fact does not have to
+out-argue three milder ones.
+
+<Steps>
+
+<Step>
+### Fetch the questions
+
+Fetch the questions for an item with `GET /items/{itemId}/questions`. The
+response carries the questions (each annotated with the option already chosen for
+this item, in `answeredWith`), the scoring `bands`, and the `cells` of the grid,
+so a caller can preview the verdict the server would reach:
+
+```json
+{
+  "questions": [
+    {
+      "$id": "q1...",
+      "dimension": "impact",
+      "text": "Is data at risk of being lost or wrong?",
+      "help": "Decides the priority on its own.",
+      "options": [
+        { "$id": "o1...", "label": "No",  "score": 0, "forcesTop": false },
+        { "$id": "o2...", "label": "Yes", "score": 5, "forcesTop": true }
+      ],
+      "answeredWith": ""
+    }
+  ],
+  "bands": [
+    { "dimension": "impact", "level": 1, "minScore": 0, "maxScore": 3 },
+    { "dimension": "impact", "level": 2, "minScore": 4, "maxScore": 7 },
+    { "dimension": "impact", "level": 3, "minScore": 8, "maxScore": 999 }
+  ],
+  "cells": [ ... ]
+}
+```
+
+</Step>
+
+<Step>
+### Record an answer
+
+Record an answer with `POST /items/{itemId}/answers`. Each answer re-scores both
+dimensions from everything answered so far and rates the item, so a half-answered
+assessment still moves the priority rather than making you finish before you see
+anything.
+
+```bash
+curl -X POST https://api.applad.io/v1/plan/items/{itemId}/answers \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "questionId": "q1...", "optionId": "o2..." }'
+```
+
+</Step>
+
+</Steps>
+
+`GET /questions` (without an item) returns the project's question set alone, for
+editing or display. The questions and bands are seeded per project on first
+access, so what counts as impact on a support desk can differ from what counts on
+a product team.

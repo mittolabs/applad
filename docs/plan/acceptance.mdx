@@ -1,0 +1,33 @@
+---
+title: Acceptance criteria
+description: Criteria are the constraints the work was agreed against, written before anyone has decided how the behaviour will be expressed.
+---
+
+Criteria are the constraints the work was agreed against, written before anyone
+has decided how the behaviour will be expressed. Each criterion can carry a
+`specRef` that points at the executable behaviour (a rule or [test](/test)) that
+proves it. A criterion with no `specRef` is visibly still an intention, and the
+item counts how many of its criteria have become executable
+(`criteriaSpecified` of `criteriaCount`).
+
+```bash
+# Add a criterion.
+curl -X POST https://api.applad.io/v1/plan/items/{itemId}/criteria \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "text": "The reset link expires after one hour." }'
+```
+
+List them with `GET /items/{itemId}/criteria`. Update text, attach a `specRef`,
+or mark one met with `PATCH /criteria/{criterionId}`:
+
+```bash
+curl -X PATCH https://api.applad.io/v1/plan/criteria/{criterionId} \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <secret>" \
+  -H "Content-Type: application/json" \
+  -d '{ "specRef": "<testId>", "met": true }'
+```
+
+`DELETE /criteria/{criterionId}` removes one.

@@ -1,0 +1,35 @@
+---
+title: Access logs
+description: "Read the live request log of a web target, one HTTP request per entry, newest first."
+---
+
+Once a `web` target is live, its request log is available from the target. Each
+entry is one HTTP request served by the site's container, newest first:
+
+```bash
+curl "$APPLAD/v1/deploy/targets/$TARGET/logs" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+```json
+{
+  "total": 2,
+  "logs": [
+    {
+      "$id": "6f2c-1",
+      "ip": "203.0.113.7",
+      "method": "GET",
+      "path": "/about.html",
+      "statusCode": 200,
+      "bytes": 11199,
+      "duration": 3,
+      "userAgent": "curl/8.7",
+      "$createdAt": "2026-07-21T12:28:36Z"
+    }
+  ]
+}
+```
+
+`duration` is in milliseconds. These are live requests read from the running
+container, so a target that has not been deployed, or has served nothing, returns
+an empty `logs` array.

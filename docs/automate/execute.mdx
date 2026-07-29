@@ -1,0 +1,38 @@
+---
+title: Execute a workflow
+description: Run a workflow on demand with an optional trigger payload.
+---
+
+Run a workflow on demand with an optional trigger payload. The payload is what
+your nodes read as `{{.trigger.*}}`.
+
+<Tabs items={['Dart', 'cURL']}>
+
+<Tab value="Dart">
+
+```dart
+final exec = await client.workflows.execute(
+  workflowId,
+  triggerData: { 'email': 'ada@example.com', 'name': 'Ada' },
+);
+// exec['$id'] is the execution ID; exec['status'] is 'pending'
+```
+
+</Tab>
+
+<Tab value="cURL">
+
+```bash
+curl -X POST https://api.applad.io/v1/workflows/$WORKFLOW_ID/execute \
+  -H "x-applad-key: $APPLAD_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{ "triggerData": { "email": "ada@example.com", "name": "Ada" } }'
+```
+
+</Tab>
+
+</Tabs>
+
+Execution is **asynchronous**. The endpoint returns `202 Accepted` with a
+`pending` execution record; a background worker then runs the graph. Poll the
+execution (below) to see the result.

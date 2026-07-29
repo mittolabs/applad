@@ -2,14 +2,16 @@
   "title": "Build",
   "icon": "Box",
   "pages": [
+    "---Accounts & access---",
     "authentication",
-    "databases",
-    "permissions",
     "teams",
+    "permissions",
+    "---Data---",
+    "databases",
     "storage",
+    "---Services---",
     "functions",
     "messaging",
     "realtime"
-  ],
-  "defaultOpen": true
+  ]
 }
