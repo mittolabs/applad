@@ -509,6 +509,77 @@ curl -X DELETE https://api.applad.io/v1/account/mfa \
   `createEmailSession` challenges for it.
 </Callout>
 
+## Phone (SMS) sign-in
+
+Sign a user in with a phone number and a one-time code sent by SMS, with no
+password at all. Applad stores a short-lived code, texts it to the number, and
+on a correct code opens a session. If no user has that phone number yet, one is
+created (named `Phone User`). These endpoints have no client SDK method, so call
+them directly.
+
+<Callout title="Requires an SMS provider">
+  The code is only texted when the instance has Twilio configured
+  (`TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM`). Without a provider the endpoint
+  still records a code and returns `{"sent": true}`, but nothing is delivered, so
+  phone sign-in is unusable until SMS is set up. See
+  [Messaging](/build/messaging) for the provider settings.
+</Callout>
+
+<Steps>
+<Step>
+### Send the code
+
+The phone number must be in E.164 format (a leading `+` and country code, for
+example `+15551234567`); anything else is rejected. Applad generates a 6-digit
+code that is valid for 10 minutes.
+
+```bash
+curl -X POST https://api.applad.io/v1/account/sessions/phone \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "+15551234567"}'
+```
+
+The response echoes the number and never contains the code itself:
+
+```json
+{ "sent": true, "phone": "+15551234567" }
+```
+</Step>
+<Step>
+### Verify the code
+
+Send the number back together with the code the user received. A correct,
+unexpired code opens a session; the code is single-use and deleted on success.
+
+```bash
+curl -X PUT https://api.applad.io/v1/account/sessions/phone \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "+15551234567", "code": "123456"}'
+```
+
+On success you get `201` with the session and its bearer token, and the browser
+receives an `HttpOnly` `a_session` cookie:
+
+```json
+{
+  "session": {
+    "$id": "7c6b5a...",
+    "userId": "a1b2c3...",
+    "provider": "phone",
+    "current": true
+  },
+  "token": "eyJhbGciOi..."
+}
+```
+
+A wrong or expired code returns `401` with error code `auth_invalid_otp`. As
+with email sessions, keep `token` and apply it with `setJWT` on a native client,
+or rely on the cookie on the web.
+</Step>
+</Steps>
+
 ## Magic-link login
 
 Send a one-time link that signs a user in without a password. If no account
@@ -615,6 +686,44 @@ curl -X PUT https://api.applad.io/v1/account/recovery \
 ```
 </Step>
 </Steps>
+
+## Session and password security
+
+The defaults woven through the sections above (year-long sessions, up to 10 per
+user, an 8-character password minimum) are a per-project policy an operator can
+change. The policy lives in the project's `auth_config` under a `security` key,
+and the management API exposes it on its own:
+
+```
+GET  /v1/projects/{projectId}/auth/security
+PUT  /v1/projects/{projectId}/auth/security
+```
+
+`PUT` merges: it starts from the current settings and overlays the fields you
+send, so you can change one value without restating the rest.
+
+```bash
+curl -X PUT https://api.applad.io/v1/projects/<projectId>/auth/security \
+  -H "Content-Type: application/json" \
+  -d '{"passwordMinLength": 12, "sessionsPerUser": 5}'
+```
+
+The settings Applad enforces today:
+
+| Field | Default | Effect |
+|---|---|---|
+| `passwordMinLength` | `8` | Shorter passwords are rejected on account creation and password reset with `password_too_short`. |
+| `usersLimit` | `0` (unlimited) | Once the project holds this many users, new sign-ups fail with `users_limit_reached`. |
+| `sessionsPerUser` | `10` | When a user is at the limit, opening a new session evicts their oldest one. `0` means unlimited. |
+| `sessionLengthSeconds` | `31536000` (365 days) | How long a newly created session stays valid. |
+| `invalidateOnPasswordChange` | `true` | Changing a password deletes the user's other sessions, leaving them signed in only on the current device. |
+
+<Callout title="Some fields are stored but not yet enforced">
+  `passwordHistory`, `passwordDictionary`, `passwordPersonalData`,
+  `mfaRequired`, and `sessionAlerts` are accepted and persisted by this endpoint
+  but do not yet change behaviour. Treat only the five fields above as active
+  policy.
+</Callout>
 
 ## Server-side user management
 

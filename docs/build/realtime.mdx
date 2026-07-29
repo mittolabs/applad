@@ -75,6 +75,23 @@ socket opens at `wss://api.applad.io/v1/realtime?project=your-project-id`.
 `connect()` is idempotent; calling it twice does nothing while a socket is
 already open.
 
+### Authenticating the connection
+
+The handshake needs the **project**, and nothing else. The server resolves it
+from the `X-Applad-Project` header or, for the WebSocket, the `project` query
+parameter the SDK appends; a socket opened without either is rejected with a
+`400 general_argument_invalid`. A user session is optional. Realtime is mounted
+as an auth-optional route, so an anonymous socket that presents a valid project
+can still subscribe. The server also accepts any `Origin` (the browser
+same-origin rules that cover `fetch` do not apply to a WebSocket upgrade).
+
+<Callout type="warn" title="The project ID is the only thing gating a socket">
+Because a session is not required and every origin is accepted, treat the
+project ID as public-facing and never rely on the socket itself to keep a
+channel private. What actually limits exposure is which channels you subscribe
+to and the [permission](/build/permissions) note below.
+</Callout>
+
 ## Subscribing to table changes
 
 The JS client subscribes to a channel directly and gives you the full event, so
@@ -125,16 +142,33 @@ about; the others are ignored.
 
 ## Channels
 
-A subscription is scoped by a **channel** string. Table-level row changes use:
+A subscription is scoped by a **channel** string. A single write can fan out to
+several channels at once, from the most specific (one table) to the broadest
+(the whole project), so you subscribe at whatever granularity your view needs.
+Every channel Applad publishes today:
 
-```
-databases.<projectId>.<databaseId>.<tableName>
-```
+| Channel | Fires on | Event `type` |
+| --- | --- | --- |
+| `databases.{projectId}.{databaseId}.{tableName}` | any row change in one table | `databases.rows.create`, `.update`, `.delete` |
+| `databases.{projectId}.{databaseId}` | any row change in any table of one database | same three |
+| `projects.{projectId}.databases.rows` | any row change anywhere in the project | same three |
+| `projects.{projectId}.storage.files` | a file is uploaded or deleted | `storage.files.create`, `storage.files.delete` |
+| `deploy.{releaseId}` | a build streams a log line | `deploy.log` |
 
 For example, `databases.proj_123.app.messages` is every row change in the
 `messages` table of the `app` database. This is exactly the channel the Dart
 `.database(databaseId, tableName)` builder computes for you, and the one you
-pass by hand to `subscribe(channel, callback)` in JS.
+pass by hand to `subscribe(channel, callback)` in JS. Every write also lands on
+the database-scoped and project-wide channels above, so a dashboard that wants
+all of a project's activity can subscribe once to `projects.{projectId}.databases.rows`
+instead of one channel per table.
+
+<Callout title="Subscribe to any channel by its string">
+The fluent `.database(...)` builder only exists for the table channel. The
+storage and deploy channels, and the broader database and project channels,
+have no builder yet. Pass their string straight to `subscribe(channel, callback)`
+in either SDK to receive them.
+</Callout>
 
 <Callout title="Delivery is table-scoped, not permission-filtered">
 Today, realtime delivers a table's changes to every subscriber on that table's
@@ -182,6 +216,48 @@ receives `old`. If you subscribe to a raw channel with
 `client.realtime.subscribe`, the `RealtimeEvent` exposes `event.row` (the `new`
 row, falling back to `old`) and `event.oldRow` (the `old` row) as convenience
 getters.
+
+## Beyond row changes
+
+Databases are the busiest producer, but not the only one. Two more feed the same
+socket, and you reach them with the raw `subscribe(channel, callback)` call.
+
+- **Storage** publishes to `projects.{projectId}.storage.files` when a file is
+  uploaded (`storage.files.create`) or deleted (`storage.files.delete`). The
+  payload is the file record for a create and `{ "$id": fileId }` for a delete.
+- **Deploys** stream build output to `deploy.{releaseId}` as `deploy.log`
+  events while an app is building. This is the feed behind the console's live
+  build log, not a database change, so the envelope carries the raw log line
+  rather than a row.
+
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const channel = `projects.${client.projectId}.storage.files`;
+
+client.realtime.subscribe(channel, (event) => {
+  if (event.type === 'storage.files.create') {
+    console.log('uploaded', event.payload);
+  } else if (event.type === 'storage.files.delete') {
+    console.log('deleted', event.payload);
+  }
+});
+```
+</Tab>
+<Tab value="Dart">
+```dart
+final channel = 'projects.${client.projectId}.storage.files';
+
+final sub = client.realtime.subscribe(channel, (event) {
+  if (event.type == 'storage.files.create') {
+    print('uploaded: ${event.payload}');
+  } else if (event.type == 'storage.files.delete') {
+    print('deleted: ${event.payload}');
+  }
+});
+```
+</Tab>
+</Tabs>
 
 ## Unsubscribing and disconnecting
 
@@ -279,6 +355,42 @@ Future<void> main() async {
 ```
 </Tab>
 </Tabs>
+
+## Connection lifecycle
+
+### The subscribe protocol
+
+One socket multiplexes every channel. When you call `subscribe`, the SDK sends
+`{"type":"subscribe","channels":["..."]}` over the open connection, and
+cancelling sends `{"type":"unsubscribe","channels":["..."]}`; you can list
+several channels in one message. Inbound frames are capped at 4096 bytes, which
+is ample for these control messages but means you subscribe channel-by-channel
+rather than shipping one enormous list.
+
+### Heartbeats and delivery guarantees
+
+The server sends a WebSocket ping roughly every 54 seconds and expects a pong
+back within 60, so a half-open connection stuck behind a dead proxy is detected
+and closed rather than lingering. Each connection has a 64-event send buffer. If
+a subscriber falls far enough behind that its buffer fills, the server drops
+further events for that one socket instead of blocking every other subscriber.
+
+<Callout type="warn" title="Realtime is best-effort, not a log">
+A dropped event is not redelivered, and a client that was disconnected misses
+everything sent while it was away. Use realtime to react promptly, not as the
+source of truth. On (re)connect, refetch the affected data from the REST API so
+your local state is correct, then let events keep it fresh.
+</Callout>
+
+### Reconnecting
+
+The client SDKs do not reconnect on their own. If the socket drops (a network
+change, a proxy idle-timeout, an API restart) you must call `connect()` again
+and re-establish every subscription. The SDK does not replay them. A robust
+client reconnects with backoff, re-subscribes its channels, and refetches its
+lists once. On the server side the PostgreSQL listener and the Redis fan-out
+each reconnect themselves every two seconds, so an instance rides out a database
+or Redis blip without a restart.
 
 ## Notes for self-hosting
 

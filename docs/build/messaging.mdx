@@ -25,6 +25,38 @@ a client session token or a project API key, plus the `x-applad-project` header.
 Because sending costs real money and reputation, messaging is usually driven from
 your server with an API key rather than from untrusted clients.
 
+<Callout title="Sending is rate limited">
+Every `POST` under `/v1/messaging/` is capped at **60 requests per minute per
+project**. This is a project-scoped [rate limit](/build/authentication): it is
+about what a send costs, not who made it, so an API key and a client session
+count against the same bucket. Exceeding it returns `429` with a message about
+cost and sender reputation.
+</Callout>
+
+## The provider model
+
+Applad does not talk to email/SMS/push networks itself; each channel forwards to
+an outside provider you configure. There are two places a provider can be set,
+and Applad resolves them in this order:
+
+1. **Per-project providers** (`/v1/messaging/providers`) come first. The **first
+   enabled provider of the matching type** for the project wins. This is how one
+   project sends through its own account, or uses a provider other than the
+   instance default.
+2. **Instance-wide environment variables** are the fallback when a project has no
+   enabled provider of that type. These are set by whoever runs the server (see
+   [Configuring providers](#configuring-providers)).
+
+<Callout type="warn" title="Which sends honour per-project providers">
+The per-project resolver is only applied by **recorded messages**
+(`/messaging/messages/*`) and **topic sends** (`/messaging/topics/{id}/messages`).
+The **direct-send** endpoints (`/messaging/email`, `/messaging/sms`,
+`/messaging/push`) and **template sends** (`/messaging/templates/{id}/send`)
+always use the instance-wide environment configuration, never a per-project
+provider. If you rely on a project's own provider, send through the recorded or
+topic routes.
+</Callout>
+
 ## Send an email
 
 The client SDKs expose `messaging.sendEmail`, which sends immediately and returns
@@ -65,8 +97,17 @@ curl -X POST https://api.applad.io/v1/messaging/email \
 </Tab>
 </Tabs>
 
-A successful send returns `{ "status": "sent" }`. `to` is a list, `subject` is
-required, and `html` is the message body (sent as `text/html`).
+A successful send returns `200` with `{ "status": "sent" }`.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `to` | list of strings | yes | One or more recipient addresses. All go in a single message. |
+| `subject` | string | yes | Rejected as `to and subject are required` if empty. |
+| `html` | string | no | Body, sent with `Content-Type: text/html; charset=UTF-8`. |
+
+This endpoint sends synchronously through the instance-wide SMTP configuration
+and only returns once the SMTP server has accepted or rejected the message, so a
+provider error surfaces directly as a `500`.
 
 <Callout title="Email needs SMTP configured">
 If no email provider is set up, this call fails with `messaging: SMTP not configured`. Configure SMTP as shown in [Configuring providers](#configuring-providers).
@@ -87,9 +128,13 @@ curl -X POST https://api.applad.io/v1/messaging/sms \
   }'
 ```
 
-Both `to` (a single E.164 number) and `body` are required. A successful send
-returns `{ "status": "sent" }`. If Twilio is not configured the call fails with
-`messaging: Twilio not configured`.
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `to` | string | yes | A single recipient in E.164 form, for example `+15551234567`. |
+| `body` | string | yes | The text of the message. |
+
+A successful send returns `200` with `{ "status": "sent" }`. If Twilio is not
+configured the call fails with `messaging: Twilio not configured`.
 
 ## Send a push notification
 
@@ -108,9 +153,18 @@ curl -X POST https://api.applad.io/v1/messaging/push \
   }'
 ```
 
-`token` and `title` are required; `body` is optional. A successful send returns
-`{ "status": "sent" }`. If FCM is not configured the call fails with
-`messaging: FCM not configured`.
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `token` | string | yes | One FCM device registration token. |
+| `title` | string | yes | Notification title. |
+| `body` | string | no | Notification body. |
+
+A successful send returns `200` with `{ "status": "sent" }`. If FCM is not
+configured the call fails with `messaging: FCM not configured`.
+
+Push uses Firebase Cloud Messaging's legacy HTTP API with the server key. Sending
+is to a single device token per call; to reach many devices, subscribe them to a
+[topic](#topics-and-subscribers) and send once.
 
 ## Recorded messages
 
@@ -161,6 +215,35 @@ direct-send endpoints do.
 
 Pass `"draft": true` to store the message without sending it (its status stays
 `draft`).
+
+Every recorded message has these fields:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `id` | string | Generated message ID. |
+| `projectId` | string | Owning project. |
+| `type` | string | `email`, `sms`, or `push`. |
+| `subject` | string | Email subject, or the push title. Empty for SMS. |
+| `body` | string | HTML for email, text for SMS, notification body for push. |
+| `recipients` | list of strings | The `to` addresses / number / device token. |
+| `status` | string | See the lifecycle below. |
+| `scheduledAt` | string or null | Reserved; sending is immediate today. |
+| `deliveredAt` | string or null | Set to the send time once `status` becomes `sent`. |
+| `createdAt` | string | RFC 3339 UTC timestamp. |
+
+The `status` moves through these states:
+
+| Status | Meaning |
+| --- | --- |
+| `draft` | Stored with `"draft": true`; never sent. |
+| `processing` | Recorded and handed to a background sender. |
+| `sent` | The provider accepted it; `deliveredAt` is set. |
+| `failed` | The provider rejected it, or no provider was configured. |
+
+Unlike the direct-send endpoints, the recorded routes resolve the project's own
+provider first (see [The provider model](#the-provider-model)) and fall back to
+the instance configuration. The required body fields still apply per channel:
+email requires `subject`, SMS requires `body`, and push requires `title`.
 
 Read messages back:
 
@@ -230,8 +313,25 @@ curl -X POST https://api.applad.io/v1/messaging/topics/<topicId>/messages \
 </Steps>
 
 `GET /v1/messaging/topics` lists topics with their subscribers, and
-`GET /v1/messaging/topics/{topicId}` returns one. `subject` is used for the email
-subscribers; SMS and push subscribers get `body`.
+`GET /v1/messaging/topics/{topicId}` returns one. On a topic send, `body` is
+required and `subject` is optional; `subject` is used only for the email
+subscribers, while SMS and push subscribers receive `body`. Because a topic
+fans out per subscriber, each recipient goes through the project's own provider
+for that channel (with the instance-wide fallback), the same resolution as
+recorded messages.
+
+The channel is inferred from each subscriber's `target` string, so a topic can
+mix all three:
+
+| Target shape | Example | Channel |
+| --- | --- | --- |
+| Starts with `+` | `+15551234567` | SMS |
+| Contains `@` | `alice@example.com` | Email |
+| Anything else | `fMEP0...device-token` | Push |
+
+Adding the same `target` twice is a no-op; duplicate subscribers are ignored. If
+delivery to one subscriber fails, the send continues to the rest and reports the
+first error.
 
 ## Templates
 
@@ -276,9 +376,30 @@ await client.messaging.sendTemplate(
 
 On send, every `{{key}}` in the subject and body is replaced with the matching
 value from `variables`, and the result goes out on the template's own channel.
-The full set of routes is `POST/GET/PUT/DELETE /v1/messaging/templates`,
-`GET /v1/messaging/templates/{templateId}`, and
+For an `sms` or `push` template, each entry in `to` is sent its own message; for
+`email`, the whole `to` list goes in one message.
+
+A template has these fields:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `templateId` | string | no | Supply your own ID, or omit / pass `unique()` to have one generated. |
+| `name` | string | yes | Human label; rejected as `name is required` if empty. |
+| `type` | string | no | `email`, `sms`, or `push`. Defaults to `email`. |
+| `subject` | string | no | Subject line (email) or title (push); supports `{{variables}}`. |
+| `body` | string | no | Body; supports `{{variables}}`. |
+| `variables` | list of strings | no | Names of the placeholders the template expects. |
+
+The full set of routes is `POST/GET /v1/messaging/templates`,
+`GET/PUT/DELETE /v1/messaging/templates/{templateId}`, and
 `POST /v1/messaging/templates/{templateId}/send`.
+
+<Callout type="warn" title="Templates use the instance provider">
+Template sends always go through the instance-wide provider for the channel, not
+a per-project provider. A template is a convenience over the direct-send path, so
+if the matching channel is not configured on the instance, the send fails with
+the same `not configured` error.
+</Callout>
 
 ## Configuring providers
 
@@ -289,25 +410,66 @@ nothing sends silently. Set these environment variables on the API and workers
 
 | Channel | Variables | Not-configured error |
 | --- | --- | --- |
-| Email (SMTP) | `SMTP_HOST`, `SMTP_PORT` (default `587`), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | `messaging: SMTP not configured` |
+| Email (SMTP) | `SMTP_HOST`, `SMTP_PORT` (default `587`), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (default `noreply@applad.local`) | `messaging: SMTP not configured` |
 | SMS (Twilio) | `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` | `messaging: Twilio not configured` |
 | Push (FCM) | `FCM_SERVER_KEY` | `messaging: FCM not configured` |
 
 Email needs at least `SMTP_HOST`; SMS needs `TWILIO_SID` and `TWILIO_TOKEN`;
 push needs `FCM_SERVER_KEY`.
 
+<Callout type="warn" title="Only SMTP, Twilio and FCM are wired instance-wide">
+The instance-wide fallback covers exactly these three providers. The other
+providers below (Mailgun, SendGrid, Resend, Vonage, MSG91) are reachable **only**
+as [per-project providers](#per-project-providers); there is no environment
+variable that turns one of them into the global default.
+</Callout>
+
 ### Per-project providers
 
 Beyond the instance-wide environment variables, a project can register its own
 providers, which take priority over the global config for that project. This lets
 one project send through a different account, or use a provider other than the
-three defaults. Manage them under `/v1/messaging/providers` (`GET`, `POST`,
-`GET/PUT/DELETE /{providerId}`). Each provider has a `type` (`email`, `sms`, or
-`push`), a `provider` name, and a `config` object:
+three instance defaults. Manage them under `/v1/messaging/providers` (`GET`,
+`POST`, `GET/PUT/DELETE /{providerId}`). A provider has a `name`, a `type`
+(`email`, `sms`, or `push`), a `provider` implementation, and a `config` object.
+It is created **enabled**; `PUT` can change `name`, `config`, and `enabled`.
 
-- **email**: `smtp`, `mailgun`, `sendgrid`, `resend`
-- **sms**: `twilio`, `vonage`, `msg91`
-- **push**: `fcm`
+| `type` | `provider` values |
+| --- | --- |
+| `email` | `smtp`, `mailgun`, `sendgrid`, `resend` |
+| `sms` | `twilio`, `vonage`, `msg91` |
+| `push` | `fcm` |
+
+The shape of `config` depends on the `provider`:
+
+<Tabs items={['Email', 'SMS', 'Push']}>
+<Tab value="Email">
+
+| `provider` | `config` keys |
+| --- | --- |
+| `smtp` | `host`, `port` (default `587`), `username`, `password`, `from` |
+| `mailgun` | `apiKey`, `domain`, `euRegion` (bool), `senderEmail` |
+| `sendgrid` | `apiKey`, `senderEmail`, `senderName` |
+| `resend` | `apiKey`, `senderEmail`, `senderName` |
+
+</Tab>
+<Tab value="SMS">
+
+| `provider` | `config` keys |
+| --- | --- |
+| `twilio` | `sid`, `token`, `from` |
+| `vonage` | `apiKey`, `apiSecret`, `from` |
+| `msg91` | `authKey`, `senderId` |
+
+</Tab>
+<Tab value="Push">
+
+| `provider` | `config` keys |
+| --- | --- |
+| `fcm` | `serverKey` |
+
+</Tab>
+</Tabs>
 
 ```bash
 curl -X POST https://api.applad.io/v1/messaging/providers \
@@ -325,6 +487,8 @@ curl -X POST https://api.applad.io/v1/messaging/providers \
 
 The first **enabled** provider of a given type is used; if a project has none,
 messaging falls back to the instance-wide environment configuration above.
+Remember that only recorded messages and topic sends consult per-project
+providers (see [The provider model](#the-provider-model)).
 
 ## Related
 

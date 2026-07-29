@@ -45,7 +45,10 @@ final teamId = team['\$id'];
 ```
 
 `create` takes an optional `teamId` (default `unique()`, a generated ID) and an
-optional list of `roles` to record on the creator's owner membership.
+optional list of `roles`. Note that the creator's own membership is always
+recorded with exactly the role `owner`: the server enrols the creator as owner
+regardless of the `roles` you pass, so today `roles` has no effect on a `create`
+call. Roles you actually want on a member are set when you invite them (below).
 
 ```dart
 Future<Map<String, dynamic>> create({
@@ -184,6 +187,25 @@ array.
 Read one team by ID with `client.teams.get(teamId)` (`GET /v1/teams/{teamId}`). A single team's `total` field is its count of **joined**
 members.
 
+### The team object
+
+Every team endpoint returns the same shape:
+
+| Field | Type | Description |
+|---|---|---|
+| `$id` | string | The team ID (the `teamId` you passed, or a generated one). |
+| `$createdAt` | timestamp | When the team was created. |
+| `$updatedAt` | timestamp | When it was last renamed. Kept current by a database trigger. |
+| `name` | string | The team's display name (up to 128 characters). |
+| `total` | integer | Count of **joined** members. `0` on a freshly created team until the owner enrolment or a first accept. |
+| `prefs` | object | Reserved key/value store, always `{}` today. See the note below. |
+
+<Callout title="Team preferences are not writable yet">
+  A team carries a `prefs` object, but no route sets it: create initialises it
+  to `{}` and rename touches only the name, so `prefs` is always empty. Store
+  team-scoped settings in a table permissioned to the team for now.
+</Callout>
+
 ## Renaming and deleting a team
 
 ```dart
@@ -207,7 +229,46 @@ Future<void> deleteMembership(String teamID, String membershipID);
 
 Removing a membership revokes that person's team access immediately: they no
 longer resolve the team's roles, so any data permissioned to the team closes to
-them.
+them. Deleting the whole team cascades: the `memberships` rows are removed with
+it (a foreign key `ON DELETE CASCADE`), so no orphaned membership survives.
+
+### The membership object
+
+An invite and a joined member are the same record at different stages of its
+life. Inviting creates it `invited: true, joined: false`; accepting flips
+`joined` to `true` and binds `userId`. These are the fields it carries:
+
+| Field | Type | Description |
+|---|---|---|
+| `$id` | string | The membership ID, used in the accept and delete calls. |
+| `$createdAt` | timestamp | When the invite was created. There is no `$updatedAt`. |
+| `teamId` | string | The team this membership belongs to. |
+| `teamName` | string | The team's current name, joined in when the record is read. |
+| `userId` | string | The joined user. Empty on an invite that has not been accepted, since no user is bound until someone redeems it. |
+| `userEmail` | string | The address the invite was sent to. |
+| `userName` | string | Reserved. Currently always empty (the API never populates it). |
+| `roles` | string array | The roles carried by this membership, e.g. `["developer"]` or `["owner"]`. |
+| `invited` | bool | `true` once the invite exists. |
+| `joined` | bool | `false` while the invite is outstanding, `true` after accept. Only `joined` memberships resolve permission roles. |
+| `confirm` | bool | Reserved. Currently always `false`; no flow sets it. |
+| `secret` | string | The one-time invite token. Returned **only** on the create-membership response and omitted everywhere else. |
+
+<Callout title="A membership's roles cannot be changed after the fact">
+  There is no update-membership operation: the roles a member carries are fixed
+  when you invite them. To change them, delete the membership and re-invite with
+  the roles you want. (A `PATCH` on the membership itself is not a route; only
+  `.../status`, the accept call, exists.)
+</Callout>
+
+### Memberships privacy
+
+Listing a team's memberships is **not** scoped to the caller. Any request that
+is authenticated for the project and knows a team's ID can read that team's full
+membership list, including every member's email, roles, and joined state. This
+is unlike the team **list** itself, which a plain signed-in user only sees their
+own teams in. If a team's roster is sensitive, treat the team ID as the thing
+that gates it, and do not surface team IDs to users who should not enumerate the
+members.
 
 ## Roles
 
@@ -253,6 +314,20 @@ curl -X POST https://api.applad.io/v1/teams \
 
 A key sees the unscoped team list, and (as noted above) a team it creates has
 no owner membership, since there is no user session to enrol.
+
+### A server key still invites, it does not join a user directly
+
+There is one join path, and it always runs through the invite. When a server
+key calls `createMembership`, the result is an ordinary invite: `invited: true`,
+`joined: false`, carrying a `secret`. The user still has to accept it from their
+own session before it counts, because the joining identity is only ever taken
+from the accepting session, never supplied by the caller. So a server cannot
+silently place an existing user into a team; it can only mint the invite and
+hand over the secret. (The Node server SDK's `createMembership` accepts
+`userId`/`name` options, but the API ignores them today: every membership is
+created as an invite regardless.) The single exception is the team creator, who
+is enrolled `joined: true` at create time because they are the authenticated
+user making the call.
 
 ## Related
 

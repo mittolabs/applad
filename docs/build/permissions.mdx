@@ -32,30 +32,45 @@ granted to.
 
 ### Actions
 
-| Action | Allows |
-|---|---|
-| `read` | Reading the row (it appears in queries and single-row reads) |
-| `create` | Inserting a new row into the table |
-| `update` | Changing an existing row |
-| `delete` | Removing a row |
-| `write` | Shorthand that expands to `update` **and** `delete` |
+There are exactly four actions, one for each thing you can do to a row. Each maps
+to one PostgreSQL command and the row-level security policy that guards it.
+
+| Action | Allows | Enforced as |
+|---|---|---|
+| `read` | Reading the row: it appears in queries and single-row reads | `SELECT` policy (`USING`) |
+| `create` | Inserting a new row into the table | `INSERT` policy (`WITH CHECK`) |
+| `update` | Changing an existing row | `UPDATE` policy (`USING` and `WITH CHECK`) |
+| `delete` | Removing a row | `DELETE` policy (`USING`) |
+| `write` | Shorthand that expands to `update` **and** `delete` | (expanded, not stored) |
 
 `write` is a convenience the SDKs accept. `write("user:$id")` is stored as
 `update("user:$id")` and `delete("user:$id")`. There is no separate "write"
 grant at rest, and no other actions exist. A permission with any other action is
-rejected when you set it.
+rejected when you set it (`parsePermissionStrings` returns an error for any
+action outside this set).
+
+The pairing of `USING` and `WITH CHECK` on `update` matters: `USING` decides
+which existing rows you may target, and `WITH CHECK` decides whether the row is
+still permitted after your change. `create` has only `WITH CHECK` because there
+is no prior row to test, which is also why `create` is table-level only (below).
 
 ## Roles
 
-A role names an identity or a group. Applad recognises exactly these:
+A role names an identity or a group. Applad recognises exactly these, and no
+others:
 
-| Role | Matches |
-|---|---|
-| `any` | Everyone, including unauthenticated callers |
-| `users` | Any signed-in user |
-| `user:<id>` | One specific user, by their user ID |
-| `team:<id>` | Every member of a team |
-| `team:<id>/<role>` | Only team members who hold a given role (for example `owner`, `admin`) |
+| Role | Matches | Example |
+|---|---|---|
+| `any` | Everyone, including unauthenticated callers | `read("any")` |
+| `users` | Any signed-in user | `create("users")` |
+| `user:<id>` | One specific user, by their user ID | `update("user:64b7f...")` |
+| `team:<id>` | Every member of a team | `read("team:sales")` |
+| `team:<id>/<role>` | Only team members who hold a given role (for example `owner`, `admin`) | `delete("team:sales/owner")` |
+
+There is no `guest`, `member`, or `label` role: an unauthenticated caller is
+covered by `any`, and a signed-in one by `users`. The first two rows are
+resolved from the presence of a user id alone; the last three are resolved from
+the caller's identity and their [team](/build/teams) memberships (see below).
 
 ```dart
 'read("any")'                 // public
@@ -139,6 +154,15 @@ a row, the table's `create` grant must admit the caller.
 `updateRow` and `createRow` both take a `permissions` list, so you can change a
 row's own permissions the same way you change its data.
 
+<Callout title="The two layers are a union, never an override">
+A row is reachable if the table grants access **or** the row grants it. A
+per-row permission cannot take away access the table already gives, and a table
+grant cannot be narrowed by a row. If you need a row visible only to its author,
+do not grant table-level `read` at all and let the row's own `read(...)` decide.
+Internally the two clauses are combined with `OR`, so adding a grant in either
+place only ever widens who gets in.
+</Callout>
+
 ## Enforcement
 
 Permissions are compiled into PostgreSQL row-level security policies on the
@@ -155,6 +179,89 @@ Two consequences worth relying on:
   it is simply absent from your results. A query returns the rows you may see and
   no indication that others exist. An update or delete you are not granted
   affects nothing.
+
+### Where document security changes the check
+
+Turning `documentSecurity` on is what enables row-level security on the
+underlying PostgreSQL table. With it on, the policies described here run inside
+the database for every statement, and the silent-filtering behaviour above
+applies. With it off, the table has no per-row policies: its table-level grants
+are checked in the API before the write or single-row read runs, and a caller
+the table does not admit is refused. Either way the grant is enforced before any
+data comes back; document security decides whether the enforcement lives in the
+database or in front of it.
+
+## The SQL mechanism
+
+If you want to know exactly what "enforced in the database" means, here is the
+shape of it. Two stores back a table:
+
+- The **table-level grants** live in a `permissions` metadata row per
+  `(table, action, role)`. These drive the table half of each policy.
+- A **document-security table** also gains a hidden `_permissions` JSONB column,
+  shaped `{"read":[...],"update":[...],"delete":[...]}`, holding each row's own
+  grants. `create` never appears here: a row cannot pre-authorise its own
+  insertion.
+
+On every request Applad opens a transaction, sets the caller's identity into
+PostgreSQL session settings, and switches to a restricted per-database role
+(`..._authenticated` for a signed-in caller, `..._anon` otherwise) with
+`SET LOCAL ROLE` so the policies actually bind. The caller's resolved roles are
+written into `request.jwt.claims`, and their user id into `applad.user_id`.
+
+Each role in a grant compiles to a boolean test against those settings:
+
+| Role | Compiles to (roughly) |
+|---|---|
+| `any` | `TRUE` |
+| `users` | `applad.user_id` is set |
+| `user:<id>` | `applad.user_id` equals that id |
+| `team:<id>` and `team:<id>/<role>` | `jsonb_exists(claims -> 'roles', 'team:<id>')` |
+
+Team roles are tested with `jsonb_exists` rather than the PostgreSQL `?`
+operator on purpose: the query layer rewrites a literal `?` into a bind
+placeholder, which would corrupt the policy SQL. For a document-security table
+each action's policy is the table clause `OR`-ed with a per-row clause that
+scans the row's `_permissions` array for the action and checks each listed role
+the same way. A separate **restrictive** policy pins every row to its owning
+project, so no policy a project writes can ever reach another project's data.
+
+<Callout type="warn" title="Group permissions need the role resolver">
+`team:<id>` grants only match when Applad can resolve a caller's memberships
+server-side. That resolver is wired in by default. If it were absent, a
+`team:<id>` grant would match no one rather than everyone: the safe direction to
+fail. A caller can never assert a `team:` role itself.
+</Callout>
+
+## Sessions, API keys, and the console
+
+The same permission model runs for every caller. What differs is only which
+roles a caller resolves to.
+
+- **A client session** (a user's JWT) resolves to `any`, `users`,
+  `user:<their id>`, and one `team:<id>` plus `team:<id>/<role>` for every team
+  they have joined. This is the full model, and it is what per-row permissions
+  are designed for.
+- **A server API key** authenticates as the project rather than as a person. It
+  resolves to `any` and `users` but to no `user:<id>` and no team roles, since a
+  key has no memberships. A key therefore reads and writes through table-level
+  grants for `any` and `users`, but it is not a permission bypass: rows fenced to
+  a specific user or team by their own permissions are not visible to a key. A
+  key's reach is additionally narrowed by its **scopes**, which decide the
+  routes it may call at all before the permission model is even consulted.
+- **The console** acts as an administrator over a project's structure. Defining
+  tables, columns, and table-level grants is done here (or from a key or a
+  migration), which is why setup is described as an API-key task below.
+
+<Callout title="Why a key is not a superuser">
+Some backends let a server key ignore permissions entirely. Applad does not: a
+key runs under the same row-level security as everyone else, with the roles of
+an anonymous-plus-signed-in principal and nothing more. To have a key operate on
+per-user rows, grant the table `create("users")` and set an owner column, or
+write the row's permissions explicitly. There is no request field that lets any
+caller name its own roles; doing so would let anyone mint `team:admin` and pass
+every check.
+</Callout>
 
 ## A worked example: a chat app
 

@@ -195,6 +195,9 @@ Type-specific options:
 | Email | `/columns/email` | None |
 | URL | `/columns/url` | None |
 | Datetime | `/columns/datetime` | None |
+| Rich text | `/columns/richtext` | None (editorial, see [Content mode](#editorial-content-mode)) |
+| Media | `/columns/media` | None (editorial) |
+| Point | `/columns/point` | None (editorial, a geographic point) |
 
 <Callout title="Not every type has a typed SDK helper">
   The Dart client ships helpers for string, integer, boolean and enum columns;
@@ -212,6 +215,55 @@ await db.deleteColumn('app', 'messages', 'priority');
 ```
 
 `listColumns` returns `{ "total": <n>, "columns": [...] }`.
+
+#### Validation rules
+
+Beyond the type, a column can carry a `validation` object that the server checks
+on every write and rejects with a field-named error. The rules are applied by
+`validateRowData` in `databases/service.go`:
+
+| Rule | Applies to | Meaning |
+| --- | --- | --- |
+| `minLength` / `maxLength` | string values | length bounds, in characters |
+| `pattern` | string values | a regular expression the value must match |
+| `min` / `max` | numeric values | inclusive value bounds |
+| `message` | any | a custom error message returned on any violation |
+
+Pass it in the column body, for example creating a slug column that must be
+lowercase and hyphenated:
+
+```bash
+curl -X POST https://api.applad.io/v1/databases/app/tables/messages/columns/string \
+  -H "x-applad-key: <apiKey>" -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key": "slug",
+    "required": true,
+    "validation": { "pattern": "^[a-z0-9-]+$", "maxLength": 60, "message": "slug must be lowercase, digits and hyphens" }
+  }'
+```
+
+<Callout title="Type helpers do not carry min/max; validation does">
+  The `min`/`max` you pass to `createIntegerColumn` set the column's stored
+  bounds metadata. The enforced numeric range on writes comes from the
+  `validation` object above. Set both if you want the range both advertised and
+  rejected on write.
+</Callout>
+
+#### Column-level permissions
+
+A single column can be marked readable or writable independently of the row. Set
+its permission list to some combination of `read` and `write`; a column the
+caller cannot read is stripped from returned rows, and one it cannot write is
+dropped from an update.
+
+| Operation | Route |
+| --- | --- |
+| Get column permissions | `GET /v1/databases/{databaseId}/tables/{tableId}/columns/{key}/permissions` |
+| Set column permissions | `POST .../columns/{key}/permissions` with `{ "permissions": ["read"] }` |
+
+The set call rejects anything other than `read` or `write` with a `400`
+(`databases/handler.go` `setColumnPermissions`).
 
 </Step>
 
@@ -267,7 +319,15 @@ curl -X POST https://api.applad.io/v1/databases/app/tables/messages/columns/rela
 
 `type` is one of `oneToOne`, `oneToMany`, `manyToOne`, `manyToMany` (defaults to
 `oneToMany`). `twoWay` and `twoWayKey` create the reverse link on the related
-table; `onDelete` controls what happens to a row when its related row is removed.
+table. The relationship is a real PostgreSQL foreign key, and `onDelete` maps
+straight to its referential action (`databases/service.go` `CreateRelationship`):
+
+| `onDelete` | PostgreSQL action | Effect when the related row is deleted |
+| --- | --- | --- |
+| `setNull` (default) | `SET NULL` | the link column is cleared |
+| `cascade` | `CASCADE` | the owning row is deleted too |
+| `restrict` | `RESTRICT` | the delete is refused while a row still links to it |
+
 List with `GET /v1/databases/{databaseId}/tables/{tableId}/relationships` and
 delete with `DELETE .../relationships/{relationshipId}`.
 
@@ -463,6 +523,181 @@ final page2 = await db
   fetch the columns you need from the full row until these are wired up.
 </Callout>
 
+## Upsert a row
+
+`PUT /v1/databases/{databaseId}/tables/{tableId}/rows/{rowId}` writes a row by
+id: if a row with that `$id` exists it is updated, otherwise it is created. It is
+the create-or-replace counterpart to the merging `PATCH` update.
+
+```bash
+curl -X PUT https://api.applad.io/v1/databases/app/tables/messages/rows/msg_1 \
+  -H "Authorization: Bearer <sessionSecret>" \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{ "$id": "msg_1", "data": { "body": "hello", "status": "sent" } }'
+```
+
+An existing row returns `200`; a new one returns `201`.
+
+## Bulk writes
+
+Three routes act on many rows in one request. Each iterates server-side and
+reports how many succeeded; rows that fail a permission or validation check are
+skipped rather than aborting the batch (`databases/handler.go` `bulkCreateRows`,
+`bulkUpdateRows`, `bulkDeleteRows`).
+
+| Operation | Route | Body | Returns |
+| --- | --- | --- | --- |
+| Bulk create | `POST .../rows/bulk` | `{ "rows": [ {..}, {..} ] }` | `{ "created": <n>, "rows": [...] }` |
+| Bulk update | `PATCH .../rows/bulk` | `{ "rows": [ { "$id": "..", "data": {..} } ] }` | `{ "updated": <n> }` |
+| Bulk delete | `DELETE .../rows/bulk` | `{ "ids": ["..", ".."] }` | `{ "deleted": <n> }` |
+
+```bash
+curl -X POST https://api.applad.io/v1/databases/app/tables/messages/rows/bulk \
+  -H "Authorization: Bearer <sessionSecret>" \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{ "rows": [ { "body": "one" }, { "body": "two" } ] }'
+```
+
+<Callout title="Partial success is silent">
+  Bulk operations report only a count. A create that fails validation and one
+  that succeeds return `{ "created": 1, ... }` with no per-row error list, so
+  reconcile the count against what you sent if every row must land.
+</Callout>
+
+## Adjust a number or list in place
+
+Three convenience routes change one field of one row on the server, so a client
+does not have to read the current value first:
+
+| Operation | Route | Body | Effect |
+| --- | --- | --- | --- |
+| Increment | `POST .../rows/{rowId}/increment` | `{ "field": "views", "delta": 1 }` | adds `delta` to the numeric field |
+| Decrement | `POST .../rows/{rowId}/decrement` | `{ "field": "stock", "delta": 1 }` | subtracts `delta` |
+| Append | `POST .../rows/{rowId}/append` | `{ "field": "tags", "value": "new" }` | pushes `value` onto an array field |
+
+<Callout type="warn" title="Server-side, but not a database lock">
+  These are implemented as read-then-write on the API (`databases/handler.go`
+  `atomicNumericOp`, `atomicAppend`): the server reads the row, computes the new
+  value, and writes it back. That is convenient but not a single locked
+  statement, so two increments racing on the same field can still lose one. For
+  a true counter under contention, use a [transaction](#transactions) or the
+  [SQL endpoint](#run-sql-against-a-database) with `SET x = x + 1`.
+</Callout>
+
+## Transactions
+
+`POST /v1/databases/{databaseId}/transactions` runs a list of operations inside a
+single PostgreSQL transaction: they all commit or, on the first error, all roll
+back. This is the way to make several row writes across tables land together.
+
+Each operation names a `method`, a `tableId`, and the `rowId` and `data` it
+needs:
+
+| `method` | Acts as |
+| --- | --- |
+| `create` (or `POST`) | insert a row; omit `rowId` for a generated id |
+| `update` (or `PATCH`) | update the row named by `rowId` |
+| `delete` | delete the row named by `rowId` |
+
+```bash
+curl -X POST https://api.applad.io/v1/databases/app/transactions \
+  -H "Authorization: Bearer <sessionSecret>" \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "operations": [
+      { "method": "create", "tableId": "messages", "data": { "body": "hi" } },
+      { "method": "update", "tableId": "counters", "rowId": "c1", "data": { "n": 42 } }
+    ]
+  }'
+```
+
+The response is `{ "total": <n>, "results": [...] }`, one result per operation
+carrying its `method`, HTTP `status`, and resulting `body`. An empty
+`operations` array is a `400`.
+
+## Run SQL against a database
+
+`POST /v1/databases/{databaseId}/sql` executes one SQL statement against the
+project's schema. It is how the console's SQL editor works, and it is bound by
+the same PostgreSQL row-level security as every other read and write.
+
+```bash
+curl -X POST https://api.applad.io/v1/databases/app/sql \
+  -H "Authorization: Bearer <sessionSecret>" \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{ "statement": "SELECT status, COUNT(*) FROM messages GROUP BY status" }'
+```
+
+The response reports `columns`, `rows`, `rowCount`, and `executionMs`. A
+statement is read-only unless you pass `"writeAllowed": true`, and even then the
+guard rails in `databases/service.go` `ExecuteSQL` hold:
+
+- **Your roles, not more.** The statement runs under the caller's resolved roles
+  in an RLS-scoped transaction. There is no `roles` field on the request. A
+  client cannot name an "admin" role to slip a policy.
+- **DDL is refused.** `CREATE`, `ALTER`, `DROP`, `TRUNCATE`, `GRANT`, `REVOKE`
+  and friends return a `400`. Use the tables, columns and indexes routes to
+  change schema.
+- **`SET` / `RESET` is refused.** They could drop the role sandbox mid
+  transaction.
+- **One statement per request.** A second statement after a `;` is rejected, and
+  leading comments cannot be used to hide a blocked keyword.
+
+`SELECT`, `WITH`, `SHOW`, `EXPLAIN` and `VALUES` run as queries and return rows;
+anything else runs as a write and returns an affected-row count (and needs
+`writeAllowed`).
+
+## Import a CSV
+
+Two routes load rows from a CSV file. Send it as `multipart/form-data` with the
+file under the `file` field; both accept up to 32 MB.
+
+| Operation | Route | Purpose |
+| --- | --- | --- |
+| Preview | `POST .../tables/{tableId}/import/csv/preview` | parse and return the first rows and detected columns without writing |
+| Import | `POST .../tables/{tableId}/import/csv` | insert every row; returns `{ "imported": <n>, "failed": <n>, "errors": [...] }` |
+
+An optional `columnMapping` form field (a JSON object) renames CSV headers to
+column keys.
+
+```bash
+curl -X POST https://api.applad.io/v1/databases/app/tables/messages/import/csv \
+  -H "x-applad-key: <apiKey>" -H "x-applad-project: <projectId>" \
+  -F "file=@messages.csv" \
+  -F 'columnMapping={"Body":"body","Status":"status"}'
+```
+
+## Editorial content mode
+
+A table can be switched into **content mode**, which layers a drafting workflow
+on top of the same rows API without changing your columns. Enabling it adds
+system fields (`status`, `slug`, `locale`, `published_at`, `entry_group`) and
+indexes them, so an entry can be a draft or published, localised, and versioned
+(`databases/content.go`).
+
+| Operation | Route |
+| --- | --- |
+| Enable | `POST /v1/databases/{databaseId}/tables/{tableId}/content` |
+| Disable | `DELETE .../tables/{tableId}/content` |
+| Publish a row | `POST .../rows/{rowId}/publish` |
+| Unpublish a row | `POST .../rows/{rowId}/unpublish` |
+| List a row's versions | `GET .../rows/{rowId}/versions` |
+
+Once on, `listRows` accepts editorial shorthands as query parameters:
+`?status=published` and `?locale=en` filter to that slice. Every create and
+update on a content-mode table also records a numbered snapshot in
+`row_versions`, which `/versions` returns newest first (up to 50).
+
+<Callout title="Disabling never deletes">
+  Turning content mode off only clears the flag. The added columns, published
+  state and version history stay in place, so you can toggle it back on without
+  losing anything.
+</Callout>
+
 ## Permissions
 
 Access to every table and row is governed by [permissions](/build/permissions), which
@@ -508,6 +743,14 @@ await db.createRow(
 
 With that in place a member of the channel's team sees the message, a non-member
 sees nothing, and only the author can change or remove it.
+
+A table's permissions can also be read and rewritten on their own, without
+touching the rest of the table definition:
+
+| Operation | Route |
+| --- | --- |
+| Get table permissions | `GET /v1/databases/{databaseId}/tables/{tableId}/permissions` |
+| Set table permissions | `POST .../tables/{tableId}/permissions` with `{ "permissions": [ { "action": "read", "role": "users" } ] }` |
 
 <Callout title="Fails closed">
   A row that does not grant a caller `read` is simply invisible to them. List

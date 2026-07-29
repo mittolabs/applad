@@ -89,6 +89,38 @@ def handler(payload):
   Applad detects that and runs it directly instead of wrapping it.
 </Callout>
 
+### How your source is packaged
+
+Your inline `source` is written into the build context under a fixed filename
+for its runtime, and the generated Dockerfile copies it in. This is why a single
+inline file is enough: Applad knows where to put it.
+
+| Runtime family | Source filename |
+|---|---|
+| `node-*` | `index.js` |
+| `bun-1` | `index.ts` |
+| `python-*` | `main.py` |
+| `go-1.22` | `main.go` |
+| `dart-3` | `main.dart` |
+| others | `handler` |
+
+The wrapper serves on port `3000` and speaks a small contract: a `POST /` hands
+your handler the request body parsed as JSON and returns whatever it produces,
+JSON-serialized, as the response; a `GET /` returns `ok` and is used only as a
+readiness probe. Applad decides whether to wrap your code or run it as-is by
+looking for server calls in the source: `listen(` or `createServer` for Node,
+`serve`/`listen` for Bun, `Flask`, `uvicorn`, or `HTTPServer` for Python, and
+`ListenAndServe` or `http.Handle` for Go. When one is present, your file is run
+directly and is expected to listen on `3000` itself.
+
+<Callout title="Git and multi-file sources">
+  With `sourceType: "git"` the whole repository is the build context, so you are
+  not limited to one file. If the repo has a `package.json` or
+  `requirements.txt`, the build installs dependencies. A repo that ships its own
+  server (any of the triggers above) is run directly, otherwise the same wrapper
+  is applied to your entrypoint.
+</Callout>
+
 ## Function lifecycle
 
 A function moves through a short lifecycle: you create it, Applad builds and
@@ -191,9 +223,13 @@ Fields:
 
 ### Building
 
-Creating or updating a function sets its `status` to `building` and queues a
-build. Applad builds the container image and pre-warms an instance so the first
-invocation is fast. Poll the function until its `status` is `active`:
+Creating or updating a function sets its `status` to `building` and pushes a
+`function_build` job onto the `builds` worker queue (the same worker that holds
+the Docker socket). The worker builds an image tagged `applad-fn-{functionId}`,
+then pre-warms it by starting one container and sending a single warm-up
+invocation before marking the function ready. That warm instance stays in a pool
+so the first real call does not pay the cold-start cost. Poll the function until
+its `status` is `active`:
 
 <Tabs items={['Dart', 'cURL']}>
 <Tab value="Dart">
@@ -215,7 +251,24 @@ curl https://api.applad.io/v1/functions/<functionId> \
 </Tabs>
 
 A build only runs when there is source to build (inline `source` set, or a git
-`repository` set).
+`repository` set). A function created with neither stays in `building` with no
+job queued.
+
+The `status` field tracks where a function is in this cycle:
+
+| `status` | Meaning |
+|---|---|
+| `building` | Freshly created or updated. Image build (and pre-warm) in progress. |
+| `active` | Built and pre-warmed. Ready to invoke. |
+| `failed` | The build or git clone failed. Fix the source and update to rebuild. |
+| `inactive` | Not currently in use. |
+
+<Callout title="Rebuilding replaces warm instances">
+  Every update re-runs the build and destroys the previous warm containers,
+  because the image has changed. There is no separate deployment object or
+  version history: a function has one current image, and updating it in place is
+  how you ship a new version.
+</Callout>
 
 </Step>
 
@@ -297,9 +350,32 @@ curl https://api.applad.io/v1/functions/<functionId>/executions/<executionId> \
 </Tabs>
 
 An execution moves through `pending` -> `processing` -> `completed` (or
-`failed`). `output` holds what your handler returned, serialized as a string;
-`errors` holds the error message when it failed; `duration` is the run time in
-seconds.
+`failed`). The fields on an execution object:
+
+| Field | Meaning |
+|---|---|
+| `$id` | Execution id. |
+| `functionId` | The function that ran. |
+| `status` | `pending`, `processing`, `completed`, or `failed`. |
+| `output` | What your handler returned, JSON-serialized as a string. Capped at 1 MB. |
+| `errors` | The error message when the run failed; empty otherwise. |
+| `duration` | Wall-clock run time in seconds (a float). |
+| `$createdAt` | When the execution was created. |
+
+**What happens on the worker.** When the job is picked up the execution goes to
+`processing`. Applad takes a warm container from the function's pool (or starts
+one if none is free) and sends your payload as a `POST /`. A response under 400
+is recorded as `completed` with the body as `output`; a `4xx`/`5xx` response, a
+timeout, or a connection error is recorded as `failed`. On timeout or connection
+error the container is destroyed rather than returned to the pool, since it may
+be in a bad state. Idle warm containers are reaped after 5 minutes.
+
+<Callout title="Function executions are rate limited" type="warn">
+  `POST /functions/{functionId}/executions` is a project-work operation, capped
+  at 300 requests per minute per project (`middleware.ProjectWorkRules`).
+  Exceeding it returns `429` with "Too many function executions in the last
+  minute."
+</Callout>
 
 <Callout title="Invocation payload">
   Execution runs today with an empty JSON payload (`{}`). The SDK `execute`

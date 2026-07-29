@@ -71,20 +71,43 @@ Underlying route: `POST /v1/storage/buckets`. The response is the bucket:
 }
 ```
 
-Bucket options:
+### Bucket configuration
 
-| Field | Meaning |
-| --- | --- |
-| `maximumFileSize` | Per-file cap in bytes. `0` means no bucket-level limit. |
-| `allowedFileExtensions` | Allow-list of extensions (`jpg`) or MIME types (`image/jpeg`). Empty allows any type; `*` allows all. |
-| `permissions` | Bucket-wide access rules (see [Permissions](#permissions)). |
-| `fileSecurity` | When `true`, each file may also carry its own permissions. |
-| `imageTransformations` | Whether image previews may be transformed. |
-| `compression`, `encryption`, `antivirus` | Stored on the bucket. See the caveat at the end of this page. |
+Every setting is optional on create; the table gives the type and the default
+Applad applies when you omit it.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | (required) | Human-readable bucket name. The only required field. |
+| `bucketId` | string | generated | Your own id, or omit / pass `unique()` to have one generated. |
+| `maximumFileSize` | integer (bytes) | `0` | Per-file cap. `0` means no bucket-level limit (the 500 MB hard ceiling still applies). |
+| `allowedFileExtensions` | string array | `[]` | Allow-list of extensions (`jpg`) or MIME types (`image/jpeg`). Empty allows any type; an entry of `*` allows all. |
+| `permissions` | string array | `[]` | Bucket-wide access rules (see [Permissions](#permissions)). |
+| `fileSecurity` | boolean | `false` | When `true`, each file may also carry its own permissions. |
+| `imageTransformations` | boolean | `true` | Advertises whether image previews may be transformed. Stored on the bucket; the preview endpoint does not currently gate on it. |
+| `compression` | string | `"none"` | Stored on the bucket. See [the caveat](#storage-drivers). |
+| `encryption` | boolean | `false` | Stored on the bucket. See [the caveat](#storage-drivers). |
+| `antivirus` | boolean | `false` | Stored on the bucket. See [Antivirus scanning](#antivirus-scanning). |
+
+<Callout title="maximumFileSize is enforced on the stream">
+  The bucket cap is applied to the upload stream itself, not to the
+  `Content-Length` the client claims. If the bucket's `maximumFileSize` is
+  smaller than the 500 MB hard ceiling, the stream is cut at the bucket limit
+  and the partial write is deleted, so a client cannot understate its size to
+  slip a large file past the cap.
+</Callout>
+
+`allowedFileExtensions` matches case-insensitively against either the file's
+extension or its MIME type, so `['jpg', 'image/png']` accepts both a `.jpg` by
+name and any `image/png` by content type. File names are sanitised on upload:
+directory components are stripped and the name is truncated to 255 characters.
 
 List, fetch and update buckets with `listBuckets()` / `getBucket(id)` /
 `updateBucket(...)` (`GET`/`PUT /v1/storage/buckets` and `/{bucketId}`), and
 remove one with `deleteBucket(id)` (`DELETE /v1/storage/buckets/{bucketId}`).
+`updateBucket` merges: any field you omit keeps its current value, so you can
+flip a single flag (for example `enabled: false`) without resending the rest.
+Deleting a bucket removes its files with it.
 
 ## Upload a file
 
@@ -148,6 +171,12 @@ Uploads are rejected with `413` (`storage_file_too_large`) past the bucket's
 `maximumFileSize`, and with a `400` when the file type is not in the bucket's
 `allowedFileExtensions`. There is a hard 500 MB ceiling per upload regardless of
 bucket settings.
+
+A single-shot upload is streamed straight to the storage driver while its
+content signature (an MD5 digest, returned as `signature`) is computed in
+passing, so a 500 MB upload does not cost 500 MB of memory. The exception is a
+bucket with `antivirus` on: ClamAV needs the whole payload, so those uploads are
+buffered before scanning (see [Antivirus scanning](#antivirus-scanning)).
 
 ### Large files: chunked upload
 
@@ -287,11 +316,25 @@ Supported query parameters:
 | `opacity` | `1`–`99` | Blend with transparency. |
 | `background` | hex (`ffffff`) | Fill behind transparent areas. |
 
+Transformations are applied in a fixed order, so combined parameters compose
+predictably: resize (with gravity crop) then rotate then border radius then
+border then opacity then background fill then encode. When you pass both `width`
+and `height` with a non-centre `gravity`, the image is first cropped to the
+requested aspect ratio from that anchor, then scaled. `borderColor` and
+`background` accept a 3- or 6-digit hex string with or without a leading `#`;
+an unparseable colour falls back to black.
+
+The preview endpoint sets `Cache-Control: public, max-age=86400` on a
+transformed response, so a CDN or browser can cache a thumbnail for a day. If
+transformation fails (the bytes are not a decodable image), the original file is
+served unchanged rather than erroring, so a `.pdf` in an image bucket still
+downloads through `/preview`.
+
 <Callout title="Formats">
   `output` encodes to PNG or JPEG. Any other value (including `webp`) falls back
-  to JPEG. Resizing uses nearest-neighbour scaling, which is fast but not the
-  sharpest, so preview is best for thumbnails and avatars rather than
-  pixel-perfect resampling.
+  to JPEG. Decoding covers PNG, JPEG and GIF inputs. Resizing uses
+  nearest-neighbour scaling, which is fast but not the sharpest, so preview is
+  best for thumbnails and avatars rather than pixel-perfect resampling.
 </Callout>
 
 ## Delete a file
@@ -342,14 +385,63 @@ curl "https://api.applad.io/v1/storage/buckets/avatars/files/<fileId>/view?token
 ```
 
 The token is bound to its project, bucket and file and expires, so it cannot be
-replayed against another file or after its TTL.
+replayed against another file or after its TTL. It is signed with HMAC-SHA256
+over the project, bucket, file and expiry, using the instance's `JWT_SECRET`.
+A token that carries a different project context than the request is rejected,
+so it cannot be lifted into another project.
 
-<Callout title="Not verified end to end">
-  Buckets store `compression`, `encryption` and `antivirus` flags, and an S3
-  storage driver and ClamAV antivirus scanning exist in the backend. These
-  depend on how the instance is configured and are not covered here; treat the
-  local-disk driver with the flags off as the documented behaviour.
+<Callout title="A downloaded file is named by its id">
+  The `download` endpoint sets `Content-Disposition: attachment` with the file's
+  generated id as the filename, not its original `name`. If you need the
+  original name on disk, set it client-side from the file's metadata.
 </Callout>
+
+## Storage drivers
+
+Where the bytes physically live is an instance-wide choice, set with the
+`STORAGE_DRIVER` environment variable. It is transparent to the API and SDKs:
+the same routes behave identically whichever driver is active.
+
+<Tabs items={['Local disk', 'S3-compatible']}>
+<Tab value="Local disk">
+The default (`STORAGE_DRIVER=local`). Files are written under `STORAGE_PATH`
+(default `/var/applad/storage`) at `<projectId>/<bucketId>/<fileId>`. Every
+path is verified to stay within the storage root before a read, write or
+delete, so a crafted file id cannot escape into the host filesystem.
+</Tab>
+<Tab value="S3-compatible">
+Set `STORAGE_DRIVER=s3` to store objects in any S3-compatible service (AWS S3,
+MinIO, Cloudflare R2, and so on). Requests are signed with AWS Signature V4.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `S3_BUCKET` | (empty) | Target object-store bucket. |
+| `S3_REGION` | `us-east-1` | Region used for signing and the default endpoint. |
+| `S3_ENDPOINT` | AWS regional | Override for MinIO / R2 / other providers. |
+| `S3_ACCESS_KEY_ID` | (empty) | Access key. |
+| `S3_SECRET_ACCESS_KEY` | (empty) | Secret key. |
+
+Object keys mirror the local layout: `<projectId>/<bucketId>/<fileId>`.
+</Tab>
+</Tabs>
+
+<Callout title="Stored flags that are not yet enforced">
+  A bucket persists `compression`, `encryption` and `antivirus` flags and
+  returns them on read, but the current build stores files as-is: bytes are
+  neither compressed nor encrypted at rest regardless of the flags. Treat them
+  as forward-looking metadata. Antivirus is wired end to end in code but only
+  runs when the instance is configured with a ClamAV address (see below).
+</Callout>
+
+## Antivirus scanning
+
+When a ClamAV daemon is configured for the instance, uploads to a bucket with
+`antivirus` on are scanned before they are stored. Applad talks to `clamd` over
+its TCP `INSTREAM` interface, streaming the payload in chunks and reading back
+the verdict. A clean file is written normally; an infected file is rejected and
+never persisted. Because the scanner needs the complete payload, an
+antivirus-enabled upload is buffered in memory rather than streamed, still
+subject to the same size caps.
 
 ## Related
 
