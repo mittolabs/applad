@@ -11,6 +11,9 @@ assumes you have an Applad instance to talk to. If you do not, bring one up firs
 with [Self-hosting](/self-hosting) (a single `docker compose up`), or use a hosted
 instance.
 
+![The Applad console sign-in screen](/screens/login.png)
+_You manage everything from the console. Sign in, or create the owner account on a fresh self-hosted instance._
+
 <Steps>
 
 <Step>
@@ -22,6 +25,9 @@ account you create becomes the owner). Then create an **organization**, create a
 **project** inside it, and copy the project's **ID** from its settings.
 
 A project is an isolated backend with its own database, users, and API keys.
+
+![The console projects page, showing an organization and its projects](/screens/projects.png)
+_Projects live inside an organization. Each one is an isolated backend._
 
 <Callout title="Client keys vs server keys">
   Client SDKs need only the project ID: they act as the signed-in user, and
@@ -68,6 +74,9 @@ Install a client SDK and point it at your instance and project.
 </Tabs>
 
 There are SDKs for [JavaScript, Dart, Node, Go and Python](/sdks).
+
+![The project settings page with API keys](/screens/settings.png)
+_Server SDKs authenticate with an API key, created and revoked under the project's Settings._
 
 </Step>
 
