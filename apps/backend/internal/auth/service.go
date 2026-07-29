@@ -35,12 +35,25 @@ type Claims struct {
 type Service struct {
 	db        *db.DB
 	jwtSecret string
+	mailer    EmailSender // optional; set for sessionAlerts emails
 }
 
 // NewService creates a new auth Service.
 func NewService(database *db.DB, jwtSecret string) *Service {
 	return &Service{db: database, jwtSecret: jwtSecret}
 }
+
+// SetMailer wires an email sender used by the sessionAlerts policy. It is
+// optional: when nil, session-alert emails are simply not sent.
+func (s *Service) SetMailer(m EmailSender) { s.mailer = m }
+
+// Password-policy errors. The code before the colon is stable so handlers and
+// SDKs can map it; the text after is human-readable.
+var (
+	errPasswordPersonalData = fmt.Errorf("password_personal_data: password must not contain your name or email address")
+	errPasswordInDictionary = fmt.Errorf("password_in_dictionary: password is too common; choose a less predictable one")
+	errPasswordReused       = fmt.Errorf("password_reused: password matches one you have used recently; choose a new one")
+)
 
 // authSecurity mirrors projects.AuthSecurity for enforcement without a cross-package import.
 type authSecurity struct {
@@ -90,6 +103,11 @@ func (s *Service) CreateAccount(ctx context.Context, projectID, userID, email, p
 		return nil, fmt.Errorf("password_too_short: password must be at least %d characters", sec.PasswordMinLength)
 	}
 
+	// Enforce value-based password policy (personal data, dictionary).
+	if err := s.checkPasswordPolicy(sec, password, email, name); err != nil {
+		return nil, err
+	}
+
 	// Enforce users limit.
 	if sec.UsersLimit > 0 {
 		var count int
@@ -119,6 +137,9 @@ func (s *Service) CreateAccount(ctx context.Context, projectID, userID, email, p
 			return nil, fmt.Errorf("user_already_exists: email already in use")
 		}
 		return nil, fmt.Errorf("auth: create account: %w", err)
+	}
+	if sec.PasswordHistory > 0 {
+		s.recordPasswordHistory(ctx, projectID, id, string(hash))
 	}
 	s.logUserEvent(ctx, projectID, id, "user.create", "", "")
 	return s.GetAccount(ctx, id, projectID)
@@ -185,6 +206,25 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, passwor
 			return nil, fmt.Errorf("auth: invalid old password")
 		}
 	}
+
+	// Personal-data enforcement needs the user's email and name; only pay for
+	// the extra read when the policy is on.
+	email, name := "", ""
+	if sec.PasswordPersonalData {
+		var e, n sql.NullString
+		s.db.QueryRowContext(ctx,
+			"SELECT email, name FROM users WHERE id = $1 AND project_id = $2", userID, projectID).Scan(&e, &n)
+		email, name = e.String, n.String
+	}
+	if err := s.checkPasswordPolicy(sec, password, email, name); err != nil {
+		return nil, err
+	}
+
+	// Reject reuse of the current or a recent password when history is on.
+	if reused, err := s.passwordReused(ctx, projectID, userID, password, hash, sec.PasswordHistory); err == nil && reused {
+		return nil, errPasswordReused
+	}
+
 	newHash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
 		return nil, err
@@ -193,6 +233,9 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, passwor
 		"UPDATE users SET password_hash = $1 WHERE id = $2 AND project_id = $3", string(newHash), userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: update password: %w", err)
+	}
+	if sec.PasswordHistory > 0 {
+		s.recordPasswordHistory(ctx, projectID, userID, string(newHash))
 	}
 	// Invalidate all sessions when password changes if configured.
 	if sec.InvalidateOnPasswordChange {
@@ -360,6 +403,11 @@ func (s *Service) createSession(ctx context.Context, userID, projectID, provider
 
 	// Record audit event
 	s.logUserEvent(ctx, projectID, userID, "session.create."+provider, ip, ua)
+
+	// Notify the user of a new password sign-in when the policy is on.
+	if s.mailer != nil && sec.SessionAlerts {
+		s.maybeSendSessionAlert(ctx, projectID, userID, provider, ip, ua)
+	}
 
 	sess := &model.Session{
 		ID:        sessionID,
@@ -779,6 +827,25 @@ func (s *Service) ResetPassword(ctx context.Context, projectID, secret, newPassw
 	if err != nil {
 		return err
 	}
+	sec := s.loadSecurity(ctx, projectID)
+	if sec.PasswordMinLength > 0 && len(newPassword) < sec.PasswordMinLength {
+		return fmt.Errorf("password_too_short: password must be at least %d characters", sec.PasswordMinLength)
+	}
+
+	// Load the current credentials only for the policies that need them.
+	var curHash, email, name sql.NullString
+	if sec.PasswordPersonalData || sec.PasswordHistory > 0 {
+		s.db.QueryRowContext(ctx,
+			"SELECT password_hash, email, name FROM users WHERE id = $1 AND project_id = $2",
+			userID, projectID).Scan(&curHash, &email, &name)
+	}
+	if err := s.checkPasswordPolicy(sec, newPassword, email.String, name.String); err != nil {
+		return err
+	}
+	if reused, err := s.passwordReused(ctx, projectID, userID, newPassword, curHash.String, sec.PasswordHistory); err == nil && reused {
+		return errPasswordReused
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
 	if err != nil {
 		return err
@@ -786,7 +853,13 @@ func (s *Service) ResetPassword(ctx context.Context, projectID, secret, newPassw
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE users SET password_hash = $1 WHERE id = $2 AND project_id = $3",
 		string(hash), userID, projectID)
-	return err
+	if err != nil {
+		return err
+	}
+	if sec.PasswordHistory > 0 {
+		s.recordPasswordHistory(ctx, projectID, userID, string(hash))
+	}
+	return nil
 }
 
 // --- scan helpers ---

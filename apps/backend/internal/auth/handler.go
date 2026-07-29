@@ -48,9 +48,13 @@ type Handler struct {
 	smsSender      SMSSender
 }
 
-// SetMailer sets the email sender for auth flows (magic link, verification, reset).
+// SetMailer sets the email sender for auth flows (magic link, verification,
+// reset) and hands the same sender to the service for sessionAlerts emails.
 func (h *Handler) SetMailer(m EmailSender) {
 	h.mailer = m
+	if h.svc != nil {
+		h.svc.SetMailer(m)
+	}
 }
 
 // SetSMSSender sets the SMS sender for phone OTP flows.

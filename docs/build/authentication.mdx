@@ -717,12 +717,17 @@ The settings Applad enforces today:
 | `sessionsPerUser` | `10` | When a user is at the limit, opening a new session evicts their oldest one. `0` means unlimited. |
 | `sessionLengthSeconds` | `31536000` (365 days) | How long a newly created session stays valid. |
 | `invalidateOnPasswordChange` | `true` | Changing a password deletes the user's other sessions, leaving them signed in only on the current device. |
+| `passwordPersonalData` | `false` | When on, a new password that contains the account email's local-part or a word from the user's name (case-insensitive, tokens of 3+ characters) is rejected with `password_personal_data`. Checked on sign-up, password change, and password recovery. |
+| `passwordDictionary` | `false` | When on, a password whose exact value (case-insensitive) appears on Applad's built-in common/breached-password blocklist is rejected with `password_in_dictionary`. Checked on the same three paths. |
+| `passwordHistory` | `0` (off) | When set to N, a password change or recovery that matches the current password or any of the last N is rejected with `password_reused`. Every successful password set is recorded (only the bcrypt hash) so the window builds forward from the moment the policy is switched on. |
+| `sessionAlerts` | `false` | When on, a new password sign-in emails the user a "new sign-in" notice. It is skipped for the user's first session (the sign-in right after signup), for magic-link, email/phone OTP, and OAuth2 sign-ins, and when the account has no email on file. Requires email delivery to be configured; where none is, no alert is sent. |
 
-<Callout title="Some fields are stored but not yet enforced">
-  `passwordHistory`, `passwordDictionary`, `passwordPersonalData`,
-  `mfaRequired`, and `sessionAlerts` are accepted and persisted by this endpoint
-  but do not yet change behaviour. Treat only the five fields above as active
-  policy.
+<Callout title="One field is stored but not yet enforced">
+  `mfaRequired` is accepted and persisted by this endpoint but does not yet
+  change behaviour. Enforcing it safely has to answer what happens to an
+  existing user who has no factor enrolled, so for now it is inert: MFA is
+  verified when a user has enabled it, but a project cannot yet compel every
+  user to enrol. Every other field on this page is active policy.
 </Callout>
 
 ## Server-side user management
