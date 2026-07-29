@@ -1303,28 +1303,11 @@ CREATE TABLE IF NOT EXISTS msg_providers (
 );
 CREATE INDEX IF NOT EXISTS idx_msg_providers_project ON msg_providers (project_id);
 
--- ---------------------------------------------------------------------------
--- Realtime change notification (used by Phase 6: LISTEN/NOTIFY)
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION applad_notify_change()
-RETURNS TRIGGER AS $$
-DECLARE
-    payload JSONB;
-BEGIN
-    payload = jsonb_build_object(
-        'project_id', COALESCE(NULLIF(current_setting('applad.project_id', true), ''), NULL),
-        'user_id',   COALESCE(NULLIF(current_setting('applad.user_id', true), ''), NULL),
-        'table',     TG_TABLE_NAME,
-        'schema',    TG_TABLE_SCHEMA,
-        'action',    TG_OP,
-        'old',       CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN row_to_json(OLD)::jsonb ELSE NULL END,
-        'new',       CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN row_to_json(NEW)::jsonb ELSE NULL END,
-        'timestamp', NOW()
-    );
-    PERFORM pg_notify('applad_changes', payload::text);
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
+-- Note: applad_notify_change() is defined once near the top of this file. It
+-- MUST include database_id and a lowercased action, because the realtime hub
+-- routes table- and database-scoped channels from those fields. Do not add a
+-- second CREATE OR REPLACE for it here (a duplicate that dropped database_id
+-- silently broke table channels; see migration 032).
 
 -- ---------------------------------------------------------------------------
 -- Seed: regions
