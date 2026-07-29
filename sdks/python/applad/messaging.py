@@ -11,18 +11,21 @@ class Messaging:
             body["html"] = html
         return self.client._call("POST", "/messaging/email", body)
 
-    def send_sms(self, to: list, content: str):
+    def send_sms(self, to: list, body: str):
         return self.client._call("POST", "/messaging/sms", {
             "to": to,
-            "content": content,
+            "body": body,
         })
 
-    def send_push(self, to: list, title: str, body: str):
-        return self.client._call("POST", "/messaging/push", {
+    def send_push(self, to: list, title: str, body: str, data: dict | None = None):
+        payload = {
             "to": to,
             "title": title,
             "body": body,
-        })
+        }
+        if data:
+            payload["data"] = data
+        return self.client._call("POST", "/messaging/push", payload)
 
     # --- Templates ---
 

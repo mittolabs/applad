@@ -2,7 +2,11 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,7 +16,23 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
 	"github.com/mittolabs/applad/internal/middleware"
+	"github.com/mittolabs/applad/internal/model"
 )
+
+// oauthStateCookie holds the per-request OAuth CSRF nonce. It is HttpOnly and
+// SameSite=Lax so it rides the top-level redirect back from the provider but is
+// unreadable to page scripts, and it is compared against the nonce embedded in
+// the OAuth state at the callback.
+const oauthStateCookie = "a_oauth_state"
+
+// newStateNonce returns an unguessable, URL-safe nonce for OAuth CSRF binding.
+func newStateNonce() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
 
 // e164Re validates E.164 phone numbers: +<country code><number>, 8–15 digits total.
 var e164Re = regexp.MustCompile(`^\+[1-9]\d{7,14}$`)
@@ -44,6 +64,7 @@ type SMSSender interface {
 type Handler struct {
 	svc            *Service
 	oauthProviders map[string]OAuthProvider
+	oauthResolver  OAuthResolver
 	mailer         EmailSender
 	smsSender      SMSSender
 }
@@ -67,6 +88,14 @@ type OAuthProvider interface {
 	GetAuthURL(redirectURI, state string) string
 	ExchangeCode(ctx context.Context, code, redirectURI string) (string, error)
 	GetUserInfo(ctx context.Context, accessToken string) (OAuthUserInfo, error)
+}
+
+// OAuthResolver resolves the OAuth provider to use for a given project and
+// provider name, preferring a per-project configuration (client id/secret set
+// through the console) and falling back to the instance-wide env config. A nil
+// return means the provider is not available for that project.
+type OAuthResolver interface {
+	ResolveOAuthProvider(ctx context.Context, projectID, providerName string) OAuthProvider
 }
 
 // OAuthUserInfo is normalized OAuth user info.
@@ -286,6 +315,10 @@ func (h *Handler) createEmailSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		// Code is the TOTP or recovery code, required only when the account has
+		// MFA enrolled. Absent on the first request; the client resubmits with it
+		// after a user_mfa_required challenge.
+		Code string `json:"code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -293,15 +326,25 @@ func (h *Handler) createEmailSession(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := r.RemoteAddr
 	ua := r.UserAgent()
-	sess, token, err := h.svc.CreateEmailSession(r.Context(), projectID, body.Email, body.Password, ip, ua)
+	res, err := h.svc.CreateEmailSession(r.Context(), projectID, body.Email, body.Password, body.Code, ip, ua)
 	if err != nil {
+		if errors.Is(err, errMFAInvalidCode) {
+			apperr.Write(w, http.StatusUnauthorized, "user_mfa_invalid", "invalid MFA code")
+			return
+		}
 		apperr.Write(w, http.StatusUnauthorized, "user_invalid_credentials", "invalid credentials")
+		return
+	}
+	// Password was correct, but the account has an enrolled MFA factor and no
+	// valid code was supplied: challenge for it rather than opening a session.
+	if res.MFAChallenge {
+		apperr.Write(w, http.StatusUnauthorized, "user_mfa_required", "multi-factor authentication code required")
 		return
 	}
 	// Set session cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "a_session_" + projectID,
-		Value:    token,
+		Value:    res.Token,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
@@ -310,8 +353,18 @@ func (h *Handler) createEmailSession(w http.ResponseWriter, r *http.Request) {
 	})
 	// Also hand the token back in the body: a browser gets the cookie, everything
 	// else (mobile, a script) needs the secret to authenticate by header.
-	sess.Secret = token
-	writeJSON(w, http.StatusCreated, sess)
+	res.Session.Secret = res.Token
+	// When the project requires MFA and this user has no factor yet, the session
+	// still opens (locking them out would brick existing accounts) but carries a
+	// flag so the client can route them into enrollment.
+	if res.MFAEnrollmentRequired {
+		writeJSON(w, http.StatusCreated, struct {
+			*model.Session
+			MFAEnrollmentRequired bool `json:"mfaEnrollmentRequired"`
+		}{res.Session, true})
+		return
+	}
+	writeJSON(w, http.StatusCreated, res.Session)
 }
 
 func (h *Handler) createAnonymousSession(w http.ResponseWriter, r *http.Request) {
@@ -792,15 +845,34 @@ func (h *Handler) SetOAuthProviders(providers map[string]OAuthProvider) {
 	h.oauthProviders = providers
 }
 
+// SetOAuthResolver installs a per-project provider resolver. When set, it takes
+// precedence over the static provider map, so a project that configured its own
+// Google/GitHub/... credentials in the console signs its users in with those.
+func (h *Handler) SetOAuthResolver(res OAuthResolver) {
+	h.oauthResolver = res
+}
+
+// resolveOAuthProvider returns the provider to use for this project + name.
+// A per-project config wins; otherwise the instance-wide map is consulted.
+func (h *Handler) resolveOAuthProvider(ctx context.Context, projectID, providerName string) (OAuthProvider, bool) {
+	if h.oauthResolver != nil {
+		if p := h.oauthResolver.ResolveOAuthProvider(ctx, projectID, providerName); p != nil {
+			return p, true
+		}
+	}
+	p, ok := h.oauthProviders[providerName]
+	return p, ok
+}
+
 func (h *Handler) oauthRedirect(w http.ResponseWriter, r *http.Request) {
 	providerName := chi.URLParam(r, "provider")
-	provider, ok := h.oauthProviders[providerName]
+	projectID := middleware.ProjectFromContext(r.Context())
+	provider, ok := h.resolveOAuthProvider(r.Context(), projectID, providerName)
 	if !ok {
 		apperr.BadRequest(w, "unsupported OAuth provider: "+providerName)
 		return
 	}
 
-	projectID := middleware.ProjectFromContext(r.Context())
 	// Validate redirect URLs are relative-only to prevent open-redirect attacks.
 	successURL := safeRedirectURL(r.URL.Query().Get("success"))
 	failureURL := safeRedirectURL(r.URL.Query().Get("failure"))
@@ -812,8 +884,28 @@ func (h *Handler) oauthRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 	callbackURL := fmt.Sprintf("%s://%s/v1/account/sessions/oauth/%s/callback", scheme, r.Host, providerName)
 
-	// State encodes project + redirect URLs
-	state := fmt.Sprintf("%s|%s|%s", projectID, successURL, failureURL)
+	// Bind this flow to the browser with an unguessable nonce: it goes into the
+	// state (echoed back by the provider) and into an HttpOnly cookie. The
+	// callback proceeds only when the two match, so an attacker who cannot read
+	// the victim's cookie cannot forge a state that will be accepted.
+	nonce, err := newStateNonce()
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    nonce,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600, // 10 minutes: long enough to complete consent, short enough to expire
+	})
+
+	// State encodes nonce + project + redirect URLs. The redirect URLs are
+	// re-validated at the callback; the nonce is what makes the state unforgeable.
+	state := fmt.Sprintf("%s|%s|%s|%s", nonce, projectID, successURL, failureURL)
 
 	authURL := provider.GetAuthURL(callbackURL, state)
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
@@ -821,11 +913,6 @@ func (h *Handler) oauthRedirect(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	providerName := chi.URLParam(r, "provider")
-	provider, ok := h.oauthProviders[providerName]
-	if !ok {
-		apperr.BadRequest(w, "unsupported OAuth provider")
-		return
-	}
 
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
@@ -834,20 +921,52 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse state: projectID|successURL|failureURL
+	// Parse state: nonce|projectID|successURL|failureURL
 	// Re-validate URLs from state to guard against tampered state parameters.
-	parts := strings.SplitN(state, "|", 3)
+	parts := strings.SplitN(state, "|", 4)
+	stateNonce := ""
 	projectID := ""
 	successURL := "/"
 	failureURL := "/"
 	if len(parts) >= 1 {
-		projectID = parts[0]
+		stateNonce = parts[0]
 	}
 	if len(parts) >= 2 {
-		successURL = safeRedirectURL(parts[1])
+		projectID = parts[1]
 	}
 	if len(parts) >= 3 {
-		failureURL = safeRedirectURL(parts[2])
+		successURL = safeRedirectURL(parts[2])
+	}
+	if len(parts) >= 4 {
+		failureURL = safeRedirectURL(parts[3])
+	}
+
+	// CSRF: the state nonce must match the one we stored in the browser's cookie
+	// at initiation. A missing or mismatched nonce means the callback was not
+	// started by this browser, so reject it rather than opening a session.
+	cookie, cErr := r.Cookie(oauthStateCookie)
+	if cErr != nil || cookie.Value == "" || stateNonce == "" ||
+		subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(stateNonce)) != 1 {
+		apperr.Write(w, http.StatusForbidden, "oauth_state_mismatch", "OAuth state validation failed")
+		return
+	}
+	// One-time use: clear the nonce cookie now that it has been consumed.
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+
+	// Resolve the provider now that the project is known from the state, so a
+	// per-project configuration is honored on the callback leg too.
+	provider, ok := h.resolveOAuthProvider(r.Context(), projectID, providerName)
+	if !ok {
+		apperr.BadRequest(w, "unsupported OAuth provider")
+		return
 	}
 
 	// Build callback URL for token exchange

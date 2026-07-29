@@ -2,6 +2,10 @@ package edge
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +130,55 @@ func TestList(t *testing.T) {
 	}
 	if len(fns) != 2 {
 		t.Errorf("count = %d, want 2", len(fns))
+	}
+}
+
+// TestInvoke_NotImplemented proves invoke no longer fabricates a "completed"
+// 200 for code that never ran: it returns 501 edge_not_implemented instead.
+func TestInvoke_NotImplemented(t *testing.T) {
+	database, _ := newMockDB(t)
+	srv := Routes(NewHandler(NewService(database)))
+
+	req := httptest.NewRequest(http.MethodPost, "/functions/fn1/invoke", strings.NewReader(`{"hello":"world"}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want 501", w.Code)
+	}
+	var e struct {
+		Type   string `json:"type"`
+		Status string `json:"status"`
+	}
+	json.NewDecoder(w.Body).Decode(&e) //nolint:errcheck
+	if e.Type != "edge_not_implemented" {
+		t.Errorf("type = %q, want edge_not_implemented", e.Type)
+	}
+	// The fabricated success used to include status:"completed" — it must not.
+	if e.Status == "completed" {
+		t.Errorf("response still reports fabricated status %q", e.Status)
+	}
+}
+
+// TestDeployHandler_NotImplemented proves the deploy endpoint no longer flips a
+// status column to "deployed"/"active" and reports success without deploying.
+func TestDeployHandler_NotImplemented(t *testing.T) {
+	database, _ := newMockDB(t)
+	srv := Routes(NewHandler(NewService(database)))
+
+	req := httptest.NewRequest(http.MethodPost, "/functions/fn1/deploy", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want 501", w.Code)
+	}
+	var e struct {
+		Type string `json:"type"`
+	}
+	json.NewDecoder(w.Body).Decode(&e) //nolint:errcheck
+	if e.Type != "edge_not_implemented" {
+		t.Errorf("type = %q, want edge_not_implemented", e.Type)
 	}
 }
 

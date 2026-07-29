@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/mittolabs/applad/internal/netguard"
 )
 
 // Handler handles avatar HTTP requests.
@@ -262,7 +264,10 @@ func (h *Handler) favicon(w http.ResponseWriter, r *http.Request) {
 	}
 	faviconURL := strings.TrimRight(target, "/") + "/favicon.ico"
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Guarded client: the URL is attacker-controlled, so every dialled hop
+	// (including redirect targets) is refused if it resolves to a loopback,
+	// link-local (169.254.169.254 metadata), or private address.
+	client := netguard.Client(5 * time.Second)
 	resp, err := client.Get(faviconURL)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		// Return a default 1x1 transparent PNG.
@@ -456,8 +461,10 @@ func (h *Handler) remoteImage(w http.ResponseWriter, r *http.Request) {
 	width := queryInt(r, "width", 0)
 	height := queryInt(r, "height", 0)
 
-	// Fetch remote image
-	client := &http.Client{Timeout: 10 * time.Second}
+	// Fetch remote image through the SSRF guard: the URL is attacker-controlled,
+	// so a resolved loopback/link-local/private destination is refused, and each
+	// redirect hop is re-checked by the same dialer.
+	client := netguard.Client(10 * time.Second)
 	resp, err := client.Get(url)
 	if err != nil {
 		http.Error(w, "failed to fetch image", http.StatusBadGateway)

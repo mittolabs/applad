@@ -167,6 +167,26 @@ The session object (`POST /v1/account/sessions/email`, `201`):
 `secret` is present only on creation. Listing or fetching a session never returns
 it.
 
+<Callout title="When the account has MFA">
+  If the user has enrolled a factor, email and password alone do not open a
+  session: the endpoint returns `401` with type `user_mfa_required`. Resubmit
+  the same `POST /v1/account/sessions/email` with a `code` field added, holding a
+  TOTP or recovery code, and the session is issued on a valid code (an invalid
+  one returns `401 user_mfa_invalid`).
+
+  ```bash
+  curl -X POST https://api.applad.io/v1/account/sessions/email \
+    -H "x-applad-project: <projectId>" \
+    -H "Content-Type: application/json" \
+    -d '{"email": "ada@example.com", "password": "super-secret", "code": "123456"}'
+  ```
+
+  When the project sets `mfaRequired` but this user has no factor yet, the
+  session opens normally and the `201` body adds `"mfaEnrollmentRequired": true`
+  so you can route them into MFA setup. See
+  [session and password security](#session-and-password-security) for the policy.
+</Callout>
+
 ### Restoring a session on the next launch
 
 Save the `secret` when you create the session, then restore it with `setJWT`
@@ -450,6 +470,15 @@ or endpoints as well as credentials: `auth0` (`OAUTH_AUTH0_DOMAIN`), `okta`
 (`OAUTH_OKTA_DOMAIN`), and a generic `oidc` (`OAUTH_OIDC_AUTH_URL`,
 `OAUTH_OIDC_TOKEN_URL`, `OAUTH_OIDC_USERINFO_URL`).
 
+You can also configure a provider per project from the console, under
+Auth then Settings. Enter the client id and secret for a provider and enable it;
+those credentials take precedence over the instance-wide `OAUTH_*` variables for
+that project, so different apps on one instance can sign in through different
+provider apps. The console never shows a stored secret back, and saving with the
+secret field left blank keeps the one already stored. Providers configured this
+way are managed through `GET`, `PUT`, and `DELETE`
+`/v1/projects/{projectId}/auth/oauth`, which require a console session.
+
 ## Multi-factor authentication (TOTP)
 
 MFA uses time-based one-time passwords, the kind an authenticator app generates.
@@ -501,12 +530,13 @@ curl -X DELETE https://api.applad.io/v1/account/mfa \
   -H "Authorization: Bearer <secret>"
 ```
 
-<Callout title="Enrollment vs enforcement">
-  These endpoints enroll and remove a factor. Store the recovery codes safely,
-  since each is single-use if you later add a code challenge to your sign-in
-  flow. The email-session endpoint does not itself prompt for the TOTP code, so
-  gate sensitive actions on MFA in your own flow rather than assuming
-  `createEmailSession` challenges for it.
+<Callout title="Sign-in challenges an enrolled factor">
+  Once a user has enrolled a factor, the email-session endpoint challenges for
+  it on every sign-in: a correct email and password alone returns
+  `401 user_mfa_required` and no session. The client resubmits the same request
+  with a `code` field holding a TOTP or recovery code, and only then is a
+  session opened. Recovery codes are single-use, so store them safely. See
+  "Email sessions" above for the request shape.
 </Callout>
 
 ## Phone (SMS) sign-in
@@ -722,12 +752,23 @@ The settings Applad enforces today:
 | `passwordHistory` | `0` (off) | When set to N, a password change or recovery that matches the current password or any of the last N is rejected with `password_reused`. Every successful password set is recorded (only the bcrypt hash) so the window builds forward from the moment the policy is switched on. |
 | `sessionAlerts` | `false` | When on, a new password sign-in emails the user a "new sign-in" notice. It is skipped for the user's first session (the sign-in right after signup), for magic-link, email/phone OTP, and OAuth2 sign-ins, and when the account has no email on file. Requires email delivery to be configured; where none is, no alert is sent. |
 
-<Callout title="One field is stored but not yet enforced">
-  `mfaRequired` is accepted and persisted by this endpoint but does not yet
-  change behaviour. Enforcing it safely has to answer what happens to an
-  existing user who has no factor enrolled, so for now it is inert: MFA is
-  verified when a user has enabled it, but a project cannot yet compel every
-  user to enrol. Every other field on this page is active policy.
+<Callout title="How mfaRequired is enforced">
+  `mfaRequired` is active policy, enforced without bricking existing accounts:
+
+  - A user who has enrolled a factor is always challenged for a code at sign-in,
+    whether or not the project sets `mfaRequired` (see "Multi-factor
+    authentication" above).
+  - When `mfaRequired` is on and a signing-in user has no factor yet, the
+    session still opens (locking them out would strand every existing account),
+    but the `201` response carries `"mfaEnrollmentRequired": true` alongside the
+    usual session fields. Route that user into MFA setup, then require a factor
+    on their next sign-in.
+
+  The residual is deliberate: because enrolling a factor needs an active
+  session, the server issues one rather than refusing it, so compelling
+  enrolment is completed by the client acting on the flag. It cannot yet be
+  enforced purely server-side for a user who ignores the signal. Every other
+  field on this page is active policy.
 </Callout>
 
 ## Server-side user management

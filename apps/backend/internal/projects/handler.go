@@ -12,7 +12,18 @@ import (
 	"github.com/mittolabs/applad/internal/apperr"
 	mw "github.com/mittolabs/applad/internal/middleware"
 	"github.com/mittolabs/applad/internal/model"
+	oauthpkg "github.com/mittolabs/applad/internal/oauth"
 )
+
+// OAuthConfigStore is the per-project OAuth provider configuration store,
+// satisfied by *oauth.ProjectOAuthService. Kept as an interface so the handler
+// stays testable without a database.
+type OAuthConfigStore interface {
+	ListProviders(ctx context.Context, projectID string) ([]oauthpkg.ProjectOAuthConfig, error)
+	SetProvider(ctx context.Context, projectID, provider, clientID, clientSecret string) error
+	DisableProvider(ctx context.Context, projectID, provider string) error
+	DeleteProvider(ctx context.Context, projectID, provider string) error
+}
 
 // AccessChecker decides what the signed-in console user may touch.
 // Implemented by console.Service. The user id comes from the validated JWT in
@@ -28,8 +39,9 @@ type AccessChecker interface {
 
 // Handler handles HTTP requests for project management.
 type Handler struct {
-	svc    *Service
-	access AccessChecker
+	svc      *Service
+	access   AccessChecker
+	oauthCfg OAuthConfigStore
 }
 
 // NewHandler creates a new projects Handler.
@@ -41,6 +53,12 @@ func NewHandler(svc *Service) *Handler {
 // authorization fails closed rather than reverting to the open API this was.
 func (h *Handler) SetAccess(a AccessChecker) {
 	h.access = a
+}
+
+// SetOAuthConfig wires the per-project OAuth provider store. Without it the
+// OAuth config routes return an error rather than silently succeeding.
+func (h *Handler) SetOAuthConfig(s OAuthConfigStore) {
+	h.oauthCfg = s
 }
 
 // callerID returns the console user id placed in context by RequireConsoleAuth,
@@ -95,6 +113,9 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/{projectId}/auth", h.updateAuthConfig)
 	r.Get("/{projectId}/auth/security", h.getAuthSecurity)
 	r.Put("/{projectId}/auth/security", h.updateAuthSecurity)
+	r.Get("/{projectId}/auth/oauth", h.listOAuthProviders)
+	r.Put("/{projectId}/auth/oauth/{provider}", h.setOAuthProvider)
+	r.Delete("/{projectId}/auth/oauth/{provider}", h.deleteOAuthProvider)
 	r.Patch("/{projectId}/services", h.updateServicesConfig)
 	return r
 }
@@ -534,6 +555,100 @@ func (h *Handler) updateAuthSecurity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sec)
+}
+
+// listOAuthProviders returns the project's configured OAuth providers. The
+// store's list query never selects the client secret, so a secret cannot leak
+// here; only enabled + clientId are exposed.
+func (h *Handler) listOAuthProviders(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
+	if h.oauthCfg == nil {
+		apperr.Internal(w, fmt.Errorf("projects: oauth config store not configured"))
+		return
+	}
+	cfgs, err := h.oauthCfg.ListProviders(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if cfgs == nil {
+		cfgs = []oauthpkg.ProjectOAuthConfig{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":     len(cfgs),
+		"providers": cfgs,
+	})
+}
+
+// setOAuthProvider creates or updates a single provider for the project. An
+// empty clientSecret preserves the stored one (the GET never returns it), so a
+// re-save that only changes the client id or toggles enabled does not wipe it.
+func (h *Handler) setOAuthProvider(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
+	if h.oauthCfg == nil {
+		apperr.Internal(w, fmt.Errorf("projects: oauth config store not configured"))
+		return
+	}
+	provider := chi.URLParam(r, "provider")
+	if _, known := oauthpkg.AllProviderDefinitions()[provider]; !known {
+		apperr.BadRequest(w, "unsupported OAuth provider: "+provider)
+		return
+	}
+	var body struct {
+		ClientID     string `json:"clientId"`
+		ClientSecret string `json:"clientSecret"`
+		Enabled      *bool  `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	enabled := body.Enabled == nil || *body.Enabled
+	if enabled && strings.TrimSpace(body.ClientID) == "" {
+		apperr.BadRequest(w, "clientId is required to enable a provider")
+		return
+	}
+	// Upsert credentials, then flip enabled off when requested. SetProvider
+	// always stores enabled=TRUE, so a disable is a second step.
+	if err := h.oauthCfg.SetProvider(r.Context(), projectID, provider, strings.TrimSpace(body.ClientID), body.ClientSecret); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if !enabled {
+		if err := h.oauthCfg.DisableProvider(r.Context(), projectID, provider); err != nil {
+			apperr.Internal(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"provider": provider,
+		"enabled":  enabled,
+		"clientId": strings.TrimSpace(body.ClientID),
+	})
+}
+
+// deleteOAuthProvider removes a provider configuration for the project.
+func (h *Handler) deleteOAuthProvider(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
+	if h.oauthCfg == nil {
+		apperr.Internal(w, fmt.Errorf("projects: oauth config store not configured"))
+		return
+	}
+	provider := chi.URLParam(r, "provider")
+	if err := h.oauthCfg.DeleteProvider(r.Context(), projectID, provider); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) updateServicesConfig(w http.ResponseWriter, r *http.Request) {

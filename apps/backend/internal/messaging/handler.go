@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -10,6 +11,53 @@ import (
 	"github.com/mittolabs/applad/internal/apperr"
 	mw "github.com/mittolabs/applad/internal/middleware"
 )
+
+// recipientList decodes a "to"/"token" field that may arrive as either a single
+// JSON string ("+15551234567") or an array (["+1...","+1..."]). SMS and push
+// take a batch of recipients like email does; accepting a bare string too keeps
+// older single-recipient callers working.
+type recipientList []string
+
+func (r *recipientList) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == "null" {
+		*r = nil
+		return nil
+	}
+	if data[0] == '[' {
+		var arr []string
+		if err := json.Unmarshal(data, &arr); err != nil {
+			return err
+		}
+		if len(arr) == 0 {
+			*r = nil
+			return nil
+		}
+		*r = recipientList(arr)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if s == "" {
+		*r = nil
+		return nil
+	}
+	*r = recipientList{s}
+	return nil
+}
+
+// firstNonEmpty returns the first recipient list that has entries, so a push
+// body may carry recipients under either "to" (SDKs) or "token" (console).
+func firstNonEmpty(lists ...recipientList) []string {
+	for _, l := range lists {
+		if len(l) > 0 {
+			return []string(l)
+		}
+	}
+	return nil
+}
 
 // Handler handles HTTP requests for messaging.
 type Handler struct {
@@ -139,10 +187,10 @@ func (h *Handler) createEmail(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 	projectID := mw.ProjectFromContext(r.Context())
 	var body struct {
-		To          string  `json:"to"`
-		Body        string  `json:"body"`
-		Draft       bool    `json:"draft"`
-		ScheduledAt *string `json:"scheduledAt"`
+		To          recipientList `json:"to"`
+		Body        string        `json:"body"`
+		Draft       bool          `json:"draft"`
+		ScheduledAt *string       `json:"scheduledAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -159,9 +207,9 @@ func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status, sendNow := sendDecision(body.Draft, scheduledAt)
-	recipients := []string{}
-	if body.To != "" {
-		recipients = []string{body.To}
+	recipients := firstNonEmpty(body.To)
+	if recipients == nil {
+		recipients = []string{}
 	}
 
 	msg, err := h.svc.CreateMessage(r.Context(), projectID, "sms", "", body.Body, recipients, status, scheduledAt)
@@ -172,7 +220,7 @@ func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 
 	if sendNow {
 		go func() {
-			sendErr := h.svc.SendSMSForProject(r.Context(), projectID, body.To, body.Body)
+			sendErr := h.svc.SendSMSMulti(r.Context(), projectID, recipients, body.Body)
 			newStatus := "sent"
 			if sendErr != nil {
 				newStatus = "failed"
@@ -187,11 +235,13 @@ func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createPush(w http.ResponseWriter, r *http.Request) {
 	projectID := mw.ProjectFromContext(r.Context())
 	var body struct {
-		Token       string  `json:"token"`
-		Title       string  `json:"title"`
-		Body        string  `json:"body"`
-		Draft       bool    `json:"draft"`
-		ScheduledAt *string `json:"scheduledAt"`
+		To          recipientList     `json:"to"`
+		Token       recipientList     `json:"token"`
+		Title       string            `json:"title"`
+		Body        string            `json:"body"`
+		Data        map[string]string `json:"data"`
+		Draft       bool              `json:"draft"`
+		ScheduledAt *string           `json:"scheduledAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -208,9 +258,9 @@ func (h *Handler) createPush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status, sendNow := sendDecision(body.Draft, scheduledAt)
-	recipients := []string{}
-	if body.Token != "" {
-		recipients = []string{body.Token}
+	recipients := firstNonEmpty(body.To, body.Token)
+	if recipients == nil {
+		recipients = []string{}
 	}
 
 	msg, err := h.svc.CreateMessage(r.Context(), projectID, "push", body.Title, body.Body, recipients, status, scheduledAt)
@@ -221,7 +271,7 @@ func (h *Handler) createPush(w http.ResponseWriter, r *http.Request) {
 
 	if sendNow {
 		go func() {
-			sendErr := h.svc.SendPushForProject(r.Context(), projectID, body.Token, body.Title, body.Body)
+			sendErr := h.svc.SendPushMulti(r.Context(), projectID, recipients, body.Title, body.Body, body.Data)
 			newStatus := "sent"
 			if sendErr != nil {
 				newStatus = "failed"
@@ -280,19 +330,21 @@ func (h *Handler) sendEmailLegacy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) sendSMSLegacy(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
 	var body struct {
-		To   string `json:"to"`
-		Body string `json:"body"`
+		To   recipientList `json:"to"`
+		Body string        `json:"body"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
 		return
 	}
-	if body.To == "" || body.Body == "" {
+	recipients := firstNonEmpty(body.To)
+	if len(recipients) == 0 || body.Body == "" {
 		apperr.BadRequest(w, "to and body are required")
 		return
 	}
-	if err := h.svc.SendSMS(r.Context(), body.To, body.Body); err != nil {
+	if err := h.svc.SendSMSMulti(r.Context(), projectID, recipients, body.Body); err != nil {
 		apperr.Internal(w, err)
 		return
 	}
@@ -300,20 +352,24 @@ func (h *Handler) sendSMSLegacy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) sendPushLegacy(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
 	var body struct {
-		Token string `json:"token"`
-		Title string `json:"title"`
-		Body  string `json:"body"`
+		To    recipientList     `json:"to"`
+		Token recipientList     `json:"token"`
+		Title string            `json:"title"`
+		Body  string            `json:"body"`
+		Data  map[string]string `json:"data"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
 		return
 	}
-	if body.Token == "" || body.Title == "" {
-		apperr.BadRequest(w, "token and title are required")
+	recipients := firstNonEmpty(body.To, body.Token)
+	if len(recipients) == 0 || body.Title == "" {
+		apperr.BadRequest(w, "to and title are required")
 		return
 	}
-	if err := h.svc.SendPush(r.Context(), body.Token, body.Title, body.Body); err != nil {
+	if err := h.svc.SendPushMulti(r.Context(), projectID, recipients, body.Title, body.Body, body.Data); err != nil {
 		apperr.Internal(w, err)
 		return
 	}

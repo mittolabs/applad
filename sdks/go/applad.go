@@ -687,19 +687,23 @@ func (s *MessagingService) SendEmail(to []string, subject, html string) (map[str
 	return s.client.call("POST", "/messaging/email", body)
 }
 
-func (s *MessagingService) SendSMS(to []string, content string) (map[string]interface{}, error) {
+func (s *MessagingService) SendSMS(to []string, body string) (map[string]interface{}, error) {
 	return s.client.call("POST", "/messaging/sms", map[string]interface{}{
-		"to":      to,
-		"content": content,
+		"to":   to,
+		"body": body,
 	})
 }
 
-func (s *MessagingService) SendPush(to []string, title, body string) (map[string]interface{}, error) {
-	return s.client.call("POST", "/messaging/push", map[string]interface{}{
+func (s *MessagingService) SendPush(to []string, title, body string, data map[string]string) (map[string]interface{}, error) {
+	payload := map[string]interface{}{
 		"to":    to,
 		"title": title,
 		"body":  body,
-	})
+	}
+	if len(data) > 0 {
+		payload["data"] = data
+	}
+	return s.client.call("POST", "/messaging/push", payload)
 }
 
 func (s *MessagingService) CreateTemplate(name, typ, subject, body string, variables []string) (map[string]interface{}, error) {

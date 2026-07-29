@@ -28,13 +28,19 @@ func NewProjectOAuthService(database *db.DB) *ProjectOAuthService {
 	return &ProjectOAuthService{db: database}
 }
 
-// SetProvider creates or updates an OAuth provider for a project.
+// SetProvider creates or updates an OAuth provider for a project. An empty
+// clientSecret on update keeps the stored one, so the console — which never
+// receives the secret back on GET — can re-save a provider (e.g. to change the
+// client id) without wiping it.
 func (s *ProjectOAuthService) SetProvider(ctx context.Context, projectID, provider, clientID, clientSecret string) error {
 	id := uid.New("unique()")
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO project_oauth_providers (id, project_id, provider, enabled, client_id, client_secret)
 		 VALUES (?, ?, ?, TRUE, ?, ?)
-		 ON CONFLICT (project_id, provider) DO UPDATE SET client_id = EXCLUDED.client_id, client_secret = EXCLUDED.client_secret, enabled = TRUE`,
+		 ON CONFLICT (project_id, provider) DO UPDATE SET
+		   client_id = EXCLUDED.client_id,
+		   client_secret = CASE WHEN EXCLUDED.client_secret = '' THEN project_oauth_providers.client_secret ELSE EXCLUDED.client_secret END,
+		   enabled = TRUE`,
 		id, projectID, provider, clientID, clientSecret)
 	return err
 }

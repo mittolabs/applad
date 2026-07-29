@@ -106,6 +106,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	r.Handle("/metrics", metrics.Default.Handler())
 
 	projectSvc := projects.NewService(database, cfg.APIKeySecret, cfg.JWTSecret)
+	// Per-project OAuth provider configuration (client id/secret set through the
+	// console). Shared between the console-authed config API and the client-side
+	// login resolver so a project's own credentials drive its users' sign-in.
+	projectOAuthSvc := oauthpkg.NewProjectOAuthService(database)
 	authSvc := auth.NewService(database, cfg.JWTSecret)
 	dbSvc := databases.NewService(database)
 	storageSvc := storage.NewService(database, cfg.StoragePath, cfg.JWTSecret)
@@ -254,6 +258,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 
 			projectsHandler := projects.NewHandler(projectSvc)
 			projectsHandler.SetAccess(consoleSvc)
+			projectsHandler.SetOAuthConfig(projectOAuthSvc)
 			r.Mount("/projects", projects.Routes(projectsHandler))
 
 			// Entitlements — what this subject may use, and anything to tell
@@ -365,6 +370,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				oauthAdapters[name] = &oauthAdapter{p: p}
 			}
 			authHandler.SetOAuthProviders(oauthAdapters)
+			// Prefer a project's own OAuth credentials (configured in the console)
+			// over the instance-wide env config, falling back to the latter.
+			authHandler.SetOAuthResolver(&projectOAuthResolver{svc: projectOAuthSvc, global: oauthProviders})
 			authHandler.SetMailer(messagingSvc)
 
 			r.Mount("/account", auth.AccountRoutes(authHandler))
@@ -493,6 +501,22 @@ func (sw *statusWriter) Flush() {
 	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// projectOAuthResolver resolves an OAuth provider for a project, preferring the
+// per-project configuration and falling back to the instance-wide providers.
+// It adapts oauth.Provider into the auth.OAuthProvider the auth handler expects.
+type projectOAuthResolver struct {
+	svc    *oauthpkg.ProjectOAuthService
+	global map[string]*oauthpkg.Provider
+}
+
+func (res *projectOAuthResolver) ResolveOAuthProvider(ctx context.Context, projectID, providerName string) auth.OAuthProvider {
+	p := res.svc.ResolveProvider(ctx, projectID, providerName, res.global)
+	if p == nil {
+		return nil
+	}
+	return &oauthAdapter{p: p}
 }
 
 // oauthAdapter adapts oauth.Provider to auth.OAuthProvider interface.

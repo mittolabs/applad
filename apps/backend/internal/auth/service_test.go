@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base32"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -141,13 +142,20 @@ func TestCreateEmailSession_Success(t *testing.T) {
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	sess, token, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, testPassword, "127.0.0.1", "TestAgent")
+	res, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, testPassword, "", "127.0.0.1", "TestAgent")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	if sess == nil {
+	if res.Session == nil {
 		t.Fatal("expected session, got nil")
 	}
+	if res.MFAChallenge {
+		t.Error("did not expect an MFA challenge for a user with no factor")
+	}
+	if res.MFAEnrollmentRequired {
+		t.Error("did not expect enrollment-required when mfaRequired is off")
+	}
+	sess, token := res.Session, res.Token
 	if sess.UserID != testUserID {
 		t.Errorf("expected userID %q, got %q", testUserID, sess.UserID)
 	}
@@ -189,7 +197,7 @@ func TestCreateEmailSession_InvalidPassword(t *testing.T) {
 		WithArgs(testEmail, testProjectID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
 
-	_, _, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, "wrong-password", "127.0.0.1", "TestAgent")
+	_, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, "wrong-password", "", "127.0.0.1", "TestAgent")
 	if err == nil {
 		t.Fatal("expected error for wrong password, got nil")
 	}
@@ -211,7 +219,7 @@ func TestCreateEmailSession_UserNotFound(t *testing.T) {
 		WithArgs(testEmail, testProjectID).
 		WillReturnError(sql.ErrNoRows)
 
-	_, _, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, testPassword, "127.0.0.1", "TestAgent")
+	_, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, testPassword, "", "127.0.0.1", "TestAgent")
 	if err == nil {
 		t.Fatal("expected error for missing user, got nil")
 	}
@@ -606,6 +614,157 @@ func TestCreatePasswordResetToken(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// --- MFA enforcement on email sign-in ---
+
+// authConfigRows builds a projects.auth_config row for loadSecurity.
+func authConfigRows(mfaRequired bool) *sqlmock.Rows {
+	cfg := fmt.Sprintf(`{"security":{"mfaRequired":%t}}`, mfaRequired)
+	return sqlmock.NewRows([]string{"auth_config"}).AddRow(cfg)
+}
+
+// knownTOTP returns a base32 secret and a currently-valid code for it.
+func knownTOTP() (secretB32, code string) {
+	secretBytes := make([]byte, 20)
+	for i := range secretBytes {
+		secretBytes[i] = byte(i + 7)
+	}
+	secretB32 = base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secretBytes)
+	code = testGenerateTOTP(secretBytes, time.Now().Unix()/30)
+	return
+}
+
+// TestCreateEmailSession_MFAEnrolled_ChallengeRequired: an enrolled user who
+// supplies no code is challenged, and no session is opened.
+func TestCreateEmailSession_MFAEnrolled_ChallengeRequired(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
+	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+		WithArgs(testEmail, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+	mock.ExpectQuery(`SELECT auth_config FROM projects WHERE`).
+		WithArgs(testProjectID).
+		WillReturnRows(authConfigRows(false))
+	mock.ExpectQuery(`SELECT mfa_enabled FROM users WHERE id`).
+		WithArgs(testUserID, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_enabled"}).AddRow(true))
+
+	res, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, testPassword, "", "127.0.0.1", "TestAgent")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !res.MFAChallenge {
+		t.Fatal("expected MFAChallenge to be true for an enrolled user with no code")
+	}
+	if res.Session != nil {
+		t.Fatal("expected no session to be opened during an MFA challenge")
+	}
+}
+
+// TestCreateEmailSession_MFAEnrolled_ValidCode: an enrolled user who supplies a
+// valid TOTP code is signed in.
+func TestCreateEmailSession_MFAEnrolled_ValidCode(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	secretB32, code := knownTOTP()
+	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
+
+	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+		WithArgs(testEmail, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+	mock.ExpectQuery(`SELECT auth_config FROM projects WHERE`).
+		WithArgs(testProjectID).
+		WillReturnRows(authConfigRows(false))
+	mock.ExpectQuery(`SELECT mfa_enabled FROM users WHERE id`).
+		WithArgs(testUserID, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_enabled"}).AddRow(true))
+	// ValidateMFAForLogin reads the secret + recovery codes.
+	mock.ExpectQuery(`SELECT mfa_secret, mfa_recovery FROM users WHERE email`).
+		WithArgs(testEmail, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_secret", "mfa_recovery"}).AddRow(secretB32, []byte(`[]`)))
+	mock.ExpectExec(`INSERT INTO sessions`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	res, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, testPassword, code, "127.0.0.1", "TestAgent")
+	if err != nil {
+		t.Fatalf("expected no error with a valid MFA code, got: %v", err)
+	}
+	if res.MFAChallenge {
+		t.Fatal("did not expect a challenge when a valid code was supplied")
+	}
+	if res.Session == nil || res.Token == "" {
+		t.Fatal("expected a session to be opened for a valid MFA code")
+	}
+}
+
+// TestCreateEmailSession_MFAEnrolled_InvalidCode: an enrolled user with a bad
+// code is rejected with the stable errMFAInvalidCode.
+func TestCreateEmailSession_MFAEnrolled_InvalidCode(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	secretB32, _ := knownTOTP()
+	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
+
+	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+		WithArgs(testEmail, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+	mock.ExpectQuery(`SELECT auth_config FROM projects WHERE`).
+		WithArgs(testProjectID).
+		WillReturnRows(authConfigRows(false))
+	mock.ExpectQuery(`SELECT mfa_enabled FROM users WHERE id`).
+		WithArgs(testUserID, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_enabled"}).AddRow(true))
+	mock.ExpectQuery(`SELECT mfa_secret, mfa_recovery FROM users WHERE email`).
+		WithArgs(testEmail, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_secret", "mfa_recovery"}).AddRow(secretB32, []byte(`[]`)))
+
+	_, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, testPassword, "000000", "127.0.0.1", "TestAgent")
+	if err == nil {
+		t.Fatal("expected an error for an invalid MFA code")
+	}
+	if !errors.Is(err, errMFAInvalidCode) {
+		t.Fatalf("expected errMFAInvalidCode, got: %v", err)
+	}
+}
+
+// TestCreateEmailSession_MFARequired_NoFactor_EnrollmentSignal: with the project
+// requiring MFA, a user with no factor is NOT locked out. A session opens,
+// flagged so the client can force enrolment.
+func TestCreateEmailSession_MFARequired_NoFactor_EnrollmentSignal(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
+	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+		WithArgs(testEmail, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+	mock.ExpectQuery(`SELECT auth_config FROM projects WHERE`).
+		WithArgs(testProjectID).
+		WillReturnRows(authConfigRows(true)) // mfaRequired = true
+	mock.ExpectQuery(`SELECT mfa_enabled FROM users WHERE id`).
+		WithArgs(testUserID, testProjectID).
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_enabled"}).AddRow(false))
+	mock.ExpectExec(`INSERT INTO sessions`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	res, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, testPassword, "", "127.0.0.1", "TestAgent")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if res.Session == nil {
+		t.Fatal("expected a session (a user with no factor must not be locked out)")
+	}
+	if res.MFAChallenge {
+		t.Fatal("did not expect a challenge for a user with no enrolled factor")
+	}
+	if !res.MFAEnrollmentRequired {
+		t.Fatal("expected MFAEnrollmentRequired to be true when the project requires MFA")
 	}
 }
 

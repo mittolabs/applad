@@ -145,17 +145,9 @@ func (s *Service) SendMessage(ctx context.Context, m *Message) error {
 	case "email":
 		return s.SendEmailForProject(ctx, m.ProjectID, m.Recipients, m.Subject, m.Body)
 	case "sms":
-		to := ""
-		if len(m.Recipients) > 0 {
-			to = m.Recipients[0]
-		}
-		return s.SendSMSForProject(ctx, m.ProjectID, to, m.Body)
+		return s.SendSMSMulti(ctx, m.ProjectID, m.Recipients, m.Body)
 	case "push":
-		token := ""
-		if len(m.Recipients) > 0 {
-			token = m.Recipients[0]
-		}
-		return s.SendPushForProject(ctx, m.ProjectID, token, m.Subject, m.Body)
+		return s.SendPushMulti(ctx, m.ProjectID, m.Recipients, m.Subject, m.Body, nil)
 	default:
 		return fmt.Errorf("messaging: unknown message type %q", m.Type)
 	}
@@ -470,17 +462,23 @@ func (s *Service) SendSMSMSG91(ctx context.Context, to, body string) error {
 
 // SendPush sends a push notification via the FCM legacy HTTP API.
 // Uses the server key as Authorization header — correct for the legacy API.
-func (s *Service) SendPush(ctx context.Context, token, title, body string) error {
+// data, when non-empty, is forwarded as FCM's "data" payload so clients can
+// carry custom key/value pairs alongside the notification.
+func (s *Service) SendPush(ctx context.Context, token, title, body string, data map[string]string) error {
 	if s.cfg.FCMServerKey == "" {
 		return fmt.Errorf("messaging: FCM not configured")
 	}
-	payload, _ := json.Marshal(map[string]interface{}{
+	fcmBody := map[string]interface{}{
 		"to": token,
 		"notification": map[string]string{
 			"title": title,
 			"body":  body,
 		},
-	})
+	}
+	if len(data) > 0 {
+		fcmBody["data"] = data
+	}
+	payload, _ := json.Marshal(fcmBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://fcm.googleapis.com/fcm/send", bytes.NewReader(payload))
 	if err != nil {
@@ -903,30 +901,59 @@ func (s *Service) sendSMSViaMSG91Config(ctx context.Context, to, body string, ra
 
 // SendPushForProject sends a push notification using the project's configured push provider.
 // Falls back to global FCM if no project provider is configured.
-func (s *Service) SendPushForProject(ctx context.Context, projectID, token, title, body string) error {
+func (s *Service) SendPushForProject(ctx context.Context, projectID, token, title, body string, data map[string]string) error {
 	p, _ := s.getEnabledProvider(ctx, projectID, "push")
 	if p == nil {
-		return s.SendPush(ctx, token, title, body)
+		return s.SendPush(ctx, token, title, body, data)
 	}
 	switch p.Provider {
 	case "fcm":
-		return s.sendPushViaFCMConfig(ctx, token, title, body, p.Config)
+		return s.sendPushViaFCMConfig(ctx, token, title, body, data, p.Config)
 	default:
-		return s.SendPush(ctx, token, title, body)
+		return s.SendPush(ctx, token, title, body, data)
 	}
 }
 
-func (s *Service) sendPushViaFCMConfig(ctx context.Context, token, title, body string, raw json.RawMessage) error {
+// SendSMSMulti sends the same SMS body to each recipient, resolving the
+// project's provider per send. It attempts every recipient and returns the
+// first error, mirroring how a multi-recipient email reports failure.
+func (s *Service) SendSMSMulti(ctx context.Context, projectID string, to []string, body string) error {
+	var firstErr error
+	for _, num := range to {
+		if err := s.SendSMSForProject(ctx, projectID, num, body); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// SendPushMulti sends the same push notification to each recipient token,
+// forwarding the optional data payload, and returns the first error.
+func (s *Service) SendPushMulti(ctx context.Context, projectID string, tokens []string, title, body string, data map[string]string) error {
+	var firstErr error
+	for _, token := range tokens {
+		if err := s.SendPushForProject(ctx, projectID, token, title, body, data); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (s *Service) sendPushViaFCMConfig(ctx context.Context, token, title, body string, data map[string]string, raw json.RawMessage) error {
 	var cfg struct {
 		ServerKey string `json:"serverKey"`
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.ServerKey == "" {
 		return fmt.Errorf("messaging: invalid FCM provider config")
 	}
-	payload, _ := json.Marshal(map[string]interface{}{
+	fcmBody := map[string]interface{}{
 		"to":           token,
 		"notification": map[string]string{"title": title, "body": body},
-	})
+	}
+	if len(data) > 0 {
+		fcmBody["data"] = data
+	}
+	payload, _ := json.Marshal(fcmBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://fcm.googleapis.com/fcm/send", bytes.NewReader(payload))
 	if err != nil {
@@ -1043,7 +1070,7 @@ func (s *Service) SendToTopic(ctx context.Context, projectID, topicID, subject, 
 		case strings.Contains(sub, "@"):
 			sendErr = s.SendEmailForProject(ctx, projectID, []string{sub}, subject, body)
 		default:
-			sendErr = s.SendPushForProject(ctx, projectID, sub, subject, body)
+			sendErr = s.SendPushForProject(ctx, projectID, sub, subject, body, nil)
 		}
 		if sendErr != nil && firstErr == nil {
 			firstErr = sendErr
@@ -1224,7 +1251,7 @@ func (s *Service) SendTemplate(ctx context.Context, templateID, projectID string
 		}
 	case "push":
 		for _, token := range to {
-			if err := s.SendPush(ctx, token, subject, body); err != nil {
+			if err := s.SendPush(ctx, token, subject, body, nil); err != nil {
 				return err
 			}
 		}

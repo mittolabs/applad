@@ -4,13 +4,129 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/middleware"
 )
+
+// stubOAuthProvider is a test double for the OAuthProvider interface.
+type stubOAuthProvider struct {
+	exchangeErr error
+}
+
+func (s *stubOAuthProvider) GetAuthURL(redirectURI, state string) string {
+	return "https://provider.example/authorize?state=" + url.QueryEscape(state)
+}
+func (s *stubOAuthProvider) ExchangeCode(ctx context.Context, code, redirectURI string) (string, error) {
+	return "access-token", s.exchangeErr
+}
+func (s *stubOAuthProvider) GetUserInfo(ctx context.Context, accessToken string) (OAuthUserInfo, error) {
+	return OAuthUserInfo{}, nil
+}
+
+// TestOAuthRedirect_SetsStateNonceCookie: initiation stores a nonce cookie and
+// embeds the same nonce as the first field of the OAuth state.
+func TestOAuthRedirect_SetsStateNonceCookie(t *testing.T) {
+	h := NewHandler(&Service{})
+	h.SetOAuthProviders(map[string]OAuthProvider{"google": &stubOAuthProvider{}})
+
+	req := httptest.NewRequest(http.MethodGet, "/sessions/oauth/google?success=/ok&failure=/fail", nil)
+	w := httptest.NewRecorder()
+
+	mux := chi.NewMux()
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(context.WithValue(r.Context(), projectCtxKeyType(4), "test-project"))
+			next.ServeHTTP(w, r)
+		})
+	})
+	mux.Get("/sessions/oauth/{provider}", h.oauthRedirect)
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307, got %d", w.Code)
+	}
+
+	var nonce string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == oauthStateCookie {
+			nonce = c.Value
+		}
+	}
+	if nonce == "" {
+		t.Fatal("expected an oauth state nonce cookie to be set")
+	}
+
+	loc, _ := url.Parse(w.Header().Get("Location"))
+	state := loc.Query().Get("state")
+	if !strings.HasPrefix(state, nonce+"|") {
+		t.Fatalf("expected state to begin with the cookie nonce, got %q", state)
+	}
+}
+
+// oauthCallbackReq drives oauthCallback with the given state and optional cookie.
+func oauthCallbackReq(t *testing.T, h *Handler, state, cookieNonce string) *httptest.ResponseRecorder {
+	t.Helper()
+	target := fmt.Sprintf("/sessions/oauth/google/callback?code=abc&state=%s", url.QueryEscape(state))
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	if cookieNonce != "" {
+		req.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: cookieNonce})
+	}
+	w := httptest.NewRecorder()
+	mux := chi.NewMux()
+	mux.Get("/sessions/oauth/{provider}/callback", h.oauthCallback)
+	mux.ServeHTTP(w, req)
+	return w
+}
+
+// TestOAuthCallback_MissingNonceCookie: no cookie means the flow was not started
+// by this browser, so the callback is rejected.
+func TestOAuthCallback_MissingNonceCookie(t *testing.T) {
+	h := NewHandler(&Service{})
+	h.SetOAuthProviders(map[string]OAuthProvider{"google": &stubOAuthProvider{}})
+
+	w := oauthCallbackReq(t, h, "somenonce|test-project|/ok|/fail", "")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 with no nonce cookie, got %d", w.Code)
+	}
+}
+
+// TestOAuthCallback_MismatchedNonce: a forged state whose nonce does not match
+// the cookie is rejected.
+func TestOAuthCallback_MismatchedNonce(t *testing.T) {
+	h := NewHandler(&Service{})
+	h.SetOAuthProviders(map[string]OAuthProvider{"google": &stubOAuthProvider{}})
+
+	w := oauthCallbackReq(t, h, "attacker-nonce|test-project|/ok|/fail", "victim-nonce")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for a mismatched nonce, got %d", w.Code)
+	}
+}
+
+// TestOAuthCallback_MatchingNonce_Proceeds: a matching nonce passes the CSRF
+// gate and proceeds to the token exchange (here made to fail, proving we got
+// past the gate rather than being rejected at it).
+func TestOAuthCallback_MatchingNonce_Proceeds(t *testing.T) {
+	h := NewHandler(&Service{})
+	h.SetOAuthProviders(map[string]OAuthProvider{"google": &stubOAuthProvider{exchangeErr: fmt.Errorf("boom")}})
+
+	w := oauthCallbackReq(t, h, "good-nonce|test-project|/ok|/fail", "good-nonce")
+	if w.Code == http.StatusForbidden {
+		t.Fatalf("did not expect a CSRF rejection for a matching nonce, got %d", w.Code)
+	}
+	if w.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected a redirect after passing the CSRF gate, got %d", w.Code)
+	}
+	if loc := w.Header().Get("Location"); !strings.Contains(loc, "token_exchange_failed") {
+		t.Fatalf("expected redirect to the failure URL, got %q", loc)
+	}
+}
 
 // withProject is a chi middleware that injects a test project ID into the context
 // using the same mechanism as middleware.ProjectContext.

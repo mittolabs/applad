@@ -115,7 +115,8 @@ If no email provider is set up, this call fails with `messaging: SMTP not config
 
 ## Send an SMS
 
-`POST /v1/messaging/sms` sends a single text message through Twilio.
+`POST /v1/messaging/sms` sends a text message through Twilio to one or more
+recipients.
 
 ```bash
 curl -X POST https://api.applad.io/v1/messaging/sms \
@@ -123,14 +124,14 @@ curl -X POST https://api.applad.io/v1/messaging/sms \
   -H "x-applad-key: <apiKey>" \
   -H "Content-Type: application/json" \
   -d '{
-    "to": "+15551234567",
+    "to": ["+15551234567"],
     "body": "Your code is 123456"
   }'
 ```
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `to` | string | yes | A single recipient in E.164 form, for example `+15551234567`. |
+| `to` | list of strings | yes | Recipients in E.164 form, for example `["+15551234567"]`. The same body is sent to each; a bare string is also accepted. |
 | `body` | string | yes | The text of the message. |
 
 A successful send returns `200` with `{ "status": "sent" }`. If Twilio is not
@@ -138,8 +139,8 @@ configured the call fails with `messaging: Twilio not configured`.
 
 ## Send a push notification
 
-`POST /v1/messaging/push` sends a notification to one device token through
-Firebase Cloud Messaging.
+`POST /v1/messaging/push` sends a notification to one or more device tokens
+through Firebase Cloud Messaging.
 
 ```bash
 curl -X POST https://api.applad.io/v1/messaging/push \
@@ -147,23 +148,25 @@ curl -X POST https://api.applad.io/v1/messaging/push \
   -H "x-applad-key: <apiKey>" \
   -H "Content-Type: application/json" \
   -d '{
-    "token": "<device-fcm-token>",
+    "to": ["<device-fcm-token>"],
     "title": "New message",
-    "body": "You have a new message from Alice"
+    "body": "You have a new message from Alice",
+    "data": { "conversationId": "abc123" }
   }'
 ```
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `token` | string | yes | One FCM device registration token. |
+| `to` | list of strings | yes | FCM device registration tokens. The notification is sent to each. A bare string is also accepted, and `token` is accepted as an alias. |
 | `title` | string | yes | Notification title. |
 | `body` | string | no | Notification body. |
+| `data` | object | no | String key/value pairs forwarded as FCM's `data` payload alongside the notification. |
 
 A successful send returns `200` with `{ "status": "sent" }`. If FCM is not
 configured the call fails with `messaging: FCM not configured`.
 
-Push uses Firebase Cloud Messaging's legacy HTTP API with the server key. Sending
-is to a single device token per call; to reach many devices, subscribe them to a
+Push uses Firebase Cloud Messaging's legacy HTTP API with the server key. To
+reach many devices you can pass several tokens in `to`, or subscribe them to a
 [topic](#topics-and-subscribers) and send once.
 
 ## Recorded messages
@@ -176,8 +179,8 @@ status.
 | Channel | Route | Body |
 | --- | --- | --- |
 | Email | `POST /v1/messaging/messages/email` | `to` (list), `subject`, `html`, `draft` |
-| SMS | `POST /v1/messaging/messages/sms` | `to`, `body`, `draft` |
-| Push | `POST /v1/messaging/messages/push` | `token`, `title`, `body`, `draft` |
+| SMS | `POST /v1/messaging/messages/sms` | `to` (list), `body`, `draft` |
+| Push | `POST /v1/messaging/messages/push` | `to` (list), `title`, `body`, `data`, `draft` (`token` accepted as an alias for `to`) |
 
 ```bash
 curl -X POST https://api.applad.io/v1/messaging/messages/email \

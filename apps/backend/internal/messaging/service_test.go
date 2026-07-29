@@ -49,7 +49,7 @@ func TestSendSMS_NoTwilio_ReturnsError(t *testing.T) {
 
 func TestSendPush_NoFCM_ReturnsError(t *testing.T) {
 	svc := NewService(nil, Config{})
-	err := svc.SendPush(nil, "device-token", "title", "body")
+	err := svc.SendPush(nil, "device-token", "title", "body", nil)
 	if err == nil {
 		t.Fatal("expected error when FCM not configured")
 	}

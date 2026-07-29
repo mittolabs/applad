@@ -130,38 +130,23 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deploy(w http.ResponseWriter, r *http.Request) {
-	projectID := middleware.ProjectFromContext(r.Context())
-	functionID := chi.URLParam(r, "functionId")
-	var body struct {
-		Regions []string `json:"regions"`
-	}
-	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
-	d, err := h.svc.Deploy(r.Context(), functionID, projectID, body.Regions)
-	if err != nil {
-		apperr.Internal(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, d)
+	// Edge functions can be managed (create/list/update/delete) but there is
+	// no edge execution/deployment engine wired up on this instance. The old
+	// handler flipped a status column to "deployed"/"active" without deploying
+	// anything, reporting a success that never happened. Report honestly
+	// instead of fabricating one.
+	apperr.Write(w, http.StatusNotImplemented, "edge_not_implemented",
+		"edge function deployment is not implemented on this instance")
 }
 
 func (h *Handler) invoke(w http.ResponseWriter, r *http.Request) {
-	projectID := middleware.ProjectFromContext(r.Context())
-	functionID := chi.URLParam(r, "functionId")
-	_, err := h.svc.Get(r.Context(), functionID, projectID)
-	if err != nil {
-		apperr.NotFound(w, "edge_function")
-		return
-	}
-	var payload map[string]interface{}
-	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&payload) //nolint:errcheck
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"$id":        functionID,
-		"functionId": functionID,
-		"status":     "completed",
-		"output":     payload,
-	})
+	// The old handler echoed the request body back as "output" with status
+	// "completed", so callers received an HTTP 200 for code that never ran.
+	// There is no edge execution engine (the API process holds no Docker
+	// socket, and no edge worker consumes edge invocations), so report that
+	// invocation is not implemented rather than faking a run.
+	apperr.Write(w, http.StatusNotImplemented, "edge_not_implemented",
+		"edge function invocation is not implemented on this instance")
 }
 
 func (h *Handler) listExecutions(w http.ResponseWriter, r *http.Request) {

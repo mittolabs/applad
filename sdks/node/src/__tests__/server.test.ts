@@ -178,6 +178,24 @@ describe('Messaging service', () => {
       })
     );
   });
+
+  it('sendSMS posts an array "to" and a "body"', async () => {
+    const mock = mockFetch({ status: 'sent' });
+    const srv = createServer();
+    await srv.messaging.sendSMS(['+15551112222', '+15553334444'], 'Hello');
+    const body = JSON.parse((mock.mock.calls[0][1] as RequestInit).body as string);
+    expect(mock.mock.calls[0][0]).toBe('http://localhost:8080/v1/messaging/sms');
+    expect(body).toEqual({ to: ['+15551112222', '+15553334444'], body: 'Hello' });
+  });
+
+  it('sendPush posts an array "to", title/body and optional data', async () => {
+    const mock = mockFetch({ status: 'sent' });
+    const srv = createServer();
+    await srv.messaging.sendPush(['dev1', 'dev2'], 'Hi', 'there', { data: { k: 'v' } });
+    const body = JSON.parse((mock.mock.calls[0][1] as RequestInit).body as string);
+    expect(mock.mock.calls[0][0]).toBe('http://localhost:8080/v1/messaging/push');
+    expect(body).toEqual({ to: ['dev1', 'dev2'], title: 'Hi', body: 'there', data: { k: 'v' } });
+  });
 });
 
 describe('Workflows service', () => {

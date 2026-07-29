@@ -268,19 +268,79 @@ func (s *Service) DeleteAccount(ctx context.Context, userID, projectID string) e
 	return err
 }
 
-// CreateEmailSession creates a session by validating email+password.
-func (s *Service) CreateEmailSession(ctx context.Context, projectID, email, password, ip, ua string) (*model.Session, string, error) {
+// LoginResult carries the outcome of a password sign-in that may involve MFA.
+// Exactly one of the terminal states holds: a Session is present (optionally with
+// MFAEnrollmentRequired set), or MFAChallenge is true and no session was opened.
+type LoginResult struct {
+	Session *model.Session
+	Token   string
+	// MFAChallenge is true when the account has an enrolled factor and no valid
+	// code was supplied. No session is issued; the caller must resupply a code.
+	MFAChallenge bool
+	// MFAEnrollmentRequired is true when the project requires MFA but this user
+	// has no factor yet. A session IS issued (so the user can enrol and is not
+	// locked out); the caller should route the user into MFA setup.
+	MFAEnrollmentRequired bool
+}
+
+// errMFAInvalidCode is returned when an MFA-enrolled user supplies a bad code
+// during sign-in. The code before the colon is stable for handlers and SDKs.
+var errMFAInvalidCode = fmt.Errorf("user_mfa_invalid: invalid MFA code")
+
+// userHasMFA reports whether the user has a verified, enabled MFA factor.
+// A query error is treated as "no factor" so a transient read cannot become a
+// lockout; the caller falls back to the ordinary password outcome.
+func (s *Service) userHasMFA(ctx context.Context, projectID, userID string) bool {
+	var enabled sql.NullBool
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT mfa_enabled FROM users WHERE id = $1 AND project_id = $2",
+		userID, projectID).Scan(&enabled); err != nil {
+		return false
+	}
+	return enabled.Bool
+}
+
+// CreateEmailSession validates email+password and, when the account or project
+// calls for it, enforces MFA before a session is opened:
+//   - an account with an enrolled factor must present a valid TOTP or recovery
+//     code; without one the result is an MFA challenge and no session;
+//   - a project with mfaRequired=true but a user with no factor still gets a
+//     session (never a lockout), flagged so the client can force enrolment.
+func (s *Service) CreateEmailSession(ctx context.Context, projectID, email, password, code, ip, ua string) (*LoginResult, error) {
 	var userID, hash string
 	err := s.db.QueryRowContext(ctx,
 		"SELECT id, password_hash FROM users WHERE email = $1 AND project_id = $2 AND status = 1",
 		email, projectID).Scan(&userID, &hash)
 	if err != nil {
-		return nil, "", fmt.Errorf("auth: invalid credentials")
+		return nil, fmt.Errorf("auth: invalid credentials")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
-		return nil, "", fmt.Errorf("auth: invalid credentials")
+		return nil, fmt.Errorf("auth: invalid credentials")
 	}
-	return s.createSession(ctx, userID, projectID, "email", ip, ua)
+
+	sec := s.loadSecurity(ctx, projectID)
+	enrolled := s.userHasMFA(ctx, projectID, userID)
+
+	if enrolled {
+		// A user who enrolled MFA must complete the challenge on every sign-in,
+		// independent of the project-wide mfaRequired setting.
+		if code == "" {
+			return &LoginResult{MFAChallenge: true}, nil
+		}
+		if err := s.ValidateMFAForLogin(ctx, projectID, email, code); err != nil {
+			return nil, errMFAInvalidCode
+		}
+	}
+
+	sess, token, err := s.createSession(ctx, userID, projectID, "email", ip, ua)
+	if err != nil {
+		return nil, err
+	}
+	res := &LoginResult{Session: sess, Token: token}
+	if !enrolled && sec.MFARequired {
+		res.MFAEnrollmentRequired = true
+	}
+	return res, nil
 }
 
 // CreateAnonymousSession creates an anonymous user and session.
