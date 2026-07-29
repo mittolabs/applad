@@ -10,6 +10,7 @@ import (
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/cronx"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/messaging"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/testlab"
 	"github.com/mittolabs/applad/internal/workflows"
@@ -22,6 +23,7 @@ type Cron struct {
 	queue *queue.Queue
 	rdb   *redis.Client
 	db    *db.DB
+	msg   *messaging.Service
 }
 
 func NewCron(cfg *config.Config) *Cron {
@@ -39,6 +41,7 @@ func (w *Cron) Start(ctx context.Context) error {
 		return err
 	}
 	w.db = database
+	w.msg = messagingService(w.cfg, database)
 
 	slog.Info("cron worker: starting")
 
@@ -158,6 +161,52 @@ func (w *Cron) tick(ctx context.Context) {
 	}
 
 	w.sweepStaleReleases(ctx)
+	w.sweepScheduledMessages(ctx)
+}
+
+// sweepScheduledMessages delivers recorded messages whose scheduled_at has
+// arrived. Immediate sends happen inline on create; a message given a future
+// scheduledAt is stored 'scheduled' and waits here for its minute.
+func (w *Cron) sweepScheduledMessages(ctx context.Context) {
+	if w.msg == nil {
+		return
+	}
+	n, err := w.msg.SweepScheduledMessages(ctx, nil)
+	if err != nil {
+		slog.Error("cron worker: scheduled message sweep failed", "error", err)
+		return
+	}
+	if n > 0 {
+		slog.Info("cron worker: delivered scheduled messages", "count", n)
+	}
+}
+
+// messagingService builds a messaging service from instance config, mirroring
+// the wiring in router.go so the sweep sends through the same providers.
+func messagingService(cfg *config.Config, database *db.DB) *messaging.Service {
+	return messaging.NewService(database, messaging.Config{
+		Host:            cfg.SMTPHost,
+		Port:            cfg.SMTPPort,
+		Username:        cfg.SMTPUser,
+		Password:        cfg.SMTPPass,
+		From:            cfg.SMTPFrom,
+		TwilioSID:       cfg.TwilioSID,
+		TwilioToken:     cfg.TwilioToken,
+		TwilioFrom:      cfg.TwilioFrom,
+		FCMServerKey:    cfg.FCMServerKey,
+		MailgunAPIKey:   cfg.MailgunAPIKey,
+		MailgunDomain:   cfg.MailgunDomain,
+		ResendAPIKey:    cfg.ResendAPIKey,
+		VonageAPIKey:    cfg.VonageAPIKey,
+		VonageAPISecret: cfg.VonageAPISecret,
+		VonageFrom:      cfg.VonageFrom,
+		MSG91AuthKey:    cfg.MSG91AuthKey,
+		MSG91SenderID:   cfg.MSG91SenderID,
+		APNSKeyID:       cfg.APNSKeyID,
+		APNSTeamID:      cfg.APNSTeamID,
+		APNSKeyPath:     cfg.APNSKeyPath,
+		APNSBundleID:    cfg.APNSBundleID,
+	})
 }
 
 // sweepStaleReleases fails releases whose worker died mid-build. Without it a

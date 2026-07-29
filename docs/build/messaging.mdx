@@ -227,7 +227,7 @@ Every recorded message has these fields:
 | `body` | string | HTML for email, text for SMS, notification body for push. |
 | `recipients` | list of strings | The `to` addresses / number / device token. |
 | `status` | string | See the lifecycle below. |
-| `scheduledAt` | string or null | Reserved; sending is immediate today. |
+| `scheduledAt` | string or null | RFC 3339 send time. A future value queues the message; see [Scheduled sends](#scheduled-sends). |
 | `deliveredAt` | string or null | Set to the send time once `status` becomes `sent`. |
 | `createdAt` | string | RFC 3339 UTC timestamp. |
 
@@ -236,6 +236,7 @@ The `status` moves through these states:
 | Status | Meaning |
 | --- | --- |
 | `draft` | Stored with `"draft": true`; never sent. |
+| `scheduled` | A future `scheduledAt` was given; waiting for the sweep to deliver it. |
 | `processing` | Recorded and handed to a background sender. |
 | `sent` | The provider accepted it; `deliveredAt` is set. |
 | `failed` | The provider rejected it, or no provider was configured. |
@@ -244,6 +245,43 @@ Unlike the direct-send endpoints, the recorded routes resolve the project's own
 provider first (see [The provider model](#the-provider-model)) and fall back to
 the instance configuration. The required body fields still apply per channel:
 email requires `subject`, SMS requires `body`, and push requires `title`.
+
+## Scheduled sends
+
+Any recorded send (`/messaging/messages/email`, `/sms`, or `/push`) accepts an
+optional `scheduledAt`, an RFC 3339 timestamp:
+
+```bash
+curl -X POST "https://api.applad.io/v1/messaging/messages/email" \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "content-type: application/json" \
+  -d '{
+        "to": ["user@example.com"],
+        "subject": "Your weekly digest",
+        "html": "<h1>This week</h1>",
+        "scheduledAt": "2026-08-01T09:00:00Z"
+      }'
+```
+
+The behaviour depends on the value:
+
+- **In the future** — the message is stored with status `scheduled` and is
+  **not** sent inline. A sweep on the cron worker runs once a minute, finds
+  every message whose `scheduledAt` has passed, and delivers it through the same
+  provider resolution as an immediate send. On success the status moves to
+  `sent` and `deliveredAt` is stamped; on failure it moves to `failed`.
+- **Absent or already in the past** — nothing changes: the message is sent
+  immediately in the background, exactly as before.
+- **Combined with `"draft": true`** — draft wins. The message is stored `draft`
+  and never sent, regardless of `scheduledAt`.
+
+A malformed `scheduledAt` (not RFC 3339) is rejected with `400`.
+
+Because the sweep claims each due message with a status transition
+(`scheduled` to `processing`) before delivering, a message is delivered exactly
+once even across multiple worker replicas. Timing is minute-granular: a message
+is delivered on the first sweep at or after its `scheduledAt`, never before it.
+All timestamps are UTC.
 
 Read messages back:
 

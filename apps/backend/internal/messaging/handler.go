@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
@@ -92,10 +93,11 @@ func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createEmail(w http.ResponseWriter, r *http.Request) {
 	projectID := mw.ProjectFromContext(r.Context())
 	var body struct {
-		To      []string `json:"to"`
-		Subject string   `json:"subject"`
-		HTML    string   `json:"html"`
-		Draft   bool     `json:"draft"`
+		To          []string `json:"to"`
+		Subject     string   `json:"subject"`
+		HTML        string   `json:"html"`
+		Draft       bool     `json:"draft"`
+		ScheduledAt *string  `json:"scheduledAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -105,19 +107,21 @@ func (h *Handler) createEmail(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "subject is required")
 		return
 	}
-
-	status := "processing"
-	if body.Draft {
-		status = "draft"
+	scheduledAt, err := parseScheduledAt(body.ScheduledAt)
+	if err != nil {
+		apperr.BadRequest(w, "scheduledAt must be an RFC 3339 timestamp")
+		return
 	}
 
-	msg, err := h.svc.CreateMessage(r.Context(), projectID, "email", body.Subject, body.HTML, body.To, status)
+	status, sendNow := sendDecision(body.Draft, scheduledAt)
+
+	msg, err := h.svc.CreateMessage(r.Context(), projectID, "email", body.Subject, body.HTML, body.To, status, scheduledAt)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
 
-	if !body.Draft {
+	if sendNow {
 		go func() {
 			sendErr := h.svc.SendEmailForProject(r.Context(), projectID, body.To, body.Subject, body.HTML)
 			newStatus := "sent"
@@ -135,9 +139,10 @@ func (h *Handler) createEmail(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 	projectID := mw.ProjectFromContext(r.Context())
 	var body struct {
-		To    string `json:"to"`
-		Body  string `json:"body"`
-		Draft bool   `json:"draft"`
+		To          string  `json:"to"`
+		Body        string  `json:"body"`
+		Draft       bool    `json:"draft"`
+		ScheduledAt *string `json:"scheduledAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -147,23 +152,25 @@ func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "body is required")
 		return
 	}
-
-	status := "processing"
-	if body.Draft {
-		status = "draft"
+	scheduledAt, err := parseScheduledAt(body.ScheduledAt)
+	if err != nil {
+		apperr.BadRequest(w, "scheduledAt must be an RFC 3339 timestamp")
+		return
 	}
+
+	status, sendNow := sendDecision(body.Draft, scheduledAt)
 	recipients := []string{}
 	if body.To != "" {
 		recipients = []string{body.To}
 	}
 
-	msg, err := h.svc.CreateMessage(r.Context(), projectID, "sms", "", body.Body, recipients, status)
+	msg, err := h.svc.CreateMessage(r.Context(), projectID, "sms", "", body.Body, recipients, status, scheduledAt)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
 
-	if !body.Draft {
+	if sendNow {
 		go func() {
 			sendErr := h.svc.SendSMSForProject(r.Context(), projectID, body.To, body.Body)
 			newStatus := "sent"
@@ -180,10 +187,11 @@ func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createPush(w http.ResponseWriter, r *http.Request) {
 	projectID := mw.ProjectFromContext(r.Context())
 	var body struct {
-		Token string `json:"token"`
-		Title string `json:"title"`
-		Body  string `json:"body"`
-		Draft bool   `json:"draft"`
+		Token       string  `json:"token"`
+		Title       string  `json:"title"`
+		Body        string  `json:"body"`
+		Draft       bool    `json:"draft"`
+		ScheduledAt *string `json:"scheduledAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -193,23 +201,25 @@ func (h *Handler) createPush(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "title is required")
 		return
 	}
-
-	status := "processing"
-	if body.Draft {
-		status = "draft"
+	scheduledAt, err := parseScheduledAt(body.ScheduledAt)
+	if err != nil {
+		apperr.BadRequest(w, "scheduledAt must be an RFC 3339 timestamp")
+		return
 	}
+
+	status, sendNow := sendDecision(body.Draft, scheduledAt)
 	recipients := []string{}
 	if body.Token != "" {
 		recipients = []string{body.Token}
 	}
 
-	msg, err := h.svc.CreateMessage(r.Context(), projectID, "push", body.Title, body.Body, recipients, status)
+	msg, err := h.svc.CreateMessage(r.Context(), projectID, "push", body.Title, body.Body, recipients, status, scheduledAt)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
 	}
 
-	if !body.Draft {
+	if sendNow {
 		go func() {
 			sendErr := h.svc.SendPushForProject(r.Context(), projectID, body.Token, body.Title, body.Body)
 			newStatus := "sent"
@@ -488,6 +498,36 @@ func (h *Handler) sendToTopic(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// parseScheduledAt reads an optional RFC 3339 "scheduledAt" value. A missing or
+// empty value returns (nil, nil); a malformed one returns an error so the
+// handler can reject it rather than silently sending now.
+func parseScheduledAt(raw *string) (*time.Time, error) {
+	if raw == nil || *raw == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, *raw)
+	if err != nil {
+		return nil, err
+	}
+	u := t.UTC()
+	return &u, nil
+}
+
+// sendDecision resolves the message status to store and whether to deliver
+// inline. A draft is never sent; a scheduledAt in the future is queued for the
+// per-minute sweep; anything else (absent or already-past scheduledAt) keeps
+// the immediate-send behaviour.
+func sendDecision(draft bool, scheduledAt *time.Time) (status string, sendNow bool) {
+	switch {
+	case draft:
+		return "draft", false
+	case scheduledAt != nil && scheduledAt.After(time.Now()):
+		return "scheduled", false
+	default:
+		return "processing", true
+	}
+}
 
 func queryInt(r *http.Request, key string, def int) int {
 	v := r.URL.Query().Get(key)

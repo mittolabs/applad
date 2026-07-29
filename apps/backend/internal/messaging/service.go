@@ -104,21 +104,23 @@ func NewService(database *db.DB, cfg Config) *Service {
 // Messages
 // ---------------------------------------------------------------------------
 
-// CreateMessage persists a new message record in the given status.
-func (s *Service) CreateMessage(ctx context.Context, projectID, msgType, subject, body string, recipients []string, status string) (*Message, error) {
+// CreateMessage persists a new message record in the given status. A non-nil
+// scheduledAt records when a message should be delivered; the scheduled sweep
+// (see SweepScheduledMessages) picks it up once that time has passed.
+func (s *Service) CreateMessage(ctx context.Context, projectID, msgType, subject, body string, recipients []string, status string, scheduledAt *time.Time) (*Message, error) {
 	id := uid.New("unique()")
 	recipJSON, err := json.Marshal(recipients)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: marshal recipients: %w", err)
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO messages (id, project_id, type, subject, body, recipients, status) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		id, projectID, msgType, subject, body, string(recipJSON), status,
+		`INSERT INTO messages (id, project_id, type, subject, body, recipients, status, scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		id, projectID, msgType, subject, body, string(recipJSON), status, scheduledAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: insert message: %w", err)
 	}
-	return &Message{
+	m := &Message{
 		ID:         id,
 		ProjectID:  projectID,
 		Type:       msgType,
@@ -127,7 +129,100 @@ func (s *Service) CreateMessage(ctx context.Context, projectID, msgType, subject
 		Recipients: recipients,
 		Status:     status,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-	}, nil
+	}
+	if scheduledAt != nil {
+		sa := scheduledAt.UTC().Format(time.RFC3339)
+		m.ScheduledAt = &sa
+	}
+	return m, nil
+}
+
+// SendMessage delivers a persisted message through the channel named by its
+// type, resolving the project's own provider first. This is the shared delivery
+// path used by both the inline send on create and the scheduled sweep.
+func (s *Service) SendMessage(ctx context.Context, m *Message) error {
+	switch m.Type {
+	case "email":
+		return s.SendEmailForProject(ctx, m.ProjectID, m.Recipients, m.Subject, m.Body)
+	case "sms":
+		to := ""
+		if len(m.Recipients) > 0 {
+			to = m.Recipients[0]
+		}
+		return s.SendSMSForProject(ctx, m.ProjectID, to, m.Body)
+	case "push":
+		token := ""
+		if len(m.Recipients) > 0 {
+			token = m.Recipients[0]
+		}
+		return s.SendPushForProject(ctx, m.ProjectID, token, m.Subject, m.Body)
+	default:
+		return fmt.Errorf("messaging: unknown message type %q", m.Type)
+	}
+}
+
+// SweepScheduledMessages delivers messages whose scheduled_at has arrived. It
+// runs on the per-minute cron tick. Each due message is claimed with a
+// conditional status transition (scheduled -> processing) so that a second
+// sweeper — or a replaying worker — updates zero rows and skips it, which is
+// what makes delivery exactly-once even without the cron lock. After delivery
+// the status becomes sent or failed. deliver may be nil, in which case the
+// service's own SendMessage is used; tests pass a stub. Returns the number of
+// messages claimed for delivery.
+func (s *Service) SweepScheduledMessages(ctx context.Context, deliver func(context.Context, *Message) error) (int, error) {
+	if deliver == nil {
+		deliver = s.SendMessage
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, type, subject, body, recipients
+		   FROM messages
+		  WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= NOW()
+		  ORDER BY scheduled_at ASC
+		  LIMIT 200`)
+	if err != nil {
+		return 0, fmt.Errorf("messaging: query due messages: %w", err)
+	}
+	var due []*Message
+	for rows.Next() {
+		m := &Message{}
+		var recipJSON string
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Type, &m.Subject, &m.Body, &recipJSON); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		_ = json.Unmarshal([]byte(recipJSON), &m.Recipients)
+		if m.Recipients == nil {
+			m.Recipients = []string{}
+		}
+		due = append(due, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	claimed := 0
+	for _, m := range due {
+		// Claim before sending. Whoever flips scheduled -> processing owns the
+		// send; a racing sweeper's UPDATE matches no row and moves on.
+		res, err := s.db.ExecContext(ctx,
+			`UPDATE messages SET status = 'processing' WHERE id = $1 AND status = 'scheduled'`, m.ID)
+		if err != nil {
+			return claimed, fmt.Errorf("messaging: claim scheduled message: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			continue // already claimed elsewhere
+		}
+		claimed++
+		status := "sent"
+		if sendErr := deliver(ctx, m); sendErr != nil {
+			status = "failed"
+		}
+		if err := s.UpdateMessageStatus(ctx, m.ID, status); err != nil {
+			return claimed, fmt.Errorf("messaging: update scheduled message status: %w", err)
+		}
+	}
+	return claimed, nil
 }
 
 // UpdateMessageStatus sets the status (and optionally deliveredAt) for a message.
