@@ -6,8 +6,10 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +46,44 @@ func makePNG(t *testing.T, w, h int) []byte {
 		t.Fatalf("png.Encode: %v", err)
 	}
 	return buf.Bytes()
+}
+
+// bucketRowsFor builds a single-bucket result row with the given at-rest flags.
+func bucketRowsFor(compression string, encryption, antivirus bool) *sqlmock.Rows {
+	now := time.Now().UTC()
+	return sqlmock.NewRows([]string{
+		"id", "name", "permissions", "file_size_limit", "allowed_mime_types",
+		"compression", "encryption", "antivirus", "file_security", "image_transformations",
+		"enabled", "created_at", "updated_at",
+	}).AddRow("b1", "Test Bucket", []byte(`[]`), int64(0), []byte(`[]`),
+		compression, encryption, antivirus, false, true, true, now, now)
+}
+
+// fakeClamd starts a TCP listener that speaks just enough of clamd's INSTREAM
+// protocol to hand back a canned verdict, and returns its address.
+func fakeClamd(t *testing.T, verdict string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				c.SetReadDeadline(time.Now().Add(2 * time.Second))
+				buf := make([]byte, 4096)
+				_, _ = c.Read(buf) // drain the client's stream; reply is all we need
+				c.Write([]byte(verdict + "\x00"))
+			}(conn)
+		}
+	}()
+	return ln.Addr().String()
 }
 
 // --- Bucket tests ---
@@ -292,6 +332,239 @@ func TestDeleteFile_RemovesFromDisk(t *testing.T) {
 	}
 }
 
+// --- At-rest transform tests (compression + encryption) ---
+
+func expectInsertFiles(mock sqlmock.Sqlmock) {
+	mock.ExpectExec("INSERT INTO files").
+		WithArgs(
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+}
+
+func TestCreateFile_CompressionRoundTrip(t *testing.T) {
+	svc, mock, tmpDir := setup(t)
+
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRowsFor("gzip", false, false))
+	expectInsertFiles(mock)
+
+	original := bytes.Repeat([]byte("compress me! "), 1000)
+	f, err := svc.CreateFile(context.Background(), "proj1", "b1", "unique()", "data.txt", original, "text/plain", nil)
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	if f.SizeOriginal != int64(len(original)) {
+		t.Errorf("expected original size %d, got %d", len(original), f.SizeOriginal)
+	}
+
+	// On disk the bytes are gzip-compressed and the path carries the .gz marker.
+	diskPath := filepath.Join(tmpDir, "proj1", "b1", f.ID) + ".gz"
+	raw, err := os.ReadFile(diskPath)
+	if err != nil {
+		t.Fatalf("compressed file not written at %s: %v", diskPath, err)
+	}
+	if len(raw) < 2 || raw[0] != 0x1f || raw[1] != 0x8b {
+		t.Error("stored bytes are not gzip-compressed")
+	}
+	if len(raw) >= len(original) {
+		t.Errorf("expected compression to shrink %d bytes, stored %d", len(original), len(raw))
+	}
+
+	// The read path transparently decompresses back to the original bytes.
+	mock.ExpectQuery("SELECT path, mime_type FROM files WHERE").
+		WithArgs(f.ID, "b1", "proj1").
+		WillReturnRows(sqlmock.NewRows([]string{"path", "mime_type"}).AddRow(diskPath, "text/plain"))
+
+	got, mime, err := svc.GetFileContent(context.Background(), f.ID, "b1", "proj1")
+	if err != nil {
+		t.Fatalf("GetFileContent: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Error("decompressed content does not match original")
+	}
+	if mime != "text/plain" {
+		t.Errorf("mime mismatch: %q", mime)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreateFile_EncryptionRoundTrip(t *testing.T) {
+	svc, mock, tmpDir := setup(t)
+	if err := svc.SetEncryptionKey(strings.Repeat("ab", 32)); err != nil {
+		t.Fatalf("SetEncryptionKey: %v", err)
+	}
+
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRowsFor("", true, false))
+	expectInsertFiles(mock)
+
+	original := []byte("top secret payload — do not store in the clear")
+	f, err := svc.CreateFile(context.Background(), "proj1", "b1", "unique()", "secret.txt", original, "text/plain", nil)
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+
+	// On disk the bytes are ciphertext and the path carries the .enc marker.
+	diskPath := filepath.Join(tmpDir, "proj1", "b1", f.ID) + ".enc"
+	raw, err := os.ReadFile(diskPath)
+	if err != nil {
+		t.Fatalf("encrypted file not written at %s: %v", diskPath, err)
+	}
+	if bytes.Contains(raw, original) {
+		t.Error("plaintext is present in the stored bytes")
+	}
+
+	mock.ExpectQuery("SELECT path, mime_type FROM files WHERE").
+		WithArgs(f.ID, "b1", "proj1").
+		WillReturnRows(sqlmock.NewRows([]string{"path", "mime_type"}).AddRow(diskPath, "text/plain"))
+
+	got, _, err := svc.GetFileContent(context.Background(), f.ID, "b1", "proj1")
+	if err != nil {
+		t.Fatalf("GetFileContent: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Error("decrypted content does not match original")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreateFile_CompressAndEncryptRoundTrip(t *testing.T) {
+	svc, mock, tmpDir := setup(t)
+	if err := svc.SetEncryptionKey(strings.Repeat("cd", 16)); err != nil { // 16 bytes -> AES-128
+		t.Fatalf("SetEncryptionKey: %v", err)
+	}
+
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRowsFor("gzip", true, false))
+	expectInsertFiles(mock)
+
+	original := bytes.Repeat([]byte("both transforms applied. "), 500)
+	f, err := svc.CreateFile(context.Background(), "proj1", "b1", "unique()", "both.txt", original, "text/plain", nil)
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+
+	diskPath := filepath.Join(tmpDir, "proj1", "b1", f.ID) + ".gz.enc"
+	if _, err := os.Stat(diskPath); err != nil {
+		t.Fatalf("expected file at %s: %v", diskPath, err)
+	}
+
+	mock.ExpectQuery("SELECT path, mime_type FROM files WHERE").
+		WithArgs(f.ID, "b1", "proj1").
+		WillReturnRows(sqlmock.NewRows([]string{"path", "mime_type"}).AddRow(diskPath, "text/plain"))
+
+	got, _, err := svc.GetFileContent(context.Background(), f.ID, "b1", "proj1")
+	if err != nil {
+		t.Fatalf("GetFileContent: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Error("round-tripped content does not match original")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreateFile_EncryptionRequiresKey(t *testing.T) {
+	svc, mock, _ := setup(t)
+
+	// Encryption flag on but no key configured: the upload must be rejected,
+	// never stored in the clear. No INSERT is expected.
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRowsFor("", true, false))
+
+	_, err := svc.CreateFile(context.Background(), "proj1", "b1", "unique()", "x.txt", []byte("hi"), "text/plain", nil)
+	if err == nil {
+		t.Fatal("expected error when encryption is on but no key is configured")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestSetEncryptionKey_Invalid(t *testing.T) {
+	svc, _, _ := setup(t)
+	if err := svc.SetEncryptionKey("not-hex!!"); err == nil {
+		t.Error("expected error for non-hex key")
+	}
+	if err := svc.SetEncryptionKey("abcd"); err == nil {
+		t.Error("expected error for wrong-length key (2 bytes)")
+	}
+	if err := svc.SetEncryptionKey(strings.Repeat("ab", 32)); err != nil {
+		t.Errorf("expected 32-byte key to be accepted, got %v", err)
+	}
+}
+
+// --- Antivirus wiring tests ---
+
+func TestCreateFile_AntivirusClean(t *testing.T) {
+	svc, mock, _ := setup(t)
+	svc.SetClamAV(fakeClamd(t, "stream: OK"))
+
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRowsFor("", false, true))
+	expectInsertFiles(mock)
+
+	_, err := svc.CreateFile(context.Background(), "proj1", "b1", "unique()", "ok.txt", []byte("clean file"), "text/plain", nil)
+	if err != nil {
+		t.Fatalf("clean upload should succeed: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreateFile_AntivirusInfected(t *testing.T) {
+	svc, mock, _ := setup(t)
+	svc.SetClamAV(fakeClamd(t, "stream: Eicar-Test-Signature FOUND"))
+
+	// Rejected before any file record is written, so no INSERT is expected.
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRowsFor("", false, true))
+
+	_, err := svc.CreateFile(context.Background(), "proj1", "b1", "unique()", "bad.txt", []byte("x5O!P%@AP"), "text/plain", nil)
+	if err == nil || !strings.Contains(err.Error(), "rejected by antivirus") {
+		t.Fatalf("expected antivirus rejection, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreateFile_AntivirusSkippedWhenBucketFlagOff(t *testing.T) {
+	svc, mock, _ := setup(t)
+	// A scanner is configured, but the bucket does not opt in. If the per-bucket
+	// gate were ignored, this dead address would make the scan error and fail
+	// the upload; instead the upload must succeed with no scan attempted.
+	svc.SetClamAV("127.0.0.1:1")
+
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRowsFor("", false, false))
+	expectInsertFiles(mock)
+
+	_, err := svc.CreateFile(context.Background(), "proj1", "b1", "unique()", "ok.txt", []byte("data"), "text/plain", nil)
+	if err != nil {
+		t.Fatalf("upload should skip scanning and succeed: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
 // --- Image transformation tests ---
 
 func TestTransformImage_Resize(t *testing.T) {
@@ -396,6 +669,11 @@ func TestCompleteChunkedUpload_AssemblesChunks(t *testing.T) {
 	os.WriteFile(filepath.Join(chunkDir, "000000"), []byte("AAA"), 0644)
 	os.WriteFile(filepath.Join(chunkDir, "000001"), []byte("BBB"), 0644)
 	os.WriteFile(filepath.Join(chunkDir, "000002"), []byte("CCC"), 0644)
+
+	// CompleteChunkedUpload now reads the bucket to apply at-rest transforms.
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs(bucketID, projectID).
+		WillReturnRows(bucketRowsFor("", false, false))
 
 	// Mock UPDATE for setting final path and size.
 	mock.ExpectExec("UPDATE files SET path").

@@ -4,12 +4,17 @@ package storage
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/md5"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +44,7 @@ type Service struct {
 	storagePath string // kept for local-driver chunk temp path
 	driver      Driver
 	clamavAddr  string
+	encKey      []byte // AES key for encryption at rest; empty means disabled
 	jwtSecret   string
 	events      realtime.EventPublisher
 }
@@ -67,6 +73,134 @@ func (s *Service) SetEventPublisher(pub realtime.EventPublisher) {
 // SetClamAV configures antivirus scanning.
 func (s *Service) SetClamAV(addr string) {
 	s.clamavAddr = addr
+}
+
+// SetEncryptionKey enables AES-GCM encryption at rest for buckets whose
+// encryption flag is on. The key is a hex string decoding to 16, 24, or 32
+// bytes (AES-128/192/256). Generate one with: openssl rand -hex 32
+func (s *Service) SetEncryptionKey(hexKey string) error {
+	key, err := hex.DecodeString(strings.TrimSpace(hexKey))
+	if err != nil {
+		return fmt.Errorf("storage: STORAGE_ENCRYPTION_KEY must be hex: %w", err)
+	}
+	switch len(key) {
+	case 16, 24, 32:
+	default:
+		return fmt.Errorf("storage: STORAGE_ENCRYPTION_KEY must decode to 16, 24, or 32 bytes, got %d", len(key))
+	}
+	s.encKey = key
+	return nil
+}
+
+// At-rest encoding markers. They are appended to a file's stored path so a read
+// reverses exactly what the write applied, independent of the bucket's current
+// flags — toggling a bucket after upload never mis-decodes existing files.
+const (
+	compressedSuffix = ".gz"
+	encryptedSuffix  = ".enc"
+)
+
+func bucketCompresses(b *model.Bucket) bool {
+	return b.Compression != "" && b.Compression != "none"
+}
+
+// encodeAtRest applies the bucket's at-rest transforms (compression, then
+// encryption) and returns the bytes to store plus a path suffix recording how
+// they were encoded.
+func (s *Service) encodeAtRest(bucket *model.Bucket, content []byte) ([]byte, string, error) {
+	out := content
+	suffix := ""
+	if bucketCompresses(bucket) {
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		if _, err := zw.Write(out); err != nil {
+			return nil, "", fmt.Errorf("storage: compress: %w", err)
+		}
+		if err := zw.Close(); err != nil {
+			return nil, "", fmt.Errorf("storage: compress: %w", err)
+		}
+		out = buf.Bytes()
+		suffix += compressedSuffix
+	}
+	if bucket.Encryption {
+		enc, err := s.encrypt(out)
+		if err != nil {
+			return nil, "", err
+		}
+		out = enc
+		suffix += encryptedSuffix
+	}
+	return out, suffix, nil
+}
+
+// decodeAtRest reverses encodeAtRest using the stored path's suffix.
+func (s *Service) decodeAtRest(path string, content []byte) ([]byte, error) {
+	if strings.HasSuffix(path, encryptedSuffix) {
+		dec, err := s.decrypt(content)
+		if err != nil {
+			return nil, err
+		}
+		content = dec
+		path = strings.TrimSuffix(path, encryptedSuffix)
+	}
+	if strings.HasSuffix(path, compressedSuffix) {
+		zr, err := gzip.NewReader(bytes.NewReader(content))
+		if err != nil {
+			return nil, fmt.Errorf("storage: decompress: %w", err)
+		}
+		defer zr.Close()
+		out, err := io.ReadAll(zr)
+		if err != nil {
+			return nil, fmt.Errorf("storage: decompress: %w", err)
+		}
+		content = out
+	}
+	return content, nil
+}
+
+// encrypt seals plaintext with AES-GCM, prepending the random nonce.
+func (s *Service) encrypt(plaintext []byte) ([]byte, error) {
+	if len(s.encKey) == 0 {
+		return nil, fmt.Errorf("storage: encryption enabled but STORAGE_ENCRYPTION_KEY not configured")
+	}
+	block, err := aes.NewCipher(s.encKey)
+	if err != nil {
+		return nil, fmt.Errorf("storage: cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("storage: gcm: %w", err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, fmt.Errorf("storage: nonce: %w", err)
+	}
+	return gcm.Seal(nonce, nonce, plaintext, nil), nil
+}
+
+// decrypt opens an AES-GCM payload whose nonce is prepended.
+func (s *Service) decrypt(ciphertext []byte) ([]byte, error) {
+	if len(s.encKey) == 0 {
+		return nil, fmt.Errorf("storage: file is encrypted but STORAGE_ENCRYPTION_KEY not configured")
+	}
+	block, err := aes.NewCipher(s.encKey)
+	if err != nil {
+		return nil, fmt.Errorf("storage: cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("storage: gcm: %w", err)
+	}
+	ns := gcm.NonceSize()
+	if len(ciphertext) < ns {
+		return nil, fmt.Errorf("storage: ciphertext too short")
+	}
+	nonce, ct := ciphertext[:ns], ciphertext[ns:]
+	plain, err := gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return nil, fmt.Errorf("storage: decrypt: %w", err)
+	}
+	return plain, nil
 }
 
 // --- buckets ---
@@ -218,8 +352,8 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 		return nil, err
 	}
 
-	// Antivirus scan if configured
-	if s.clamavAddr != "" {
+	// Antivirus scan when the instance has a scanner and the bucket opts in.
+	if s.clamavAddr != "" && bucket.Antivirus {
 		result, err := ScanWithClamAV(s.clamavAddr, content)
 		if err != nil {
 			return nil, fmt.Errorf("storage: antivirus scan failed: %w", err)
@@ -232,13 +366,22 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 	id := uid.New(fileID)
 	now := time.Now().UTC()
 
-	// Write via pluggable driver (local disk or S3)
-	storagePath := s.driver.Path(projectID, bucketID, id)
-	if err := s.driver.Write(ctx, storagePath, content); err != nil {
+	// Signature and size describe the original bytes, before any at-rest
+	// transform, so downloads verify against what the caller uploaded.
+	sig := fmt.Sprintf("%x", md5.Sum(content))
+
+	stored, suffix, err := s.encodeAtRest(bucket, content)
+	if err != nil {
+		return nil, err
+	}
+
+	// Write via pluggable driver (local disk or S3). The suffix records the
+	// encoding so the read path can reverse it.
+	storagePath := s.driver.Path(projectID, bucketID, id) + suffix
+	if err := s.driver.Write(ctx, storagePath, stored); err != nil {
 		return nil, fmt.Errorf("storage: write file: %w", err)
 	}
 
-	sig := fmt.Sprintf("%x", md5.Sum(content))
 	permsJSON, _ := json.Marshal(permissions)
 
 	_, err = s.db.ExecContext(ctx,
@@ -266,7 +409,17 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 // returns ErrFileTooLarge. An antivirus-enabled instance takes the buffered
 // path — ClamAV needs the whole payload.
 func (s *Service) CreateFileStream(ctx context.Context, projectID, bucketID, fileID, name string, content io.Reader, maxBytes int64, mimeType string, permissions []string) (*model.File, error) {
-	if s.clamavAddr != "" {
+	name = sanitizeName(name)
+
+	bucket, err := s.GetBucket(ctx, bucketID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("storage: bucket not found")
+	}
+
+	// Antivirus, compression and encryption each need the whole payload, so a
+	// bucket that enables any of them takes the buffered path through CreateFile
+	// rather than streaming straight to the driver.
+	if (s.clamavAddr != "" && bucket.Antivirus) || bucketCompresses(bucket) || bucket.Encryption {
 		data, err := io.ReadAll(io.LimitReader(content, maxBytes+1))
 		if err != nil {
 			return nil, fmt.Errorf("storage: read upload: %w", err)
@@ -277,12 +430,6 @@ func (s *Service) CreateFileStream(ctx context.Context, projectID, bucketID, fil
 		return s.CreateFile(ctx, projectID, bucketID, fileID, name, data, mimeType, permissions)
 	}
 
-	name = sanitizeName(name)
-
-	bucket, err := s.GetBucket(ctx, bucketID, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("storage: bucket not found")
-	}
 	if bucket.FileSizeLimit > 0 && bucket.FileSizeLimit < maxBytes {
 		maxBytes = bucket.FileSizeLimit
 	}
@@ -357,6 +504,10 @@ func (s *Service) GetFileContent(ctx context.Context, fileID, bucketID, projectI
 		return nil, "", err
 	}
 	content, err := s.driver.Read(ctx, path)
+	if err != nil {
+		return nil, "", err
+	}
+	content, err = s.decodeAtRest(path, content)
 	if err != nil {
 		return nil, "", err
 	}
@@ -458,13 +609,23 @@ func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID
 	// Clean up temp chunks
 	os.RemoveAll(chunkDir) //nolint:errcheck
 
+	// Apply the bucket's at-rest transforms to the assembled bytes.
+	bucket, err := s.GetBucket(ctx, bucketID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("storage: bucket not found")
+	}
+	stored, suffix, err := s.encodeAtRest(bucket, assembled)
+	if err != nil {
+		return nil, err
+	}
+
 	// Upload assembled file via driver
-	finalPath := s.driver.Path(projectID, bucketID, fileID)
-	if err := s.driver.Write(ctx, finalPath, assembled); err != nil {
+	finalPath := s.driver.Path(projectID, bucketID, fileID) + suffix
+	if err := s.driver.Write(ctx, finalPath, stored); err != nil {
 		return nil, fmt.Errorf("storage: write assembled file: %w", err)
 	}
 
-	// Update file record with final path and size
+	// Update file record with final path and size (size is the original length)
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE files SET path = $1, size = $2 WHERE id = $3 AND bucket_id = $4 AND project_id = $5",
 		finalPath, int64(len(assembled)), fileID, bucketID, projectID)

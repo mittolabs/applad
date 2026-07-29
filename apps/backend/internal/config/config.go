@@ -27,6 +27,14 @@ type Config struct {
 	S3Region      string
 	S3AccessKey   string
 	S3SecretKey   string
+	// ClamAVAddr enables antivirus scanning when set. Address of a clamd TCP
+	// listener, e.g. "clamav:3310". Uploads to buckets with the antivirus flag
+	// on are scanned before they are stored.
+	ClamAVAddr string
+	// StorageEncryptionKey enables AES-256-GCM encryption at rest for buckets
+	// with the encryption flag on. Hex string decoding to 16, 24, or 32 bytes.
+	// Generate: openssl rand -hex 32
+	StorageEncryptionKey string
 
 	// Database connection pool
 	DBMaxOpenConns       int // DB_MAX_OPEN_CONNS, default 25
@@ -199,6 +207,8 @@ func Load() *Config {
 		S3Bucket:                getEnv("S3_BUCKET", ""),
 		S3Region:                getEnv("S3_REGION", "us-east-1"),
 		S3AccessKey:             getEnv("S3_ACCESS_KEY_ID", ""),
+		ClamAVAddr:              getEnv("CLAMAV_ADDR", ""),
+		StorageEncryptionKey:    getEnv("STORAGE_ENCRYPTION_KEY", ""),
 		S3SecretKey:             getEnv("S3_SECRET_ACCESS_KEY", ""),
 		DBMaxOpenConns:          getEnvInt("DB_MAX_OPEN_CONNS", 25),
 		DBMaxIdleConns:          getEnvInt("DB_MAX_IDLE_CONNS", 10),

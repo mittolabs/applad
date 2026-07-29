@@ -45,6 +45,38 @@ func TestLoad_EnvOverride(t *testing.T) {
 	}
 }
 
+func TestLoad_StorageSecurity(t *testing.T) {
+	os.Setenv("CLAMAV_ADDR", "clamav:3310")
+	os.Setenv("STORAGE_ENCRYPTION_KEY", "0123456789abcdef")
+	defer func() {
+		os.Unsetenv("CLAMAV_ADDR")
+		os.Unsetenv("STORAGE_ENCRYPTION_KEY")
+	}()
+
+	cfg := Load()
+
+	if cfg.ClamAVAddr != "clamav:3310" {
+		t.Fatalf("expected CLAMAV_ADDR to parse, got %q", cfg.ClamAVAddr)
+	}
+	if cfg.StorageEncryptionKey != "0123456789abcdef" {
+		t.Fatalf("expected STORAGE_ENCRYPTION_KEY to parse, got %q", cfg.StorageEncryptionKey)
+	}
+}
+
+func TestLoad_StorageSecurityDefaults(t *testing.T) {
+	os.Unsetenv("CLAMAV_ADDR")
+	os.Unsetenv("STORAGE_ENCRYPTION_KEY")
+
+	cfg := Load()
+
+	if cfg.ClamAVAddr != "" {
+		t.Fatalf("expected empty CLAMAV_ADDR by default, got %q", cfg.ClamAVAddr)
+	}
+	if cfg.StorageEncryptionKey != "" {
+		t.Fatalf("expected empty STORAGE_ENCRYPTION_KEY by default, got %q", cfg.StorageEncryptionKey)
+	}
+}
+
 func TestGetEnv_Fallback(t *testing.T) {
 	os.Unsetenv("TEST_NONEXISTENT")
 	val := getEnv("TEST_NONEXISTENT", "default")

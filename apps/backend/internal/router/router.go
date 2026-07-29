@@ -114,6 +114,21 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey,
 		))
 	}
+	// Antivirus scanning activates only when a clamd address is configured;
+	// then a bucket with its antivirus flag on is scanned on upload.
+	if cfg.ClamAVAddr != "" {
+		storageSvc.SetClamAV(cfg.ClamAVAddr)
+		slog.Info("storage antivirus scanning enabled", "clamav", cfg.ClamAVAddr)
+	}
+	// Encryption at rest activates when a key is configured; then a bucket with
+	// its encryption flag on stores AES-256-GCM ciphertext.
+	if cfg.StorageEncryptionKey != "" {
+		if err := storageSvc.SetEncryptionKey(cfg.StorageEncryptionKey); err != nil {
+			slog.Error("storage encryption key invalid — encrypted buckets will reject uploads", "error", err)
+		} else {
+			slog.Info("storage encryption at rest enabled")
+		}
+	}
 	teamSvc := teams.NewService(database)
 	deployQueue := queue.New(cacheClient.Client())
 	deploySvc := deploy.NewService(database, deployQueue)

@@ -425,23 +425,56 @@ Object keys mirror the local layout: `<projectId>/<bucketId>/<fileId>`.
 </Tab>
 </Tabs>
 
-<Callout title="Stored flags that are not yet enforced">
-  A bucket persists `compression`, `encryption` and `antivirus` flags and
-  returns them on read, but the current build stores files as-is: bytes are
-  neither compressed nor encrypted at rest regardless of the flags. Treat them
-  as forward-looking metadata. Antivirus is wired end to end in code but only
-  runs when the instance is configured with a ClamAV address (see below).
+## At-rest processing
+
+A bucket's `compression`, `encryption` and `antivirus` flags are enforced on
+upload. Compression and encryption transform only the stored bytes: the `size`
+and `signature` Applad reports always describe the original file, and every read
+path (download, inline `view`, signed-URL `view`, and image transforms) reverses
+the transforms transparently, so a client always receives the exact bytes that
+were uploaded.
+
+<Callout title="Toggling a flag never corrupts existing files">
+  How a file was encoded is recorded per file, not read from the bucket's
+  current flags, so turning `compression` or `encryption` on or off later never
+  mis-decodes files already stored under the previous setting. Existing files
+  keep reading correctly; only new uploads follow the new setting.
 </Callout>
+
+### Compression
+
+Turn a bucket's `compression` flag on to gzip file bytes at rest. No instance
+configuration is required, and reads decompress on the fly. Compression trades a
+little CPU for less disk or object-store usage and helps most on text-like
+content; already-compressed formats such as JPEG, PNG or ZIP gain little.
+
+### Encryption
+
+Turn a bucket's `encryption` flag on to store files as AES-GCM ciphertext. This
+needs an instance key:
+
+| Variable | Meaning |
+| --- | --- |
+| `STORAGE_ENCRYPTION_KEY` | Hex string decoding to 16, 24 or 32 bytes (AES-128/192/256). Generate with `openssl rand -hex 32`. |
+
+A fresh random nonce is stored with each file, so two identical uploads produce
+different ciphertext. If a bucket has `encryption` on while no key is configured,
+uploads are rejected rather than written in the clear. Keep the key safe and
+stable: losing or changing it makes existing encrypted files unreadable. When
+both flags are on, a file is compressed first and then encrypted.
 
 ## Antivirus scanning
 
-When a ClamAV daemon is configured for the instance, uploads to a bucket with
-`antivirus` on are scanned before they are stored. Applad talks to `clamd` over
-its TCP `INSTREAM` interface, streaming the payload in chunks and reading back
-the verdict. A clean file is written normally; an infected file is rejected and
-never persisted. Because the scanner needs the complete payload, an
+Set `CLAMAV_ADDR` to a running `clamd` TCP address (for example `clamav:3310`)
+to enable scanning; the bundled ClamAV service is off by default and starts with
+`docker compose --profile antivirus up`. With a scanner configured, uploads to a
+bucket with `antivirus` on are scanned before they are stored. Applad talks to
+`clamd` over its TCP `INSTREAM` interface, streaming the payload in chunks and
+reading back the verdict. A clean file is written normally; an infected file is
+rejected and never persisted. Because the scanner needs the complete payload, an
 antivirus-enabled upload is buffered in memory rather than streamed, still
-subject to the same size caps.
+subject to the same size caps. A bucket with `antivirus` off is never scanned,
+even when a scanner is configured.
 
 ## Related
 
