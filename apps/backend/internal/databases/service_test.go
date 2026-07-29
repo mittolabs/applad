@@ -342,3 +342,150 @@ func expectLookupTable(mock sqlmock.Sqlmock, tableID, databaseID, projectID, nam
 		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name"}).
 			AddRow(tableID, databaseID, projectID, name))
 }
+
+// expectTableContext mocks lookupTableContext with an explicit row-security flag.
+func expectTableContext(mock sqlmock.Sqlmock, tableID, databaseID, projectID, name string, rowSecurity bool) {
+	mock.ExpectQuery(`SELECT id, database_id, project_id, name, row_security FROM tables WHERE id =`).
+		WithArgs(tableID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name", "row_security"}).
+			AddRow(tableID, databaseID, projectID, name, rowSecurity))
+}
+
+// expectAuthedTx mocks prepareDirectAccessTx for a signed-in user: the
+// authenticated per-database role and a non-empty user_id claim (the anon prelude
+// above covers the server/API-key case with an empty user).
+func expectAuthedTx(mock sqlmock.Sqlmock, databaseID, projectID, userID string) {
+	mock.ExpectBegin()
+	mock.ExpectExec(`SET LOCAL search_path`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`SET LOCAL statement_timeout`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`set_config\('applad.project_id'`).WithArgs(projectID).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`set_config\('applad.database_id'`).WithArgs(databaseID).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`set_config\('applad.user_id'`).WithArgs(userID).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`set_config\('request.jwt.claims'`).WithArgs(sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT EXISTS`).
+		WithArgs(schemaName(projectID, databaseID) + "_authenticated").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`SET LOCAL ROLE`).WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
+// A user session (userID != "") listing a table with document security OFF must
+// hold table-level read, exactly as Get/Create require. RLS is not enabled for
+// such a table and its GRANT SELECT is unconditional, so without the list-path
+// gate a caller lacking read would be handed every row. Here the caller has no
+// read grant and must be denied rather than shown the whole table.
+func TestListRowsWithAuth_UserWithoutTableReadIsDenied(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectTableContext(mock, "t1", "db1", "proj1", "posts", false)
+	// enforcePermission: no table-level read grant for the caller's roles.
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM permissions`).
+		WithArgs("proj1", "table", "t1", "read", "any", "users", "user:u1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	// enforcePermission then re-reads row_security; still off, so no row-level fallback.
+	mock.ExpectQuery(`SELECT row_security FROM tables WHERE id =`).
+		WithArgs("t1", "proj1").
+		WillReturnRows(sqlmock.NewRows([]string{"row_security"}).AddRow(false))
+
+	rows, total, err := svc.ListRowsWithAuth(context.Background(), "proj1", "db1", "t1", "u1", []string{}, ListParams{})
+	if err == nil {
+		t.Fatalf("expected permission denied, got total=%d rows=%v", total, rows)
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("expected permission denied error, got %v", err)
+	}
+	if rows != nil {
+		t.Fatalf("no rows may be returned on denial, got %v", rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// The same user, once granted table-level read, still lists rows normally: the
+// gate denies the attacker without blocking the legitimate caller.
+func TestListRowsWithAuth_UserWithTableReadListsRows(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectTableContext(mock, "t1", "db1", "proj1", "posts", false)
+	// enforcePermission: table-level read granted → allowed, no row_security re-read.
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM permissions`).
+		WithArgs("proj1", "table", "t1", "read", "any", "users", "user:u1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectAuthedTx(mock, "db1", "proj1", "u1")
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM "posts"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_jsonb(t) FROM "posts" AS t`)).
+		WithArgs(25, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"row"}).AddRow([]byte(`{"id":"r1"}`)))
+	expectListRowsPostlude(mock, "t1")
+
+	rows, total, err := svc.ListRowsWithAuth(context.Background(), "proj1", "db1", "t1", "u1", []string{}, ListParams{})
+	if err != nil {
+		t.Fatalf("ListRowsWithAuth returned error: %v", err)
+	}
+	if total != 2 || len(rows) != 1 || rows[0].ID != "r1" {
+		t.Fatalf("expected row r1 (total 2), got total=%d rows=%v", total, rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// A server API key (userID == "") keeps broad access: it is never RLS-filtered,
+// so the list path must not run the table-level read gate for it. The absence of
+// any permissions COUNT query here proves the check is scoped to user sessions.
+func TestListRowsWithAuth_ServerKeySkipsReadGate(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectListRowsPrelude(mock, "t1", "db1", "proj1", "posts", false)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM "posts"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_jsonb(t) FROM "posts" AS t`)).
+		WithArgs(25, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"row"}).AddRow([]byte(`{"id":"r1"}`)))
+	expectListRowsPostlude(mock, "t1")
+
+	rows, total, err := svc.ListRowsWithAuth(context.Background(), "proj1", "db1", "t1", "", []string{"service"}, ListParams{})
+	if err != nil {
+		t.Fatalf("ListRowsWithAuth returned error: %v", err)
+	}
+	if total != 3 || len(rows) != 1 || rows[0].ID != "r1" {
+		t.Fatalf("expected row r1 (total 3), got total=%d rows=%v", total, rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// A document-security table is RLS-filtered per row, so the blanket table-level
+// gate is skipped for a user session: a caller with only row-level read must
+// still list the rows they are permitted to read. The absence of a permissions
+// COUNT query proves the list path does not over-block here — RLS decides which
+// rows come back.
+func TestListRowsWithAuth_DocumentSecurityListsPermittedRows(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectTableContext(mock, "t1", "db1", "proj1", "posts", true)
+	expectAuthedTx(mock, "db1", "proj1", "u1")
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM "posts"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_jsonb(t) FROM "posts" AS t`)).
+		WithArgs(25, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"row"}).AddRow([]byte(`{"id":"mine"}`)))
+	expectListRowsPostlude(mock, "t1")
+
+	rows, total, err := svc.ListRowsWithAuth(context.Background(), "proj1", "db1", "t1", "u1", []string{}, ListParams{})
+	if err != nil {
+		t.Fatalf("ListRowsWithAuth returned error: %v", err)
+	}
+	if total != 1 || len(rows) != 1 || rows[0].ID != "mine" {
+		t.Fatalf("expected the caller's permitted row, got total=%d rows=%v", total, rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}

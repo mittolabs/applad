@@ -54,10 +54,19 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectID := middleware.ProjectFromContext(r.Context())
-	userID := middleware.UserFromContext(r.Context())
+	ctx := r.Context()
+	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
+	isAPIKey := middleware.IsAPIKey(ctx)
+	// A console administrator is validated for this project's org by the
+	// Authenticate middleware but carries no end-user id; treat it as an
+	// authenticated, broad-access connection.
+	isConsoleAdmin := middleware.IsConsoleAdmin(ctx)
 
-	client := NewClient(h.hub, conn, projectID, userID)
+	authenticated := userID != "" || isConsoleAdmin
+	broadAccess := isAPIKey || isConsoleAdmin
+
+	client := NewClient(h.hub, conn, projectID, userID, authenticated, broadAccess)
 	h.hub.Register(client)
 
 	go client.WritePump()

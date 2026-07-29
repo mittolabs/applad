@@ -36,7 +36,22 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	rdb        *redis.Client // nil when Redis pub/sub is not configured
+	// readAuth authorizes table-channel subscriptions and resolves per-row
+	// filtering. Nil on an instance where it was not wired (subscriptions then
+	// fall back to project + auth scoping without per-row filtering).
+	readAuth ReadAuthorizer
+	// releaseVerifier ties a deploy channel to a project. Nil falls back to
+	// requiring authentication only.
+	releaseVerifier ReleaseVerifier
 }
+
+// SetReadAuthorizer wires database read authorization (table-level and
+// document-security row filtering) into subscription handling.
+func (h *Hub) SetReadAuthorizer(a ReadAuthorizer) { h.readAuth = a }
+
+// SetReleaseVerifier wires deploy-release ownership checks into subscription
+// handling so a deploy-log channel is scoped to the subscriber's project.
+func (h *Hub) SetReleaseVerifier(v ReleaseVerifier) { h.releaseVerifier = v }
 
 // NewHub creates a hub. Pass databaseDSN to enable PostgreSQL CDC and
 // redisAddr (host:port) to enable cross-instance Redis pub/sub.
@@ -203,6 +218,12 @@ func (h *Hub) run() {
 				continue
 			}
 			for client := range subs {
+				// Per-row read filtering: a subscription that carries a filter
+				// (a document-security table channel) receives only the rows its
+				// roles may read. No filter means deliver unconditionally.
+				if !client.allows(event) {
+					continue
+				}
 				select {
 				case client.send <- data:
 				default:
@@ -224,14 +245,45 @@ func (h *Hub) Unregister(c *Client) {
 	h.unregister <- c
 }
 
-// Subscribe adds a client to a channel.
-func (h *Hub) Subscribe(c *Client, channel string) {
+// subscribeClient authorizes a client-requested subscription and, if allowed,
+// registers it. This is the ONLY path reachable from client input, so it is
+// where cross-tenant and unauthenticated subscriptions are refused. A rejected
+// request gets an error frame rather than a silent drop. Authorization may hit
+// the database, so it runs before the hub lock is taken.
+func (h *Hub) subscribeClient(c *Client, channel string) {
+	decision := h.authorizeSubscribe(c, channel)
+	if !decision.allowed {
+		c.sendError(channel, decision.code, decision.reason)
+		return
+	}
+	h.addSubscription(c, channel, decision.filter)
+}
+
+// addSubscription registers a client on a channel with an optional per-event
+// filter, atomically so the filter is in place before any event can be
+// delivered on the channel.
+func (h *Hub) addSubscription(c *Client, channel string, filter *rowFilter) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.channels[channel] == nil {
 		h.channels[channel] = make(map[*Client]bool)
 	}
 	h.channels[channel][c] = true
+	if filter != nil {
+		if c.subFilters == nil {
+			c.subFilters = make(map[string]*rowFilter)
+		}
+		c.subFilters[channel] = filter
+	} else {
+		delete(c.subFilters, channel)
+	}
+}
+
+// Subscribe adds a client to a channel WITHOUT authorization. It is retained for
+// internal/test use; client-driven subscriptions must go through
+// subscribeClient, which authorizes first.
+func (h *Hub) Subscribe(c *Client, channel string) {
+	h.addSubscription(c, channel, nil)
 }
 
 // Unsubscribe removes a client from a channel.
@@ -244,6 +296,7 @@ func (h *Hub) Unsubscribe(c *Client, channel string) {
 			delete(h.channels, channel)
 		}
 	}
+	delete(c.subFilters, channel)
 }
 
 // Publish sends an event to subscribers. When Redis is configured the event

@@ -22,16 +22,62 @@ type Client struct {
 	send      chan []byte
 	projectID string
 	userID    string
+	// authenticated is true when the connection presented a valid credential
+	// (a user session, a server API key, or a console administrator). A bare
+	// project header does not make a connection authenticated.
+	authenticated bool
+	// broadAccess is true for connections that hold project-wide read access
+	// (server API keys, console administrators). Such connections are still
+	// project-scoped but skip per-row read filtering.
+	broadAccess bool
+	// subFilters holds the per-channel row filter for subscriptions that must
+	// be filtered per event. A channel absent here (nil filter) is delivered
+	// unconditionally. Written under Hub.mu; read on the broadcast path under
+	// Hub.mu's read lock.
+	subFilters map[string]*rowFilter
 }
 
-// NewClient creates a new client.
-func NewClient(hub *Hub, conn *websocket.Conn, projectID, userID string) *Client {
+// NewClient creates a new client. authenticated reports whether the connection
+// carried a valid credential; broadAccess reports whether it holds project-wide
+// read access (API key or console admin) and so bypasses per-row filtering.
+func NewClient(hub *Hub, conn *websocket.Conn, projectID, userID string, authenticated, broadAccess bool) *Client {
 	return &Client{
-		hub:       hub,
-		conn:      conn,
-		send:      make(chan []byte, 64),
-		projectID: projectID,
-		userID:    userID,
+		hub:           hub,
+		conn:          conn,
+		send:          make(chan []byte, 64),
+		projectID:     projectID,
+		userID:        userID,
+		authenticated: authenticated,
+		broadAccess:   broadAccess,
+	}
+}
+
+// allows reports whether an event may be delivered to this client on its
+// channel. Called on the broadcast path with Hub.mu held for reading.
+func (c *Client) allows(ev Event) bool {
+	f := c.subFilters[ev.Channel]
+	if f == nil {
+		return true
+	}
+	return f.allows(ev)
+}
+
+// sendError delivers a non-fatal error frame to the client (e.g. a rejected
+// subscription). Non-blocking: a full or closed send buffer drops it.
+func (c *Client) sendError(channel, code, message string) {
+	ev := Event{
+		Type:      "error",
+		Channel:   channel,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Payload:   map[string]string{"code": code, "message": message},
+	}
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
 	}
 }
 
@@ -72,7 +118,7 @@ func (c *Client) ReadPump() {
 		switch msg.Type {
 		case "subscribe":
 			for _, ch := range msg.Channels {
-				c.hub.Subscribe(c, ch)
+				c.hub.subscribeClient(c, ch)
 			}
 		case "unsubscribe":
 			for _, ch := range msg.Channels {

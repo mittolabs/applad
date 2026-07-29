@@ -27,6 +27,35 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// authorizeTeam decides whether the caller may act on teamID, and writes a 403
+// and returns false when they may not. A server API key (which legitimately
+// provisions teams) and a console admin keep full access. An end-user session
+// must be a *joined* member of the team; when requireOwner is set they must
+// additionally hold the "owner" role. This is what stops any authenticated
+// project user from renaming/deleting another user's team, reading its roster,
+// or self-adding to a privileged team — team roles feed database RLS, so an
+// unchecked mutation here escalates into RLS-protected data.
+func (h *Handler) authorizeTeam(w http.ResponseWriter, r *http.Request, teamID string, requireOwner bool) bool {
+	if middleware.IsAPIKey(r.Context()) || middleware.IsConsoleAdmin(r.Context()) {
+		return true
+	}
+	userID := middleware.UserFromContext(r.Context())
+	if userID == "" {
+		apperr.Write(w, http.StatusForbidden, "general_forbidden", "not authorized for this team")
+		return false
+	}
+	member, owner, err := h.svc.MembershipOf(r.Context(), teamID, userID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return false
+	}
+	if !member || (requireOwner && !owner) {
+		apperr.Write(w, http.StatusForbidden, "general_forbidden", "not authorized for this team")
+		return false
+	}
+	return true
+}
+
 // Routes returns the teams router.
 func Routes(h *Handler) http.Handler {
 	r := chi.NewRouter()
@@ -125,6 +154,9 @@ func (h *Handler) getTeam(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) updateTeam(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	teamID := chi.URLParam(r, "teamId")
+	if !h.authorizeTeam(w, r, teamID, true) {
+		return
+	}
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -140,6 +172,9 @@ func (h *Handler) updateTeam(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) updatePrefs(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	teamID := chi.URLParam(r, "teamId")
+	if !h.authorizeTeam(w, r, teamID, true) {
+		return
+	}
 	var body struct {
 		Prefs map[string]interface{} `json:"prefs"`
 	}
@@ -162,6 +197,9 @@ func (h *Handler) updatePrefs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteTeam(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	teamID := chi.URLParam(r, "teamId")
+	if !h.authorizeTeam(w, r, teamID, true) {
+		return
+	}
 	if err := h.svc.Delete(r.Context(), teamID, projectID); err != nil {
 		apperr.Internal(w, err)
 		return
@@ -180,6 +218,12 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "email is required")
 		return
 	}
+	// Inviting a member (and choosing its roles) is an owner-only act. Without
+	// this a non-member could invite themselves with any roles, then accept the
+	// returned secret and land inside a privileged team.
+	if !h.authorizeTeam(w, r, teamID, true) {
+		return
+	}
 	if body.Roles == nil {
 		body.Roles = []string{}
 	}
@@ -194,6 +238,11 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	teamID := chi.URLParam(r, "teamId")
+	// Only a joined member may see who else is on the team; a non-member gets a
+	// 403 rather than the full roster and everyone's email.
+	if !h.authorizeTeam(w, r, teamID, false) {
+		return
+	}
 	memberships, total, err := h.svc.ListMemberships(r.Context(), teamID, projectID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -209,6 +258,9 @@ func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	teamID := chi.URLParam(r, "teamId")
 	membershipID := chi.URLParam(r, "membershipId")
+	if !h.authorizeTeam(w, r, teamID, true) {
+		return
+	}
 	if err := h.svc.DeleteMembership(r.Context(), membershipID, teamID, projectID); err != nil {
 		apperr.Internal(w, err)
 		return

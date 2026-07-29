@@ -716,6 +716,19 @@ func (s *Service) TriggerPipelineFromWebhook(ctx context.Context, pipelineID, pr
 	return rel, nil
 }
 
+// ReleaseBelongsToProject reports whether the release exists and belongs to the
+// project. GetRelease already scopes by project_id, so a release from another
+// project reads as "not found". Used by the realtime hub to tie a deploy-log
+// channel to the subscribing connection's project; it implements
+// realtime.ReleaseVerifier. Any lookup failure yields false so the caller fails
+// closed.
+func (s *Service) ReleaseBelongsToProject(ctx context.Context, releaseID, projectID string) (bool, error) {
+	if _, err := s.GetRelease(ctx, releaseID, projectID); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
 // GetRelease returns a release by ID.
 func (s *Service) GetRelease(ctx context.Context, id, projectID string) (*Release, error) {
 	var r Release

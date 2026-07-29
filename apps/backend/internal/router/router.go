@@ -176,6 +176,13 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	realtimeHandler := realtime.NewHandler(hub)
 	dbSvc.SetEventPublisher(hub)
 	storageSvc.SetEventPublisher(hub)
+	// Realtime subscription authorization: a table-channel subscription is
+	// checked against the table's read permissions (and document-security rows
+	// filtered per event), and a deploy-log channel is tied to the subscriber's
+	// project by verifying release ownership. Without these the hub still
+	// project-scopes and requires auth, but cannot per-row filter.
+	hub.SetReadAuthorizer(dbSvc)
+	hub.SetReleaseVerifier(deploySvc)
 	// Team membership becomes RLS roles, so a row's read("team:X") admits exactly
 	// that team's members. Resolved server-side per request from the caller's own
 	// identity; without this only the built-in roles (any/users/user:<id>) apply.

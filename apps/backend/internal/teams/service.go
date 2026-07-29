@@ -311,6 +311,40 @@ func (s *Service) RolesForUser(ctx context.Context, projectID, userID string) ([
 	return out, rows.Err()
 }
 
+// MembershipOf reports whether userID is a joined member of teamID and, if so,
+// whether they hold the "owner" role. It reads only joined memberships, so an
+// unaccepted invite grants nothing. This is what the handler uses to authorize
+// team reads and mutations for an end-user session: without it any project user
+// could rename or delete another user's team, dump its roster, or self-add to a
+// privileged team (whose roles feed database RLS).
+func (s *Service) MembershipOf(ctx context.Context, teamID, userID string) (member bool, owner bool, err error) {
+	if teamID == "" || userID == "" {
+		return false, false, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT roles FROM memberships WHERE team_id = $1 AND user_id = $2 AND joined = TRUE`,
+		teamID, userID)
+	if err != nil {
+		return false, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		member = true
+		var rolesJSON []byte
+		if err := rows.Scan(&rolesJSON); err != nil {
+			return false, false, err
+		}
+		var roles []string
+		_ = json.Unmarshal(rolesJSON, &roles)
+		for _, role := range roles {
+			if role == "owner" {
+				owner = true
+			}
+		}
+	}
+	return member, owner, rows.Err()
+}
+
 func (s *Service) DeleteMembership(ctx context.Context, membershipID, teamID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
 		"DELETE FROM memberships WHERE id = $1 AND team_id = $2", membershipID, teamID)

@@ -1068,6 +1068,43 @@ func (s *Service) enforcePermission(ctx context.Context, projectID, tableID, use
 	return fmt.Errorf("permission denied")
 }
 
+// AuthorizeTableRead resolves a caller's realtime read access to one table by
+// name, mirroring enforcePermission's read decision: a table-level read grant
+// admits every row (AllowAll); otherwise, a document-security table admits only
+// rows whose own _permissions grant read to the caller's roles (RowFiltered),
+// which the realtime layer then applies per event. Roles are resolved
+// server-side from the caller's identity — never from anything the client sent.
+// It implements realtime.ReadAuthorizer. Errors (including a missing table) fail
+// closed to a deny at the call site.
+func (s *Service) AuthorizeTableRead(ctx context.Context, projectID, databaseID, tableName, userID string) (realtime.TableReadDecision, error) {
+	groupRoles := s.resolveRoles(ctx, projectID, userID, nil)
+	allRoles := buildRoles(userID, groupRoles)
+
+	var tableID string
+	var rowSecurity bool
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT id, row_security FROM tables WHERE project_id = $1 AND database_id = $2 AND name = $3",
+		projectID, databaseID, tableName,
+	).Scan(&tableID, &rowSecurity); err != nil {
+		if err == sql.ErrNoRows {
+			return realtime.TableReadDecision{}, fmt.Errorf("table not found")
+		}
+		return realtime.TableReadDecision{}, err
+	}
+
+	allowed, err := s.checkPermission(ctx, projectID, "table", tableID, allRoles, "read")
+	if err != nil {
+		return realtime.TableReadDecision{}, err
+	}
+	if allowed {
+		return realtime.TableReadDecision{AllowAll: true}, nil
+	}
+	if rowSecurity {
+		return realtime.TableReadDecision{RowFiltered: true, Roles: allRoles}, nil
+	}
+	return realtime.TableReadDecision{}, nil
+}
+
 // ListParams defines filtering, ordering, and pagination for row queries.
 type ListParams struct {
 	Limit       int
@@ -1900,6 +1937,22 @@ func (s *Service) ListRowsWithAuth(ctx context.Context, projectID, databaseID, t
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// A client caller (a user session, not a server API key) must hold table-level
+	// read to list a table, exactly as Get/Create enforce it. The list path used to
+	// lean entirely on RLS, but RLS is only enabled for document-security tables:
+	// a table with row security OFF keeps an unconditional GRANT SELECT, so without
+	// this check a user lacking table-level read would be handed every row while a
+	// single-row Get was correctly denied. For a document-security table RLS filters
+	// per row, so the blanket gate is skipped — a caller with only row-level read
+	// must still list the rows they are permitted to read, matching how Get admits a
+	// row via its own permissions. Server API keys (userID == "") keep full access.
+	if userID != "" && !table.RowSecurity {
+		if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "read", nil); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	if params.Limit <= 0 {
 		params.Limit = 25
 	}

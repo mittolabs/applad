@@ -603,6 +603,10 @@ func (h *Handler) listRows(w http.ResponseWriter, r *http.Request) {
 
 	rows, total, err := h.svc.ListRowsWithAuth(ctx, projectID, dbID, tableID, userID, nil, params)
 	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") {
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to read rows in this table")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}

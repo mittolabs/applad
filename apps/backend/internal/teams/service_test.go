@@ -61,6 +61,40 @@ func TestUpdatePrefs_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestMembershipOf classifies a caller as non-member, plain member, or owner
+// from their joined membership row — the check every team mutation relies on.
+func TestMembershipOf(t *testing.T) {
+	cases := []struct {
+		name       string
+		rows       *sqlmock.Rows
+		wantMember bool
+		wantOwner  bool
+	}{
+		{"non-member", sqlmock.NewRows([]string{"roles"}), false, false},
+		{"plain member", sqlmock.NewRows([]string{"roles"}).AddRow([]byte(`["member"]`)), true, false},
+		{"owner", sqlmock.NewRows([]string{"roles"}).AddRow([]byte(`["owner","member"]`)), true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, mock, mockDB := newTestService(t)
+			defer mockDB.Close()
+			mock.ExpectQuery(`SELECT roles FROM memberships WHERE team_id = \$1 AND user_id = \$2 AND joined = TRUE`).
+				WithArgs("t1", "u1").
+				WillReturnRows(tc.rows)
+			member, owner, err := svc.MembershipOf(context.Background(), "t1", "u1")
+			if err != nil {
+				t.Fatalf("MembershipOf: %v", err)
+			}
+			if member != tc.wantMember || owner != tc.wantOwner {
+				t.Fatalf("got member=%v owner=%v, want member=%v owner=%v", member, owner, tc.wantMember, tc.wantOwner)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("unmet expectations: %v", err)
+			}
+		})
+	}
+}
+
 // TestUpdatePrefs_NotFound maps a missing team (no rows updated) to a "team not
 // found" error, which the handler turns into a 404.
 func TestUpdatePrefs_NotFound(t *testing.T) {

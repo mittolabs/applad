@@ -81,6 +81,24 @@ func IsAPIKey(ctx context.Context) bool {
 	return v
 }
 
+// ContextWithUser returns ctx carrying userID as the authenticated end user.
+// Production sets this in Authenticate; it is exported so handlers in other
+// packages can be unit-tested against UserFromContext without minting a JWT.
+func ContextWithUser(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userKey, userID)
+}
+
+// ContextWithProject returns ctx carrying projectID, mirroring ProjectContext.
+func ContextWithProject(ctx context.Context, projectID string) context.Context {
+	return context.WithValue(ctx, projectIDKey, projectID)
+}
+
+// ContextWithAPIKey marks ctx as authenticated by a server API key, the way
+// Authenticate does for a valid key.
+func ContextWithAPIKey(ctx context.Context) context.Context {
+	return context.WithValue(ctx, apiKeyKey, true)
+}
+
 // APIKeyScopesFromContext returns scopes for the authenticated API key.
 func APIKeyScopesFromContext(ctx context.Context) []string {
 	v, _ := ctx.Value(apiKeyScopesKey).([]string)
