@@ -1594,6 +1594,18 @@ func queryToWhereSQL(queries []Query) (string, []interface{}) {
 			conditions = append(conditions, fmt.Sprintf("%s >= $%d", field, n))
 			args = append(args, q.Values)
 			n++
+		case "between":
+			// The client sends between("field","min","max"); the handler parses the
+			// two bounds into a []interface{}. Emit an inclusive SQL BETWEEN with a
+			// bound param for each end. A malformed value list is skipped rather than
+			// silently degrading to an unbounded match.
+			lo, hi, ok := betweenBounds(q.Values)
+			if !ok {
+				continue
+			}
+			conditions = append(conditions, fmt.Sprintf("%s BETWEEN $%d AND $%d", field, n, n+1))
+			args = append(args, lo, hi)
+			n += 2
 		case "contains":
 			conditions = append(conditions, fmt.Sprintf("%s ILIKE $%d", field, n))
 			args = append(args, "%"+valStr+"%")
@@ -1621,6 +1633,67 @@ func queryToWhereSQL(queries []Query) (string, []interface{}) {
 		}
 	}
 	return "WHERE " + strings.Join(conditions, " AND "), args
+}
+
+// betweenBounds extracts the two bounds a between filter carries. The handler
+// parses between("field","min","max") into a []interface{}{min, max}; anything
+// else is malformed and reported so the caller can skip the condition.
+func betweenBounds(v interface{}) (lo, hi interface{}, ok bool) {
+	vals, isSlice := v.([]interface{})
+	if !isSlice || len(vals) < 2 {
+		return nil, nil, false
+	}
+	return vals[0], vals[1], true
+}
+
+// parseSelectColumns turns a select() projection string like "id, title, body"
+// into the bare column names to return. Related-column expansion (author(name))
+// is a separate, unimplemented feature: any token naming a relation is dropped
+// here so it neither projects a missing column nor errors the query.
+func parseSelectColumns(sel string) []string {
+	if strings.TrimSpace(sel) == "" {
+		return nil
+	}
+	parts := strings.Split(sel, ",")
+	cols := make([]string, 0, len(parts))
+	for _, p := range parts {
+		c := strings.TrimSpace(p)
+		if c == "" || strings.ContainsAny(c, "()") {
+			continue
+		}
+		cols = append(cols, c)
+	}
+	return cols
+}
+
+// selectProjection builds the SELECT expression that returns only the requested
+// columns as a jsonb object, always including the system columns so the row can
+// still be assembled. _permissions is included only for a document-security
+// table, since the column does not exist otherwise and would error the query.
+func selectProjection(cols []string, rowSecurity bool) string {
+	ordered := make([]string, 0, len(cols)+4)
+	seen := map[string]bool{}
+	add := func(c string) {
+		if c == "" || seen[c] {
+			return
+		}
+		seen[c] = true
+		ordered = append(ordered, c)
+	}
+	for _, c := range cols {
+		add(c)
+	}
+	add("id")
+	add("created_at")
+	add("updated_at")
+	if rowSecurity {
+		add(rowPermColumn)
+	}
+	pairs := make([]string, 0, len(ordered))
+	for _, c := range ordered {
+		pairs = append(pairs, fmt.Sprintf("%s, t.%s", pgLiteral(c), pgIdent(c)))
+	}
+	return "jsonb_build_object(" + strings.Join(pairs, ", ") + ")"
 }
 
 // ValidationErr is returned when row data fails column validation rules.
@@ -1846,22 +1919,64 @@ func (s *Service) ListRowsWithAuth(ctx context.Context, projectID, databaseID, t
 		return nil, 0, err
 	}
 
-	// ORDER BY
-	orderClause := "ORDER BY created_at DESC"
+	// Resolve the ordering column and direction once; both offset and keyset
+	// pagination order by the same thing. Default is newest-first by created_at.
+	orderCol, dir := "created_at", "DESC"
 	if params.OrderAttr != "" {
-		dir := "ASC"
+		orderCol = params.OrderAttr
+		dir = "ASC"
 		if strings.EqualFold(params.OrderType, "desc") {
 			dir = "DESC"
 		}
-		orderClause = fmt.Sprintf("ORDER BY %s %s", pgIdent(params.OrderAttr), dir)
 	}
 
-	// Append LIMIT / OFFSET args after the WHERE args.
-	limitN := len(whereArgs) + 1
-	offsetN := limitN + 1
-	dataArgs := append(append([]interface{}{}, whereArgs...), params.Limit, params.Offset)
-	dataQuery := fmt.Sprintf("SELECT to_jsonb(t) FROM %s AS t %s %s LIMIT $%d OFFSET $%d",
-		pgIdent(table.Name), whereClause, orderClause, limitN, offsetN)
+	// The data query starts from the same WHERE the count used, then grows a
+	// keyset predicate and paging args of its own.
+	dataArgs := append([]interface{}{}, whereArgs...)
+	dataWhere := whereClause
+	useKeyset := params.CursorAfter != ""
+
+	orderClause := "ORDER BY created_at DESC"
+	if useKeyset {
+		// Keyset pagination needs a total order, so tie-break on id in the same
+		// direction as the primary sort. The cursor row is located by id and the
+		// page is everything ordered after it: > for ascending, < for descending.
+		orderClause = fmt.Sprintf("ORDER BY %s %s, id %s", pgIdent(orderCol), dir, dir)
+		cmp := ">"
+		if dir == "DESC" {
+			cmp = "<"
+		}
+		cursorN := len(dataArgs) + 1
+		cond := fmt.Sprintf("(%s, id) %s ((SELECT %s FROM %s WHERE id = $%d), $%d)",
+			pgIdent(orderCol), cmp, pgIdent(orderCol), pgIdent(table.Name), cursorN, cursorN)
+		if dataWhere == "" {
+			dataWhere = "WHERE " + cond
+		} else {
+			dataWhere = dataWhere + " AND " + cond
+		}
+		dataArgs = append(dataArgs, params.CursorAfter)
+	} else if params.OrderAttr != "" {
+		orderClause = fmt.Sprintf("ORDER BY %s %s", pgIdent(orderCol), dir)
+	}
+
+	// Project only the requested columns when select() was used; otherwise the
+	// whole row. System columns are always kept so the row can be assembled.
+	projection := "to_jsonb(t)"
+	if cols := parseSelectColumns(params.Select); len(cols) > 0 {
+		projection = selectProjection(cols, table.RowSecurity)
+	}
+
+	// Append the paging args after the WHERE/keyset args. Keyset paging walks
+	// from the cursor and does not offset; offset paging is left unchanged.
+	limitN := len(dataArgs) + 1
+	dataArgs = append(dataArgs, params.Limit)
+	offsetClause := ""
+	if !useKeyset {
+		offsetClause = fmt.Sprintf("OFFSET $%d", len(dataArgs)+1)
+		dataArgs = append(dataArgs, params.Offset)
+	}
+	dataQuery := fmt.Sprintf("SELECT %s FROM %s AS t %s %s LIMIT $%d %s",
+		projection, pgIdent(table.Name), dataWhere, orderClause, limitN, offsetClause)
 
 	sqlRows, err := tx.QueryContext(ctx, dataQuery, dataArgs...)
 	if err != nil {

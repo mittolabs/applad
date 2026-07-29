@@ -34,6 +34,7 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/", h.listTeams)
 	r.Get("/{teamId}", h.getTeam)
 	r.Put("/{teamId}", h.updateTeam)
+	r.Put("/{teamId}/prefs", h.updatePrefs)
 	r.Delete("/{teamId}", h.deleteTeam)
 	r.Post("/{teamId}/memberships", h.createMembership)
 	r.Get("/{teamId}/memberships", h.listMemberships)
@@ -130,6 +131,28 @@ func (h *Handler) updateTeam(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
 	t, err := h.svc.Update(r.Context(), teamID, projectID, body.Name)
 	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (h *Handler) updatePrefs(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	teamID := chi.URLParam(r, "teamId")
+	var body struct {
+		Prefs map[string]interface{} `json:"prefs"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	t, err := h.svc.UpdatePrefs(r.Context(), teamID, projectID, body.Prefs)
+	if err != nil {
+		if err.Error() == "team not found" {
+			apperr.NotFound(w, "team")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}

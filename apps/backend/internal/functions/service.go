@@ -88,6 +88,7 @@ func (s *Service) Create(ctx context.Context, projectID, name, runtime, entrypoi
 				"source":     source,
 				"repository": repository,
 				"branch":     branch,
+				"envVars":    envVars,
 			},
 			CreatedAt: now,
 		})
@@ -178,6 +179,7 @@ func (s *Service) Update(ctx context.Context, id, projectID string, name, runtim
 				"source":     source,
 				"repository": repository,
 				"branch":     branch,
+				"envVars":    envVars,
 			},
 			CreatedAt: now,
 		})
@@ -230,6 +232,7 @@ func (s *Service) Execute(ctx context.Context, functionID, projectID string) (*F
 			"source":      fn.Source,
 			"repository":  fn.Repository,
 			"branch":      fn.Branch,
+			"envVars":     fn.EnvVars,
 		},
 		CreatedAt: now,
 	}

@@ -214,7 +214,7 @@ Fields:
 | `repository` / `branch` | Git URL and branch, when `sourceType` is `git`. |
 | `entrypoint` | Handler reference. Defaults to `main` on the API (`index.handler` in the SDKs). |
 | `timeout` | Seconds a single execution may run. Defaults to `15`. |
-| `envVars` | Map of environment variables (see [Configuration](#configuration)). |
+| `envVars` | Map of environment variables injected into the execution container, readable via the runtime's normal env mechanism (see [Configuration](#configuration)). |
 | `cron` | Cron expression for scheduled runs, or empty for manual only. |
 
 </Step>
@@ -472,7 +472,11 @@ curl https://api.applad.io/v1/functions/<functionId>/executions \
 ### Environment variables
 
 Set environment variables with the `envVars` map when you create or update a
-function. They are stored on the function and returned in the function object.
+function. They are stored on the function, returned in the function object, and
+injected into the execution container as real environment variables, so your
+code reads them through the runtime's normal mechanism (`process.env` on
+Node/Bun, `os.environ` in Python, `os.Getenv` in Go, `Platform.environment` in
+Dart).
 
 ```bash
 curl -X POST https://api.applad.io/v1/functions \
@@ -481,21 +485,30 @@ curl -X POST https://api.applad.io/v1/functions \
   -d '{
     "name": "notify",
     "runtime": "node-20",
-    "source": "module.exports = () => ({ ok: true });",
+    "source": "module.exports = () => ({ webhook: process.env.SLACK_WEBHOOK });",
     "envVars": { "SLACK_WEBHOOK": "https://hooks.example.com/..." }
   }'
 ```
 
-Every execution container is given `APPLAD_FUNCTION_ID` and `APPLAD_PROJECT_ID`
-automatically.
+Inside the function the value is available on `process.env`:
 
-<Callout title="Field name and current wiring">
+```js
+module.exports = () => {
+  const url = process.env.SLACK_WEBHOOK; // "https://hooks.example.com/..."
+  return { ok: true, url };
+};
+```
+
+Every execution container is also given `APPLAD_FUNCTION_ID` and
+`APPLAD_PROJECT_ID` automatically. Only the function's own `envVars` are
+injected; no unrelated instance configuration is exposed to the container.
+
+<Callout title="Field name">
   The REST field is `envVars`. The client SDK `create` helpers accept a `vars`
   argument; to be certain your variables are stored, set `envVars` explicitly
-  through the REST call or an `update` with a raw body. Note that user-defined
-  variables are stored on the function but are not currently injected into the
-  execution container, only `APPLAD_FUNCTION_ID` and `APPLAD_PROJECT_ID` are
-  guaranteed inside a run today.
+  through the REST call or an `update` with a raw body. Changing `envVars`
+  rebuilds and re-warms the function, so the new values take effect once its
+  `status` returns to `active`.
 </Callout>
 
 ### Timeout

@@ -195,16 +195,50 @@ Every team endpoint returns the same shape:
 |---|---|---|
 | `$id` | string | The team ID (the `teamId` you passed, or a generated one). |
 | `$createdAt` | timestamp | When the team was created. |
-| `$updatedAt` | timestamp | When it was last renamed. Kept current by a database trigger. |
+| `$updatedAt` | timestamp | When it was last changed. A rename or a prefs write both refresh it. |
 | `name` | string | The team's display name (up to 128 characters). |
 | `total` | integer | Count of **joined** members. `0` on a freshly created team until the owner enrolment or a first accept. |
-| `prefs` | object | Reserved key/value store, always `{}` today. See the note below. |
+| `prefs` | object | Team-scoped key/value store. Starts as `{}` and is set with the prefs route below. Returned on every team endpoint. |
 
-<Callout title="Team preferences are not writable yet">
-  A team carries a `prefs` object, but no route sets it: create initialises it
-  to `{}` and rename touches only the name, so `prefs` is always empty. Store
-  team-scoped settings in a table permissioned to the team for now.
-</Callout>
+## Team preferences
+
+`prefs` is a free-form JSON object attached to a team, for team-scoped settings
+you want to travel with the team itself rather than a side table. A new team
+starts with `prefs` set to `{}`; you replace it with the prefs route.
+
+Read prefs from any team object. `get` returns the current value:
+
+```dart
+final team = await client.teams.get(teamId); // GET /v1/teams/{teamId}
+final prefs = team['prefs']; // Map<String, dynamic>
+```
+
+Write prefs with `PUT /v1/teams/{teamId}/prefs`. The body is `{ "prefs": { ... } }`
+and the write is a **whole-object replace**, not a merge: send the complete
+object you want stored, and any key you omit is dropped. The route returns the
+updated team, so the response carries the same shape as `get`. The SDKs do not
+yet expose a team-prefs helper, so call the route directly:
+
+```bash
+curl -X PUT https://api.applad.io/v1/teams/<teamId>/prefs \
+  -H "x-applad-project: <projectId>" \
+  -H "Authorization: Bearer <sessionSecret>" \
+  -H "Content-Type: application/json" \
+  -d '{"prefs":{"color":"blue","notifications":true}}'
+```
+
+From the JS client SDK, reach the same route through the underlying request:
+
+```js
+// PUT /v1/teams/{teamId}/prefs. call() prepends /v1; returns the updated team
+const team = await client.call('PUT', `/teams/${teamId}/prefs`, {
+  prefs: { color: 'blue', notifications: true },
+});
+```
+
+The caller must be an authenticated project user (the same authorization as
+renaming or deleting a team); a server API key works too. An unknown `teamId`
+returns `404`. To clear prefs, send `{"prefs":{}}`.
 
 ## Renaming and deleting a team
 

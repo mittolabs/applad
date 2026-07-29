@@ -167,6 +167,7 @@ func (w *Builds) processFunctionExecution(ctx context.Context, job *queue.Job) e
 		FunctionID: functionID, ProjectID: projectID,
 		Runtime: runtimeName, Entrypoint: entrypoint, Source: source,
 		SourceDir: sourceDir, Timeout: timeout,
+		EnvVars: envVarsFromPayload(job.Payload["envVars"]),
 	}
 	if _, err := w.executor.Build(ctx, req); err != nil {
 		w.updateExecution(ctx, executionID, "failed", "", err.Error(), 0)
@@ -210,20 +211,42 @@ func (w *Builds) processFunctionBuild(ctx context.Context, job *queue.Job) error
 		defer os.RemoveAll(sourceDir)
 	}
 
+	env := envVarsFromPayload(job.Payload["envVars"])
 	req := runtime.ExecRequest{FunctionID: functionID, Runtime: runtimeName,
-		Entrypoint: entrypoint, Source: source, SourceDir: sourceDir, Dockerfile: dockerfile}
+		Entrypoint: entrypoint, Source: source, SourceDir: sourceDir, Dockerfile: dockerfile, EnvVars: env}
 	if _, err := w.executor.Build(ctx, req); err != nil {
 		w.db.ExecContext(ctx, "UPDATE functions SET status = 'failed' WHERE id = ?", functionID) //nolint:errcheck
 		return err
 	}
+	// Pre-warm with the same env the container will run with, so a reused warm
+	// container already carries the function's configured variables.
 	warmReq := runtime.ExecRequest{FunctionID: functionID, Runtime: runtimeName,
-		Entrypoint: entrypoint, Source: source, SourceDir: sourceDir, Timeout: 30}
+		Entrypoint: entrypoint, Source: source, SourceDir: sourceDir, Timeout: 30, EnvVars: env}
 	if _, err := w.executor.Execute(ctx, warmReq); err != nil {
 		slog.Warn("builds worker: pre-warm failed (non-fatal)", "function_id", functionID, "error", err)
 	}
 	w.db.ExecContext(ctx, "UPDATE functions SET status = 'active' WHERE id = ?", functionID) //nolint:errcheck
 	slog.Info("builds worker: function ready", "function_id", functionID)
 	return nil
+}
+
+// envVarsFromPayload reads a function's configured environment variables out of
+// a queue job payload. The payload is JSON on the wire, so a map[string]string
+// arrives back as map[string]interface{}; values are coerced to strings and
+// non-string entries are skipped. Only the function's own vars are returned, so
+// nothing else in the worker's environment leaks into the container.
+func envVarsFromPayload(v interface{}) map[string]string {
+	raw, ok := v.(map[string]interface{})
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	env := make(map[string]string, len(raw))
+	for k, val := range raw {
+		if s, ok := val.(string); ok {
+			env[k] = s
+		}
+	}
+	return env
 }
 
 // cloneToSource shallow-clones a git repository and returns the cloned directory path.

@@ -94,13 +94,7 @@ func (e *Executor) Build(ctx context.Context, req ExecRequest) (string, error) {
 func (e *Executor) Execute(ctx context.Context, req ExecRequest) (*ExecResult, error) {
 	imageName := fmt.Sprintf("applad-fn-%s", req.FunctionID)
 
-	// Build env vars
-	var env []string
-	for k, v := range req.EnvVars {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
-	env = append(env, fmt.Sprintf("APPLAD_FUNCTION_ID=%s", req.FunctionID))
-	env = append(env, fmt.Sprintf("APPLAD_PROJECT_ID=%s", req.ProjectID))
+	env := funcEnv(req)
 
 	// Get or create a container
 	container, err := e.pool.GetOrCreate(ctx, req.FunctionID, imageName, env)
@@ -170,6 +164,20 @@ func (e *Executor) Execute(ctx context.Context, req ExecRequest) (*ExecResult, e
 	}
 
 	return result, nil
+}
+
+// funcEnv builds the container environment for a function: the function's own
+// configured variables as KEY=VALUE, followed by the Applad-provided identifiers.
+// These become the container's Docker Config.Env, so a runtime reads them the
+// normal way (process.env, os.environ, os.Getenv, …).
+func funcEnv(req ExecRequest) []string {
+	env := make([]string, 0, len(req.EnvVars)+2)
+	for k, v := range req.EnvVars {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	}
+	env = append(env, fmt.Sprintf("APPLAD_FUNCTION_ID=%s", req.FunctionID))
+	env = append(env, fmt.Sprintf("APPLAD_PROJECT_ID=%s", req.ProjectID))
+	return env
 }
 
 // Cleanup removes the image and all containers for a function.

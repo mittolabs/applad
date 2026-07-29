@@ -485,8 +485,21 @@ matches (`contains`, `startsWith`, `endsWith`) are case-insensitive.
 | `startsWith(field, value)` | `field` starts with `value` |
 | `endsWith(field, value)` | `field` ends with `value` |
 | `search(field, value)` | full-text search on `field` (PostgreSQL `tsvector`) |
+| `between(field, min, max)` | `field` is between `min` and `max`, inclusive of both ends |
 | `isNull(field)` | `field` is `NULL` |
 | `isNotNull(field)` | `field` is not `NULL` |
+
+`between` binds both bounds as parameters and compiles to SQL `field BETWEEN
+$min AND $max`, so it works for numbers, dates and any other ordered column:
+
+```dart
+// Everything created in Q1, priced 10 to 100.
+final q1 = await db
+    .from('app', 'orders')
+    .between('created_at', '2026-01-01', '2026-03-31')
+    .between('price', 10, 100)
+    .get();
+```
 
 ```dart
 // Everything unread that mentions "deploy", newest first.
@@ -514,13 +527,74 @@ final page2 = await db
     .get();
 ```
 
-<Callout title="Supported today vs. present but not applied">
-  Offset pagination (`limit` + `offset`), the operators in the table above, and
-  `orderAsc`/`orderDesc` all run server-side. The builder also exposes
-  `between(...)`, `cursorAfter(...)` and `select(...)`, but the server does not
-  apply these yet, so a query that relies on one of them will not filter,
-  paginate or project the way its name suggests. Stick to `offset` for paging and
-  fetch the columns you need from the full row until these are wired up.
+`total` on the result is the full count of matching rows before `limit`/`offset`,
+so you can compute how many pages remain.
+
+#### Cursor pagination
+
+`cursorAfter(rowId)` pages by keyset instead of offset: pass the `$id` of the
+last row you saw and the next call returns the rows that come after it in the
+current sort order. It stays correct and fast as rows are inserted or deleted
+between pages, where a large `offset` can skip or repeat rows and forces the
+database to count past everything it skips.
+
+The server orders by your `orderAsc`/`orderDesc` column (or `created_at`
+descending by default) and tie-breaks on `id` so the order is total, then
+returns everything strictly after the cursor row. `cursorAfter` supersedes
+`offset` when both are set.
+
+<Tabs items={['JavaScript', 'Dart']}>
+<Tab value="JavaScript">
+```ts
+const page1 = await db.from('app', 'messages').orderDesc('created_at').limit(25).get();
+const last = page1.rows.at(-1)!['$id'] as string;
+
+const page2 = await db
+  .from('app', 'messages')
+  .orderDesc('created_at')
+  .limit(25)
+  .cursorAfter(last)
+  .get();
+```
+</Tab>
+<Tab value="Dart">
+```dart
+final page1 = await db.from('app', 'messages').orderDesc('created_at').limit(25).get();
+final last = page1.rows.last['\$id'] as String;
+
+final page2 = await db
+    .from('app', 'messages')
+    .orderDesc('created_at')
+    .limit(25)
+    .cursorAfter(last)
+    .get();
+```
+</Tab>
+</Tabs>
+
+### Selecting columns
+
+`select('col1, col2')` projects only the columns you name, cutting the payload
+when a row is wide but you need a few fields. The system columns `id`,
+`created_at`, `updated_at` (and `_permissions` on a document-security table) are
+always returned so each row can still be assembled. Omit `select` to get the
+whole row.
+
+```dart
+// Just the id and title for a list view.
+final titles = await db
+    .from('app', 'posts')
+    .select('id, title')
+    .orderDesc('created_at')
+    .get();
+```
+
+<Callout title="Related-column expansion is not applied">
+  A `select` that names a relationship, such as `select('title, author(name)')`,
+  returns the plain columns (`title`) and drops the `author(name)` part rather
+  than expanding the linked row. Related-column expansion is not wired up yet, so
+  fetch the related row by its id in a second call. Every non-relation column
+  projects as expected.
 </Callout>
 
 ## Upsert a row

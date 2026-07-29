@@ -162,6 +162,170 @@ func TestExecuteSQL_RejectsDDL(t *testing.T) {
 	}
 }
 
+// ── Query builder: between / select / cursorAfter ───────────────────────────
+
+func TestQueryToWhereSQL_BetweenEmitsBoundedRange(t *testing.T) {
+	where, args := queryToWhereSQL([]Query{
+		{Field: "age", Method: "between", Values: []interface{}{"18", "65"}},
+	})
+	if !strings.Contains(where, `"age" BETWEEN $1 AND $2`) {
+		t.Fatalf("expected inclusive BETWEEN clause, got %q", where)
+	}
+	if len(args) != 2 || args[0] != "18" || args[1] != "65" {
+		t.Fatalf("expected two bound params [18 65], got %v", args)
+	}
+}
+
+func TestQueryToWhereSQL_BetweenSkipsMalformedBounds(t *testing.T) {
+	where, args := queryToWhereSQL([]Query{
+		{Field: "age", Method: "between", Values: []interface{}{"18"}},
+	})
+	if strings.Contains(where, "BETWEEN") {
+		t.Fatalf("a single bound is malformed and must not emit BETWEEN, got %q", where)
+	}
+	if len(args) != 0 {
+		t.Fatalf("expected no bound params for malformed between, got %v", args)
+	}
+}
+
+func TestParseSelectColumns_DropsRelationExpansion(t *testing.T) {
+	cols := parseSelectColumns("id, title, author(name)")
+	if len(cols) != 2 || cols[0] != "id" || cols[1] != "title" {
+		t.Fatalf("expected [id title] with the relation dropped, got %v", cols)
+	}
+	if parseSelectColumns("   ") != nil {
+		t.Fatal("blank select should parse to no columns")
+	}
+}
+
+func TestSelectProjection_LimitsToRequestedPlusSystemColumns(t *testing.T) {
+	proj := selectProjection(parseSelectColumns("id, title, author(name)"), false)
+	for _, want := range []string{`'id', t."id"`, `'title', t."title"`, `'created_at', t."created_at"`, `'updated_at', t."updated_at"`} {
+		if !strings.Contains(proj, want) {
+			t.Fatalf("expected projection to include %q, got %q", want, proj)
+		}
+	}
+	if strings.Contains(proj, "author") {
+		t.Fatalf("relation expansion must not appear in the projection, got %q", proj)
+	}
+	if strings.Contains(proj, rowPermColumn) {
+		t.Fatalf("a non-document-security table must not project %s, got %q", rowPermColumn, proj)
+	}
+}
+
+func TestSelectProjection_IncludesPermissionsForDocumentSecurity(t *testing.T) {
+	proj := selectProjection(parseSelectColumns("title"), true)
+	if !strings.Contains(proj, rowPermColumn) {
+		t.Fatalf("a document-security table must project %s, got %q", rowPermColumn, proj)
+	}
+}
+
+func TestListRowsWithAuth_BetweenBindsTwoParams(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectListRowsPrelude(mock, "t1", "db1", "proj1", "posts", false)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM "posts" WHERE "age" BETWEEN $1 AND $2`)).
+		WithArgs("18", "65").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(`"age" BETWEEN $1 AND $2`)).
+		WithArgs("18", "65", 25, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"row"}).AddRow([]byte(`{"id":"r1","age":30}`)))
+	expectListRowsPostlude(mock, "t1")
+
+	params := ListParams{Queries: []Query{{Field: "age", Method: "between", Values: []interface{}{"18", "65"}}}}
+	rows, total, err := svc.ListRowsWithQuery(context.Background(), "proj1", "db1", "t1", params)
+	if err != nil {
+		t.Fatalf("ListRowsWithQuery returned error: %v", err)
+	}
+	if total != 1 || len(rows) != 1 || rows[0].ID != "r1" {
+		t.Fatalf("expected one row r1 (total 1), got total=%d rows=%v", total, rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestListRowsWithAuth_SelectLimitsProjection(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectListRowsPrelude(mock, "t1", "db1", "proj1", "posts", false)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM "posts"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(`jsonb_build_object('id', t."id", 'title', t."title"`)).
+		WithArgs(25, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"row"}).AddRow([]byte(`{"id":"r1","title":"Hi"}`)))
+	expectListRowsPostlude(mock, "t1")
+
+	params := ListParams{Select: "id, title"}
+	rows, total, err := svc.ListRowsWithQuery(context.Background(), "proj1", "db1", "t1", params)
+	if err != nil {
+		t.Fatalf("ListRowsWithQuery returned error: %v", err)
+	}
+	if total != 1 || len(rows) != 1 || rows[0].Data["title"] != "Hi" {
+		t.Fatalf("expected projected row, got total=%d rows=%v", total, rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestListRowsWithAuth_CursorAfterAddsKeysetPagination(t *testing.T) {
+	svc, mock, mockDB := newMockService(t)
+	defer mockDB.Close()
+
+	expectListRowsPrelude(mock, "t1", "db1", "proj1", "posts", false)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM "posts"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
+	// Keyset predicate + total-order ORDER BY, cursor bound once and no OFFSET.
+	mock.ExpectQuery(regexp.QuoteMeta(`("created_at", id) < ((SELECT "created_at" FROM "posts" WHERE id = $1), $1) ORDER BY "created_at" DESC, id DESC LIMIT $2`)).
+		WithArgs("r100", 25).
+		WillReturnRows(sqlmock.NewRows([]string{"row"}).AddRow([]byte(`{"id":"r101"}`)))
+	expectListRowsPostlude(mock, "t1")
+
+	params := ListParams{CursorAfter: "r100"}
+	rows, total, err := svc.ListRowsWithQuery(context.Background(), "proj1", "db1", "t1", params)
+	if err != nil {
+		t.Fatalf("ListRowsWithQuery returned error: %v", err)
+	}
+	if total != 5 || len(rows) != 1 || rows[0].ID != "r101" {
+		t.Fatalf("expected next page row r101 (total 5), got total=%d rows=%v", total, rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// expectListRowsPrelude mocks lookupTableContext plus the transaction setup that
+// prepareDirectAccessTx performs before any row query runs (userID empty → anon).
+func expectListRowsPrelude(mock sqlmock.Sqlmock, tableID, databaseID, projectID, tableName string, rowSecurity bool) {
+	mock.ExpectQuery(`SELECT id, database_id, project_id, name, row_security FROM tables WHERE id =`).
+		WithArgs(tableID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name", "row_security"}).
+			AddRow(tableID, databaseID, projectID, tableName, rowSecurity))
+	mock.ExpectBegin()
+	mock.ExpectExec(`SET LOCAL search_path`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`SET LOCAL statement_timeout`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`set_config\('applad.project_id'`).WithArgs(projectID).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`set_config\('applad.database_id'`).WithArgs(databaseID).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`set_config\('applad.user_id'`).WithArgs("").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`set_config\('request.jwt.claims'`).WithArgs(sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT EXISTS`).
+		WithArgs(schemaName(projectID, databaseID) + "_anon").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`SET LOCAL ROLE`).WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
+// expectListRowsPostlude mocks the column-permission read that runs after the
+// data query and the deferred transaction rollback.
+func expectListRowsPostlude(mock sqlmock.Sqlmock, tableID string) {
+	mock.ExpectQuery(`SELECT key_name, COALESCE\(permissions`).
+		WithArgs(tableID).
+		WillReturnRows(sqlmock.NewRows([]string{"key_name", "permissions"}))
+	mock.ExpectRollback()
+}
+
 func newMockService(t *testing.T) (*Service, sqlmock.Sqlmock, *sql.DB) {
 	t.Helper()
 	mockDB, mock, err := sqlmock.New()

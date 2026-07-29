@@ -145,6 +145,30 @@ func (s *Service) Update(ctx context.Context, teamID, projectID, name string) (*
 	return s.Get(ctx, teamID, projectID)
 }
 
+// UpdatePrefs replaces a team's preferences with the supplied object and
+// returns the refreshed team. Prefs are stored whole (not merged), matching the
+// user-preferences shape in internal/auth. A nil map is written as an empty
+// object so the column never holds SQL NULL.
+func (s *Service) UpdatePrefs(ctx context.Context, teamID, projectID string, prefs map[string]interface{}) (*model.Team, error) {
+	if prefs == nil {
+		prefs = map[string]interface{}{}
+	}
+	prefsJSON, err := json.Marshal(prefs)
+	if err != nil {
+		return nil, fmt.Errorf("teams: marshal prefs: %w", err)
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE teams SET prefs = $1, updated_at = $2 WHERE id = $3 AND project_id = $4",
+		prefsJSON, time.Now().UTC(), teamID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("teams: update prefs: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, fmt.Errorf("team not found")
+	}
+	return s.Get(ctx, teamID, projectID)
+}
+
 func (s *Service) Delete(ctx context.Context, teamID, projectID string) error {
 	_, err := s.db.ExecContext(ctx, "DELETE FROM teams WHERE id = $1 AND project_id = $2", teamID, projectID)
 	return err
