@@ -1,0 +1,290 @@
+---
+title: Feature Flags
+icon: Flag
+description: "Ship behind a switch: boolean, string, number and JSON flags with targeting rules, per-user overrides and percentage rollouts, evaluated per request."
+---
+
+import { FlaskConical, Users, LineChart, Boxes } from 'lucide-react';
+
+A feature flag decouples "is this code deployed" from "is this feature on". You
+ship the code dark, then turn it on for yourself, then a team, then five percent
+of users, then everyone, without another deploy. Applad flags live under
+`/v1/flags` and share the same project scope as the rest of the platform: your
+app asks "is this flag on for this user?" and gets back a value computed from the
+flag's rules, overrides and rollout.
+
+A flag has a **type** (`boolean`, `string`, `number`, or `json`), so it is not
+just an on/off switch. A `string` flag can pick a variant, a `number` flag can
+carry a limit, and a `json` flag can ship a whole config object. Every flag has a
+**default value** that applies when no rule matches.
+
+<Callout title="Two sides of the API">
+Everyday reads use the **evaluation** endpoints, which take a flag `key` and a
+context and are exposed by every SDK. **Management** (creating flags, rules and
+overrides) is done from your backend or the console and addresses a flag by its
+generated `$id`. This page covers both.
+</Callout>
+
+## Evaluate a flag
+
+Evaluation is the call your app makes on every request. Pass the flag `key` and,
+optionally, an evaluation **context** describing who is asking. If you omit the
+`userId`, Applad fills it in from the authenticated caller.
+
+<Tabs items={['JavaScript', 'Node.js', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+// Client SDK: userId is taken from the signed-in session automatically.
+const result = await client.flags.evaluateFlag('new-checkout', {
+  email: 'ada@example.com',
+  attributes: { plan: 'pro' },
+});
+if (result.value === true) {
+  // show the new checkout
+}
+```
+</Tab>
+<Tab value="Node.js">
+```ts
+const result = await server.flags.evaluateFlag('new-checkout', {
+  userId: 'user_123',
+  teamIds: ['team_42'],
+  attributes: { plan: 'pro' },
+});
+```
+</Tab>
+<Tab value="Python">
+```python
+result = client.flags.evaluate_flag("new-checkout", {
+    "userId": "user_123",
+    "attributes": {"plan": "pro"},
+})
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/flags/evaluate \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"key":"new-checkout","context":{"userId":"user_123","attributes":{"plan":"pro"}}}'
+```
+</Tab>
+</Tabs>
+
+Underlying route: `POST /v1/flags/evaluate`. The response is an evaluation result:
+
+```json
+{
+  "key": "new-checkout",
+  "value": true,
+  "enabled": true,
+  "ruleId": "rule_abc",
+  "reason": "rule"
+}
+```
+
+The `reason` tells you why you got that value:
+
+| Reason | Meaning |
+| --- | --- |
+| `override` | A per-user or per-team override matched (highest priority). |
+| `rule` | A targeting rule matched (and the user fell inside its rollout). |
+| `default` | The flag is on but no rule matched, so its default value applies. |
+| `disabled` | The flag is turned off. You get its default value and `enabled: false`. |
+| `not_found` | No flag with that key exists. You get `value: null`. |
+
+An unknown key returns `not_found` rather than erroring, so a stale key in your
+app degrades to "off" instead of throwing.
+
+### Evaluate one, or all
+
+There are three evaluation entry points:
+
+| SDK method | Route | Use |
+| --- | --- | --- |
+| `evaluateFlag(key, context)` | `POST /v1/flags/evaluate` | Evaluate one flag with a full context. |
+| `getFlag(key)` | `GET /v1/flags/evaluate/{key}` | Evaluate one flag using just the signed-in user. |
+| `getAllFlags(context)` | `POST /v1/flags/evaluate/all` | Evaluate every flag at once, returned as a map keyed by flag key. |
+
+`getAllFlags` is what you call on app start to hydrate a whole flag set in one
+round trip:
+
+<Tabs items={['JavaScript', 'Python']}>
+<Tab value="JavaScript">
+```ts
+const { flags } = await client.flags.getAllFlags({ attributes: { plan: 'pro' } });
+// flags['new-checkout'].value, flags['dark-mode'].value, ...
+```
+</Tab>
+<Tab value="Python">
+```python
+res = client.flags.get_all_flags({"attributes": {"plan": "pro"}})
+flags = res["flags"]
+```
+</Tab>
+</Tabs>
+
+### The evaluation context
+
+The context is how a flag decides. Every field is optional.
+
+| Field | Type | Used by |
+| --- | --- | --- |
+| `userId` | string | Overrides, `userId` conditions, and sticky rollout bucketing. Auto-filled from auth when omitted. |
+| `teamIds` | string array | Team overrides and `teamId` / `teamIds` conditions. |
+| `email` | string | `email` conditions. |
+| `labels` | string array | `label` conditions. |
+| `attributes` | object | Custom conditions, addressed as `custom.<name>` or by bare name. |
+
+## Create a flag
+
+The management side is done from trusted code (a server SDK or the console).
+Creating a flag from HTTP lets you set its type and default value directly:
+
+```bash
+curl -X POST https://api.applad.io/v1/flags \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key": "new-checkout",
+    "name": "New checkout flow",
+    "type": "boolean",
+    "defaultValue": false,
+    "tags": ["checkout"]
+  }'
+```
+
+Underlying route: `POST /v1/flags`. The response carries the flag's generated
+`$id`, which the rule and override routes below address:
+
+```json
+{
+  "$id": "flag_abc123",
+  "key": "new-checkout",
+  "name": "New checkout flow",
+  "type": "boolean",
+  "defaultValue": false,
+  "enabled": true,
+  "tags": ["checkout"],
+  "rules": []
+}
+```
+
+A flag defaults to `type: "boolean"` with `defaultValue: false` when you omit
+them. A duplicate `key` in the same project is rejected with `409`.
+
+The server SDKs (Node, Go, Python, Dart) also expose management helpers:
+`list`, `create`, `get`, `update`, `delete` and `toggle`. These are convenience
+wrappers over the routes on this page; anything they do not cover (rules,
+overrides, stats) you call over HTTP.
+
+<Callout title="Turn a flag on and off">
+A flag is created **enabled**. Flip it with
+`PATCH /v1/flags/{flagId}/toggle` and a body of `{"enabled": false}`. A disabled
+flag short-circuits evaluation: every caller gets the default value with
+`reason: "disabled"`, so an emergency kill switch is one request.
+</Callout>
+
+## Targeting rules
+
+A rule turns a flag on for a subset of users. Each rule has a **type**, a list of
+**conditions** (all of which must match, so conditions are AND-ed), a **value**
+to return when it matches, and a **rollout percentage**. Rules are evaluated in
+creation order, and the first one that matches wins.
+
+```bash
+curl -X POST https://api.applad.io/v1/flags/<flagId>/rules \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "attribute",
+    "conditions": [
+      { "attribute": "custom.plan", "operator": "eq", "value": "pro" }
+    ],
+    "value": true,
+    "rolloutPct": 50
+  }'
+```
+
+Underlying route: `POST /v1/flags/{flagId}/rules`. List and delete them with
+`GET /v1/flags/{flagId}/rules` and
+`DELETE /v1/flags/{flagId}/rules/{ruleId}`.
+
+A condition's `operator` is one of:
+
+| Operator | Matches when the attribute |
+| --- | --- |
+| `eq` / `neq` | equals / does not equal the value |
+| `contains` | contains the value as a substring |
+| `starts_with` / `ends_with` | has the value as a prefix / suffix |
+| `in` / `not_in` | is (not) one of a comma-separated or array value |
+| `gt` / `lt` | sorts after / before the value |
+| `exists` / `not_exists` | is present / absent |
+
+The `attribute` resolves against the context: `userId`, `email`, `teamId`,
+`teamIds`, `label`, or a custom attribute as `custom.<name>` (a bare name is
+also looked up in `attributes`). Comparisons are string-based, so `gt` and `lt`
+compare lexically.
+
+### Percentage rollout
+
+Set `rolloutPct` below 100 to give a rule to only a slice of the users it would
+otherwise match. Bucketing is **sticky**: Applad hashes the flag key together
+with the user id, so the same user always lands in or out of the same rollout,
+and raising the percentage only ever adds users. A rule with no matchable user
+id treats an anonymous caller as a stable bucket named `anonymous`.
+
+## Per-user and per-team overrides
+
+An override pins a flag to an exact value for one user or team, ahead of every
+rule. Use it to force a feature on for a beta tester or off for a customer who
+hit a bug.
+
+```bash
+curl -X POST https://api.applad.io/v1/flags/<flagId>/overrides \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{ "targetType": "user", "targetId": "user_123", "value": true }'
+```
+
+Routes: `POST` / `GET /v1/flags/{flagId}/overrides` and
+`DELETE /v1/flags/{flagId}/overrides/{targetType}/{targetId}`. `targetType` is
+`user` or `team`. During evaluation a user override is checked first, then any
+team override for a team in `teamIds`, before any rule runs.
+
+## Evaluation stats
+
+Each evaluation is recorded, and
+`GET /v1/flags/{flagId}/stats` returns a rollup: total evaluations, distinct
+users, and the distribution of returned values.
+
+```json
+{
+  "totalEvaluations": 10432,
+  "uniqueUsers": 811,
+  "distribution": [
+    { "value": true, "count": 6120 },
+    { "value": false, "count": 4312 }
+  ]
+}
+```
+
+This is enough to confirm a rollout is reaching roughly the share of users you
+expect before you widen it.
+
+## Related
+
+<Cards>
+  <Card icon={<LineChart />} title="Analytics" href="/build/analytics">
+    Track what happens after a flag flips, with events and funnels.
+  </Card>
+  <Card icon={<Users />} title="Teams" href="/build/teams">
+    Target a whole team with a `team` override or a `teamId` rule.
+  </Card>
+  <Card icon={<FlaskConical />} title="Test" href="/test">
+    Quarantine and roll out safely, hand in hand with your test suite.
+  </Card>
+  <Card icon={<Boxes />} title="SDKs" href="/sdks">
+    Every SDK exposes `flags` with the three evaluation methods.
+  </Card>
+</Cards>

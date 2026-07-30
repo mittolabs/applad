@@ -9,9 +9,14 @@
     "---Data---",
     "databases",
     "storage",
+    "search",
+    "vectors",
     "---Services---",
     "functions",
     "messaging",
-    "realtime"
+    "realtime",
+    "---Growth---",
+    "flags",
+    "analytics"
   ]
 }

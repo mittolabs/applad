@@ -1,0 +1,185 @@
+---
+title: Error codes
+icon: TriangleAlert
+description: "The standard error response shape and every error type the API returns, grouped by area."
+---
+
+Every failing request returns the same JSON shape, so a client can branch on a
+stable `type` string rather than parsing prose. The HTTP status and the `code`
+field always agree, and the `type` is the machine-readable code you match on.
+
+## The error shape
+
+```json
+{
+  "message": "Human-readable explanation.",
+  "code": 404,
+  "type": "user_not_found",
+  "version": "1.0.0"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `message` | A human-readable explanation. Safe to show, but do not branch on it. It is not part of the contract and may change. |
+| `code` | The HTTP status code, repeated in the body so it survives logging and proxies. |
+| `type` | The stable machine-readable code. Branch on this. |
+| `version` | The error-format version, currently `1.0.0`. |
+
+### Validation errors
+
+A `422` validation failure carries one extra field, `errors`, listing each
+field that failed and why:
+
+```json
+{
+  "message": "Validation failed",
+  "code": 422,
+  "type": "validation_error",
+  "version": "1.0.0",
+  "errors": [
+    { "field": "email", "rule": "email", "message": "must be a valid email" }
+  ]
+}
+```
+
+<Callout title="Rate-limit responses carry headers too">
+  A `429` sets `Retry-After` (seconds) and, for the generic limiter,
+  `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`. See
+  [Rate limits](/reference/rate-limits).
+</Callout>
+
+## General and framework
+
+Returned by the router, request parsing, and shared helpers regardless of
+service.
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `general_argument_invalid` | 400 | A malformed argument, body, or a missing required header such as `X-Applad-Project`. |
+| `general_query_invalid` | 409 | A conflicting write, for example creating something whose unique key already exists. |
+| `validation_error` | 422 | One or more fields failed validation. See the `errors` array. |
+| `general_unauthorized_scope` | 401 | Missing or invalid credentials for the endpoint. |
+| `general_forbidden` | 403 | Authenticated, but not allowed to do this. |
+| `general_route_not_found` | 404 | No such route. |
+| `general_method_not_allowed` | 405 | The route exists but not for this HTTP method. |
+| `general_rate_limit_exceeded` | 429 | A rate limit was hit. Retry after `Retry-After` seconds. |
+| `general_server_error` | 500 | An unexpected server-side failure. The detail is logged, not returned. |
+
+### Not found
+
+Missing resources use a per-resource type of the form `{resource}_not_found` at
+HTTP `404`, so a client can tell a missing table from a missing bucket. The
+resources that report this way include:
+
+`artifact`, `audit_log`, `bucket`, `capture`, `column`, `credential`,
+`database`, `delivery`, `domain`, `environment`, `execution`, `file`, `flag`,
+`flow`, `function`, `funnel`, `job`, `key`, `membership`, `message`,
+`migration`, `organization`, `pipeline`, `platform`, `preview`, `project`,
+`provider`, `queue`, `region`, `release`, `replay`, `row`, `run`, `runner`,
+`search_index`, `session`, `suite`, `table`, `target`, `team`, `template`,
+`topic`, `user`, `vector_index`, `webhook`, `workflow`.
+
+For example, a missing table returns `table_not_found`; a missing bucket
+returns `bucket_not_found`.
+
+## Authentication and accounts
+
+Client-side auth under `/account`, and the server-side user endpoints.
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `invalid_credentials` | 401 | Wrong email or password. |
+| `user_invalid_credentials` | 401 | Wrong credentials on a user-scoped endpoint. |
+| `user_mfa_required` | 401 | The account has MFA enabled; a code is required to finish the login. |
+| `user_mfa_invalid` | 401 | The MFA code was wrong or expired. |
+| `auth_invalid_otp` | 401 | A one-time code (magic link, verification) was wrong or expired. |
+| `user_unauthorized` | 403 | The authenticated user may not act on this resource. |
+| `oauth_state_mismatch` | 403 | The OAuth callback `state` did not match the one issued, so the callback is rejected. |
+| `signup_disabled` | 403 | Registration is closed on this instance (see `CONSOLE_SIGNUP_ENABLED`). |
+
+<Callout title="MFA is a step, not a failure">
+  `user_mfa_required` (and `console_mfa_required` below) mean the credentials
+  were correct and the client should now collect and submit the second factor.
+  Treat it as a prompt, not an error to surface as "login failed".
+</Callout>
+
+## Console and organizations
+
+The admin console's own auth and multi-org endpoints.
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `console_mfa_required` | 401 | The console account has MFA on; submit the code to finish signing in. |
+| `console_mfa_invalid` | 401 / 400 | The console MFA code was wrong, expired, or malformed. |
+| `no_organization` | 409 | The action needs an organization and the account has none yet. |
+| `invite_invalid` | 404 | The invite token is unknown, already used, or expired. |
+| `membership_invalid_secret` | 401 | A membership secret did not verify. |
+
+## Databases
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `sql_execution_failed` | 400 | A statement sent to the schema-scoped `/sql` endpoint failed to execute. |
+
+## Storage
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `storage_file_too_large` | 413 | The upload exceeds the bucket's file-size limit. |
+
+<Callout title="Encrypted buckets need a key">
+  Uploading to (or downloading from) a bucket with encryption on while
+  `STORAGE_ENCRYPTION_KEY` is unset fails as a `general_server_error`; the log
+  reads `storage: encryption enabled but STORAGE_ENCRYPTION_KEY not configured`.
+  See [Troubleshooting](/reference/troubleshooting).
+</Callout>
+
+## Functions, edge, and AI
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `ai_not_configured` | 501 | An AI endpoint was called but no `AI_PROVIDER` / `AI_API_KEY` is set. |
+| `edge_not_implemented` | 501 | An edge feature is not available in this build. |
+| `edge_function_exists` | 409 | An edge function with that name already exists. |
+| `github_app_not_configured` | 501 | A git operation needs the GitHub App, which this instance has not registered. Public repos still deploy by URL. |
+
+## Flags, search, vectors, and queues
+
+Creating one of these whose name is already taken returns a conflict rather than
+silently overwriting.
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `flag_already_exists` | 409 | A feature flag with that key already exists. |
+| `search_index_exists` | 409 | A search index with that name already exists. |
+| `vector_index_exists` | 409 | A vector index with that name already exists. |
+| `queue_exists` | 409 | A queue with that name already exists. |
+
+## Credentials and billing
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `credential_protected` | 403 | The credential is protected and cannot be read back or deleted this way. |
+| `billing_read_only` | 402 | The project is in a read-only billing state; writes are blocked until it is resolved. |
+
+## Webhooks and signatures
+
+Inbound webhooks (git, workflow triggers) verify a signature before doing any
+work.
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `missing_signature` | 401 | The delivery carried no signature header. |
+| `invalid_signature` | 401 | The signature did not verify against the configured secret. |
+| `webhook_unauthorized` | 401 | The webhook could not be authorized to a project or installation. |
+| `invalid_token` | 400 | A token in the request (for example a one-time action token) was malformed. |
+
+## Rate limits
+
+| Type | HTTP | When |
+| --- | --- | --- |
+| `general_rate_limit_exceeded` | 429 | A generic, credential, or project-work limit was hit. |
+| `user_rate_limit_exceeded` | 429 | The per-user limit (applied after authentication) was hit. |
+
+See [Rate limits](/reference/rate-limits) for the exact budgets.

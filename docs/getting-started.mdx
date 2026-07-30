@@ -167,6 +167,135 @@ can read it.
 
 </Steps>
 
+## Server SDKs: the first backend call
+
+The steps above use a **client SDK**, which acts as the signed-in user. On a
+trusted backend you instead use a **server SDK**, which authenticates with an
+**API key** (`x-applad-key`) and has full, permission-bypassing access. Use it
+to provision users, run admin jobs, and react to webhooks. Never ship an API key
+to a client.
+
+<Callout title="Same endpoint rule">
+  As above, `endpoint` is your instance origin **without** `/v1`. On Applad
+  Cloud that is `https://api.applad.io`; on a self-hosted instance it is your own
+  origin. Create the API key under the project's **Settings**, and keep it in an
+  environment variable or secret store.
+</Callout>
+
+Construct the server client, provision a user, then write and read a row.
+
+<Tabs items={['Node.js', 'Go', 'Python']}>
+  <Tab value="Node.js">
+    ```bash
+    npm install @mittolabs/applad-node
+    ```
+
+    ```ts
+    import { ApplAdServer } from '@mittolabs/applad-node';
+
+    const server = new ApplAdServer({
+      endpoint: 'https://api.applad.io', // your instance origin
+      projectId: 'YOUR_PROJECT_ID',
+      apiKey: process.env.APPLAD_API_KEY!,
+    });
+
+    // Provision a user from your backend.
+    const user = await server.users.createUser('ada@example.com', 'a-strong-password', {
+      name: 'Ada Lovelace',
+    });
+
+    // Write a row.
+    const row = await server.databases.createRow('app', 'messages', { body: 'Hello, Applad' });
+
+    // Read rows back with the fluent query builder.
+    const result = await server.databases
+      .from('app', 'messages')
+      .orderDesc('created_at')
+      .limit(20)
+      .get();
+
+    for (const r of result.rows) console.log(r.body);
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```bash
+    go get github.com/mittolabs/applad-go
+    ```
+
+    ```go
+    package main
+
+    import (
+    	"fmt"
+    	"log"
+
+    	applad "github.com/mittolabs/applad-go"
+    )
+
+    func main() {
+    	client := applad.New("https://api.applad.io", "YOUR_PROJECT_ID", "YOUR_API_KEY")
+
+    	// Provision a user from your backend.
+    	user, err := client.Users().CreateUser("ada@example.com", "a-strong-password", "Ada Lovelace")
+    	if err != nil {
+    		log.Fatal(err)
+    	}
+    	fmt.Println(user["id"])
+
+    	// Write a row.
+    	_, err = client.Databases().CreateRow("app", "messages", map[string]interface{}{
+    		"body": "Hello, Applad",
+    	})
+    	if err != nil {
+    		log.Fatal(err)
+    	}
+
+    	// Read rows back with the fluent query builder.
+    	result, err := client.Databases().From("app", "messages").
+    		OrderDesc("created_at").
+    		Limit(20).
+    		Get()
+    	if err != nil {
+    		log.Fatal(err)
+    	}
+    	for _, r := range result.Rows {
+    		fmt.Println(r["body"])
+    	}
+    }
+    ```
+  </Tab>
+  <Tab value="Python">
+    ```bash
+    pip install applad
+    ```
+
+    ```python
+    from applad import Client
+
+    client = Client("https://api.applad.io", "YOUR_PROJECT_ID", "YOUR_API_KEY")
+
+    # Provision a user from your backend.
+    user = client.users.create_user("ada@example.com", "a-strong-password", name="Ada Lovelace")
+    print(user["id"])
+
+    # Write a row.
+    client.databases.create_row("app", "messages", {"body": "Hello, Applad"})
+
+    # Read rows back with the fluent query builder.
+    result = client.databases \
+        .from_table("app", "messages") \
+        .order_desc("created_at") \
+        .limit(20) \
+        .get()
+
+    for r in result.rows:
+        print(r["body"])
+    ```
+  </Tab>
+</Tabs>
+
+See the [SDKs reference](/sdks) for the full method set of each server SDK.
+
 ## Next steps
 
 <Cards>

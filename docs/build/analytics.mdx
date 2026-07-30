@@ -1,0 +1,178 @@
+---
+title: Analytics
+icon: LineChart
+description: "First-party product analytics: track custom events, count them over time, watch a live snapshot, measure daily active users, and analyse conversion funnels."
+---
+
+import { Flag, Activity, Database, Boxes } from 'lucide-react';
+
+Analytics is first-party event tracking: your app records **events** ("signed
+up", "added to cart"), and Applad counts them, breaks them down over time, and
+computes daily active users and conversion **funnels**. It lives under
+`/v1/analytics`, in the same project as your data, so you are not shipping
+product usage to a third party.
+
+<Callout title="Ingest from the app, read from the backend">
+Tracking (`trackEvent`) is usually called from your running app, so a client
+SDK sends it with the signed-in session and Applad attaches the `userId`
+automatically. The rollups (counts, DAU, funnels) are read from trusted code
+with an API key.
+</Callout>
+
+## Track an event
+
+An event needs a `name`; everything else is optional context. Custom fields go
+in `properties`.
+
+<Tabs items={['JavaScript', 'Node.js', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+await client.analytics.trackEvent('added_to_cart', {
+  sku: 'APL-42',
+  price: 1999,
+});
+```
+</Tab>
+<Tab value="Node.js">
+```ts
+await server.analytics.trackEvent('order_completed', { orderId: 'ord_1', total: 4999 });
+```
+</Tab>
+<Tab value="Python">
+```python
+client.analytics.track_event("order_completed", {"orderId": "ord_1", "total": 4999})
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/analytics/events \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"event":"added_to_cart","properties":{"sku":"APL-42"},"userId":"user_123"}'
+```
+</Tab>
+</Tabs>
+
+Underlying route: `POST /v1/analytics/events`. Besides `event`, `userId` and
+`properties`, an event can carry `sessionId`, `url`, `referrer`, `deviceType`,
+`browser` and `country`. When `userId` is empty it is filled from the
+authenticated caller. The stored event is returned with its `$id` and
+`$createdAt`.
+
+To send many at once, `POST /v1/analytics/events/batch` with an `events` array
+inserts them in a single transaction and returns how many were processed.
+
+## Read events back
+
+`GET /v1/analytics/events` returns raw events, newest first, with filters:
+
+| Query param | Filters by |
+| --- | --- |
+| `event` | exact event name |
+| `userId` | a single user |
+| `from`, `to` | a time window (RFC3339 timestamps) |
+| `limit`, `offset` | pagination (default `limit` 100, max 1000) |
+
+```bash
+curl "https://api.applad.io/v1/analytics/events?event=added_to_cart&limit=50" \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>"
+```
+
+The response is `{ "total": n, "limit": ..., "offset": ..., "events": [...] }`.
+The SDK `listEvents(params)` wraps this route.
+
+## Counts over a window
+
+`GET /v1/analytics/events/counts` (also served as `/stats`) groups events by
+name over a time window and returns each event's total. The window defaults to
+the last seven days; pass `from` and `to` as RFC3339 to change it.
+
+```json
+{
+  "counts": {
+    "page_view": 8123,
+    "added_to_cart": 640,
+    "order_completed": 210
+  }
+}
+```
+
+The SDK exposes this as `getStats(params)`.
+
+## Live snapshot
+
+`GET /v1/analytics/realtime` returns a lightweight snapshot of the last five
+minutes: distinct active users, distinct active sessions, and the raw event
+count. It is meant for a "right now" tile on a dashboard.
+
+```json
+{ "activeUsers": 37, "activeSessions": 41, "eventsLast5m": 512 }
+```
+
+The SDK method is `getRealtimeCount()`.
+
+## Daily active users
+
+`GET /v1/analytics/dau` returns one row per day with the count of distinct users
+who fired any event that day, across the requested window.
+
+```json
+{ "data": [ { "date": "2026-07-20", "users": 611 }, { "date": "2026-07-21", "users": 640 } ] }
+```
+
+## Funnels
+
+A funnel measures how many users make it through an ordered sequence of events.
+Define it once with a name and at least two steps, then analyse it over any
+window.
+
+```bash
+# Define a funnel
+curl -X POST https://api.applad.io/v1/analytics/funnels \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Checkout","steps":["viewed_product","added_to_cart","order_completed"]}'
+```
+
+Then `GET /v1/analytics/funnels/{funnelId}/analyze` returns, for each step, the
+number of distinct users who did it and the conversion rate against the previous
+step:
+
+```json
+{
+  "funnelId": "fnl_1",
+  "steps": [
+    { "step": "viewed_product",  "count": 1000, "conversionRate": 100 },
+    { "step": "added_to_cart",   "count": 420,  "conversionRate": 42 },
+    { "step": "order_completed", "count": 180,  "conversionRate": 42.86 }
+  ]
+}
+```
+
+List funnels with `GET /v1/analytics/funnels` and remove one with
+`DELETE /v1/analytics/funnels/{funnelId}`.
+
+<Callout title="What the SDK covers">
+The `analytics` service in the SDKs covers the everyday surface:
+`trackEvent`, `listEvents`, `getStats` and `getRealtimeCount`. Batch ingest,
+DAU and funnels are available over the `/v1/analytics` routes above. Conversion
+in a funnel is measured over distinct users within the window, not per-user
+step ordering, so it is a cohort-style rate rather than a strict path trace.
+</Callout>
+
+## Related
+
+<Cards>
+  <Card icon={<Flag />} title="Feature Flags" href="/build/flags">
+    Flip a feature, then measure the events that follow with a funnel.
+  </Card>
+  <Card icon={<Activity />} title="Observe" href="/observe">
+    System-side monitoring: errors, logs, performance and uptime.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    Your product data, in the same project as its usage analytics.
+  </Card>
+  <Card icon={<Boxes />} title="SDKs" href="/sdks">
+    The `analytics` service is available in every SDK.
+  </Card>
+</Cards>

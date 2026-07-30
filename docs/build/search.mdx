@@ -1,0 +1,216 @@
+---
+title: Search
+icon: Search
+description: "Full-text search over your documents: named indexes, relevance ranking, snippets and synonym expansion, built on PostgreSQL full-text search."
+---
+
+import { Database, Boxes, LineChart, Sparkles } from 'lucide-react';
+
+Search gives your app a full-text index it can query for relevance rather than
+exact matches. You create a named **index**, push **documents** into it, and
+query with a phrase; Applad returns ranked **hits** with a highlighted snippet.
+It lives under `/v1/search` and is backed by PostgreSQL full-text search, so
+there is no separate search engine to run.
+
+<Callout title="Project-scoped and authenticated">
+Every route below requires the project header `x-applad-project` and an
+authenticated caller: a client sends the session bearer token, a server sends
+its API key `x-applad-key`.
+</Callout>
+
+## Create an index
+
+An index is a container for documents. Give it a `name`; you can pass your own
+`indexId` or let one be generated.
+
+<Tabs items={['JavaScript', 'Node.js', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+await client.search.createIndex('articles', { name: 'Articles' });
+```
+</Tab>
+<Tab value="Node.js">
+```ts
+await server.search.createIndex('articles', { name: 'Articles' });
+```
+</Tab>
+<Tab value="Python">
+```python
+client.search.create_index("articles", name="Articles")
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/search/indexes \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"indexId":"articles","name":"Articles"}'
+```
+</Tab>
+</Tabs>
+
+Underlying route: `POST /v1/search/indexes`. `name` is required. The response is
+the index:
+
+```json
+{
+  "$id": "articles",
+  "name": "Articles",
+  "fields": ["content"],
+  "typoTolerance": false,
+  "status": "ready"
+}
+```
+
+List, fetch and delete indexes with `listIndexes()`, `getIndex(id)` and
+`deleteIndex(id)` (`GET /v1/search/indexes`, `GET` and
+`DELETE /v1/search/indexes/{indexId}`). Deleting an index removes its documents.
+
+<Callout title="What actually gets searched">
+An index stores a `fields` list and a `typoTolerance` flag, but the query path
+searches a single derived **content** string per document and ranks it with
+PostgreSQL `ts_rank`. When you index a document as structured `data`, Applad
+builds that content from `data.content`, else `data.text`, else all string
+values joined together. Give a document a `content` field to control exactly
+what is searchable.
+</Callout>
+
+## Index a document
+
+Push a document under a `documentId` you choose. Re-indexing the same
+`documentId` replaces it (upsert).
+
+<Tabs items={['JavaScript', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+await client.search.indexDocument('articles', 'post-1', {
+  content: 'The quick brown fox jumps over the lazy dog',
+  title: 'A fox story',
+});
+```
+</Tab>
+<Tab value="Python">
+```python
+client.search.index_document("articles", "post-1", {
+    "content": "The quick brown fox jumps over the lazy dog",
+    "title": "A fox story",
+})
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/search/indexes/articles/documents \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"post-1","data":{"content":"The quick brown fox","title":"A fox story"}}'
+```
+</Tab>
+</Tabs>
+
+Route: `POST /v1/search/indexes/{indexId}/documents` with `documentId` and a
+`data` object. There is also
+`PUT /v1/search/indexes/{indexId}/documents/{docId}` which takes a raw
+`content` string plus optional `metadata`, and
+`DELETE /v1/search/indexes/{indexId}/documents/{docId}` to remove one.
+
+## Query
+
+Query with a phrase. Results are ranked by relevance, each with a `score` and a
+`snippet` cut around the match.
+
+<Tabs items={['JavaScript', 'Node.js', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+const res = await client.search.query('articles', 'brown fox', { limit: 20 });
+for (const hit of res.hits) {
+  console.log(hit.documentId, hit.score, hit.snippet);
+}
+```
+</Tab>
+<Tab value="Node.js">
+```ts
+const res = await server.search.query('articles', 'brown fox', { limit: 20 });
+```
+</Tab>
+<Tab value="Python">
+```python
+res = client.search.query("articles", "brown fox", limit=20)
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/search/indexes/articles/search \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"brown fox","limit":20}'
+```
+</Tab>
+</Tabs>
+
+Routes: `POST /v1/search/indexes/{indexId}/search` (or `/query`), and a
+convenience `GET /v1/search/indexes/{indexId}/query?q=brown+fox`. The response
+is a ranked result set:
+
+```json
+{
+  "total": 1,
+  "processingTimeMs": "0.83ms",
+  "hits": [
+    {
+      "documentId": "post-1",
+      "content": "The quick brown fox jumps over the lazy dog",
+      "metadata": { "title": "A fox story" },
+      "score": 0.12,
+      "snippet": "The quick brown fox jumps over the lazy dog"
+    }
+  ]
+}
+```
+
+The body accepts `query`, `limit` (default 20, max 500) and `offset`. Ranking
+uses the English text-search configuration; if a document has no full-text
+match, the query falls back to a substring match so a partial word still finds
+something.
+
+## Synonyms
+
+A synonym group tells the index that a set of words mean the same thing. When a
+query contains any word in a group, the query is expanded with the others before
+ranking, so a search for "car" also matches "automobile".
+
+```bash
+curl -X POST https://api.applad.io/v1/search/indexes/articles/synonyms \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"synonyms":["car","automobile","vehicle"]}'
+```
+
+Routes: `POST` / `GET /v1/search/indexes/{indexId}/synonyms` (a group needs at
+least two words) and `DELETE /v1/search/indexes/{indexId}/synonyms/{synId}`.
+Synonyms are managed over HTTP; the SDK `search` service covers indexes,
+documents and querying.
+
+<Callout title="Scope and scale">
+Search is a lightweight, built-in index meant to save you from bolting on a
+separate service for typical app search. Ranking rules and typo tolerance are
+recorded on an index but are not applied by the query engine today, and search
+matches the derived content string rather than per-field. For semantic or
+nearest-neighbour matching over embeddings, use [Vectors](/build/vectors).
+</Callout>
+
+## Related
+
+<Cards>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    Structured rows and queries. Index their text into search for relevance.
+  </Card>
+  <Card icon={<Sparkles />} title="Vectors" href="/build/vectors">
+    Similarity search over embeddings for semantic and RAG use cases.
+  </Card>
+  <Card icon={<LineChart />} title="Analytics" href="/build/analytics">
+    Track what people search for with custom events.
+  </Card>
+  <Card icon={<Boxes />} title="SDKs" href="/sdks">
+    The `search` service is available in every SDK.
+  </Card>
+</Cards>

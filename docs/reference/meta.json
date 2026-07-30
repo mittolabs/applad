@@ -1,0 +1,5 @@
+{
+  "title": "Reference",
+  "icon": "Library",
+  "pages": ["errors", "rate-limits", "environment", "troubleshooting", "changelog"]
+}

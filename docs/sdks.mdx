@@ -6,9 +6,9 @@ description: Official client and server SDKs for Applad, and when to use each.
 
 import { Braces, Server, Smartphone, Boxes, FileCode, KeyRound, Lock, Database, Users } from 'lucide-react';
 
-Applad ships five SDKs. They all speak the same [`/v1` REST API](/), so anything
-an SDK does you can also do with a plain HTTP request. The SDK just handles the
-headers, the JSON, and the method names for you.
+Applad ships five SDKs. They all speak the same `/v1` REST API, so anything
+an SDK does you can also do with a [plain HTTP request](#the-auth-model-in-headers).
+The SDK just handles the headers, the JSON, and the method names for you.
 
 Before you pick one, decide which side of the line you are on.
 
@@ -316,8 +316,9 @@ secret store, never in client code or version control.
   (`@mittolabs/applad` or `package:applad/applad.dart`) and log the user in.
 - Building a backend, script, or webhook handler? Use a **server SDK**
   (Node, Go, Python, or `package:applad/applad_server.dart`) with an API key.
-- Need something an SDK does not expose? Call the underlying [`/v1` API](/)
-  directly with the headers above.
+- Need something an SDK does not expose? Call the underlying `/v1` API
+  directly with the [headers above](#the-auth-model-in-headers). Each service's
+  route table lives on its [Build](/build/databases) page.
 
 ## Related
 

@@ -1,0 +1,54 @@
+---
+title: Changelog
+icon: History
+description: "Notable changes to Applad, maintained per release."
+---
+
+This page records notable changes to Applad, per release. Releases are published
+on [GitHub](https://github.com/mittolabs/applad/releases); the installer tracks
+`latest` by default and pins the version it installed in your `.env` as
+`APPLAD_VERSION`.
+
+<Callout title="How this page is kept">
+  Each release adds an entry here. For the authoritative, commit-level list of
+  what shipped in a given tag, see its
+  [GitHub Release](https://github.com/mittolabs/applad/releases).
+</Callout>
+
+## Current release
+
+The current line covers the full self-hostable platform, brought up with a single
+`docker compose up`:
+
+- **Backend.** Go API plus the background workers, PostgreSQL, and Redis. The API
+  runs migrations on startup and refuses to boot on a default or short
+  `JWT_SECRET`.
+- **Console.** The React admin console, served at the instance root, with the
+  first-run owner-account flow for self-hosted installs
+  (`CONSOLE_SIGNUP_ENABLED=auto`).
+- **Build.** Authentication (including OAuth providers and MFA), databases,
+  storage (local or S3, with optional at-rest encryption and ClamAV scanning),
+  functions, messaging (email, SMS, push), realtime, and feature flags.
+- **Deploy.** Container and site deploys, with public-repo-by-URL everywhere and
+  private-repo deploys when a GitHub App is registered.
+- **Automate and observe.** The native workflow engine, cron scheduling, the test
+  lab and recording studio, and operational status with per-worker heartbeats.
+- **Operations.** Three-layer rate limiting, a stable error-response contract, and
+  the installer's `upgrade` subcommand, which snapshots the database before
+  pulling newer images.
+
+For the exact operational surface, see
+[Environment variables](/reference/environment),
+[Rate limits](/reference/rate-limits), and [Error codes](/reference/errors).
+
+## Upgrading
+
+Migrations run automatically on API startup, so there is no separate migration
+step. With the installer:
+
+```bash
+./install.sh upgrade
+```
+
+It snapshots the database first, so a bad upgrade is a restore rather than a loss.
+See [Self-hosting](/self-hosting) for the manual path.

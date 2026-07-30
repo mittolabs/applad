@@ -1,5 +1,5 @@
 {
   "title": "Get started",
   "icon": "Compass",
-  "pages": ["index", "getting-started", "concepts", "sdks", "cli", "self-hosting", "plan", "build", "test", "deploy", "automate", "observe"]
+  "pages": ["index", "getting-started", "concepts", "sdks", "cli", "self-hosting", "plan", "build", "test", "deploy", "automate", "observe", "reference", "platform"]
 }

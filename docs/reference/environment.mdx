@@ -1,0 +1,162 @@
+---
+title: Environment variables
+icon: Settings
+description: "Every environment variable Applad reads: core, security keys, storage, database, messaging, OAuth, the GitHub App, and AI."
+---
+
+Applad is configured entirely with environment variables, read once at startup.
+This is the complete reference; the short table in
+[Self-hosting](/self-hosting) covers only the handful you are most likely to
+touch. The installer generates the security-sensitive values for you, so on a
+normal install you set very few of these by hand.
+
+<Callout title="Defaults are the container defaults">
+  The defaults below are what the API falls back to when a variable is unset.
+  Values marked (empty) disable the feature they gate rather than taking a
+  built-in default.
+</Callout>
+
+## Core
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `JWT_SECRET` | `change-me-in-production` | **Required.** HS256 key that signs every session, and the fallback for the two at-rest keys below. The API refuses to start if it is unset, the known default, or shorter than 32 characters, in every environment. Generate with `openssl rand -hex 32`. |
+| `DATABASE_DSN` | `postgres://applad:applad@postgres:5432/applad?sslmode=disable` | PostgreSQL connection string. |
+| `REDIS_ADDR` | `redis:6379` | Redis address, used for cache, pub/sub, job queues, and rate limiting. |
+| `STORAGE_PATH` | `/var/applad/storage` | Where uploaded files are stored on disk (local driver). |
+| `APP_ENV` | `development` | `development` or `production`. Production turns on stricter checks and JSON logging. |
+| `PORT` | `8080` | API server port. |
+| `CONSOLE_SIGNUP_ENABLED` | `auto` | Who may register: `auto` (first account only, then closed), `true` (anyone), `false` (closed). |
+| `SESSION_COOKIE_DOMAIN` | (empty) | Overrides the console cookie scope. Normally derived from the host, so `console.<parent>` shares cookies with `<parent>` and a bare IP stays host-only. |
+| `APPLAD_DEPLOY_DOMAIN` | `applad.dev.localhost` | Parent domain deployed apps are served from, so the console can show a site's real address. |
+
+## Security keys
+
+Each of these has a dedicated purpose and falls back to `JWT_SECRET` when unset.
+The installer generates all three. Setting them independently means rotating one
+does not touch the others. Generate each with `openssl rand -hex 32`.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CREDENTIALS_ENCRYPTION_KEY` | (falls back to `JWT_SECRET`) | AES-256-GCM key for the credentials vault. Dedicated key recommended in production. |
+| `API_KEY_SECRET` | (falls back to `JWT_SECRET`) | HMAC-SHA256 pepper used when hashing API-key secrets at rest. Changing it invalidates every existing API key. |
+| `STORAGE_ENCRYPTION_KEY` | (empty) | Hex key decoding to 16, 24, or 32 bytes. Enables AES-256-GCM encryption at rest for buckets with the encryption flag on. Required to read or write those buckets. |
+| `TRUSTED_PROXY_CIDRS` | `172.16.0.0/12,127.0.0.1/32,::1/128` | Peers whose `X-Forwarded-For` is believed, for accurate client-IP rate limiting. |
+
+## Database pool
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DB_MAX_OPEN_CONNS` | `25` | Maximum open PostgreSQL connections. |
+| `DB_MAX_IDLE_CONNS` | `10` | Maximum idle PostgreSQL connections. |
+
+## Rate limits
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `RATE_LIMIT_ANON_PER_MINUTE` | `100` | Generic per-minute limit for anonymous callers. |
+| `RATE_LIMIT_AUTHED_PER_MINUTE` | `1200` | Generic per-minute limit for callers with a verified session token. |
+
+See [Rate limits](/reference/rate-limits) for the full model, including the
+per-account and per-project layers, which are not configurable.
+
+## Storage driver
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `STORAGE_DRIVER` | `local` | `local` (disk under `STORAGE_PATH`) or `s3`. |
+| `S3_ENDPOINT` | (empty) | Custom S3-compatible endpoint. Blank uses the AWS regional endpoint. |
+| `S3_BUCKET` | (empty) | Bucket name for the `s3` driver. |
+| `S3_REGION` | `us-east-1` | S3 region. |
+| `S3_ACCESS_KEY_ID` | (empty) | S3 access key id. |
+| `S3_SECRET_ACCESS_KEY` | (empty) | S3 secret access key. |
+| `CLAMAV_ADDR` | (empty) | Address of a `clamd` TCP listener, e.g. `clamav:3310`. Set to scan uploads to antivirus-enabled buckets. |
+
+## Email (SMTP)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SMTP_HOST` | (empty) | SMTP server host. Email is disabled until this is set. |
+| `SMTP_PORT` | `587` | SMTP port. |
+| `SMTP_USER` | (empty) | SMTP username. |
+| `SMTP_PASS` | (empty) | SMTP password. |
+| `SMTP_FROM` | `noreply@applad.local` | From address on outgoing mail. |
+
+Alternative email providers, used when SMTP is not set: `MAILGUN_API_KEY` and
+`MAILGUN_DOMAIN`, or `RESEND_API_KEY`.
+
+## SMS and push
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `TWILIO_SID` | (empty) | Twilio account SID. |
+| `TWILIO_TOKEN` | (empty) | Twilio auth token. |
+| `TWILIO_FROM` | (empty) | Twilio sender number. |
+| `FCM_SERVER_KEY` | (empty) | Firebase Cloud Messaging server key for push. |
+
+Alternative SMS providers: `VONAGE_API_KEY` / `VONAGE_API_SECRET` /
+`VONAGE_FROM`, or `MSG91_AUTH_KEY` / `MSG91_SENDER_ID`. Alternative push via
+APNS: `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_KEY_PATH`, `APNS_BUNDLE_ID`.
+
+## OAuth providers (per project)
+
+Each social provider follows the same pair:
+
+```
+OAUTH_<PROVIDER>_CLIENT_ID=...
+OAUTH_<PROVIDER>_CLIENT_SECRET=...
+```
+
+The most common three:
+
+| Variable | Description |
+| --- | --- |
+| `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | Google sign-in. |
+| `OAUTH_GITHUB_CLIENT_ID` / `OAUTH_GITHUB_CLIENT_SECRET` | GitHub sign-in. |
+| `OAUTH_APPLE_CLIENT_ID` / `OAUTH_APPLE_CLIENT_SECRET` | Apple sign-in. |
+| `OAUTH_REDIRECT_URL` | Callback URL, e.g. `https://yourdomain.com/v1/account/sessions/oauth/callback`. |
+
+The same `CLIENT_ID` / `CLIENT_SECRET` pattern is read for: `AMAZON`, `AUTH0`
+(plus `OAUTH_AUTH0_DOMAIN`), `AUTODESK`, `BITLY`, `BOX`, `DAILYMOTION`,
+`DISQUS`, `DROPBOX`, `ETSY`, `FIGMA`, `HUBSPOT`, `KAKAO`, `LINE`, `MAILCHIMP`,
+`NOTION`, `OKTA` (plus `OAUTH_OKTA_DOMAIN`), `PATREON`, `PAYPAL`, `PODIO`,
+`REDDIT`, `SALESFORCE`, `TRADESHIFT`, `WORDPRESS`, `YAHOO`, `YAMMER`, `YANDEX`,
+`ZOHO`, and `ZOOM`. A generic OpenID Connect provider is configured with
+`OAUTH_OIDC_CLIENT_ID`, `OAUTH_OIDC_CLIENT_SECRET`, `OAUTH_OIDC_AUTH_URL`,
+`OAUTH_OIDC_TOKEN_URL`, and `OAUTH_OIDC_USERINFO_URL`.
+
+## Console login (admin)
+
+Separate from per-project OAuth: these sign operators into the admin console.
+
+| Variable | Description |
+| --- | --- |
+| `CONSOLE_GITHUB_CLIENT_ID` / `CONSOLE_GITHUB_CLIENT_SECRET` | GitHub login for the console. |
+| `CONSOLE_GOOGLE_CLIENT_ID` / `CONSOLE_GOOGLE_CLIENT_SECRET` | Google login for the console. |
+| `CONSOLE_SSO_CLIENT_ID` / `CONSOLE_SSO_CLIENT_SECRET` | Generic OIDC SSO for enterprise IdPs (Okta, Auth0, Azure AD). |
+| `CONSOLE_SSO_AUTH_URL` / `CONSOLE_SSO_TOKEN_URL` / `CONSOLE_SSO_USERINFO_URL` | The OIDC endpoints for console SSO. |
+
+## GitHub App (git deploys)
+
+Absent on a self-hosted instance unless the operator registers their own app.
+Every path that uses it degrades to public-repo-by-URL rather than failing. See
+[Sites](/deploy/sites).
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `GITHUB_APP_ID` | (empty) | The app's numeric id. Its presence is what enables private-repo deploys. |
+| `GITHUB_APP_SLUG` | `applad` | App name in URLs, `github.com/apps/<slug>`. |
+| `GITHUB_APP_CLIENT_ID` | (empty) | The app's OAuth client id. |
+| `GITHUB_APP_CLIENT_SECRET` | (empty) | The app's OAuth client secret. |
+| `GITHUB_APP_WEBHOOK_SECRET` | (empty) | Verifies every inbound webhook delivery. |
+| `GITHUB_APP_PRIVATE_KEY` | (empty) | The PEM inline, with newlines escaped. |
+| `GITHUB_APP_PRIVATE_KEY_PATH` | (empty) | Path to the PEM on disk. Preferred over the inline form, which is visible to anything that can inspect the container. If set and readable, it wins. |
+
+## AI assistant
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `AI_PROVIDER` | (empty) | `anthropic`, `openai`, `gemini`, or `ollama`. Enables AI endpoints. |
+| `AI_API_KEY` | (empty) | API key for the chosen provider (not needed for `ollama`). |
+| `AI_MODEL` | (empty) | Model override. Each provider has a sensible default. |
+| `AI_BASE_URL` | (empty) | Endpoint override, useful for Ollama or an API proxy. |

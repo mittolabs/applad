@@ -1,0 +1,161 @@
+---
+title: Regions
+icon: Globe
+description: "The region catalog and per-project data-residency configuration: list regions, set a project's active region, and record GDPR or HIPAA residency intent."
+---
+
+import { Boxes, Rocket, Database, Zap } from 'lucide-react';
+
+Regions is the catalog of geographic locations Applad knows about, plus the
+per-project setting for which region a project should live in and any residency
+requirements (GDPR, HIPAA) attached to it. It is served under `/v1/regions` and
+the catalog is public, so an app can show a region picker before anyone signs
+in.
+
+<Callout title="Configuration, not replication">
+On a self-hosted install this is metadata: the region catalog and a project's
+residency choice are recorded, but a single `docker compose` stack runs in one
+place. Actually pinning data and compute to a region is the job of the hosted,
+multi-region platform (the private `applad-cloud` provisioning), which reads
+these same records. Treat the region as a declared intent your infrastructure
+honours, not a switch that moves data by itself.
+</Callout>
+
+## The catalog
+
+`GET /v1/regions` lists the available regions. A fresh instance is seeded with
+seven:
+
+| Code | Name | Location |
+| --- | --- | --- |
+| `us-east-1` | US East (N. Virginia) | Ashburn, VA, USA |
+| `us-west-2` | US West (Oregon) | The Dalles, OR, USA |
+| `eu-west-1` | EU West (Ireland) | Dublin, Ireland |
+| `eu-central-1` | EU Central (Frankfurt) | Frankfurt, Germany |
+| `ap-south-1` | AP South (Mumbai) | Mumbai, India |
+| `ap-east-1` | AP East (Singapore) | Singapore |
+| `sa-east-1` | SA East (Sao Paulo) | Sao Paulo, Brazil |
+
+<Tabs items={['JavaScript', 'Node.js', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+const { regions } = await client.regions.list();
+const region = await client.regions.get('eu-west-1');
+```
+</Tab>
+<Tab value="Node.js">
+```ts
+const { regions } = await server.regions.list();
+```
+</Tab>
+<Tab value="Python">
+```python
+regions = client.regions.list()
+region = client.regions.get("eu-west-1")
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl https://api.applad.io/v1/regions
+```
+</Tab>
+</Tabs>
+
+Routes: `GET /v1/regions` returns `{ "total": n, "regions": [...] }`;
+`GET /v1/regions/{regionId}` fetches one (by id or by code). Each region carries
+a `name`, `code`, `location`, `latitude`, `longitude` and `status`.
+
+## A project's active region
+
+`getActive` and `setActive` read and set which region a project treats as
+primary. Both require the project header `x-applad-project`.
+
+<Tabs items={['JavaScript', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+await client.regions.setActive('eu-west-1');
+const active = await client.regions.getActive();
+```
+</Tab>
+<Tab value="Python">
+```python
+client.regions.set_active("eu-west-1")
+active = client.regions.get_active()
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X PUT https://api.applad.io/v1/regions/active \
+  -H "x-applad-project: <projectId>" -H "Content-Type: application/json" \
+  -d '{"regionId":"eu-west-1"}'
+```
+</Tab>
+</Tabs>
+
+Routes: `GET /v1/regions/active` and `PUT /v1/regions/active`. Setting the
+active region marks that region as the project's primary assignment (any
+previous primary is cleared). `getActive` returns the project-region record,
+including the joined region and its residency flags:
+
+```json
+{
+  "$id": "pr_1",
+  "regionId": "region-eu-west-1",
+  "primaryRegion": true,
+  "gdpr": false,
+  "hipaa": false,
+  "region": { "code": "eu-west-1", "name": "EU West (Ireland)", "status": "active" }
+}
+```
+
+## Residency assignments
+
+Beyond a single primary, a project can be assigned to several regions, each
+tagged with compliance flags. These assignment routes live under
+`/v1/project-regions` and are managed over HTTP (the SDK `regions` service
+covers the catalog and the active region):
+
+| Route | Does |
+| --- | --- |
+| `GET /v1/project-regions/project` | List the project's region assignments. |
+| `POST /v1/project-regions/project` | Assign a region, with `primary`, `gdpr`, `hipaa` flags. |
+| `DELETE /v1/project-regions/project/{regionId}` | Remove an assignment. |
+
+```bash
+curl -X POST https://api.applad.io/v1/project-regions/project \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"regionId":"region-eu-west-1","primary":true,"gdpr":true}'
+```
+
+## Region health
+
+`GET /v1/regions/{regionId}/health` (SDK `getHealth`) returns a small health
+report for a region.
+
+```json
+{ "regionId": "region-eu-west-1", "code": "eu-west-1", "status": "active", "latencyMs": 42, "healthy": true }
+```
+
+<Callout title="Health is derived, not probed">
+The report is computed from the region's catalog `status`, and `latencyMs` is a
+fixed placeholder rather than a live measurement. It confirms a region exists
+and is marked active; it is not a real-time latency check.
+</Callout>
+
+## Related
+
+<Cards>
+  <Card icon={<Rocket />} title="Deploy" href="/deploy/sites">
+    Where your app actually runs and how it is served.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    The data whose residency a region assignment governs.
+  </Card>
+  <Card icon={<Zap />} title="Edge" href="/platform/edge">
+    Edge function definitions also carry a list of target regions.
+  </Card>
+  <Card icon={<Boxes />} title="SDKs" href="/sdks">
+    The `regions` service is available in every SDK.
+  </Card>
+</Cards>

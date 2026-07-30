@@ -1,0 +1,200 @@
+---
+title: Vectors
+icon: Sparkles
+description: "A managed vector store: create indexes, upsert embeddings with metadata, and run cosine, dot-product or euclidean similarity search for semantic and RAG features."
+---
+
+import { Search, Database, Boxes, Code2 } from 'lucide-react';
+
+Vectors is a managed store for embeddings. You create a **vector index**,
+**upsert** vectors alongside the document ids and metadata they represent, and
+**query** by a vector to get the nearest matches ranked by similarity. It powers
+semantic search, recommendations and retrieval-augmented generation, and lives
+under `/v1/vectors` in the same project as everything else.
+
+<Callout title="You bring the embeddings">
+Applad stores and searches vectors; it does not generate them. Produce your
+embeddings with a model of your choice (OpenAI, a local model, whatever), then
+upsert the numeric arrays here. An index records a `model` label and
+`dimensions` for your own bookkeeping, but no embedding is computed server-side.
+</Callout>
+
+## Create an index
+
+An index fixes the vector space: its `dimensions` and its distance `metric`.
+Give a `name`; `indexId` is optional.
+
+<Tabs items={['JavaScript', 'Node.js', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+await client.vectors.createIndex('docs', 1536, { metric: 'cosine', name: 'Docs' });
+```
+</Tab>
+<Tab value="Node.js">
+```ts
+await server.vectors.createIndex('docs', 1536, { metric: 'cosine', name: 'Docs' });
+```
+</Tab>
+<Tab value="Python">
+```python
+client.vectors.create_index("docs", 1536, metric="cosine", name="Docs")
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/vectors/indexes \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"indexId":"docs","name":"Docs","dimensions":1536,"metric":"cosine"}'
+```
+</Tab>
+</Tabs>
+
+Underlying route: `POST /v1/vectors/indexes`. `name` is required. Defaults:
+`dimensions` 1536, `metric` `cosine`, `model` `text-embedding-3-small`. The
+response is the index:
+
+```json
+{
+  "$id": "docs",
+  "name": "Docs",
+  "dimensions": 1536,
+  "metric": "cosine",
+  "model": "text-embedding-3-small",
+  "status": "ready"
+}
+```
+
+The `metric` decides how similarity is scored:
+
+| Metric | Score | Higher score means |
+| --- | --- | --- |
+| `cosine` (default) | cosine similarity | vectors point the same way |
+| `dot` | dot product | aligned and large-magnitude |
+| `euclidean` | `1 / (1 + distance)` | closer in space |
+
+List, fetch and delete indexes with `listIndexes()`, `getIndex(id)` and
+`deleteIndex(id)` (`GET /v1/vectors/indexes`, `GET` and
+`DELETE /v1/vectors/indexes/{indexId}`). Deleting an index removes its vectors.
+
+## Upsert vectors
+
+Upsert takes an array of vectors, each with an `id`, its `values` and optional
+`metadata`. Re-upserting the same `id` replaces it.
+
+<Tabs items={['JavaScript', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+await client.vectors.upsert('docs', [
+  { id: 'doc-1', values: embedding1, metadata: { title: 'Intro', url: '/intro' } },
+  { id: 'doc-2', values: embedding2, metadata: { title: 'Setup' } },
+]);
+```
+</Tab>
+<Tab value="Python">
+```python
+client.vectors.upsert("docs", [
+    {"id": "doc-1", "values": embedding1, "metadata": {"title": "Intro"}},
+    {"id": "doc-2", "values": embedding2, "metadata": {"title": "Setup"}},
+])
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/vectors/indexes/docs/vectors \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"vectors":[{"id":"doc-1","values":[0.01,0.02],"metadata":{"title":"Intro"}}]}'
+```
+</Tab>
+</Tabs>
+
+Route: `POST /v1/vectors/indexes/{indexId}/vectors`. A single vector can also be
+written with `PUT /v1/vectors/indexes/{indexId}/embeddings/{docId}` (body
+`vector` plus `metadata`). Delete with `deleteVectors(id, ids)`
+(`POST /v1/vectors/indexes/{indexId}/delete` with an `ids` array) or one at a
+time via `DELETE /v1/vectors/indexes/{indexId}/embeddings/{docId}`.
+
+## Query by similarity
+
+Query with a vector to get the nearest documents. `topK` caps how many come
+back; `scoreThreshold` drops anything below a similarity you set.
+
+<Tabs items={['JavaScript', 'Node.js', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+const res = await client.vectors.query('docs', queryEmbedding, { topK: 5 });
+for (const hit of res.hits) {
+  console.log(hit.documentId, hit.score, hit.metadata);
+}
+```
+</Tab>
+<Tab value="Node.js">
+```ts
+const res = await server.vectors.query('docs', queryEmbedding, { topK: 5 });
+```
+</Tab>
+<Tab value="Python">
+```python
+res = client.vectors.query("docs", query_embedding, top_k=5)
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/vectors/indexes/docs/query \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"vector":[0.01,0.02],"topK":5,"scoreThreshold":0.7}'
+```
+</Tab>
+</Tabs>
+
+Route: `POST /v1/vectors/indexes/{indexId}/query`. `topK` defaults to 10 (max
+1000). The response is the ranked hits:
+
+```json
+{
+  "total": 2,
+  "hits": [
+    { "documentId": "doc-1", "score": 0.91, "metadata": { "title": "Intro" } },
+    { "documentId": "doc-2", "score": 0.82, "metadata": { "title": "Setup" } }
+  ]
+}
+```
+
+<Callout title="How search runs, and its limits">
+Similarity search is computed in-process by scanning every vector in the index
+and scoring it against your query. That is simple and dependency-free, and fine
+for a self-hosted store up to roughly 100k vectors per index; beyond that a
+dedicated vector database is the better fit. Metadata filtering is not applied
+by the query engine yet, so filter client-side on the returned `metadata`.
+</Callout>
+
+## A minimal RAG loop
+
+The store gives you the retrieval half of retrieval-augmented generation:
+
+1. Embed each source document and `upsert` it with the text (or a pointer to it)
+   in `metadata`.
+2. At question time, embed the question and `query` the index for the top matches.
+3. Feed the retrieved `metadata` into your model's prompt as context.
+
+Applad handles steps 1 and 2's storage and ranking; you own the embedding model
+and the generation call.
+
+## Related
+
+<Cards>
+  <Card icon={<Search />} title="Search" href="/build/search">
+    Keyword full-text search when you want exact-term relevance, not semantics.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    Store the source rows whose text you embed into a vector index.
+  </Card>
+  <Card icon={<Code2 />} title="Functions" href="/build/functions">
+    Run the embedding and generation calls server-side from a function.
+  </Card>
+  <Card icon={<Boxes />} title="SDKs" href="/sdks">
+    The `vectors` service is available in every SDK.
+  </Card>
+</Cards>

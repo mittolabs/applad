@@ -1,0 +1,153 @@
+---
+title: Troubleshooting
+icon: LifeBuoy
+description: "Common self-host and development problems, grounded in the actual behavior and messages the stack produces."
+---
+
+Each entry names the symptom, why it happens, and the fix, so you can match a log
+line or an error `type` to a cause quickly.
+
+## The API refuses to start
+
+### "refusing to start with default JWT_SECRET"
+
+The API panics on startup when `JWT_SECRET` is unset or left at the known default
+`change-me-in-production`, and logs:
+
+```
+JWT_SECRET is unset or the known default — generate one: openssl rand -hex 32
+```
+
+`JWT_SECRET` also derives the API-key pepper and the credentials-vault key, so a
+known value forfeits every credential on the instance. This check runs in
+**every** environment, not just production, because `APP_ENV` defaults to
+`development`, which is exactly what an unconfigured box runs as.
+
+**Fix:** set a real secret and restart.
+
+```bash
+export JWT_SECRET=$(openssl rand -hex 32)
+```
+
+### "refusing to start with short JWT_SECRET"
+
+The same startup check also refuses a secret shorter than 32 characters:
+
+```
+JWT_SECRET must be at least 32 characters — generate one: openssl rand -hex 32
+```
+
+**Fix:** regenerate with `openssl rand -hex 32` (64 hex chars) rather than typing
+a short phrase.
+
+<Callout title="The installer avoids both of these">
+  A `curl | bash` install generates a 32-byte `JWT_SECRET` for you, so these
+  only bite a manual `docker compose` install where the secret was set by hand
+  or not at all. See [Self-hosting](/self-hosting).
+</Callout>
+
+### The database is not ready yet
+
+On first boot the API runs migrations before serving. If PostgreSQL is still
+initializing, the API's connect or migrate step fails and it exits. Compose gives
+PostgreSQL a healthcheck with a start period so the first boot does not flap;
+give it a moment and let the API restart against a ready database.
+
+## Encrypted bucket uploads fail
+
+Uploading to (or downloading from) a bucket that has encryption turned on while
+`STORAGE_ENCRYPTION_KEY` is unset fails, and the log reads one of:
+
+```
+storage: encryption enabled but STORAGE_ENCRYPTION_KEY not configured
+storage: file is encrypted but STORAGE_ENCRYPTION_KEY not configured
+```
+
+The bucket's encryption flag and the key are independent: the flag says "encrypt
+this bucket", the key is what performs it. Turning the flag on without a key
+leaves the bucket unusable.
+
+**Fix:** set `STORAGE_ENCRYPTION_KEY` to a hex value decoding to 16, 24, or 32
+bytes (`openssl rand -hex 32`) and restart the API. Note that files already
+written under a given key can only be read back with that same key, so do not
+rotate it out from under existing data.
+
+## Email, SMS, or push is not sending
+
+Messaging is disabled until a provider is configured. A send against an
+unconfigured channel returns an error whose message names the channel, for
+example:
+
+```
+messaging: SMTP not configured
+messaging: Twilio not configured
+```
+
+Verification links, magic links, and invites all send through email, so they are
+affected too. On a self-hosted instance with no SMTP, an invite still works: the
+console shows the invite link once so you can deliver it yourself.
+
+**Fix:** configure the channel you need. See
+[Environment variables](/reference/environment): `SMTP_*` for email,
+`TWILIO_*` for SMS, `FCM_SERVER_KEY` for push (plus the Mailgun, Resend, Vonage,
+MSG91, and APNS alternatives).
+
+## The status page shows workers "degraded" or "down"
+
+The status service checks that every worker in the canonical roster is publishing
+a fresh heartbeat to `status:worker:<name>` in Redis, with a 90-second TTL. It
+reports:
+
+- **operational** when all workers are fresh,
+- **degraded** when some are missing or stale (the message lists which:
+  `workers not reporting: …`),
+- **down** when none are reporting (`no worker heartbeats`).
+
+**Fix:** a single named worker in the degraded list usually means that one
+worker container is crashed or restarting. Check its logs with `docker compose
+logs <worker>`. A **down** state points at Redis being unreachable, since the
+heartbeats live there.
+
+## Realtime is not delivering changes
+
+Realtime is a WebSocket hub backed by PostgreSQL `LISTEN`/`NOTIFY` for table
+changes, plus in-process publishing for non-database events. If subscribers
+connect but never receive database change events, the usual causes are the
+connection not carrying the project header, or the API instance the socket
+landed on not being the one that holds the `LISTEN` connection to PostgreSQL.
+
+**Fix:** confirm the client sends the project header on the `/v1/realtime`
+connection, and that PostgreSQL is reachable from the API (the same
+`DATABASE_DSN` the rest of the app uses). Non-database events published in-process
+are only seen by clients on the same API instance, which matters behind a
+multi-instance load balancer.
+
+## Git deploys only accept public repositories
+
+The console offers public-repo-by-URL but no "Connect GitHub" button, or a git
+operation returns [`github_app_not_configured`](/reference/errors) (HTTP `501`).
+
+This is expected on a self-hosted instance: there is no Applad GitHub App unless
+you register your own. `github_app_not_configured` is a condition, not a failure.
+
+**Fix:** to deploy private repositories, register your own GitHub App and set the
+`GITHUB_APP_*` variables. See [Self-hosting](/self-hosting) and
+[Sites](/deploy/sites).
+
+## Rate-limit errors during normal use
+
+A `429` with [`general_rate_limit_exceeded`](/reference/errors) while browsing the
+console usually means the anonymous limit is being applied because the session
+token is not verifying, since the larger signed-in budget is granted only to a
+token that actually verifies.
+
+**Fix:** confirm the console is sending its session (a stale or mismatched
+`JWT_SECRET` between issuing and verifying makes every token look anonymous). For
+genuinely high-traffic instances, raise `RATE_LIMIT_AUTHED_PER_MINUTE`. See
+[Rate limits](/reference/rate-limits).
+
+<Callout title="Redis down does not lock you out of everything">
+  The credential and project-work limiters fail open when Redis is unavailable,
+  and the generic limiter falls back to an in-process limiter. A cache outage
+  degrades limiting to best-effort rather than blocking every request.
+</Callout>

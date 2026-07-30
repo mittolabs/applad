@@ -1,0 +1,127 @@
+---
+title: Edge Functions
+icon: Zap
+description: "Experimental: define and store edge function records, with runtime, route, regions and env vars. Invocation and deployment are not yet executing on this build."
+---
+
+import { Code2, Globe, Rocket, Boxes } from 'lucide-react';
+
+<Callout title="Experimental: definitions only, no execution">
+Edge Functions is a **preview** surface. You can create, list, update and delete
+edge function **records** under `/v1/edge`, but there is no edge runtime wired
+into this build: `invoke` and `deploy` return HTTP `501 Not Implemented`
+(`edge_not_implemented`). Nothing runs. For serverless code that actually
+executes today, use [Functions](/build/functions).
+</Callout>
+
+Edge functions are meant to run small pieces of code at nodes close to your
+users, Cloudflare-Workers style. The management API for defining them exists and
+is exposed by the SDKs, but the execution engine is not part of the
+self-hostable stack: the API process holds no container socket and no edge
+worker consumes invocations. This page documents what the API does today, and is
+honest about what it does not.
+
+## What works: managing definitions
+
+You can store an edge function definition: a name, a URL slug (derived from the
+route or name if you omit it), the code, a runtime, target regions and
+environment variables.
+
+<Tabs items={['JavaScript', 'Node.js', 'Python', 'cURL']}>
+<Tab value="JavaScript">
+```ts
+const fn = await client.edge.create('greet', 'export default () => new Response("hi")', {
+  route: '/greet',
+});
+const { functions } = await client.edge.list();
+```
+</Tab>
+<Tab value="Node.js">
+```ts
+const fn = await server.edge.create('greet', 'export default () => new Response("hi")', {
+  route: '/greet',
+});
+```
+</Tab>
+<Tab value="Python">
+```python
+fn = client.edge.create("greet", 'export default () => new Response("hi")', route="/greet")
+```
+</Tab>
+<Tab value="cURL">
+```bash
+curl -X POST https://api.applad.io/v1/edge/functions \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"greet","route":"/greet","code":"export default () => new Response(\"hi\")"}'
+```
+</Tab>
+</Tabs>
+
+Underlying route: `POST /v1/edge/functions`. `name` is required; `runtime`
+defaults to `js` (the model also names `ts` and `wasm`). A new function is
+stored with status `draft`. The response:
+
+```json
+{
+  "$id": "edge_1",
+  "name": "greet",
+  "slug": "greet",
+  "runtime": "js",
+  "regions": [],
+  "status": "draft"
+}
+```
+
+The full set of management routes:
+
+| Route | Does |
+| --- | --- |
+| `POST /v1/edge/functions` | Create a function record. |
+| `GET /v1/edge/functions` | List functions. |
+| `GET /v1/edge/functions/{functionId}` | Fetch one. |
+| `PUT /v1/edge/functions/{functionId}` | Update name, code, regions, env vars. |
+| `DELETE /v1/edge/functions/{functionId}` | Delete one. |
+| `GET /v1/edge/functions/{functionId}/deployments` | List deployment records (may be empty). |
+| `GET /v1/edge/functions/{functionId}/executions` | List execution records (may be empty). |
+
+## What does not work yet
+
+Two routes exist in the API and the SDKs but deliberately report that they are
+not implemented rather than pretending to succeed:
+
+| Route / SDK | Behaviour today |
+| --- | --- |
+| `POST /v1/edge/functions/{functionId}/invoke` (`edge.invoke`) | Returns `501 edge_not_implemented`. No code runs. |
+| `POST /v1/edge/functions/{functionId}/deploy` | Returns `501 edge_not_implemented`. Nothing is deployed. |
+
+An earlier cut of this handler echoed the request body back as "output" with a
+`200`, and flipped a status column to "deployed" without deploying anything.
+That reported a success that never happened, so it was replaced with an honest
+`501`. If you call `invoke` expecting to run code, that is the response you will
+get.
+
+## Use Functions instead
+
+For serverless code that runs today, [Functions](/build/functions) is the
+implemented path: a real container-based execution engine with a warm pool,
+several runtimes and a custom-Dockerfile option, invocable over
+`/v1/functions`. Edge Functions will build on the same ideas once an edge
+runtime is part of the stack.
+
+## Related
+
+<Cards>
+  <Card icon={<Code2 />} title="Functions" href="/build/functions">
+    Serverless functions that actually execute, with real runtimes.
+  </Card>
+  <Card icon={<Globe />} title="Regions" href="/platform/regions">
+    The region codes an edge function's `regions` list refers to.
+  </Card>
+  <Card icon={<Rocket />} title="Deploy" href="/deploy/sites">
+    Ship and serve your app and its deploy targets.
+  </Card>
+  <Card icon={<Boxes />} title="SDKs" href="/sdks">
+    The `edge` service is present in the SDKs; invoke and deploy return 501.
+  </Card>
+</Cards>

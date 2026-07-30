@@ -1,0 +1,10 @@
+{
+  "title": "Platform",
+  "icon": "Layers",
+  "pages": [
+    "---Infrastructure---",
+    "regions",
+    "---Experimental---",
+    "edge"
+  ]
+}

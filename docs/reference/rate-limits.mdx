@@ -1,0 +1,110 @@
+---
+title: Rate limits
+icon: Gauge
+description: "The three rate-limit layers, the named per-project work budgets, and what happens when Redis is down."
+---
+
+A request is not a unit of cost. Reading a list is a cached query; starting a
+deploy is minutes of CPU; sending an SMS is money and a sender reputation. One
+counter over all of them would protect the cheapest thing in the system and
+nothing else. So Applad limits in three layers, each keyed by whoever should
+bear the cost.
+
+Every limit is a fixed one-minute window. A refusal returns
+[`general_rate_limit_exceeded`](/reference/errors) (or `user_rate_limit_exceeded`
+for the per-user layer) at HTTP `429` with a `Retry-After` header.
+
+## Layer 1: generic limit
+
+Applies to every request, split by whether the caller is signed in. The
+signed-in bucket is far larger because a single console page issues twenty or
+more requests to render, so one shared limit made the console unusable. The
+larger bucket is granted only to a caller whose session token actually verifies,
+not to anyone who merely sends an `Authorization` header.
+
+| Class | Default per minute | Env override |
+| --- | --- | --- |
+| Anonymous | 100 | `RATE_LIMIT_ANON_PER_MINUTE` |
+| Signed in (verified token) | 1200 | `RATE_LIMIT_AUTHED_PER_MINUTE` |
+
+The generic layer also sets `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and
+`X-RateLimit-Reset` on every response, so a client can see its budget without
+waiting to be refused.
+
+### Per-user limit
+
+After authentication, a separate per-user layer keys by user id (falling back to
+address when there is no user), so one busy account cannot exhaust a shared
+address's budget. It refuses with `user_rate_limit_exceeded`.
+
+| Scope | Default per minute |
+| --- | --- |
+| Per authenticated user | 300 |
+
+## Layer 2: credential attempts
+
+Keyed both by address and by the account being acted on. Keyed only by address,
+an attacker rotates addresses; keyed only by account, one address works through a
+list of accounts. Both are needed and neither alone is enough. A person who
+mistypes a password a few times is nowhere near these.
+
+| Operation | Path | Keyed by | Per minute |
+| --- | --- | --- | --- |
+| Login | `POST …/login` | address | 20 |
+| Login | `POST …/login` | account | 10 |
+| Signup | `POST …/signup` | address | 10 |
+| Recovery | `POST …/recovery` | address | 10 |
+| Recovery | `POST …/recovery` | account | 5 |
+| Password reset | `POST …/password-reset` | address | 5 |
+| Password reset | `POST …/password-reset` | account | 5 |
+| Magic URL | `POST …/magic-url` | address | 10 |
+| Verification | `POST …/verification` | address | 10 |
+| Invite redeem | `POST …/invites/…` | address | 20 |
+
+The account key is read from the request body (`email`, `phone`, or `userId`),
+because the account under attack is the thing worth counting even as the attacker
+rotates addresses.
+
+## Layer 3: project work
+
+The expensive operations are named individually and billed to the project that
+causes them, which is also who pays for the work. The numbers are what a person
+or a reasonable pipeline does, not what the hardware survives: a hundred deploys
+a minute is never intent.
+
+| Operation | Path match | Per minute |
+| --- | --- | --- |
+| Deploy | `POST …/trigger` | 10 |
+| Rollback | `POST …/rollback` | 10 |
+| Messaging (email, SMS, push) | `POST /messaging/…` | 60 |
+| Function executions | `POST …/executions` | 300 |
+| Test runs | `POST /tests/runs` | 20 |
+| Storage uploads | `POST /storage/…` | 120 |
+
+Each carries its own message explaining why it is limited, for example that a
+deploy is a full build or that sending costs money and sender reputation.
+
+<Callout title="Only named operations are budgeted here">
+  A project-work limit is a statement about one operation, not a blanket number.
+  Anything not named above is bounded by the generic and per-user layers, not by
+  a project-work budget.
+</Callout>
+
+## When Redis is unavailable
+
+Rate limiting is a fairness mechanism, not authorization, so failing every call
+closed would turn a cache outage into a total one.
+
+- The **credential** and **project-work** layers fail open: if Redis cannot be
+  reached, the request is allowed.
+- The **generic** layer trips a circuit breaker after five consecutive Redis
+  failures and falls back to an in-process limiter, so a single instance still
+  enforces a limit even with Redis down.
+
+## Trusted proxies
+
+Limits key on the client address, which is only trustworthy when the forwarding
+header comes from a proxy Applad trusts. By default that is the Docker bridge
+range and loopback (`172.16.0.0/12`, `127.0.0.1/32`, `::1/128`). Override it with
+`TRUSTED_PROXY_CIDRS` (comma-separated) when your edge sits elsewhere, so a
+client cannot forge `X-Forwarded-For` to rotate past a limit.
