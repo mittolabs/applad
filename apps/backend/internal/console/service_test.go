@@ -3,12 +3,16 @@ package console
 import (
 	"context"
 	"database/sql"
+	"encoding/base32"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -166,24 +170,37 @@ func TestSignup_DuplicateEmail(t *testing.T) {
 
 // --- Login with DB ---
 
+// loginRows builds the row set Login now scans, including the MFA columns.
+func loginRows(id, email, name, hash string, mfaEnabled bool, secret, recovery string) *sqlmock.Rows {
+	ts := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	var sec, rec interface{}
+	if secret != "" {
+		sec = secret
+	}
+	if recovery != "" {
+		rec = recovery
+	}
+	return sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "mfa_enabled", "mfa_secret", "mfa_recovery", "created_at", "updated_at"}).
+		AddRow(id, email, name, hash, mfaEnabled, sec, rec, ts, ts)
+}
+
 func TestLogin_Success(t *testing.T) {
 	svc, mock := newMockService(t)
 	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), 12)
 
 	mock.ExpectQuery("SELECT .+ FROM console_users WHERE email").
 		WithArgs("admin@test.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "created_at", "updated_at"}).
-			AddRow("uid1", "admin@test.com", "Admin", string(hash), time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)))
+		WillReturnRows(loginRows("uid1", "admin@test.com", "Admin", string(hash), false, "", ""))
 
-	user, token, err := svc.Login(context.Background(), "admin@test.com", "password123")
+	user, err := svc.Login(context.Background(), "admin@test.com", "password123", "")
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
 	if user.Email != "admin@test.com" {
 		t.Errorf("expected admin@test.com, got %s", user.Email)
 	}
-	if token == "" {
-		t.Error("expected token")
+	if user.MFAEnabled {
+		t.Error("expected MFA disabled for this user")
 	}
 }
 
@@ -193,10 +210,9 @@ func TestLogin_WrongPassword(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM console_users WHERE email").
 		WithArgs("admin@test.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "created_at", "updated_at"}).
-			AddRow("uid1", "admin@test.com", "Admin", string(hash), time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)))
+		WillReturnRows(loginRows("uid1", "admin@test.com", "Admin", string(hash), false, "", ""))
 
-	_, _, err := svc.Login(context.Background(), "admin@test.com", "wrong-password")
+	_, err := svc.Login(context.Background(), "admin@test.com", "wrong-password", "")
 	if err == nil {
 		t.Fatal("expected error for wrong password")
 	}
@@ -206,9 +222,9 @@ func TestLogin_UserNotFound(t *testing.T) {
 	svc, mock := newMockService(t)
 	mock.ExpectQuery("SELECT .+ FROM console_users WHERE email").
 		WithArgs("nobody@test.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "mfa_enabled", "mfa_secret", "mfa_recovery", "created_at", "updated_at"}))
 
-	_, _, err := svc.Login(context.Background(), "nobody@test.com", "password")
+	_, err := svc.Login(context.Background(), "nobody@test.com", "password", "")
 	if err == nil {
 		t.Fatal("expected error for nonexistent user")
 	}
@@ -220,8 +236,8 @@ func TestGetMe_Success(t *testing.T) {
 	svc, mock := newMockService(t)
 	mock.ExpectQuery("SELECT .+ FROM console_users WHERE id").
 		WithArgs("uid1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "created_at", "updated_at"}).
-			AddRow("uid1", "admin@test.com", "Admin", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "mfa_enabled", "created_at", "updated_at"}).
+			AddRow("uid1", "admin@test.com", "Admin", false, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)))
 
 	user, err := svc.GetMe(context.Background(), "uid1")
 	if err != nil {
@@ -236,7 +252,7 @@ func TestGetMe_NotFound(t *testing.T) {
 	svc, mock := newMockService(t)
 	mock.ExpectQuery("SELECT .+ FROM console_users WHERE id").
 		WithArgs("missing").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "mfa_enabled", "created_at", "updated_at"}))
 
 	_, err := svc.GetMe(context.Background(), "missing")
 	if err == nil {
@@ -256,6 +272,126 @@ func TestCountUsers(t *testing.T) {
 	}
 	if count != 5 {
 		t.Errorf("expected 5, got %d", count)
+	}
+}
+
+// --- Console MFA (TOTP) ---
+
+// currentTOTP returns the code an authenticator would show right now for a
+// secret, so a test can prove a real code is accepted.
+func currentTOTP(secretB32 string) string {
+	secret, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secretB32)
+	return totp.Generate(secret, time.Now().Unix()/30)
+}
+
+// BeginMFAEnrollment must persist a secret and return recovery codes, without
+// yet enabling MFA — enrolment completes only once a code is verified.
+func TestBeginMFAEnrollment_ReturnsSecret(t *testing.T) {
+	svc, mock := newMockService(t)
+	mock.ExpectQuery("UPDATE console_users SET mfa_secret").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "uid1").
+		WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("admin@test.com"))
+
+	secret, uri, recovery, err := svc.BeginMFAEnrollment(context.Background(), "uid1")
+	if err != nil {
+		t.Fatalf("begin enrolment: %v", err)
+	}
+	if secret == "" {
+		t.Error("expected a non-empty secret")
+	}
+	if len(recovery) != 8 {
+		t.Errorf("expected 8 recovery codes, got %d", len(recovery))
+	}
+	if !strings.HasPrefix(uri, "otpauth://totp/") || !strings.Contains(uri, "secret="+secret) {
+		t.Errorf("unexpected otpauth uri: %q", uri)
+	}
+}
+
+// A valid code enables MFA; the stored secret is what the code is checked
+// against.
+func TestVerifyMFA_ValidCodeEnables(t *testing.T) {
+	svc, mock := newMockService(t)
+	secret, _ := totp.NewSecret()
+
+	mock.ExpectQuery("SELECT mfa_secret FROM console_users WHERE id").
+		WithArgs("uid1").
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_secret"}).AddRow(secret))
+	mock.ExpectExec("UPDATE console_users SET mfa_enabled = TRUE").
+		WithArgs("uid1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := svc.VerifyMFA(context.Background(), "uid1", currentTOTP(secret)); err != nil {
+		t.Fatalf("verify with valid code: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// A wrong code must not enable MFA.
+func TestVerifyMFA_InvalidCodeRejected(t *testing.T) {
+	svc, mock := newMockService(t)
+	secret, _ := totp.NewSecret()
+
+	mock.ExpectQuery("SELECT mfa_secret FROM console_users WHERE id").
+		WithArgs("uid1").
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_secret"}).AddRow(secret))
+
+	if err := svc.VerifyMFA(context.Background(), "uid1", "000000"); !errors.Is(err, ErrMFAInvalid) {
+		t.Fatalf("expected ErrMFAInvalid, got %v", err)
+	}
+}
+
+// When MFA is enabled, a correct password with no code returns ErrMFARequired —
+// the sign-in does not complete on the password alone.
+func TestLogin_MFARequiredWithoutCode(t *testing.T) {
+	svc, mock := newMockService(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), 12)
+	secret, _ := totp.NewSecret()
+
+	mock.ExpectQuery("SELECT .+ FROM console_users WHERE email").
+		WithArgs("admin@test.com").
+		WillReturnRows(loginRows("uid1", "admin@test.com", "Admin", string(hash), true, secret, ""))
+
+	_, err := svc.Login(context.Background(), "admin@test.com", "password123", "")
+	if !errors.Is(err, ErrMFARequired) {
+		t.Fatalf("expected ErrMFARequired, got %v", err)
+	}
+}
+
+// A correct password plus a valid code completes the sign-in.
+func TestLogin_MFAValidCode(t *testing.T) {
+	svc, mock := newMockService(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), 12)
+	secret, _ := totp.NewSecret()
+
+	mock.ExpectQuery("SELECT .+ FROM console_users WHERE email").
+		WithArgs("admin@test.com").
+		WillReturnRows(loginRows("uid1", "admin@test.com", "Admin", string(hash), true, secret, ""))
+
+	user, err := svc.Login(context.Background(), "admin@test.com", "password123", currentTOTP(secret))
+	if err != nil {
+		t.Fatalf("expected success with valid code, got %v", err)
+	}
+	if user == nil || !user.MFAEnabled {
+		t.Error("expected an MFA-enabled user on success")
+	}
+}
+
+// A correct password with a wrong code is rejected as ErrMFAInvalid, not as a
+// completed sign-in.
+func TestLogin_MFAInvalidCode(t *testing.T) {
+	svc, mock := newMockService(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), 12)
+	secret, _ := totp.NewSecret()
+
+	mock.ExpectQuery("SELECT .+ FROM console_users WHERE email").
+		WithArgs("admin@test.com").
+		WillReturnRows(loginRows("uid1", "admin@test.com", "Admin", string(hash), true, secret, ""))
+
+	_, err := svc.Login(context.Background(), "admin@test.com", "password123", "000000")
+	if !errors.Is(err, ErrMFAInvalid) {
+		t.Fatalf("expected ErrMFAInvalid, got %v", err)
 	}
 }
 

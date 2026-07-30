@@ -113,6 +113,8 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/{projectId}/auth", h.updateAuthConfig)
 	r.Get("/{projectId}/auth/security", h.getAuthSecurity)
 	r.Put("/{projectId}/auth/security", h.updateAuthSecurity)
+	r.Get("/{projectId}/auth/templates", h.getAuthTemplates)
+	r.Put("/{projectId}/auth/templates", h.updateAuthTemplates)
 	r.Get("/{projectId}/auth/oauth", h.listOAuthProviders)
 	r.Put("/{projectId}/auth/oauth/{provider}", h.setOAuthProvider)
 	r.Delete("/{projectId}/auth/oauth/{provider}", h.deleteOAuthProvider)
@@ -555,6 +557,43 @@ func (h *Handler) updateAuthSecurity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sec)
+}
+
+func (h *Handler) getAuthTemplates(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
+	templates, err := h.svc.GetAuthEmailTemplates(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"templates": templates})
+}
+
+func (h *Handler) updateAuthTemplates(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := h.requireProject(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Templates map[string]AuthEmailTemplate `json:"templates"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if err := h.svc.UpdateAuthEmailTemplates(r.Context(), projectID, body.Templates); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	templates, err := h.svc.GetAuthEmailTemplates(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"templates": templates})
 }
 
 // listOAuthProviders returns the project's configured OAuth providers. The

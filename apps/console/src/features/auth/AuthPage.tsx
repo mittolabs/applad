@@ -32,7 +32,7 @@ export function AuthPage() {
         {tab === 0 && <UsersTab projectId={pid} />}
         {tab === 1 && <TeamsTab projectId={pid} />}
         {tab === 2 && <SecurityTab projectId={pid} />}
-        {tab === 3 && <TemplatesTab />}
+        {tab === 3 && <TemplatesTab projectId={pid} />}
         {tab === 4 && <UsageTab />}
         {tab === 5 && <SettingsTab projectId={pid} />}
       </div>

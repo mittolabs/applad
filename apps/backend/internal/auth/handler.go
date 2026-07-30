@@ -60,6 +60,15 @@ type SMSSender interface {
 	SendSMS(ctx context.Context, to, body string) error
 }
 
+// AuthTemplateResolver returns a project's customized subject/body for an auth
+// message flow, keyed by flow name ("verification", "magic", "recovery",
+// "otp"). ok is false when the project has no custom copy for that key, in which
+// case the built-in wording is used. Optional: a nil resolver means every
+// project gets the built-in copy.
+type AuthTemplateResolver interface {
+	AuthEmailTemplate(ctx context.Context, projectID, key string) (subject, body string, ok bool)
+}
+
 // Handler handles HTTP requests for auth.
 type Handler struct {
 	svc            *Service
@@ -67,6 +76,41 @@ type Handler struct {
 	oauthResolver  OAuthResolver
 	mailer         EmailSender
 	smsSender      SMSSender
+	templates      AuthTemplateResolver
+}
+
+// SetTemplateResolver wires per-project auth message templates. When set, the
+// magic-link, verification, recovery and OTP senders render the project's
+// template (if it has one) instead of the built-in copy.
+func (h *Handler) SetTemplateResolver(r AuthTemplateResolver) {
+	h.templates = r
+}
+
+// renderAuthMessage substitutes {{key}} placeholders with the given values.
+// Unmatched placeholders are left untouched so a typo is visible rather than
+// silently blanked.
+func renderAuthMessage(body string, vars map[string]string) string {
+	for k, v := range vars {
+		body = strings.ReplaceAll(body, "{{"+k+"}}", v)
+	}
+	return body
+}
+
+// resolveAuthMessage returns the subject/body to send for an auth flow. It
+// starts from the built-in defaults and, when the project has a custom template
+// for key, renders that instead (a custom template may override the body only,
+// keeping the default subject).
+func (h *Handler) resolveAuthMessage(ctx context.Context, projectID, key, defSubject, defBody string, vars map[string]string) (subject, body string) {
+	subject, body = defSubject, defBody
+	if h.templates != nil {
+		if s, b, ok := h.templates.AuthEmailTemplate(ctx, projectID, key); ok {
+			body = renderAuthMessage(b, vars)
+			if strings.TrimSpace(s) != "" {
+				subject = renderAuthMessage(s, vars)
+			}
+		}
+	}
+	return subject, body
 }
 
 // SetMailer sets the email sender for auth flows (magic link, verification,
@@ -704,8 +748,10 @@ func (h *Handler) createMagicLink(w http.ResponseWriter, r *http.Request) {
 		if body.URL != "" {
 			link = body.URL + "?secret=" + token
 		}
-		html := fmt.Sprintf(`<h2>Sign in to Applad</h2><p>Click the link below to sign in:</p><p><a href="%s">Sign In</a></p><p>This link expires in 15 minutes.</p>`, link)
-		h.mailer.SendEmail(r.Context(), []string{body.Email}, "Sign in to Applad", html)
+		defHTML := fmt.Sprintf(`<h2>Sign in to Applad</h2><p>Click the link below to sign in:</p><p><a href="%s">Sign In</a></p><p>This link expires in 15 minutes.</p>`, link)
+		subject, html := h.resolveAuthMessage(r.Context(), projectID, "magic", "Sign in to Applad", defHTML,
+			map[string]string{"url": link, "email": body.Email})
+		h.mailer.SendEmail(r.Context(), []string{body.Email}, subject, html)
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "sent"})
@@ -764,8 +810,10 @@ func (h *Handler) createEmailVerification(w http.ResponseWriter, r *http.Request
 			if body.URL != "" {
 				link = body.URL + "?secret=" + token
 			}
-			html := fmt.Sprintf(`<h2>Verify your email</h2><p>Click the link below to verify your email address:</p><p><a href="%s">Verify Email</a></p><p>This link expires in 24 hours.</p>`, link)
-			h.mailer.SendEmail(r.Context(), []string{user.Email}, "Verify your email", html)
+			defHTML := fmt.Sprintf(`<h2>Verify your email</h2><p>Click the link below to verify your email address:</p><p><a href="%s">Verify Email</a></p><p>This link expires in 24 hours.</p>`, link)
+			subject, html := h.resolveAuthMessage(r.Context(), projectID, "verification", "Verify your email", defHTML,
+				map[string]string{"url": link, "email": user.Email, "name": user.Name})
+			h.mailer.SendEmail(r.Context(), []string{user.Email}, subject, html)
 		}
 	}
 
@@ -813,8 +861,10 @@ func (h *Handler) createPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if body.URL != "" {
 			link = body.URL + "?secret=" + token
 		}
-		html := fmt.Sprintf(`<h2>Reset your password</h2><p>Click the link below to reset your password:</p><p><a href="%s">Reset Password</a></p><p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>`, link)
-		h.mailer.SendEmail(r.Context(), []string{body.Email}, "Reset your password", html)
+		defHTML := fmt.Sprintf(`<h2>Reset your password</h2><p>Click the link below to reset your password:</p><p><a href="%s">Reset Password</a></p><p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>`, link)
+		subject, html := h.resolveAuthMessage(r.Context(), projectID, "recovery", "Reset your password", defHTML,
+			map[string]string{"url": link, "email": body.Email})
+		h.mailer.SendEmail(r.Context(), []string{body.Email}, subject, html)
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "sent"})
@@ -1035,7 +1085,9 @@ func (h *Handler) sendPhoneOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Send SMS if sender configured
 	if h.smsSender != nil {
-		msg := fmt.Sprintf("Your Applad verification code is: %s", code)
+		_, msg := h.resolveAuthMessage(r.Context(), projectID, "otp", "",
+			fmt.Sprintf("Your Applad verification code is: %s", code),
+			map[string]string{"otp": code, "code": code})
 		if err := h.smsSender.SendSMS(r.Context(), body.Phone, msg); err != nil {
 			apperr.Internal(w, fmt.Errorf("failed to send SMS: %w", err))
 			return

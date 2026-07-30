@@ -167,6 +167,45 @@ jobs:
           cache-from: type=gha,scope=worker-${{ matrix.worker }}
           cache-to: type=gha,scope=worker-${{ matrix.worker }},mode=max
 
+  # ── CLI binaries (matrix) ─────────────────────────────────────────────────────
+  # Cross-compile the `applad` CLI for every OS/arch and attach the binaries to
+  # the release, so a user can download one directly instead of building it.
+  cli:
+    name: Build CLI ${{ matrix.goos }}-${{ matrix.goarch }}
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/backend/go.mod
+
+      - name: Build binary
+        working-directory: apps/backend
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          out="applad-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then out="$out.exe"; fi
+          go build -trimpath -ldflags "-s -w" -o "$out" ./cmd/cli
+          echo "ASSET=apps/backend/$out" >> "$GITHUB_ENV"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ env.VERSION }}" "${{ env.ASSET }}" --clobber
+
   # ── Attach install assets to the release ──────────────────────────────────────
   # Only on a real release (dispatch has no release to attach to). Lets a
   # self-hoster grab the exact compose + env for this version.

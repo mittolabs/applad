@@ -374,6 +374,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			// over the instance-wide env config, falling back to the latter.
 			authHandler.SetOAuthResolver(&projectOAuthResolver{svc: projectOAuthSvc, global: oauthProviders})
 			authHandler.SetMailer(messagingSvc)
+			// Per-project custom copy for the verification/magic/recovery emails
+			// and the OTP SMS, edited in the console. Falls back to built-in copy.
+			authHandler.SetTemplateResolver(projectSvc)
 
 			r.Mount("/account", auth.AccountRoutes(authHandler))
 

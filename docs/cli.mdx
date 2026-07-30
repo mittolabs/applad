@@ -1,0 +1,188 @@
+---
+title: CLI
+icon: Terminal
+description: "Install the applad CLI and drive projects, functions, deploys, schema, env and logs from your terminal."
+---
+
+The `applad` CLI talks to the same [`/v1` REST API](/) the SDKs and console use.
+It authenticates once, remembers your active project, and sends every request
+with the right `X-Applad-Project` header, so you can script the platform or
+manage it by hand without writing HTTP calls.
+
+## Install
+
+The quickest path is to download a prebuilt binary from a
+[GitHub Release](https://github.com/mittolabs/applad/releases). Every release
+attaches one binary per platform, named `applad-<os>-<arch>` (Windows binaries
+end in `.exe`). Pick the one that matches your machine, make it executable, and
+put it on your `PATH`:
+
+```bash
+# macOS (Apple silicon) example. Swap in the asset for your OS/arch.
+curl -L -o applad https://github.com/mittolabs/applad/releases/latest/download/applad-darwin-arm64
+chmod +x applad
+sudo mv applad /usr/local/bin/applad
+
+applad --version
+```
+
+The published assets cover `linux`, `darwin` and `windows`, each for `amd64` and
+`arm64`.
+
+### Build from source
+
+If you have Go installed you can build the binary yourself. The backend module
+is `github.com/mittolabs/applad` and the CLI lives at `./cmd/cli` inside it:
+
+```bash
+git clone https://github.com/mittolabs/applad.git
+cd applad/apps/backend
+go build -o applad ./cmd/cli
+```
+
+Go users can also install it directly by module path:
+
+```bash
+go install github.com/mittolabs/applad/cmd/cli@latest
+```
+
+## Log in
+
+`applad login` exchanges your console email and password for a token and stores
+it, together with the API URL, in `~/.applad/config.json`. Pass `--url` to point
+at your instance (it defaults to `http://localhost:80`):
+
+```bash
+applad login --url https://console.applad.io
+```
+
+You are prompted for the email and password if you do not pass `--email` and
+`--password`. After a successful login the CLI lists your projects and lets you
+pick an active one. `applad whoami` shows who you are signed in as, and
+`applad logout` clears the stored credentials.
+
+<Callout title="Environment overrides">
+  Instead of logging in you can set `APPLAD_URL`, `APPLAD_PROJECT` and
+  `APPLAD_KEY` in the environment. This is handy in CI, where you would rather
+  not write a config file to disk.
+</Callout>
+
+## Select a project
+
+Most commands act on one project. List them, then set the active one; its ID is
+saved to your config and reused by every later command:
+
+```bash
+applad projects list
+applad projects use <projectId>
+```
+
+You can also create and delete projects:
+
+```bash
+applad projects create --name "My app"
+applad projects delete <projectId>
+```
+
+## Push a function
+
+`applad functions push` creates a function, or updates it if one with the same
+name already exists. It reads inline source from a local file, or from the
+conventional entrypoint file inside a directory (`index.js`, `main.py`,
+`main.go`, `main.dart`, `index.ts`), and sends it with the runtime you choose:
+
+```bash
+applad functions push hello \
+  --runtime node20 \
+  --source ./functions/hello.js \
+  --env GREETING=hi
+
+# see the runtimes you can target
+applad functions runtimes
+```
+
+Repeat `--env KEY=VALUE` for each variable. Once a function exists you can run it
+and read its execution history:
+
+```bash
+applad functions invoke <functionId> --data '{"name":"ada"}'
+applad functions logs <functionId>
+```
+
+## Create and trigger a deploy target
+
+`applad deploy create` creates a deploy target. The type defaults to `web`; pass
+`--type serverless` for a function-style target you can invoke on demand:
+
+```bash
+applad deploy create api --type serverless --runtime node20
+
+applad deploy list
+applad deploy trigger <targetId> --data '{"path":"/"}'
+applad deploy status <targetId>
+```
+
+`trigger` starts a serverless target execution and prints the queued execution.
+
+## Push a schema
+
+`applad schema push` reads a JSON file describing databases, tables and columns
+and creates anything missing, so your schema lives in version control. Existing
+objects are left in place:
+
+```bash
+applad schema push --file schema.json
+applad schema dump
+```
+
+A minimal `schema.json`:
+
+```json
+{
+  "databases": [
+    {
+      "name": "main",
+      "tables": [
+        {
+          "name": "todos",
+          "columns": [
+            { "key": "title", "type": "string", "required": true },
+            { "key": "done", "type": "boolean", "required": false }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Manage environment variables
+
+Project credentials (environment variables) are managed with `applad env`:
+
+```bash
+applad env list
+applad env set STRIPE_KEY --value sk_live_...
+applad env delete <credentialId>
+```
+
+## Tail logs
+
+`applad logs` polls the project's audit log and prints new entries as they
+arrive, so you can watch requests while you work. Stop it with Ctrl+C:
+
+```bash
+applad logs
+```
+
+## More commands
+
+The same pattern extends across the platform: `applad databases`, `applad
+storage`, `applad auth`, `applad workflows`, `applad analytics`, `applad
+search`, `applad vectors` and `applad flags` each expose their service. Run any
+command with `--help` to see its subcommands and flags:
+
+```bash
+applad --help
+applad functions --help
+```

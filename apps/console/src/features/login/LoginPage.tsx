@@ -12,6 +12,7 @@ import {
   Loader2,
   LogIn,
 } from 'lucide-react';
+import { isAxiosError } from 'axios';
 import { api, friendlyError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { Input } from '@/components/ui/input';
@@ -61,6 +62,10 @@ export function LoginPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [surfacedToken, setSurfacedToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Set once the backend answers a correct password with console_mfa_required:
+  // the form then asks for the authenticator code and resubmits with it.
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
 
   const isSignup = mode === 'signup';
 
@@ -146,6 +151,8 @@ export function LoginPage() {
     setError(null);
     setSuccess(null);
     setSurfacedToken(null);
+    setMfaRequired(false);
+    setMfaCode('');
     if (m === 'signup') setPolicyAccepted(false);
   };
 
@@ -157,11 +164,25 @@ export function LoginPage() {
         await signup(email, password, name);
         navigate('/onboarding');
       } else {
-        await login(email, password);
+        await login(email, password, mfaRequired ? mfaCode : undefined);
         navigate('/projects');
       }
     } catch (e) {
-      setError(friendlyError(e));
+      // A correct password on an MFA-enrolled account comes back as
+      // console_mfa_required: reveal the code field instead of showing an
+      // error. A bad code comes back as console_mfa_invalid.
+      const type = isAxiosError(e)
+        ? (e.response?.data as { type?: string } | undefined)?.type
+        : undefined;
+      if (type === 'console_mfa_required') {
+        setMfaRequired(true);
+        setError(null);
+      } else if (type === 'console_mfa_invalid') {
+        setMfaRequired(true);
+        setError('Invalid authentication code. Try again.');
+      } else {
+        setError(friendlyError(e));
+      }
     } finally {
       setBusy(false);
     }
@@ -303,6 +324,9 @@ export function LoginPage() {
                 setPassword={setPassword}
                 showPw={showPw}
                 setShowPw={setShowPw}
+                mfaRequired={mfaRequired}
+                mfaCode={mfaCode}
+                setMfaCode={setMfaCode}
                 policyAccepted={policyAccepted}
                 setPolicyAccepted={setPolicyAccepted}
                 busy={busy}
@@ -335,6 +359,9 @@ function LoginSignupForm({
   setPassword,
   showPw,
   setShowPw,
+  mfaRequired,
+  mfaCode,
+  setMfaCode,
   policyAccepted,
   setPolicyAccepted,
   busy,
@@ -355,6 +382,9 @@ function LoginSignupForm({
   setPassword: (v: string) => void;
   showPw: boolean;
   setShowPw: (v: boolean) => void;
+  mfaRequired: boolean;
+  mfaCode: string;
+  setMfaCode: (v: string) => void;
   policyAccepted: boolean;
   setPolicyAccepted: (v: boolean) => void;
   busy: boolean;
@@ -423,6 +453,26 @@ function LoginSignupForm({
         </div>
       )}
 
+      {!isSignup && mfaRequired && (
+        <>
+          <div className="h-5" />
+          <FieldLabel>Authentication code</FieldLabel>
+          <Input
+            value={mfaCode}
+            onChange={(e) => setMfaCode(e.target.value.replace(/\s/g, ''))}
+            placeholder="6-digit code or recovery code"
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            autoFocus
+            required
+          />
+          <div className="mt-2 flex items-center gap-1.5 text-[12px] text-text-subtle">
+            <Info size={14} />
+            Enter the code from your authenticator app
+          </div>
+        </>
+      )}
+
       {error && <ErrorBanner message={error} />}
       <div className="h-6" />
 
@@ -434,7 +484,7 @@ function LoginSignupForm({
       )}
 
       <SubmitButton busy={busy} disabled={isSignup && !policyAccepted}>
-        {isSignup ? 'Sign up' : 'Sign in'}
+        {isSignup ? 'Sign up' : mfaRequired ? 'Verify code' : 'Sign in'}
       </SubmitButton>
       <div className="h-4" />
 

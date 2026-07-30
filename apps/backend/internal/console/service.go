@@ -8,15 +8,33 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/totp"
 	"github.com/mittolabs/applad/internal/uid"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// mfaIssuer labels the account in an authenticator app.
+const mfaIssuer = "Applad Console"
+
+// ErrMFARequired means the password was correct but the account has MFA
+// enrolled and no code (or an empty one) was supplied. The caller should
+// re-prompt with a code rather than treating this as a failed sign-in.
+var ErrMFARequired = errors.New("console: mfa code required")
+
+// ErrMFAInvalid means a code was supplied for an MFA-enrolled account and it
+// matched neither the current TOTP window nor an unused recovery code.
+var ErrMFAInvalid = errors.New("console: invalid mfa code")
+
+// ErrInvalidCredentials means the email or password was wrong.
+var ErrInvalidCredentials = errors.New("console: invalid credentials")
 
 // resetEntry stores a pending password-reset token.
 type resetEntry struct {
@@ -28,11 +46,12 @@ var resetTokens sync.Map // string → resetEntry
 
 // ConsoleUser represents an admin console user.
 type ConsoleUser struct {
-	ID        string    `json:"$id"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"$createdAt"`
-	UpdatedAt time.Time `json:"$updatedAt"`
+	ID         string    `json:"$id"`
+	Email      string    `json:"email"`
+	Name       string    `json:"name"`
+	MFAEnabled bool      `json:"mfaEnabled"`
+	CreatedAt  time.Time `json:"$createdAt"`
+	UpdatedAt  time.Time `json:"$updatedAt"`
 }
 
 // ConsoleClaims is the JWT claims structure for console auth.
@@ -81,33 +100,73 @@ func (s *Service) Signup(ctx context.Context, email, password, name string) (*Co
 	}, token, nil
 }
 
-// Login authenticates a console user by email+password.
-func (s *Service) Login(ctx context.Context, email, password string) (*ConsoleUser, string, error) {
+// Login authenticates a console user by email+password, and — when the account
+// has MFA enrolled — by a valid TOTP or recovery code. The password is checked
+// first, so an attacker learns nothing about whether MFA is on until they have
+// the password. code may be empty on the first attempt: a correct password on
+// an MFA-enrolled account returns ErrMFARequired, and the caller re-prompts.
+func (s *Service) Login(ctx context.Context, email, password, code string) (*ConsoleUser, error) {
 	var u ConsoleUser
 	var hash string
-	var name sql.NullString
+	var name, secret, recovery sql.NullString
 
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, email, name, password_hash, created_at, updated_at FROM console_users WHERE email = $1",
-		email).Scan(&u.ID, &u.Email, &name, &hash, &u.CreatedAt, &u.UpdatedAt)
+		`SELECT id, email, name, password_hash, mfa_enabled, mfa_secret, mfa_recovery, created_at, updated_at
+		   FROM console_users WHERE email = $1`,
+		email).Scan(&u.ID, &u.Email, &name, &hash, &u.MFAEnabled, &secret, &recovery, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
-		return nil, "", fmt.Errorf("console: invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	u.Name = name.String
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
-		return nil, "", fmt.Errorf("console: invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
 
-	token, err := s.signJWT(u.ID, u.Email, "")
-	if err != nil {
-		return nil, "", err
+	// Password was correct. If the account has a second factor, it must be
+	// satisfied before the sign-in completes.
+	if u.MFAEnabled {
+		if code == "" {
+			return nil, ErrMFARequired
+		}
+		ok, err := s.consumeMFACode(ctx, u.ID, secret.String, recovery.String, code)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, ErrMFAInvalid
+		}
 	}
 
-	return &u, token, nil
+	return &u, nil
+}
+
+// consumeMFACode reports whether code is a valid TOTP code for the secret, or
+// an unused recovery code — in which case that recovery code is spent. A used
+// recovery code cannot be replayed.
+func (s *Service) consumeMFACode(ctx context.Context, userID, secretB32, recoveryJSON, code string) (bool, error) {
+	if secretB32 != "" && totp.Validate(secretB32, code) {
+		return true, nil
+	}
+	var recovery []string
+	if recoveryJSON != "" {
+		_ = json.Unmarshal([]byte(recoveryJSON), &recovery)
+	}
+	for i, rc := range recovery {
+		if rc == code {
+			recovery = append(recovery[:i], recovery[i+1:]...)
+			newJSON, _ := json.Marshal(recovery)
+			if _, err := s.db.ExecContext(ctx,
+				"UPDATE console_users SET mfa_recovery = $1 WHERE id = $2", string(newJSON), userID); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // GetMe returns the console user by ID (from JWT).
@@ -115,8 +174,8 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*ConsoleUser, error
 	var u ConsoleUser
 	var name sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, email, name, created_at, updated_at FROM console_users WHERE id = $1",
-		userID).Scan(&u.ID, &u.Email, &name, &u.CreatedAt, &u.UpdatedAt)
+		"SELECT id, email, name, mfa_enabled, created_at, updated_at FROM console_users WHERE id = $1",
+		userID).Scan(&u.ID, &u.Email, &name, &u.MFAEnabled, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("console: user not found")
 	}
@@ -125,6 +184,103 @@ func (s *Service) GetMe(ctx context.Context, userID string) (*ConsoleUser, error
 	}
 	u.Name = name.String
 	return &u, nil
+}
+
+// --- Console MFA (TOTP) ---
+
+// MFAStatus reports whether the console user has MFA enabled.
+func (s *Service) MFAStatus(ctx context.Context, userID string) (bool, error) {
+	var enabled bool
+	err := s.db.QueryRowContext(ctx,
+		"SELECT mfa_enabled FROM console_users WHERE id = $1", userID).Scan(&enabled)
+	if err == sql.ErrNoRows {
+		return false, fmt.Errorf("console: user not found")
+	}
+	return enabled, err
+}
+
+// BeginMFAEnrollment generates a fresh TOTP secret and recovery codes for the
+// user and stores them, but leaves mfa_enabled false: enrolment is not complete
+// until a first valid code is verified. Returns the secret, the otpauth URI to
+// render as a QR code, and the recovery codes to show once.
+func (s *Service) BeginMFAEnrollment(ctx context.Context, userID string) (secret, uri string, recovery []string, err error) {
+	secret, err = totp.NewSecret()
+	if err != nil {
+		return "", "", nil, err
+	}
+	recovery, err = totp.NewRecoveryCodes(8)
+	if err != nil {
+		return "", "", nil, err
+	}
+	recoveryJSON, _ := json.Marshal(recovery)
+
+	var email sql.NullString
+	if err = s.db.QueryRowContext(ctx,
+		`UPDATE console_users SET mfa_secret = $1, mfa_recovery = $2, mfa_enabled = FALSE
+		  WHERE id = $3 RETURNING email`,
+		secret, string(recoveryJSON), userID).Scan(&email); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", nil, fmt.Errorf("console: user not found")
+		}
+		return "", "", nil, err
+	}
+	uri = totp.OTPAuthURL(mfaIssuer, email.String, secret)
+	return secret, uri, recovery, nil
+}
+
+// VerifyMFA validates the first code against the pending secret and, if it
+// matches, enables MFA. A wrong code returns ErrMFAInvalid and leaves the
+// account unprotected rather than half-enrolled.
+func (s *Service) VerifyMFA(ctx context.Context, userID, code string) error {
+	var secret sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		"SELECT mfa_secret FROM console_users WHERE id = $1", userID).Scan(&secret)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("console: user not found")
+	}
+	if err != nil {
+		return err
+	}
+	if secret.String == "" {
+		return fmt.Errorf("console: mfa enrolment not started")
+	}
+	if !totp.Validate(secret.String, code) {
+		return ErrMFAInvalid
+	}
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE console_users SET mfa_enabled = TRUE WHERE id = $1", userID)
+	return err
+}
+
+// DisableMFA turns MFA off, but only for someone who can still present a valid
+// code (TOTP or recovery) — so a walk-up on an unlocked session cannot strip
+// the second factor. Clears the secret and recovery codes.
+func (s *Service) DisableMFA(ctx context.Context, userID, code string) error {
+	var enabled bool
+	var secret, recovery sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		"SELECT mfa_enabled, mfa_secret, mfa_recovery FROM console_users WHERE id = $1", userID).
+		Scan(&enabled, &secret, &recovery)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("console: user not found")
+	}
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil // already off; nothing to protect
+	}
+	ok, err := s.consumeMFACode(ctx, userID, secret.String, recovery.String, code)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrMFAInvalid
+	}
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE console_users SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_recovery = NULL WHERE id = $1",
+		userID)
+	return err
 }
 
 // UpdateName updates a console user's name.

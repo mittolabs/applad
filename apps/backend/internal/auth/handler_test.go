@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-chi/chi/v5"
+	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/middleware"
 )
 
@@ -222,6 +224,137 @@ func TestUserRoutes_Structure(t *testing.T) {
 	router := UserRoutes(h)
 	if router == nil {
 		t.Fatal("expected non-nil router")
+	}
+}
+
+// --- auth message templates ------------------------------------------------
+
+// fakeMailer captures the last email so a test can assert what was sent.
+type fakeMailer struct {
+	to      []string
+	subject string
+	body    string
+	calls   int
+}
+
+func (m *fakeMailer) SendEmail(_ context.Context, to []string, subject, htmlBody string) error {
+	m.to, m.subject, m.body, m.calls = to, subject, htmlBody, m.calls+1
+	return nil
+}
+
+// fakeTemplateResolver returns a fixed template for one key, mimicking a
+// project that saved custom copy.
+type fakeTemplateResolver struct {
+	key     string
+	subject string
+	body    string
+}
+
+func (r fakeTemplateResolver) AuthEmailTemplate(_ context.Context, _, key string) (string, string, bool) {
+	if key == r.key {
+		return r.subject, r.body, true
+	}
+	return "", "", false
+}
+
+// magicLinkHandler builds a handler wired to a sqlmock service so the
+// magic-link flow reaches the mailer without a real database.
+func magicLinkHandler(t *testing.T, mailer EmailSender, resolver AuthTemplateResolver) (*Handler, sqlmock.Sqlmock) {
+	t.Helper()
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { mockDB.Close() })
+	// User exists, so CreateMagicLinkToken skips the insert and mints a token.
+	mock.ExpectQuery("SELECT id FROM users").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("user-1"))
+	mock.ExpectExec("INSERT INTO auth_tokens").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	h := NewHandler(NewService(&db.DB{DB: mockDB}, "test-secret"))
+	h.SetMailer(mailer)
+	if resolver != nil {
+		h.SetTemplateResolver(resolver)
+	}
+	return h, mock
+}
+
+func postMagicLink(h *Handler) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/sessions/magic",
+		bytes.NewReader([]byte(`{"email":"user@example.com","url":"https://app.example/callback"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux := chi.NewMux()
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(context.WithValue(r.Context(), projectCtxKeyType(4), "test-project"))
+			next.ServeHTTP(w, r)
+		})
+	})
+	mux.Post("/sessions/magic", h.createMagicLink)
+	mux.ServeHTTP(w, req)
+	return w
+}
+
+// A project with a saved magic-link template: the mailer must receive the
+// rendered custom subject and body, with {{url}} substituted.
+func TestMagicLink_UsesCustomTemplate(t *testing.T) {
+	mailer := &fakeMailer{}
+	resolver := fakeTemplateResolver{
+		key:     "magic",
+		subject: "Your {{email}} sign-in link",
+		body:    `<p>Tap <a href="{{url}}">here</a> to sign in.</p>`,
+	}
+	h, _ := magicLinkHandler(t, mailer, resolver)
+
+	if w := postMagicLink(h); w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if mailer.calls != 1 {
+		t.Fatalf("expected 1 email, got %d", mailer.calls)
+	}
+	if mailer.subject != "Your user@example.com sign-in link" {
+		t.Fatalf("custom subject not rendered: %q", mailer.subject)
+	}
+	if !strings.Contains(mailer.body, `href="https://app.example/callback?secret=`) {
+		t.Fatalf("custom body missing rendered url: %q", mailer.body)
+	}
+	if strings.Contains(mailer.body, "Sign in to Applad") {
+		t.Fatalf("built-in body leaked despite custom template: %q", mailer.body)
+	}
+	if strings.Contains(mailer.body, "{{url}}") {
+		t.Fatalf("placeholder left unrendered: %q", mailer.body)
+	}
+}
+
+// Without a resolver (or when the project saved nothing) the built-in copy is
+// used, so the fallback keeps working.
+func TestMagicLink_FallsBackToBuiltInCopy(t *testing.T) {
+	mailer := &fakeMailer{}
+	// Resolver only has copy for "recovery", so "magic" falls through.
+	resolver := fakeTemplateResolver{key: "recovery", subject: "x", body: "y"}
+	h, _ := magicLinkHandler(t, mailer, resolver)
+
+	if w := postMagicLink(h); w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if mailer.subject != "Sign in to Applad" {
+		t.Fatalf("expected built-in subject, got %q", mailer.subject)
+	}
+	if !strings.Contains(mailer.body, "Sign in to Applad") {
+		t.Fatalf("expected built-in body, got %q", mailer.body)
+	}
+}
+
+func TestRenderAuthMessage(t *testing.T) {
+	got := renderAuthMessage("Hi {{name}}, code {{otp}}", map[string]string{"name": "Sam", "otp": "123456"})
+	if got != "Hi Sam, code 123456" {
+		t.Fatalf("unexpected render: %q", got)
+	}
+	// Unknown placeholders are preserved rather than blanked.
+	if got := renderAuthMessage("{{missing}}", map[string]string{}); got != "{{missing}}" {
+		t.Fatalf("expected placeholder preserved, got %q", got)
 	}
 }
 

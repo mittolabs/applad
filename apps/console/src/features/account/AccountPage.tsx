@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Eye, EyeOff, KeyRound, Monitor, ShieldAlert, Smartphone } from 'lucide-react';
+import {
+  Activity,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Monitor,
+  ShieldAlert,
+  ShieldCheck,
+  Smartphone,
+} from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useOrgs } from '@/api/queries';
@@ -160,10 +169,7 @@ function OverviewTab() {
         </div>
       </Card>
 
-      {/* The MFA card was removed: it was a Switch bound only to local state
-       * with no API behind it, and there is no console-admin MFA backend
-       * (console/handler.go registers no MFA route). Restore it only once a
-       * real console-admin MFA feature exists to enroll and verify against. */}
+      <MfaCard />
 
       <Card
         title="Delete account"
@@ -196,6 +202,203 @@ function OverviewTab() {
         onConfirm={() => del.mutate()}
       />
     </div>
+  );
+}
+
+interface EnrollData {
+  secret: string;
+  uri: string;
+  recoveryCodes: string[];
+}
+
+/* Console-admin MFA (TOTP). The console owner controls every project and all
+ * data on a self-hosted instance, so a second factor here protects the most
+ * privileged account. Enrolment shows the secret to add to an authenticator app
+ * (plus recovery codes shown once), and a first code confirms it. Disabling
+ * requires a current code so an unlocked session cannot strip the factor. */
+function MfaCard() {
+  const qc = useQueryClient();
+  const [enroll, setEnroll] = useState<EnrollData | null>(null);
+  const [code, setCode] = useState('');
+  const [disabling, setDisabling] = useState(false);
+  const [disableCode, setDisableCode] = useState('');
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  const { data: enabled, isLoading } = useQuery({
+    queryKey: ['console-mfa'],
+    queryFn: async () => {
+      const res = await api.get('/console/me/mfa');
+      return Boolean((res.data as { enabled?: boolean }).enabled);
+    },
+  });
+
+  const begin = useMutation({
+    mutationFn: async () => {
+      const res = await api.post('/console/me/mfa');
+      return res.data as EnrollData;
+    },
+    onSuccess: (d) => {
+      setEnroll(d);
+      setCode('');
+      setMsg(null);
+    },
+    onError: (e) => setMsg({ kind: 'err', text: friendlyError(e) }),
+  });
+
+  const verify = useMutation({
+    mutationFn: () => api.put('/console/me/mfa', { code }),
+    onSuccess: () => {
+      setEnroll(null);
+      setCode('');
+      setMsg({ kind: 'ok', text: 'Two-factor authentication is on.' });
+      void qc.invalidateQueries({ queryKey: ['console-mfa'] });
+    },
+    onError: (e) => setMsg({ kind: 'err', text: friendlyError(e) }),
+  });
+
+  const disable = useMutation({
+    mutationFn: () => api.delete('/console/me/mfa', { data: { code: disableCode } }),
+    onSuccess: () => {
+      setDisabling(false);
+      setDisableCode('');
+      setMsg({ kind: 'ok', text: 'Two-factor authentication is off.' });
+      void qc.invalidateQueries({ queryKey: ['console-mfa'] });
+    },
+    onError: (e) => setMsg({ kind: 'err', text: friendlyError(e) }),
+  });
+
+  return (
+    <Card
+      title="Two-factor authentication"
+      icon={enabled ? ShieldCheck : ShieldAlert}
+      subtitle="Protect your admin account with a time-based code from an authenticator app."
+    >
+      <div className="flex flex-col gap-4">
+        {msg && (
+          <div
+            className={`rounded-[var(--radius)] px-3 py-2 text-[length:var(--text-caption)] ${
+              msg.kind === 'ok'
+                ? 'bg-[color-mix(in_srgb,var(--status-success)_10%,transparent)] text-[var(--status-success)]'
+                : 'bg-[color-mix(in_srgb,var(--color-danger)_10%,transparent)] text-[var(--status-danger)]'
+            }`}
+          >
+            {msg.text}
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="text-[length:var(--text-body)] text-text-subtle">Loading…</div>
+        ) : enabled ? (
+          // --- Enabled state ---
+          !disabling ? (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-[length:var(--text-body)] text-[var(--status-success)]">
+                <ShieldCheck size={16} />
+                Enabled
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setDisabling(true)}>
+                Disable
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>Enter a code to disable</Label>
+                <Input
+                  value={disableCode}
+                  onChange={(e) => setDisableCode(e.target.value.replace(/\s/g, ''))}
+                  placeholder="6-digit or recovery code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setDisabling(false);
+                    setDisableCode('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  loading={disable.isPending}
+                  disabled={!disableCode}
+                  onClick={() => disable.mutate()}
+                >
+                  Disable
+                </Button>
+              </div>
+            </div>
+          )
+        ) : enroll ? (
+          // --- Enrolling: show secret + recovery codes, then verify ---
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label>Add this key to your authenticator app</Label>
+              <div className="rounded-[var(--radius)] border border-border bg-surface-alt px-3 py-2 font-[family-name:var(--font-mono)] text-[length:var(--text-body)] tracking-[0.15em] text-text-primary break-all">
+                {enroll.secret}
+              </div>
+              <a
+                href={enroll.uri}
+                className="text-[length:var(--text-caption)] text-[var(--color-accent)] underline"
+              >
+                Open in an authenticator app
+              </a>
+            </div>
+
+            {enroll.recoveryCodes.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <Label>Recovery codes (save these — shown once)</Label>
+                <div className="grid grid-cols-2 gap-1.5 rounded-[var(--radius)] border border-border bg-surface-alt px-3 py-2.5 font-[family-name:var(--font-mono)] text-[length:var(--text-caption)] text-text-secondary">
+                  {enroll.recoveryCodes.map((rc) => (
+                    <span key={rc}>{rc}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              <Label>Enter the code from your app to confirm</Label>
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\s/g, ''))}
+                placeholder="6-digit code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setEnroll(null);
+                  setCode('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button loading={verify.isPending} disabled={!code} onClick={() => verify.mutate()}>
+                Verify and enable
+              </Button>
+            </div>
+          </div>
+        ) : (
+          // --- Disabled state: offer to enroll ---
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[length:var(--text-body)] text-text-muted">
+              Two-factor authentication is off.
+            </div>
+            <Button loading={begin.isPending} onClick={() => begin.mutate()}>
+              Enable
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

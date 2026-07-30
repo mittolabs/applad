@@ -552,6 +552,100 @@ func (s *Service) UpdateAuthSecurity(ctx context.Context, projectID string, sec 
 	return nil
 }
 
+// AuthEmailTemplate is a customizable subject/body for one auth message flow
+// (email verification, magic link, password recovery) or the OTP SMS body.
+// {{variable}} placeholders are rendered by the auth sender at send time.
+type AuthEmailTemplate struct {
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
+}
+
+// AuthTemplateKeys are the auth flows whose messages can be customized. These
+// are exactly the flows that pass through the auth mailer/SMS sender; team
+// invites are shown as a one-time link rather than emailed, so they are not
+// listed here.
+var AuthTemplateKeys = []string{"verification", "magic", "recovery", "otp"}
+
+func isAuthTemplateKey(key string) bool {
+	for _, k := range AuthTemplateKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// GetAuthEmailTemplates reads the emailTemplates sub-key from a project's
+// auth_config. A project with no customizations returns an empty map, which the
+// sender reads as "use the built-in copy".
+func (s *Service) GetAuthEmailTemplates(ctx context.Context, projectID string) (map[string]AuthEmailTemplate, error) {
+	out := map[string]AuthEmailTemplate{}
+	var raw sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		"SELECT auth_config FROM projects WHERE id = $1", projectID).Scan(&raw)
+	if err != nil {
+		return out, fmt.Errorf("projects: get auth templates: %w", err)
+	}
+	if !raw.Valid || raw.String == "" || raw.String == "null" {
+		return out, nil
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw.String), &cfg); err != nil {
+		return out, nil
+	}
+	if tRaw, ok := cfg["emailTemplates"]; ok {
+		_ = json.Unmarshal(tRaw, &out)
+	}
+	return out, nil
+}
+
+// UpdateAuthEmailTemplates merges the emailTemplates sub-key into a project's
+// auth_config. Unknown keys are dropped and a template with an empty body is
+// removed, so clearing an editor reverts that flow to the built-in copy.
+func (s *Service) UpdateAuthEmailTemplates(ctx context.Context, projectID string, templates map[string]AuthEmailTemplate) error {
+	clean := map[string]AuthEmailTemplate{}
+	for key, tpl := range templates {
+		if !isAuthTemplateKey(key) {
+			continue
+		}
+		if strings.TrimSpace(tpl.Body) == "" && strings.TrimSpace(tpl.Subject) == "" {
+			continue
+		}
+		clean[key] = tpl
+	}
+	var raw sql.NullString
+	_ = s.db.QueryRowContext(ctx,
+		"SELECT auth_config FROM projects WHERE id = $1", projectID).Scan(&raw)
+	cfg := map[string]interface{}{}
+	if raw.Valid && raw.String != "" && raw.String != "null" {
+		_ = json.Unmarshal([]byte(raw.String), &cfg)
+	}
+	cfg["emailTemplates"] = clean
+	configJSON, _ := json.Marshal(cfg)
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE projects SET auth_config = $1 WHERE id = $2", configJSON, projectID)
+	if err != nil {
+		return fmt.Errorf("projects: update auth templates: %w", err)
+	}
+	return nil
+}
+
+// AuthEmailTemplate resolves one project's customized template for an auth flow.
+// It implements the resolver the auth handler consumes: ok is false when the
+// project has no usable custom body for that key, so the caller keeps its
+// built-in copy. Subject may be empty (the OTP flow carries a body only).
+func (s *Service) AuthEmailTemplate(ctx context.Context, projectID, key string) (subject, body string, ok bool) {
+	templates, err := s.GetAuthEmailTemplates(ctx, projectID)
+	if err != nil {
+		return "", "", false
+	}
+	tpl, exists := templates[key]
+	if !exists || strings.TrimSpace(tpl.Body) == "" {
+		return "", "", false
+	}
+	return tpl.Subject, tpl.Body, true
+}
+
 // UpdateAuthConfig updates the auth_config JSON for a project.
 func (s *Service) UpdateAuthConfig(ctx context.Context, projectID string, config map[string]interface{}) error {
 	configJSON, _ := json.Marshal(config)

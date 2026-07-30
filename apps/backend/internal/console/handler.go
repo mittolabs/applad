@@ -2,6 +2,7 @@ package console
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -170,6 +171,10 @@ func Routes(h *Handler) http.Handler {
 	r.Patch("/me/name", h.updateName)
 	r.Patch("/me/email", h.updateEmail)
 	r.Patch("/me/password", h.updatePassword)
+	r.Get("/me/mfa", h.mfaStatus)
+	r.Post("/me/mfa", h.mfaEnroll)
+	r.Put("/me/mfa", h.mfaVerify)
+	r.Delete("/me/mfa", h.mfaDisable)
 	r.Delete("/me", h.deleteAccount)
 	r.Get("/sessions", h.listSessions)
 	r.Delete("/sessions/{id}", h.revokeSession)
@@ -255,6 +260,10 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		// Code is the TOTP or recovery code, required only once the account has
+		// MFA enrolled. Absent on the first request; the client resubmits with
+		// it after a console_mfa_required challenge.
+		Code string `json:"code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -265,9 +274,18 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, _, err := h.svc.Login(r.Context(), body.Email, body.Password)
+	user, err := h.svc.Login(r.Context(), body.Email, body.Password, body.Code)
 	if err != nil {
-		apperr.Write(w, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
+		switch {
+		case errors.Is(err, ErrMFARequired):
+			// Password was correct but a second factor is needed. Signal the
+			// client to prompt for a code and resubmit.
+			apperr.Write(w, http.StatusUnauthorized, "console_mfa_required", "multi-factor authentication code required")
+		case errors.Is(err, ErrMFAInvalid):
+			apperr.Write(w, http.StatusUnauthorized, "console_mfa_invalid", "Invalid authentication code")
+		default:
+			apperr.Write(w, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
+		}
 		return
 	}
 
@@ -573,6 +591,98 @@ func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// --- MFA handlers ---
+
+// mfaStatus reports whether the signed-in admin has MFA enabled, so the account
+// page can render the enrolled state.
+func (h *Handler) mfaStatus(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	enabled, err := h.svc.MFAStatus(r.Context(), userID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"enabled": enabled})
+}
+
+// mfaEnroll begins enrolment: it returns the secret, the otpauth URI to show as
+// a QR code, and the one-time recovery codes. MFA is not active until a code is
+// verified via mfaVerify.
+func (h *Handler) mfaEnroll(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	secret, uri, recovery, err := h.svc.BeginMFAEnrollment(r.Context(), userID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"secret":        secret,
+		"uri":           uri,
+		"recoveryCodes": recovery,
+	})
+}
+
+// mfaVerify completes enrolment by checking the first code.
+func (h *Handler) mfaVerify(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Code == "" {
+		apperr.BadRequest(w, "code is required")
+		return
+	}
+	if err := h.svc.VerifyMFA(r.Context(), userID, body.Code); err != nil {
+		if errors.Is(err, ErrMFAInvalid) {
+			apperr.Write(w, http.StatusBadRequest, "console_mfa_invalid", "Invalid authentication code")
+			return
+		}
+		apperr.BadRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
+}
+
+// mfaDisable turns MFA off, but only for a caller who can still present a valid
+// code.
+func (h *Handler) mfaDisable(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Code == "" {
+		apperr.BadRequest(w, "code is required")
+		return
+	}
+	if err := h.svc.DisableMFA(r.Context(), userID, body.Code); err != nil {
+		if errors.Is(err, ErrMFAInvalid) {
+			apperr.Write(w, http.StatusBadRequest, "console_mfa_invalid", "Invalid authentication code")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
 }
 
 func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {

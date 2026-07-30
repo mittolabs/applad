@@ -34,7 +34,7 @@ interface AuthState {
   user: ConsoleUser | null;
   status: 'loading' | 'authenticated' | 'unauthenticated';
   init: () => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, code?: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
   loginWithToken: (token: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -87,8 +87,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  login: async (email, password) => {
-    const res = await api.post('/console/login', { email, password });
+  login: async (email, password, code) => {
+    const res = await api.post('/console/login', { email, password, code });
     const token = String((res.data as { token: string }).token);
     persistToken(token);
     const user = parseUser((res.data as { user: Record<string, unknown> }).user);
