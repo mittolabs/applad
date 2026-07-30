@@ -33,6 +33,7 @@ func (w *Usage) Start(ctx context.Context) error {
 		return err
 	}
 	w.db = database
+	StartRedisHeartbeat(ctx, w.rdb, "usage")
 	w.queue.StartReaper(ctx, "usage")
 
 	slog.Info("usage worker: listening for jobs")

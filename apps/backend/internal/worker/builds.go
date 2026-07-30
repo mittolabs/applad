@@ -53,6 +53,7 @@ func (w *Builds) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.rdb = rdb
 	w.queue = queue.New(rdb)
+	StartRedisHeartbeat(ctx, rdb, "builds")
 
 	database, err := db.Connect(w.cfg.DatabaseDSN, w.cfg.DBMaxOpenConns, w.cfg.DBMaxIdleConns)
 	if err != nil {

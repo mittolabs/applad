@@ -33,6 +33,7 @@ func NewCertificates(cfg *config.Config) *Certificates {
 func (w *Certificates) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
+	StartRedisHeartbeat(ctx, rdb, "certificates")
 	w.queue.StartReaper(ctx, "certificates")
 
 	slog.Info("certificates worker: listening for jobs")

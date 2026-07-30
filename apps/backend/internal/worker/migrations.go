@@ -31,6 +31,7 @@ func (w *Migrations) Start(ctx context.Context) error {
 		return err
 	}
 	w.db = database
+	StartRedisHeartbeat(ctx, rdb, "migrations")
 	w.queue.StartReaper(ctx, "migrations")
 
 	slog.Info("migrations worker: listening for jobs")

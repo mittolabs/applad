@@ -8,12 +8,14 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/uid"
+	workernames "github.com/mittolabs/applad/internal/worker/names"
 )
 
 const (
@@ -119,18 +121,74 @@ func (s *Service) probe(ctx context.Context, key string) probe {
 	return probe{status: statusOperational}
 }
 
-// probeWorkers reads the Redis heartbeats workers write (status:worker:*).
-// Fresh keys imply live workers; the keys carry a TTL so they vanish when a
-// worker dies.
+// workerHeartbeatTTL bounds how old a heartbeat value may be before its worker
+// is considered stale. It matches the TTL StartRedisHeartbeat sets on the key,
+// so a value older than this would already have expired; parsing it as well
+// guards against a clock skew or a key that lingered past its worker's death.
+const workerHeartbeatTTL = 90 * time.Second
+
+// probeWorkers checks that every worker in the canonical roster is publishing a
+// fresh status:worker:<name> heartbeat. Reporting "operational" merely because
+// some key exists hid the common failure where one worker (cron) beats while
+// the other ten are dead, so the whole expected set is verified: operational
+// only when all are fresh, down when none are, degraded when some are missing
+// or stale.
 func (s *Service) probeWorkers(ctx context.Context) probe {
-	keys, err := s.cache.Client().Keys(ctx, "status:worker:*").Result()
+	expected := workernames.All
+	keys := make([]string, len(expected))
+	for i, name := range expected {
+		keys[i] = "status:worker:" + name
+	}
+	vals, err := s.cache.Client().MGet(ctx, keys...).Result()
 	if err != nil {
 		return probe{status: statusDegraded, errMsg: err.Error()}
 	}
-	if len(keys) == 0 {
-		return probe{status: statusDown, errMsg: "no worker heartbeats"}
+	beats := make([]string, len(expected))
+	for i, v := range vals {
+		if str, ok := v.(string); ok {
+			beats[i] = str
+		}
 	}
-	return probe{status: statusOperational}
+	return evaluateWorkerHeartbeats(expected, beats, time.Now().UTC())
+}
+
+// evaluateWorkerHeartbeats is the pure decision behind probeWorkers: given the
+// expected worker names and each one's heartbeat value (empty when the key is
+// missing/expired), it returns the aggregate probe. A value that is present but
+// older than workerHeartbeatTTL counts as stale; an unparseable-but-present
+// value is trusted, since the key existing at all means it is within its TTL.
+func evaluateWorkerHeartbeats(expected, beats []string, now time.Time) probe {
+	var missing []string
+	for i, name := range expected {
+		beat := ""
+		if i < len(beats) {
+			beat = beats[i]
+		}
+		if !heartbeatFresh(beat, now) {
+			missing = append(missing, name)
+		}
+	}
+	switch {
+	case len(missing) == 0:
+		return probe{status: statusOperational}
+	case len(missing) == len(expected):
+		return probe{status: statusDown, errMsg: "no worker heartbeats"}
+	default:
+		return probe{status: statusDegraded, errMsg: "workers not reporting: " + strings.Join(missing, ", ")}
+	}
+}
+
+// heartbeatFresh reports whether a heartbeat value marks a live worker: present,
+// and (when its RFC3339 timestamp parses) no older than workerHeartbeatTTL.
+func heartbeatFresh(beat string, now time.Time) bool {
+	if beat == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339, beat)
+	if err != nil {
+		return true // present within its TTL; a format we do not recognise is still a beat
+	}
+	return now.Sub(t) <= workerHeartbeatTTL
 }
 
 // reconcileIncident opens an incident when a component first goes unhealthy and

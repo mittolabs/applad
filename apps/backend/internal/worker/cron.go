@@ -35,6 +35,10 @@ func (w *Cron) Start(ctx context.Context) error {
 	w.rdb = rdb
 	w.queue = queue.New(rdb)
 	StartRedisHeartbeat(ctx, rdb, "cron")
+	// Touch the file liveness heartbeat before the (up to a minute) wait for the
+	// top of the minute, so the compose healthcheck's start_period does not see
+	// a cron worker as hung before its first tick.
+	Heartbeat()
 
 	database, err := db.Connect(w.cfg.DatabaseDSN, w.cfg.DBMaxOpenConns, w.cfg.DBMaxIdleConns)
 	if err != nil {
@@ -58,6 +62,7 @@ func (w *Cron) Start(ctx context.Context) error {
 	defer ticker.Stop()
 
 	w.tick(ctx)
+	Heartbeat()
 
 	for {
 		select {
@@ -66,6 +71,10 @@ func (w *Cron) Start(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			w.tick(ctx)
+			// Written every tick (even when another replica holds the lock and
+			// tick returns early) so the file heartbeat reflects this process
+			// being alive, not whether it won the lock this minute.
+			Heartbeat()
 		}
 	}
 }

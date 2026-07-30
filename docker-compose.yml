@@ -55,6 +55,19 @@ x-default-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# Liveness for the workers. Each worker touches /tmp/.worker_alive on every loop
+# iteration (queue workers every ~5s while idle; cron every minute), so a file
+# that has not been touched recently means the process is hung rather than
+# merely idle — which a "process is running" check cannot tell apart. The 120s
+# threshold clears the cron worker's one-minute cadence with margin, and three
+# retries mean a single slow tick does not flap the service unhealthy.
+x-worker-healthcheck: &worker-healthcheck
+  test: ["CMD-SHELL", "find /tmp/.worker_alive -newermt '-120 seconds' | grep -q ."]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 90s
+
 # Resource ceilings so one runaway service cannot starve the box.
 x-limits-small: &limits-small
   mem_limit: 512m
@@ -207,6 +220,7 @@ services:
 
   worker-builds:
     image: ghcr.io/mittolabs/applad-worker-builds:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -241,6 +255,7 @@ services:
 
   worker-certificates:
     image: ghcr.io/mittolabs/applad-worker-certificates:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -255,6 +270,7 @@ services:
 
   worker-databases:
     image: ghcr.io/mittolabs/applad-worker-databases:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -269,6 +285,7 @@ services:
 
   worker-deletes:
     image: ghcr.io/mittolabs/applad-worker-deletes:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -283,6 +300,7 @@ services:
 
   worker-executions:
     image: ghcr.io/mittolabs/applad-worker-executions:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -297,6 +315,7 @@ services:
 
   worker-mails:
     image: ghcr.io/mittolabs/applad-worker-mails:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -311,6 +330,7 @@ services:
 
   worker-messaging:
     image: ghcr.io/mittolabs/applad-worker-messaging:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -325,6 +345,7 @@ services:
 
   worker-migrations:
     image: ghcr.io/mittolabs/applad-worker-migrations:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -339,6 +360,7 @@ services:
 
   worker-usage:
     image: ghcr.io/mittolabs/applad-worker-usage:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -353,6 +375,7 @@ services:
 
   worker-webhooks:
     image: ghcr.io/mittolabs/applad-worker-webhooks:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:
@@ -367,6 +390,7 @@ services:
 
   worker-cron:
     image: ghcr.io/mittolabs/applad-worker-cron:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
     build:
       <<: *worker-build
       args:

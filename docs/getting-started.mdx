@@ -8,7 +8,7 @@ import { Rocket, Database, ShieldCheck, Users, Radio } from 'lucide-react';
 
 This guide takes you from nothing to reading and writing data through an SDK. It
 assumes you have an Applad instance to talk to. If you do not, bring one up first
-with [Self-hosting](/self-hosting) (a single `docker compose up`), or use a hosted
+with [Self-hosting](/self-hosting) (a one-line installer), or use a hosted
 instance.
 
 ![The Applad console sign-in screen](/screens/login.png)
@@ -43,6 +43,14 @@ _Projects live inside an organization. Each one is an isolated backend._
 ### Connect an SDK
 
 Install a client SDK and point it at your instance and project.
+
+<Callout title="Set endpoint to your own instance">
+  The examples below show `https://api.applad.io`, which is Applad Cloud. On a
+  self-hosted instance, `endpoint` is your own origin, and the SDK appends `/v1`
+  for you. Use `https://yourdomain` for a domain install, or `http://localhost`
+  for a bare local install (the installer's default). Do not include `/v1` in the
+  value.
+</Callout>
 
 <Tabs items={['JavaScript', 'Dart']}>
   <Tab value="JavaScript">

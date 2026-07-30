@@ -32,6 +32,7 @@ func (w *Webhooks) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
 	w.client = &http.Client{Timeout: 30 * time.Second}
+	StartRedisHeartbeat(ctx, rdb, "webhooks")
 	w.queue.StartReaper(ctx, "webhooks")
 
 	slog.Info("webhooks worker: listening for jobs")

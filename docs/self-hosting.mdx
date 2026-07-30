@@ -8,11 +8,65 @@ Applad runs entirely on your own infrastructure. One `docker compose up` brings
 up everything: PostgreSQL, Redis, the API, the background workers, and the admin
 console. You own the data and there is nothing to phone home to.
 
-## Run the stack
+## Install
+
+The installer is the supported way to stand up an instance. It checks that
+Docker is present, prompts for a domain, generates a real `JWT_SECRET` and
+database password for you, writes the `.env` and the Caddy reverse-proxy config,
+pulls the prebuilt images, waits for the API to become healthy, and prints your
+console URL.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mittolabs/applad/main/install.sh | bash
+```
+
+What it asks and does:
+
+- **Install directory** (default `/opt/applad`).
+- **Domain or IP** (default `localhost`). A real domain turns on automatic HTTPS:
+  Caddy obtains and renews a Let's Encrypt certificate itself, with no certbot
+  and no cron. A bare IP or `localhost` is served over plain HTTP.
+- **Generates secrets.** It creates a 32-byte random `JWT_SECRET` and the
+  PostgreSQL password and writes them into `.env`. You never set them by hand,
+  and the default `change-me-in-production` value is never used.
+- **Optional extras:** S3-compatible storage, SMTP, the console signup mode, the
+  ClamAV antivirus profile, and the AI assistant.
+
+When it finishes it prints where the instance is reachable, for a bare local
+install:
+
+```
+Console:  http://localhost
+API:      http://localhost/v1
+```
+
+Replace `localhost` with your domain, and `http` with `https`, when you install
+against a real domain.
+
+### Where things run
+
+- The **console** is the site at your instance root: `http://localhost` for a
+  bare local install, or `https://yourdomain` once you install against a domain.
+- The **API** lives under `/v1` at that same origin (`http://localhost/v1`).
+- Any host that is not one of the known names (an IP, or `localhost`) falls back
+  to the console. That fallback is how a self-hosted instance is reached.
+
+Open the console at the printed URL, create the first account (which becomes the
+owner of your instance), then create an organization and a project. See
+[Getting started](/getting-started) to connect an app.
+
+### Alternative: manual Docker Compose
+
+If you would rather wire things up yourself, clone the repo and bring the stack
+up directly. Everything comes up with one `docker compose up`, but nothing is
+generated for you, so you must set a real `JWT_SECRET` first. It has to be at
+least 32 characters; the API refuses to start in production while it is left at
+the default.
 
 ```bash
 git clone https://github.com/mittolabs/applad
 cd applad
+export JWT_SECRET=$(openssl rand -hex 32)
 docker compose up -d
 ```
 
@@ -23,9 +77,12 @@ only the backend and skip building the console:
 docker compose up api postgres redis proxy -d
 ```
 
-Open the console, create the first account (which becomes the owner of your
-instance), then create an organization and a project. See
-[Getting started](/getting-started) to connect an app.
+<Callout title="This path skips what the installer does for you">
+  Running `docker compose` by hand does not prompt for a domain, generate the
+  database password, or set up TLS. You own the `.env` and the reverse-proxy
+  config the installer would otherwise write. Prefer the installer unless you
+  have a reason not to.
+</Callout>
 
 ## Who can register
 
@@ -135,8 +192,17 @@ docker compose --profile antivirus up -d
 
 ## Upgrading
 
-Pull the newer images and recreate the stack. Database migrations run
-automatically on API startup, so there is no separate migration step.
+If you installed with the installer, upgrade with its `upgrade` subcommand. It
+snapshots the database first (so a bad upgrade is a restore, not a loss), pulls
+the newer images, and restarts the stack.
+
+```bash
+./install.sh upgrade
+```
+
+For a manual install, pull the newer images and recreate the stack yourself.
+Either way, database migrations run automatically on API startup, so there is no
+separate migration step.
 
 ```bash
 docker compose pull

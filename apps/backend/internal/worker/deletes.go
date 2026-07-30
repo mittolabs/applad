@@ -30,6 +30,7 @@ func (w *Deletes) Start(ctx context.Context) error {
 		return err
 	}
 	w.db = database
+	StartRedisHeartbeat(ctx, rdb, "deletes")
 	w.queue.StartReaper(ctx, "deletes")
 
 	slog.Info("deletes worker: listening for jobs")

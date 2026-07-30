@@ -326,8 +326,14 @@ printf '\n'
 info "Generating secrets…"
 JWT_SECRET="$(gen_secret 32)"
 DB_PASSWORD="$(gen_secret 16)"
-log "JWT_SECRET  (64 hex chars)"
-log "DB_PASSWORD (32 hex chars)"
+CREDENTIALS_ENCRYPTION_KEY="$(gen_secret 32)"
+API_KEY_SECRET="$(gen_secret 32)"
+STORAGE_ENCRYPTION_KEY="$(gen_secret 32)"
+log "JWT_SECRET                 (64 hex chars)"
+log "DB_PASSWORD                (32 hex chars)"
+log "CREDENTIALS_ENCRYPTION_KEY (64 hex chars)"
+log "API_KEY_SECRET             (64 hex chars)"
+log "STORAGE_ENCRYPTION_KEY     (64 hex chars)"
 printf '\n'
 
 # Storage
@@ -418,6 +424,14 @@ PORT=8080
 
 JWT_SECRET=${JWT_SECRET}
 
+# At-rest secrets. Each falls back to JWT_SECRET if unset, but dedicated keys
+# are generated here so rotating one never invalidates the others.
+CREDENTIALS_ENCRYPTION_KEY=${CREDENTIALS_ENCRYPTION_KEY}
+API_KEY_SECRET=${API_KEY_SECRET}
+# Encrypts files in buckets that have encryption enabled. Only used once such a
+# bucket exists — but if you LOSE this key, that data is UNRECOVERABLE. Back it up.
+STORAGE_ENCRYPTION_KEY=${STORAGE_ENCRYPTION_KEY}
+
 DB_PASSWORD=${DB_PASSWORD}
 DATABASE_DSN=postgres://applad:${DB_PASSWORD}@pgbouncer:5432/applad?sslmode=disable
 DB_MAX_OPEN_CONNS=25
@@ -453,6 +467,7 @@ AI_BASE_URL=${AI_BASE_URL}
 EOF
 
 log ".env written"
+warn "Back up .env: STORAGE_ENCRYPTION_KEY is unrecoverable — losing it loses any encrypted-bucket data."
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 7. Write the Caddyfile
@@ -515,7 +530,7 @@ section "Waiting for API to be healthy"
 
 MAX_WAIT=90; WAITED=0
 printf '  '
-until curl -sf "http://localhost:8080/v1/health" &>/dev/null; do
+until curl -sf "http://localhost/v1/health" &>/dev/null; do
   if [ "$WAITED" -ge "$MAX_WAIT" ]; then
     printf '\n'
     warn "API did not respond in ${MAX_WAIT}s"
@@ -526,7 +541,7 @@ until curl -sf "http://localhost:8080/v1/health" &>/dev/null; do
   sleep 3
   WAITED=$((WAITED + 3))
 done
-curl -sf "http://localhost:8080/v1/health" &>/dev/null && { printf '\n'; log "API healthy"; }
+curl -sf "http://localhost/v1/health" &>/dev/null && { printf '\n'; log "API healthy"; }
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 12. Done

@@ -26,6 +26,7 @@ func NewMessaging(cfg *config.Config) *Messaging {
 func (w *Messaging) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
+	StartRedisHeartbeat(ctx, rdb, "messaging")
 	w.queue.StartReaper(ctx, "messaging")
 
 	slog.Info("messaging worker: listening for jobs")

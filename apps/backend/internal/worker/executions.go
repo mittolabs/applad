@@ -32,6 +32,7 @@ func (w *Executions) Start(ctx context.Context) error {
 		return err
 	}
 	w.db = database
+	StartRedisHeartbeat(ctx, rdb, "executions")
 	w.queue.StartReaper(ctx, "executions")
 
 	slog.Info("executions worker: listening for jobs")
