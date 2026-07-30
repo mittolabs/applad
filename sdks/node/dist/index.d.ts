@@ -1,5 +1,6 @@
 export { ApplAdServer } from './client';
 export type { ApplAdServerConfig } from './client';
+export { AppladError } from './errors';
 export { Analytics } from './analytics';
 export { Billing } from './billing';
 export { Users } from './users';

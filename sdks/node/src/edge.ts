@@ -1,5 +1,13 @@
 import type { ApplAdServer } from './client';
 
+/**
+ * Edge functions.
+ *
+ * EXPERIMENTAL / NOT IMPLEMENTED on this build: the backend Edge service is
+ * not yet wired up, so `invoke`, `create` and the other methods here currently
+ * return HTTP 501 (Not Implemented). The API surface is kept stable for forward
+ * compatibility; do not rely on it in production yet.
+ */
 export class Edge {
   constructor(private client: ApplAdServer) {}
 

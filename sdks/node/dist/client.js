@@ -17,6 +17,7 @@ const regions_1 = require("./regions");
 const search_1 = require("./search");
 const vectors_1 = require("./vectors");
 const observe_1 = require("./observe");
+const errors_1 = require("./errors");
 class ApplAdServer {
     constructor(config) {
         this.endpoint = config.endpoint.replace(/\/$/, '');
@@ -50,7 +51,7 @@ class ApplAdServer {
             body: body ? JSON.stringify(body) : undefined,
         });
         if (!res.ok)
-            throw new Error(`${method} ${path} -> ${res.status}`);
+            throw await (0, errors_1.errorFromResponse)(res, method, path);
         if (res.status === 204)
             return undefined;
         return res.json();
@@ -64,7 +65,7 @@ class ApplAdServer {
             body: formData,
         });
         if (!res.ok)
-            throw new Error(`POST ${path} -> ${res.status}`);
+            throw await (0, errors_1.errorFromResponse)(res, 'POST', path);
         return res.json();
     }
     async download(path) {
@@ -72,7 +73,7 @@ class ApplAdServer {
             headers: this.headers,
         });
         if (!res.ok)
-            throw new Error(`GET ${path} -> ${res.status}`);
+            throw await (0, errors_1.errorFromResponse)(res, 'GET', path);
         return res.arrayBuffer();
     }
 }

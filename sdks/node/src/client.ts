@@ -14,6 +14,7 @@ import { Regions } from './regions';
 import { Search } from './search';
 import { Vectors } from './vectors';
 import { Observe } from './observe';
+import { errorFromResponse } from './errors';
 
 export interface ApplAdServerConfig {
   endpoint: string;
@@ -75,7 +76,7 @@ export class ApplAdServer {
       headers: this.headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
+    if (!res.ok) throw await errorFromResponse(res, method, path);
     if (res.status === 204) return undefined as T;
     return res.json() as Promise<T>;
   }
@@ -88,7 +89,7 @@ export class ApplAdServer {
       headers,
       body: formData,
     });
-    if (!res.ok) throw new Error(`POST ${path} -> ${res.status}`);
+    if (!res.ok) throw await errorFromResponse(res, 'POST', path);
     return res.json() as Promise<T>;
   }
 
@@ -96,7 +97,7 @@ export class ApplAdServer {
     const res = await fetch(`${this.endpoint}/v1${path}`, {
       headers: this.headers,
     });
-    if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+    if (!res.ok) throw await errorFromResponse(res, 'GET', path);
     return res.arrayBuffer();
   }
 }

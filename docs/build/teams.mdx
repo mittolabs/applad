@@ -45,10 +45,12 @@ final teamId = team['\$id'];
 ```
 
 `create` takes an optional `teamId` (default `unique()`, a generated ID) and an
-optional list of `roles`. Note that the creator's own membership is always
-recorded with exactly the role `owner`: the server enrols the creator as owner
-regardless of the `roles` you pass, so today `roles` has no effect on a `create`
-call. Roles you actually want on a member are set when you invite them (below).
+optional list of `roles`. The creator's own membership always includes `owner`,
+and any `roles` you pass are recorded alongside it: the stored set is the union
+of `owner` and your list (`owner` is guaranteed present and is never duplicated).
+So passing `roles: ['developer']` on create enrols the creator as
+`['owner', 'developer']`. Roles for other members are set when you invite them
+(below) or later with the update-membership call.
 
 ```dart
 Future<Map<String, dynamic>> create({
@@ -287,11 +289,15 @@ life. Inviting creates it `invited: true, joined: false`; accepting flips
 | `confirm` | bool | Reserved. Currently always `false`; no flow sets it. |
 | `secret` | string | The one-time invite token. Returned **only** on the create-membership response and omitted everywhere else. |
 
-<Callout title="A membership's roles cannot be changed after the fact">
-  There is no update-membership operation: the roles a member carries are fixed
-  when you invite them. To change them, delete the membership and re-invite with
-  the roles you want. (A `PATCH` on the membership itself is not a route; only
-  `.../status`, the accept call, exists.)
+<Callout title="Changing a membership's roles">
+  A member's roles can be changed in place with
+  `PATCH /v1/teams/{teamId}/memberships/{membershipId}`, body
+  `{ "roles": [...] }`. The write is a whole-object replace, so send the complete
+  role list you want stored. This is an **owner-only** operation (the same gate
+  as inviting or removing a member), which is also what stops a non-owner
+  granting themselves `owner`. You can also read one membership by ID with
+  `GET /v1/teams/{teamId}/memberships/{membershipId}` (any joined member of the
+  team may read it). The accept call remains the separate route `.../status`.
 </Callout>
 
 ### Memberships privacy

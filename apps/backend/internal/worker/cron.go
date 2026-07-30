@@ -238,6 +238,56 @@ func (w *Cron) sweepStaleReleases(ctx context.Context) {
 	}
 }
 
+// cronOutcome is what evaluate should do with one schedulable after comparing
+// its stored state to the clock. It is computed by decideCron, which is pure so
+// the scheduling rules are testable without a database.
+type cronOutcome int
+
+const (
+	cronInit   cronOutcome = iota // new or changed schedule: set next_run, do not fire
+	cronNotDue                    // next_run is still in the future: nothing to do
+	cronClaim                     // due: try to claim the occurrence, and fire if won
+)
+
+// cronDecision carries the outcome plus the values evaluate acts on.
+type cronDecision struct {
+	outcome cronOutcome
+	nextRun time.Time // the next scheduled run; set for cronInit and cronClaim
+	missed  int       // occurrences skipped while the worker was down (cronClaim only)
+}
+
+// decideCron is the pure heart of the scheduler: given a parsed schedule, the
+// stored state for an entity and the current time, it decides whether the
+// entity is due, how many runs were missed, and when it should next run —
+// without touching the database.
+//
+// A missed backlog is collapsed to a single run: several occurrences that came
+// and went while the worker was down fire once and resync to the next future
+// time rather than replaying every occurrence (a nightly job after a week of
+// downtime yields one run, not seven).
+func decideCron(schedule cronx.Schedule, rowExists bool, storedExpr, currentExpr string, storedNext sql.NullTime, now time.Time) cronDecision {
+	// New schedule, or the expression changed: start from now rather than firing
+	// immediately for a window nobody asked for. A row without a next_run_at yet
+	// is seeded the same way, still without firing.
+	if !rowExists || storedExpr != currentExpr || !storedNext.Valid {
+		return cronDecision{outcome: cronInit, nextRun: schedule.Next(now)}
+	}
+	if storedNext.Time.After(now) {
+		return cronDecision{outcome: cronNotDue}
+	}
+
+	// Due. Count the occurrences that elapsed while the worker was down so the
+	// backlog is recorded, but fire only once and resync forward.
+	missed := 0
+	for t := schedule.Next(storedNext.Time); !t.After(now); t = schedule.Next(t) {
+		missed++
+		if missed > 1000 {
+			break
+		}
+	}
+	return cronDecision{outcome: cronClaim, nextRun: schedule.Next(now), missed: missed}
+}
+
 // evaluate decides whether one scheduled thing is due, fires it if so, and
 // records when it should next run.
 func (w *Cron) evaluate(ctx context.Context, s schedulable, now time.Time) {
@@ -249,71 +299,56 @@ func (w *Cron) evaluate(ctx context.Context, s schedulable, now time.Time) {
 		return
 	}
 
-	var lastRun *time.Time
 	var storedExpr string
 	var storedNext, storedLast sql.NullTime
 	err := w.db.QueryRowContext(ctx,
 		`SELECT expression, last_run_at, next_run_at FROM cron_state WHERE kind = $1 AND entity_id = $2`,
 		s.kind, s.id).Scan(&storedExpr, &storedLast, &storedNext)
-
-	switch {
-	case err == sql.ErrNoRows || storedExpr != s.expr:
-		// New schedule, or the expression changed: start from now rather than
-		// firing immediately for a window nobody asked for.
-		next := schedule.Next(now)
-		w.saveState(ctx, s, nil, &next, "", 0)
-		return
-	case err != nil:
+	if err != nil && err != sql.ErrNoRows {
 		slog.Error("cron worker: state read failed", "kind", s.kind, "id", s.id, "error", err)
 		return
 	}
+	rowExists := err != sql.ErrNoRows
 
-	if storedLast.Valid {
-		lastRun = &storedLast.Time
-	}
-	if !storedNext.Valid {
-		next := schedule.Next(now)
-		w.saveState(ctx, s, lastRun, &next, "", 0)
+	d := decideCron(schedule, rowExists, storedExpr, s.expr, storedNext, now)
+	switch d.outcome {
+	case cronInit:
+		// saveState's COALESCE preserves any existing last_run_at, so a nil here
+		// never clobbers it.
+		next := d.nextRun
+		w.saveState(ctx, s, nil, &next, "", 0)
+	case cronNotDue:
 		return
-	}
-	if storedNext.Time.After(now) {
-		return // not due yet
-	}
-
-	// Due. If the worker was down, several runs may have come and gone; fire
-	// once and resync rather than replaying the backlog, which for a nightly
-	// job after a week of downtime would mean seven executions at once.
-	missed := 0
-	for t := schedule.Next(storedNext.Time); !t.After(now); t = schedule.Next(t) {
-		missed++
-		if missed > 1000 {
-			break
+	case cronClaim:
+		if d.missed > 0 {
+			slog.Warn("cron worker: missed runs while down, firing once",
+				"kind", s.kind, "id", s.id, "missed", d.missed)
+		}
+		if w.claim(ctx, s, storedNext.Time, d.nextRun, d.missed, now) {
+			w.fire(ctx, s)
 		}
 	}
-	if missed > 0 {
-		slog.Warn("cron worker: missed runs while down, firing once",
-			"kind", s.kind, "id", s.id, "missed", missed)
-	}
+}
 
-	// Claim the run before firing, conditional on next_run_at still being what
-	// we read. The database arbitrates, so two workers cannot both fire the
-	// same occurrence even if one overruns its lock — the loser updates zero
-	// rows and moves on.
-	next := schedule.Next(now)
+// claim records a run against cron_state, conditional on next_run_at still being
+// what we read. The database arbitrates, so two workers cannot both fire the
+// same occurrence even if one overruns its lock: the loser updates zero rows and
+// this returns false. Returning true means this worker owns the occurrence and
+// should fire it.
+func (w *Cron) claim(ctx context.Context, s schedulable, prevNext, nextRun time.Time, missed int, now time.Time) bool {
 	res, err := w.db.ExecContext(ctx,
 		`UPDATE cron_state
 		    SET last_run_at = $1, next_run_at = $2, missed_runs = missed_runs + $3, updated_at = NOW()
 		  WHERE kind = $4 AND entity_id = $5 AND next_run_at = $6`,
-		now, next, missed, s.kind, s.id, storedNext.Time)
+		now, nextRun, missed, s.kind, s.id, prevNext)
 	if err != nil {
 		slog.Error("cron worker: claim failed", "kind", s.kind, "id", s.id, "error", err)
-		return
+		return false
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return // another instance claimed this occurrence
+		return false // another instance claimed this occurrence
 	}
-
-	w.fire(ctx, s)
+	return true
 }
 
 func (w *Cron) saveState(ctx context.Context, s schedulable, lastRun, nextRun *time.Time, parseErr string, missed int) {

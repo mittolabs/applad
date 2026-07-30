@@ -60,6 +60,17 @@ class Teams {
     return _client.get('/v1/teams/$teamId/memberships');
   }
 
+  Future<Map<String, dynamic>> getMembership(
+      String teamId, String membershipId) async {
+    return _client.get('/v1/teams/$teamId/memberships/$membershipId');
+  }
+
+  Future<Map<String, dynamic>> updateMembership(
+      String teamId, String membershipId, List<String> roles) async {
+    return _client.patch('/v1/teams/$teamId/memberships/$membershipId',
+        data: {'roles': roles});
+  }
+
   Future<Map<String, dynamic>> deleteMembership(
       String teamId, String membershipId) async {
     return _client.delete('/v1/teams/$teamId/memberships/$membershipId');

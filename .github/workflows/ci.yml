@@ -117,6 +117,8 @@ jobs:
           cache-dependency-path: apps/backend/go.sum
       - name: Build API
         run: go build -o /tmp/applad-api ./cmd/api
+      - name: Build worker-executions
+        run: go build -o /tmp/applad-worker-executions ./cmd/workers/executions
       - name: Start API
         env:
           DATABASE_DSN: postgres://applad:applad@localhost:5432/applad?sslmode=disable
@@ -133,6 +135,16 @@ jobs:
             echo "  waiting ($i)…"
             sleep 2
           done
+      - name: Start worker-executions
+        # The API runs the migrations on boot, so start the worker only after the
+        # API is healthy — the executions worker consumes the async workflow jobs
+        # that TestWorkerExecutionsAsyncPath asserts complete end to end.
+        env:
+          DATABASE_DSN: postgres://applad:applad@localhost:5432/applad?sslmode=disable
+          REDIS_ADDR: localhost:6379
+          JWT_SECRET: ci-test-secret-not-for-production
+          APP_ENV: development
+        run: /tmp/applad-worker-executions &
       - name: Run integration tests
         env:
           APPLAD_API_URL: http://localhost:8080/v1
@@ -178,3 +190,4 @@ jobs:
           cache-dependency-path: sdks/node/package-lock.json
       - run: npm ci
       - run: npm run build
+      - run: npm test

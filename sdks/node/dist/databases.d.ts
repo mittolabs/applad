@@ -53,6 +53,8 @@ export declare class Databases {
     listRows(databaseId: string, tableId: string, opts?: {
         limit?: number;
         offset?: number;
+        status?: 'draft' | 'published';
+        locale?: string;
     }): Promise<any>;
     getRow(databaseId: string, tableId: string, rowId: string): Promise<any>;
     updateRow(databaseId: string, tableId: string, rowId: string, opts?: {
@@ -60,6 +62,16 @@ export declare class Databases {
         permissions?: string[];
     }): Promise<any>;
     deleteRow(databaseId: string, tableId: string, rowId: string): Promise<any>;
+    /** Turn a table into an editorial collection. */
+    enableContentMode(databaseId: string, tableId: string): Promise<any>;
+    /** Hide the editorial tools again. Nothing is deleted. */
+    disableContentMode(databaseId: string, tableId: string): Promise<any>;
+    /** Publish an entry. */
+    publishRow(databaseId: string, tableId: string, rowId: string): Promise<any>;
+    /** Return an entry to draft. */
+    unpublishRow(databaseId: string, tableId: string, rowId: string): Promise<any>;
+    /** Version snapshots for an entry, newest first. */
+    listRowVersions(databaseId: string, tableId: string, rowId: string): Promise<any>;
     /**
      * Returns a fluent {@link QueryBuilder} for the given table.
      *

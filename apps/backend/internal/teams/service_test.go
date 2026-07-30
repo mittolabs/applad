@@ -95,6 +95,75 @@ func TestMembershipOf(t *testing.T) {
 	}
 }
 
+// TestCreate_RolesOnOwnerMembership proves create(..., roles) is no longer inert:
+// the creator's owner membership records the union of {"owner"} and the supplied
+// roles, with "owner" first and deduplicated.
+func TestCreate_RolesOnOwnerMembership(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	mock.ExpectExec(`INSERT INTO teams`).
+		WithArgs(sqlmock.AnyArg(), "proj1", "Engineering", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// The roles column is the union: owner is guaranteed and kept first, the
+	// caller's "developer" rides along, and a redundant "owner" is dropped.
+	mock.ExpectExec(`INSERT INTO memberships`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "u1", []byte(`["owner","developer"]`), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	_, err := svc.Create(context.Background(), "proj1", "", "Engineering", "u1", []string{"owner", "developer"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestUpdateMembershipRoles_RoundTrip proves the roles column is written whole
+// and the refreshed membership is read back.
+func TestUpdateMembershipRoles_RoundTrip(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	mock.ExpectExec(`UPDATE memberships SET roles = \$1 WHERE id = \$2 AND team_id = \$3`).
+		WithArgs([]byte(`["developer","lead"]`), "mem1", "t1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.id = \$1 AND m.team_id = \$2`).
+		WithArgs("mem1", "t1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "team_id", "user_id", "invited_email", "roles", "invited", "joined", "created_at", "name"}).
+			AddRow("mem1", "t1", "u2", "g@x.com", []byte(`["developer","lead"]`), true, true, time.Now().UTC(), "Team"))
+
+	m, err := svc.UpdateMembershipRoles(context.Background(), "t1", "mem1", []string{"developer", "lead"})
+	if err != nil {
+		t.Fatalf("UpdateMembershipRoles: %v", err)
+	}
+	if len(m.Roles) != 2 || m.Roles[0] != "developer" || m.Roles[1] != "lead" {
+		t.Fatalf("expected [developer lead], got %v", m.Roles)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestUpdateMembershipRoles_NotFound maps a missing row to "membership not found".
+func TestUpdateMembershipRoles_NotFound(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	mock.ExpectExec(`UPDATE memberships SET roles`).
+		WithArgs(sqlmock.AnyArg(), "missing", "t1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	_, err := svc.UpdateMembershipRoles(context.Background(), "t1", "missing", []string{"x"})
+	if err == nil || err.Error() != "membership not found" {
+		t.Fatalf("expected membership not found, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 // TestUpdatePrefs_NotFound maps a missing team (no rows updated) to a "team not
 // found" error, which the handler turns into a 404.
 func TestUpdatePrefs_NotFound(t *testing.T) {

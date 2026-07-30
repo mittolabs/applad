@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Observe = exports.Vectors = exports.Search = exports.Regions = exports.Flags = exports.Edge = exports.Deploy = exports.Messaging = exports.Workflows = exports.Teams = exports.Functions = exports.Storage = exports.QueryBuilder = exports.Databases = exports.Users = exports.Billing = exports.Analytics = exports.ApplAdServer = void 0;
+exports.Observe = exports.Vectors = exports.Search = exports.Regions = exports.Flags = exports.Edge = exports.Deploy = exports.Messaging = exports.Workflows = exports.Teams = exports.Functions = exports.Storage = exports.QueryBuilder = exports.Databases = exports.Users = exports.Billing = exports.Analytics = exports.AppladError = exports.ApplAdServer = void 0;
 var client_1 = require("./client");
 Object.defineProperty(exports, "ApplAdServer", { enumerable: true, get: function () { return client_1.ApplAdServer; } });
+var errors_1 = require("./errors");
+Object.defineProperty(exports, "AppladError", { enumerable: true, get: function () { return errors_1.AppladError; } });
 var analytics_1 = require("./analytics");
 Object.defineProperty(exports, "Analytics", { enumerable: true, get: function () { return analytics_1.Analytics; } });
 var billing_1 = require("./billing");

@@ -285,6 +285,103 @@ func TestDeleteTeam_NonMemberForbidden(t *testing.T) {
 	}
 }
 
+const membershipByIDSelect = `SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.id = \$1 AND m.team_id = \$2`
+
+func membershipRow(id, teamID, userID, roles string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "team_id", "user_id", "invited_email", "roles", "invited", "joined", "created_at", "name"}).
+		AddRow(id, teamID, userID, "g@x.com", []byte(roles), true, true, timeNow(), "Team")
+}
+
+// A joined member may read a single membership.
+func TestGetMembership_MemberAllowed(t *testing.T) {
+	h, mock, done := newMockHandler(t)
+	defer done()
+
+	mock.ExpectQuery(membershipsSelect).
+		WithArgs("t1", "member1").
+		WillReturnRows(sqlmock.NewRows([]string{"roles"}).AddRow([]byte(`["member"]`)))
+	mock.ExpectQuery(membershipByIDSelect).
+		WithArgs("mem1", "t1").
+		WillReturnRows(membershipRow("mem1", "t1", "member1", `["member"]`))
+
+	w := serve(func(m *chi.Mux) { m.Get("/{teamId}/memberships/{membershipId}", h.getMembership) },
+		http.MethodGet, "/t1/memberships/mem1", "", userCtx("member1"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// A non-member must not read a single membership: 403 and the row is never read.
+func TestGetMembership_NonMemberForbidden(t *testing.T) {
+	h, mock, done := newMockHandler(t)
+	defer done()
+
+	mock.ExpectQuery(membershipsSelect).
+		WithArgs("t1", "attacker").
+		WillReturnRows(sqlmock.NewRows([]string{"roles"}))
+
+	w := serve(func(m *chi.Mux) { m.Get("/{teamId}/memberships/{membershipId}", h.getMembership) },
+		http.MethodGet, "/t1/memberships/mem1", "", userCtx("attacker"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations (membership must not be queried): %v", err)
+	}
+}
+
+// An owner can change a member's roles.
+func TestUpdateMembership_OwnerAllowed(t *testing.T) {
+	h, mock, done := newMockHandler(t)
+	defer done()
+
+	mock.ExpectQuery(membershipsSelect).
+		WithArgs("t1", "owner1").
+		WillReturnRows(sqlmock.NewRows([]string{"roles"}).AddRow([]byte(`["owner"]`)))
+	mock.ExpectExec(`UPDATE memberships SET roles = \$1 WHERE id = \$2 AND team_id = \$3`).
+		WithArgs([]byte(`["developer","lead"]`), "mem1", "t1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(membershipByIDSelect).
+		WithArgs("mem1", "t1").
+		WillReturnRows(membershipRow("mem1", "t1", "u2", `["developer","lead"]`))
+
+	w := serve(func(m *chi.Mux) { m.Patch("/{teamId}/memberships/{membershipId}", h.updateMembership) },
+		http.MethodPatch, "/t1/memberships/mem1", `{"roles":["developer","lead"]}`, userCtx("owner1"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// A non-owner member cannot change roles (which would let them grant themselves
+// "owner"): 403, and the UPDATE never runs.
+func TestUpdateMembership_NonOwnerForbidden(t *testing.T) {
+	h, mock, done := newMockHandler(t)
+	defer done()
+
+	mock.ExpectQuery(membershipsSelect).
+		WithArgs("t1", "member1").
+		WillReturnRows(sqlmock.NewRows([]string{"roles"}).AddRow([]byte(`["member"]`)))
+
+	w := serve(func(m *chi.Mux) { m.Patch("/{teamId}/memberships/{membershipId}", h.updateMembership) },
+		http.MethodPatch, "/t1/memberships/mem1", `{"roles":["owner"]}`, userCtx("member1"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations (update must not run): %v", err)
+	}
+}
+
 func timeNow() time.Time { return time.Now().UTC().Truncate(time.Second) }
 
 func expectGet(mock sqlmock.Sqlmock, teamID, projectID string) {

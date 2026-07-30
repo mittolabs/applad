@@ -38,7 +38,16 @@ func (s *Service) Create(ctx context.Context, projectID, teamID, name, creatorUs
 	// user (an API key) create an unowned team, as before.
 	if creatorUserID != "" {
 		mid := uid.New("unique()")
-		ownerRoles, _ := json.Marshal([]string{"owner"})
+		// The creator is always an owner, but any caller-supplied roles ride along
+		// too, so create(..., roles) is not inert: the stored set is the union of
+		// {"owner"} and the provided list, with "owner" guaranteed present.
+		ownerRoleList := []string{"owner"}
+		for _, r := range roles {
+			if r != "" && r != "owner" {
+				ownerRoleList = append(ownerRoleList, r)
+			}
+		}
+		ownerRoles, _ := json.Marshal(ownerRoleList)
 		if _, err := s.db.ExecContext(ctx,
 			"INSERT INTO memberships (id, team_id, user_id, roles, invited, joined, created_at) VALUES ($1, $2, $3, $4, TRUE, TRUE, $5)",
 			mid, id, creatorUserID, ownerRoles, now); err != nil {
@@ -228,6 +237,58 @@ func (s *Service) ListMemberships(ctx context.Context, teamID, projectID string)
 		memberships = append(memberships, &m)
 	}
 	return memberships, len(memberships), nil
+}
+
+// GetMembership returns a single membership by id, scoped to its team. It joins
+// the team in for the team name, matching the shape ListMemberships returns. A
+// row that does not exist (or belongs to another team) yields "membership not
+// found", which the handler maps to a 404.
+func (s *Service) GetMembership(ctx context.Context, teamID, membershipID string) (*model.Membership, error) {
+	var m model.Membership
+	var userID sql.NullString
+	var invitedEmail sql.NullString
+	var rolesJSON []byte
+	err := s.db.QueryRowContext(ctx,
+		"SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.id = $1 AND m.team_id = $2",
+		membershipID, teamID).Scan(&m.ID, &m.TeamID, &userID, &invitedEmail, &rolesJSON, &m.Invited, &m.Joined, &m.CreatedAt, &m.TeamName)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("membership not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	m.UserID = userID.String
+	m.UserEmail = invitedEmail.String
+	json.Unmarshal(rolesJSON, &m.Roles) //nolint:errcheck
+	if m.Roles == nil {
+		m.Roles = []string{}
+	}
+	return &m, nil
+}
+
+// UpdateMembershipRoles replaces a membership's roles with the supplied list and
+// returns the refreshed record. The roles column is written whole (not merged),
+// matching how CreateMembership stores it. The handler gates this owner-only, so
+// a non-owner cannot use it to grant themselves "owner"; the service records
+// exactly what it is given. A missing row yields "membership not found".
+func (s *Service) UpdateMembershipRoles(ctx context.Context, teamID, membershipID string, roles []string) (*model.Membership, error) {
+	if roles == nil {
+		roles = []string{}
+	}
+	rolesJSON, err := json.Marshal(roles)
+	if err != nil {
+		return nil, fmt.Errorf("teams: marshal roles: %w", err)
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE memberships SET roles = $1 WHERE id = $2 AND team_id = $3",
+		rolesJSON, membershipID, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("teams: update membership roles: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, fmt.Errorf("membership not found")
+	}
+	return s.GetMembership(ctx, teamID, membershipID)
 }
 
 // RolesForUser returns the RLS role tokens a user holds through team

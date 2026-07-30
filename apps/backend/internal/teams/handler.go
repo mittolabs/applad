@@ -67,7 +67,9 @@ func Routes(h *Handler) http.Handler {
 	r.Delete("/{teamId}", h.deleteTeam)
 	r.Post("/{teamId}/memberships", h.createMembership)
 	r.Get("/{teamId}/memberships", h.listMemberships)
+	r.Get("/{teamId}/memberships/{membershipId}", h.getMembership)
 	r.Patch("/{teamId}/memberships/{membershipId}/status", h.acceptMembership)
+	r.Patch("/{teamId}/memberships/{membershipId}", h.updateMembership)
 	r.Delete("/{teamId}/memberships/{membershipId}", h.deleteMembership)
 	return r
 }
@@ -252,6 +254,50 @@ func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 		memberships = []*model.Membership{}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "memberships": memberships})
+}
+
+func (h *Handler) getMembership(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "teamId")
+	membershipID := chi.URLParam(r, "membershipId")
+	// A single membership carries a member's email and roles, so reading it is
+	// gated the same as the roster: joined members only, never a non-member.
+	if !h.authorizeTeam(w, r, teamID, false) {
+		return
+	}
+	m, err := h.svc.GetMembership(r.Context(), teamID, membershipID)
+	if err != nil {
+		apperr.NotFound(w, "membership")
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
+func (h *Handler) updateMembership(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "teamId")
+	membershipID := chi.URLParam(r, "membershipId")
+	// Changing a member's roles feeds database RLS, so it is owner-only, the same
+	// gate as inviting a member. This is also what stops a non-owner granting
+	// themselves "owner" through this route.
+	if !h.authorizeTeam(w, r, teamID, true) {
+		return
+	}
+	var body struct {
+		Roles []string `json:"roles"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	m, err := h.svc.UpdateMembershipRoles(r.Context(), teamID, membershipID, body.Roles)
+	if err != nil {
+		if err.Error() == "membership not found" {
+			apperr.NotFound(w, "membership")
+			return
+		}
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
 }
 
 func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {

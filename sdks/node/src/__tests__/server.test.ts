@@ -1,4 +1,5 @@
 import { ApplAdServer } from '../client';
+import { AppladError } from '../errors';
 
 function mockFetch(data: any = {}, status = 200) {
   const fn = jest.fn().mockResolvedValue({
@@ -74,6 +75,18 @@ describe('ApplAdServer client', () => {
     mockFetch({}, 500);
     const srv = createServer();
     await expect(srv.call('GET', '/fail')).rejects.toThrow('500');
+  });
+
+  it('call throws AppladError carrying server message, status and type', async () => {
+    mockFetch({ message: 'invalid api key', type: 'unauthorized' }, 401);
+    const srv = createServer();
+    await expect(srv.call('GET', '/fail')).rejects.toMatchObject({
+      name: 'AppladError',
+      status: 401,
+      message: 'invalid api key',
+      type: 'unauthorized',
+    });
+    expect(AppladError).toBeDefined();
   });
 
   it('call returns undefined for 204', async () => {

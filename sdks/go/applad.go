@@ -670,6 +670,20 @@ func (s *TeamsService) ListMemberships(teamID string) (map[string]interface{}, e
 	return s.client.call("GET", fmt.Sprintf("/teams/%s/memberships", teamID), nil)
 }
 
+func (s *TeamsService) GetMembership(teamID, membershipID string) (map[string]interface{}, error) {
+	return s.client.call("GET", fmt.Sprintf("/teams/%s/memberships/%s", teamID, membershipID), nil)
+}
+
+func (s *TeamsService) UpdateMembership(teamID, membershipID string, roles []string) (map[string]interface{}, error) {
+	return s.client.call("PATCH", fmt.Sprintf("/teams/%s/memberships/%s", teamID, membershipID), map[string]interface{}{
+		"roles": roles,
+	})
+}
+
+func (s *TeamsService) DeleteMembership(teamID, membershipID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", fmt.Sprintf("/teams/%s/memberships/%s", teamID, membershipID), nil)
+}
+
 // ---------------------------------------------------------------------------
 // Messaging
 // ---------------------------------------------------------------------------

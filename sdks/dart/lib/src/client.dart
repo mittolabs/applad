@@ -72,12 +72,18 @@ class Applad {
 
   Dio get dio => _dio;
 
+  /// Authenticate as a signed-in user with their session secret / JWT.
+  ///
+  /// The backend authenticates users via `Authorization: Bearer <secret>`, so
+  /// this is an alias for [setJWT]. The token is also forwarded to the realtime
+  /// client so subscriptions to data channels are authorized.
   void setSession(String sessionId) {
-    _dio.options.headers['x-applad-session'] = sessionId;
+    setJWT(sessionId);
   }
 
   void setJWT(String jwt) {
     _dio.options.headers['Authorization'] = 'Bearer $jwt';
+    realtime.setToken(jwt);
   }
 
   void setKey(String key) {

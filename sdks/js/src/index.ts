@@ -1,4 +1,5 @@
 export { Applad } from './client';
+export { AppladError } from './errors';
 export { Analytics } from './analytics';
 export { Auth } from './auth';
 export { Avatars } from './avatars';

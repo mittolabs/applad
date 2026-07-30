@@ -49,12 +49,13 @@ class RealtimeEvent {
 /// Realtime subscription handle — call [cancel] to unsubscribe.
 class RealtimeSubscription {
   final String channel;
-  final StreamSubscription _sub;
+  final Future<void> Function() _onCancel;
 
-  RealtimeSubscription(this.channel, this._sub);
+  RealtimeSubscription(this.channel, this._onCancel);
 
-  /// Cancel this subscription.
-  void cancel() => _sub.cancel();
+  /// Cancel this subscription. Sends an unsubscribe frame once no callbacks
+  /// remain on the channel.
+  Future<void> cancel() => _onCancel();
 }
 
 /// A fluent builder for subscribing to database table change events.
@@ -119,12 +120,32 @@ class DatabaseChannel {
 }
 
 /// Realtime WebSocket client for subscribing to live events.
+///
+/// Robust against ordering and disconnects:
+///  - subscriptions issued before the socket opens are buffered and flushed
+///    once it is ready, so `connect()` then `subscribe()` works without a race;
+///  - dropped connections are re-established with capped exponential backoff
+///    and every active channel is re-subscribed on reopen;
+///  - [disconnect] / [dispose] stop reconnection.
+///
+/// Data (row) channels require an authenticated connection. When a session has
+/// been set on the client (via `setJWT`/`setSession`), the token is forwarded
+/// as `?token=` on the WebSocket URL.
 class Realtime {
   final String _endpoint;
   final String _projectId;
+  String? _token;
   WebSocketChannel? _channel;
   final _controller = StreamController<RealtimeEvent>.broadcast();
   bool _connected = false;
+  bool _closedByUser = false;
+  int _reconnectAttempts = 0;
+  Timer? _reconnectTimer;
+
+  /// Active channels with a reference count of live subscriptions, so the set
+  /// can be re-subscribed after a reconnect and unsubscribed when the last
+  /// callback is cancelled.
+  final Map<String, int> _channels = {};
 
   Realtime({required String endpoint, required String projectId})
       : _endpoint = endpoint.replaceFirst(RegExp(r'^http'), 'ws'),
@@ -136,17 +157,55 @@ class Realtime {
   /// Stream of all incoming realtime events.
   Stream<RealtimeEvent> get stream => _controller.stream;
 
+  /// Set (or clear) the session token forwarded on the realtime connection.
+  /// Called automatically by the parent client's `setJWT`/`setSession`. If a
+  /// connection is already open it is re-established so the token takes effect.
+  void setToken(String? token) {
+    _token = token;
+    final channel = _channel;
+    if (channel != null) {
+      // Reconnect to apply the new token; the old socket's handlers are scoped
+      // and will no-op once `_channel` no longer points at it.
+      _channel = null;
+      _connected = false;
+      channel.sink.close();
+      connect();
+    }
+  }
+
   /// Connect to the realtime server.
   void connect() {
-    if (_connected) return;
+    if (_channel != null) return;
+    _closedByUser = false;
 
-    final uri = Uri.parse('$_endpoint/v1/realtime')
-        .replace(queryParameters: {'project': _projectId});
+    final params = <String, String>{'project': _projectId};
+    if (_token != null) params['token'] = _token!;
+    final uri =
+        Uri.parse('$_endpoint/v1/realtime').replace(queryParameters: params);
 
-    _channel = WebSocketChannel.connect(uri);
-    _connected = true;
+    final channel = WebSocketChannel.connect(uri);
+    _channel = channel;
 
-    _channel!.stream.listen(
+    channel.ready.then((_) {
+      if (_channel != channel) return; // superseded
+      _connected = true;
+      _reconnectAttempts = 0;
+      // (Re-)subscribe every active channel: covers subscriptions buffered
+      // before open and re-subscription after a reconnect.
+      if (_channels.isNotEmpty) {
+        _rawSend(channel, {
+          'type': 'subscribe',
+          'channels': _channels.keys.toList(),
+        });
+      }
+    }).catchError((_) {
+      if (_channel != channel) return;
+      _connected = false;
+      _channel = null;
+      if (!_closedByUser) _scheduleReconnect();
+    });
+
+    channel.stream.listen(
       (data) {
         try {
           final json = jsonDecode(data as String) as Map<String, dynamic>;
@@ -154,12 +213,29 @@ class Realtime {
         } catch (_) {}
       },
       onDone: () {
+        if (_channel != channel) return;
         _connected = false;
+        _channel = null;
+        if (!_closedByUser) _scheduleReconnect();
       },
-      onError: (error) {
+      onError: (_) {
+        if (_channel != channel) return;
         _connected = false;
+        _channel = null;
+        if (!_closedByUser) _scheduleReconnect();
       },
     );
+  }
+
+  void _scheduleReconnect() {
+    if (_reconnectTimer != null) return;
+    final attempt = _reconnectAttempts > 20 ? 20 : _reconnectAttempts;
+    final delayMs = (1000 * (1 << attempt)).clamp(1000, 30000).toInt();
+    _reconnectAttempts++;
+    _reconnectTimer = Timer(Duration(milliseconds: delayMs), () {
+      _reconnectTimer = null;
+      if (!_closedByUser) connect();
+    });
   }
 
   /// Returns a [DatabaseChannel] builder for subscribing to table-level
@@ -180,26 +256,55 @@ class Realtime {
     String channel,
     void Function(RealtimeEvent event) callback,
   ) {
-    _send({'type': 'subscribe', 'channels': [channel]});
+    _channels[channel] = (_channels[channel] ?? 0) + 1;
+    // Send now if connected; otherwise it is flushed once ready.
+    if (_connected && _channel != null) {
+      _rawSend(_channel!, {'type': 'subscribe', 'channels': [channel]});
+    }
+
     final sub =
         _controller.stream.where((e) => e.channel == channel).listen(callback);
-    return RealtimeSubscription(channel, sub);
+
+    return RealtimeSubscription(channel, () async {
+      await sub.cancel();
+      final remaining = (_channels[channel] ?? 1) - 1;
+      if (remaining <= 0) {
+        _channels.remove(channel);
+        if (_connected && _channel != null) {
+          _rawSend(_channel!, {'type': 'unsubscribe', 'channels': [channel]});
+        }
+      } else {
+        _channels[channel] = remaining;
+      }
+    });
   }
 
-  /// Unsubscribe from a channel.
+  /// Unsubscribe from a channel entirely (drops all local refcounts).
   void unsubscribe(String channel) {
-    _send({'type': 'unsubscribe', 'channels': [channel]});
+    _channels.remove(channel);
+    if (_connected && _channel != null) {
+      _rawSend(_channel!, {'type': 'unsubscribe', 'channels': [channel]});
+    }
   }
 
-  /// Disconnect from the realtime server.
+  /// Disconnect from the realtime server and stop reconnection.
   void disconnect() {
+    _closedByUser = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectAttempts = 0;
     _channel?.sink.close();
+    _channel = null;
     _connected = false;
   }
 
-  void _send(Map<String, dynamic> message) {
-    if (_channel != null && _connected) {
-      _channel!.sink.add(jsonEncode(message));
-    }
+  /// Disconnect and release the event stream. Use when the client is discarded.
+  void dispose() {
+    disconnect();
+    _controller.close();
+  }
+
+  void _rawSend(WebSocketChannel channel, Map<String, dynamic> message) {
+    channel.sink.add(jsonEncode(message));
   }
 }

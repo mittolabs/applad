@@ -126,7 +126,7 @@ describe('Applad client', () => {
     );
   });
 
-  it('setSession sets x-applad-session header', async () => {
+  it('setSession sets Authorization: Bearer header (alias of setJWT)', async () => {
     const client = createClient();
     const mock = mockFetch(200, {});
     client.setSession('sess-123');
@@ -136,10 +136,21 @@ describe('Applad client', () => {
       expect.any(String),
       expect.objectContaining({
         headers: expect.objectContaining({
-          'x-applad-session': 'sess-123',
+          Authorization: 'Bearer sess-123',
         }),
       })
     );
+  });
+
+  it('call throws AppladError with server message and status', async () => {
+    const client = createClient();
+    mockFetch(404, { message: 'row not found', type: 'not_found' });
+    await expect(client.call('GET', '/missing')).rejects.toMatchObject({
+      name: 'AppladError',
+      status: 404,
+      message: 'row not found',
+      type: 'not_found',
+    });
   });
 
   it('download returns ArrayBuffer', async () => {

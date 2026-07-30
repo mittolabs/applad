@@ -16,6 +16,7 @@ import { Storage } from './storage';
 import { Vectors } from './vectors';
 import { Workflows } from './workflows';
 import { Observe } from './observe';
+import { errorFromResponse } from './errors';
 
 export interface ApplAdConfig {
   endpoint: string;
@@ -73,12 +74,20 @@ export class Applad {
     this.observe = new Observe(this);
   }
 
+  /**
+   * Authenticate as a signed-in user with their session secret / JWT.
+   *
+   * The backend authenticates users via `Authorization: Bearer <secret>`, so
+   * this is an alias for {@link setJWT}. The token is also forwarded to the
+   * realtime client so subscriptions to data channels are authorized.
+   */
   setSession(sessionId: string): void {
-    this.headers['x-applad-session'] = sessionId;
+    this.setJWT(sessionId);
   }
 
   setJWT(jwt: string): void {
     this.headers['Authorization'] = `Bearer ${jwt}`;
+    this.realtime.setToken(jwt);
   }
 
   setKey(key: string): void {
@@ -91,7 +100,7 @@ export class Applad {
       headers: this.headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+    if (!res.ok) throw await errorFromResponse(res, method, path);
     if (res.status === 204) return undefined as T;
     return res.json() as Promise<T>;
   }
@@ -104,7 +113,7 @@ export class Applad {
       headers,
       body: formData,
     });
-    if (!res.ok) throw new Error(`POST ${path} → ${res.status}`);
+    if (!res.ok) throw await errorFromResponse(res, 'POST', path);
     return res.json() as Promise<T>;
   }
 
@@ -112,7 +121,7 @@ export class Applad {
     const res = await fetch(`${this.endpoint}/v1${path}`, {
       headers: this.headers,
     });
-    if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+    if (!res.ok) throw await errorFromResponse(res, 'GET', path);
     return res.arrayBuffer();
   }
 }
