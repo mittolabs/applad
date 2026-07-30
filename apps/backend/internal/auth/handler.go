@@ -96,6 +96,14 @@ func renderAuthMessage(body string, vars map[string]string) string {
 	return body
 }
 
+// stripSubjectNewlines removes CR and LF from an email subject. The subject is
+// a single header line; a newline in it (from a custom template or a variable
+// rendered into it) would otherwise start a new header, which is header
+// injection.
+func stripSubjectNewlines(subject string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(subject)
+}
+
 // resolveAuthMessage returns the subject/body to send for an auth flow. It
 // starts from the built-in defaults and, when the project has a custom template
 // for key, renders that instead (a custom template may override the body only,
@@ -110,6 +118,12 @@ func (h *Handler) resolveAuthMessage(ctx context.Context, projectID, key, defSub
 			}
 		}
 	}
+	// The subject is a single header line, so a CR/LF in it — whether from a
+	// custom template or a user-influenced variable substituted into it — would
+	// inject extra headers or a body into the outgoing email. Fold it to one
+	// line. The body legitimately spans multiple lines and sits after the
+	// header/body separator, so its newlines are harmless.
+	subject = stripSubjectNewlines(subject)
 	return subject, body
 }
 

@@ -557,20 +557,29 @@ func (d *DeployExecutor) startContainer(ctx context.Context, deploymentID, proje
 	return nil
 }
 
-// createDeployContainer creates a container with explicit port mapping
-// instead of PublishAllPorts, so the deployment gets a predictable port.
-func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image, port string, env []string, labels map[string]string) (string, error) {
-	exposedPort := port + "/tcp"
-
-	// Deployed apps must sit on the same user-defined network as the proxy, so
-	// the ingress can reach them by container name via Docker's embedded DNS.
-	// The default bridge has no name resolution, which makes apps unroutable.
-	network := os.Getenv("APPLAD_DEPLOY_NETWORK")
-	if network == "" {
-		network = "applad_default"
+// deployNetworkName is the user-defined network deployed apps join. Deployed
+// apps must sit on the same network as the proxy, so the ingress can reach them
+// by container name via Docker's embedded DNS. The default bridge has no name
+// resolution, which makes apps unroutable.
+func deployNetworkName() string {
+	if network := os.Getenv("APPLAD_DEPLOY_NETWORK"); network != "" {
+		return network
 	}
+	return "applad_default"
+}
 
-	body := map[string]interface{}{
+// deployContainerBody builds the Docker create request for a deployed app.
+//
+// It is a standalone function so the security-relevant HostConfig can be
+// asserted in a test without a Docker daemon. Deployed apps run arbitrary
+// customer code, so they carry the same baseline hardening functions get:
+// capabilities dropped, no privilege escalation, and a process cap so a
+// fork bomb cannot exhaust the host's PIDs. The rootfs is left writable on
+// purpose — a web app routinely writes temp and cache files, and functions
+// only get a read-only rootfs because they also get a writable /tmp tmpfs.
+func deployContainerBody(name, image, port string, env []string, labels map[string]string, network string) map[string]interface{} {
+	exposedPort := port + "/tcp"
+	return map[string]interface{}{
 		"Image":  image,
 		"Env":    env,
 		"Labels": labels,
@@ -582,6 +591,11 @@ func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image,
 			"Memory":          int64(512 * 1024 * 1024), // 512MB for deployments
 			"NanoCPUs":        int64(2e9),               // 2 CPUs
 			"NetworkMode":     network,
+			// Baseline hardening for untrusted customer code. These do not
+			// interfere with a normal web server binding its port.
+			"CapDrop":     []string{"ALL"},
+			"SecurityOpt": []string{"no-new-privileges"},
+			"PidsLimit":   int64(512), // higher than a function: apps fork workers
 			// Deployed apps are long-lived: they must come back after a host or
 			// Docker daemon restart, not just after a crash.
 			"RestartPolicy": map[string]interface{}{
@@ -594,6 +608,14 @@ func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image,
 			},
 		},
 	}
+}
+
+// createDeployContainer creates a container with explicit port mapping
+// instead of PublishAllPorts, so the deployment gets a predictable port.
+func (d *DeployExecutor) createDeployContainer(ctx context.Context, name, image, port string, env []string, labels map[string]string) (string, error) {
+	network := deployNetworkName()
+
+	body := deployContainerBody(name, image, port, env, labels, network)
 
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST",

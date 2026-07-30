@@ -164,13 +164,23 @@ describe('Flags service', () => {
 describe('Deploy service', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it('list sends GET /deploy', async () => {
-    const mock = mockFetch({ deployments: [] });
+  it('list sends GET /deploy/targets', async () => {
+    const mock = mockFetch({ targets: [], total: 0 });
     const srv = createServer();
     await srv.deploy.list();
     expect(mock).toHaveBeenCalledWith(
-      'http://localhost:8080/v1/deploy',
+      'http://localhost:8080/v1/deploy/targets',
       expect.objectContaining({ method: 'GET' })
+    );
+  });
+
+  it('deploy triggers POST /deploy/targets/:id/executions', async () => {
+    const mock = mockFetch({ $id: 'exec1' });
+    const srv = createServer();
+    await srv.deploy.deploy('d1');
+    expect(mock).toHaveBeenCalledWith(
+      'http://localhost:8080/v1/deploy/targets/d1/executions',
+      expect.objectContaining({ method: 'POST' })
     );
   });
 });

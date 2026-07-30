@@ -31,6 +31,10 @@ type Provider struct {
 	UserInfoURL  string
 	Scopes       []string
 	ParseUser    func(body []byte) (*UserInfo, error)
+	// ClientSecretFn, when set, produces the client secret at exchange time and
+	// overrides ClientSecret. Apple needs this: its client secret is not a stored
+	// constant but a short-lived ES256 JWT signed from the account's .p8 key.
+	ClientSecretFn func(ctx context.Context) (string, error)
 }
 
 // Providers returns the known OAuth2 providers configured via environment variables.
@@ -89,9 +93,18 @@ func (p *Provider) GetAuthURL(redirectURI, state string) string {
 
 // ExchangeCode exchanges an authorization code for an access token.
 func (p *Provider) ExchangeCode(ctx context.Context, code, redirectURI string) (string, error) {
+	clientSecret := p.ClientSecret
+	if p.ClientSecretFn != nil {
+		s, err := p.ClientSecretFn(ctx)
+		if err != nil {
+			return "", fmt.Errorf("oauth: build client secret: %w", err)
+		}
+		clientSecret = s
+	}
+
 	data := url.Values{
 		"client_id":     {p.ClientID},
-		"client_secret": {p.ClientSecret},
+		"client_secret": {clientSecret},
 		"code":          {code},
 		"redirect_uri":  {redirectURI},
 		"grant_type":    {"authorization_code"},

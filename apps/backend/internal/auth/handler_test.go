@@ -347,6 +347,45 @@ func TestMagicLink_FallsBackToBuiltInCopy(t *testing.T) {
 	}
 }
 
+// A variable rendered into a custom subject must not be able to inject a header:
+// a value carrying "\r\nBcc: ..." is folded so the resolved subject stays one
+// line and contains no newline, while the body may keep its newlines.
+func TestResolveAuthMessage_SubjectInjection_Stripped(t *testing.T) {
+	h := &Handler{templates: fakeTemplateResolver{
+		key:     "verification",
+		subject: "Verify {{email}}",
+		body:    "<p>Hi {{email}}</p>",
+	}}
+	vars := map[string]string{"email": "victim@test.com\r\nBcc: attacker@evil.com"}
+	subject, _ := h.resolveAuthMessage(context.Background(), "proj", "verification",
+		"Verify your email", "<p>default</p>", vars)
+	if strings.ContainsAny(subject, "\r\n") {
+		t.Fatalf("subject still contains a newline: %q", subject)
+	}
+	if !strings.HasPrefix(subject, "Verify victim@test.com") {
+		t.Fatalf("subject not folded as expected: %q", subject)
+	}
+}
+
+// A legitimate custom subject with a clean variable renders unchanged, so the
+// sanitization does not disturb the normal path.
+func TestResolveAuthMessage_LegitimateSubject_Unchanged(t *testing.T) {
+	h := &Handler{templates: fakeTemplateResolver{
+		key:     "verification",
+		subject: "Verify {{email}}",
+		body:    "<p>Hi {{email}}</p>",
+	}}
+	vars := map[string]string{"email": "user@test.com"}
+	subject, body := h.resolveAuthMessage(context.Background(), "proj", "verification",
+		"Verify your email", "<p>default</p>", vars)
+	if subject != "Verify user@test.com" {
+		t.Fatalf("unexpected subject: %q", subject)
+	}
+	if body != "<p>Hi user@test.com</p>" {
+		t.Fatalf("unexpected body: %q", body)
+	}
+}
+
 func TestRenderAuthMessage(t *testing.T) {
 	got := renderAuthMessage("Hi {{name}}, code {{otp}}", map[string]string{"name": "Sam", "otp": "123456"})
 	if got != "Hi Sam, code 123456" {

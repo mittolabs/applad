@@ -774,27 +774,43 @@ func (s *MessagingService) SendTemplate(templateID string, to []string, variable
 
 type DeployService struct{ client *Client }
 
+// Deploy targets are the deployable unit. The API mounts them under
+// /deploy/targets (there is no flat /deploy resource); triggering a deploy
+// runs the target as an execution.
+
 func (s *DeployService) Create(name, deployType string, config map[string]interface{}) (map[string]interface{}, error) {
-	if config == nil {
-		config = map[string]interface{}{}
+	body := map[string]interface{}{
+		"name": name,
+		"type": deployType,
 	}
-	return s.client.call("POST", "/deploy", map[string]interface{}{
-		"name":   name,
-		"type":   deployType,
-		"config": config,
-	})
+	for k, v := range config {
+		body[k] = v
+	}
+	return s.client.call("POST", "/deploy/targets", body)
 }
 
 func (s *DeployService) List() (map[string]interface{}, error) {
-	return s.client.call("GET", "/deploy", nil)
+	return s.client.call("GET", "/deploy/targets", nil)
 }
 
-func (s *DeployService) Get(deploymentID string) (map[string]interface{}, error) {
-	return s.client.call("GET", "/deploy/"+deploymentID, nil)
+func (s *DeployService) Get(targetID string) (map[string]interface{}, error) {
+	return s.client.call("GET", "/deploy/targets/"+targetID, nil)
 }
 
-func (s *DeployService) Delete(deploymentID string) (map[string]interface{}, error) {
-	return s.client.call("DELETE", "/deploy/"+deploymentID, nil)
+func (s *DeployService) Update(targetID string, data map[string]interface{}) (map[string]interface{}, error) {
+	return s.client.call("PUT", "/deploy/targets/"+targetID, data)
+}
+
+func (s *DeployService) Delete(targetID string) (map[string]interface{}, error) {
+	return s.client.call("DELETE", "/deploy/targets/"+targetID, nil)
+}
+
+// Deploy triggers a deploy of the target and returns the created execution.
+func (s *DeployService) Deploy(targetID string, options map[string]interface{}) (map[string]interface{}, error) {
+	if options == nil {
+		options = map[string]interface{}{}
+	}
+	return s.client.call("POST", "/deploy/targets/"+targetID+"/executions", options)
 }
 
 // ---------------------------------------------------------------------------

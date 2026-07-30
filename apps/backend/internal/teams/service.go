@@ -239,18 +239,20 @@ func (s *Service) ListMemberships(ctx context.Context, teamID, projectID string)
 	return memberships, len(memberships), nil
 }
 
-// GetMembership returns a single membership by id, scoped to its team. It joins
-// the team in for the team name, matching the shape ListMemberships returns. A
-// row that does not exist (or belongs to another team) yields "membership not
+// GetMembership returns a single membership by id, scoped to its team and to the
+// caller's project. It joins the team in both for the team name and to bind the
+// row to project_id, so a caller (including a server API key) cannot read a
+// membership belonging to another project by guessing its id. A row that does
+// not exist (or belongs to another team or project) yields "membership not
 // found", which the handler maps to a 404.
-func (s *Service) GetMembership(ctx context.Context, teamID, membershipID string) (*model.Membership, error) {
+func (s *Service) GetMembership(ctx context.Context, teamID, membershipID, projectID string) (*model.Membership, error) {
 	var m model.Membership
 	var userID sql.NullString
 	var invitedEmail sql.NullString
 	var rolesJSON []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.id = $1 AND m.team_id = $2",
-		membershipID, teamID).Scan(&m.ID, &m.TeamID, &userID, &invitedEmail, &rolesJSON, &m.Invited, &m.Joined, &m.CreatedAt, &m.TeamName)
+		"SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.id = $1 AND m.team_id = $2 AND t.project_id = $3",
+		membershipID, teamID, projectID).Scan(&m.ID, &m.TeamID, &userID, &invitedEmail, &rolesJSON, &m.Invited, &m.Joined, &m.CreatedAt, &m.TeamName)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("membership not found")
 	}
@@ -271,7 +273,7 @@ func (s *Service) GetMembership(ctx context.Context, teamID, membershipID string
 // matching how CreateMembership stores it. The handler gates this owner-only, so
 // a non-owner cannot use it to grant themselves "owner"; the service records
 // exactly what it is given. A missing row yields "membership not found".
-func (s *Service) UpdateMembershipRoles(ctx context.Context, teamID, membershipID string, roles []string) (*model.Membership, error) {
+func (s *Service) UpdateMembershipRoles(ctx context.Context, teamID, membershipID, projectID string, roles []string) (*model.Membership, error) {
 	if roles == nil {
 		roles = []string{}
 	}
@@ -279,16 +281,20 @@ func (s *Service) UpdateMembershipRoles(ctx context.Context, teamID, membershipI
 	if err != nil {
 		return nil, fmt.Errorf("teams: marshal roles: %w", err)
 	}
+	// The EXISTS clause binds the target team to the caller's project, so a key or
+	// session scoped to project B cannot rewrite the roles of a membership in
+	// project A even if it learns the team and membership ids. A cross-project id
+	// updates nothing and surfaces as "membership not found".
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE memberships SET roles = $1 WHERE id = $2 AND team_id = $3",
-		rolesJSON, membershipID, teamID)
+		"UPDATE memberships SET roles = $1 WHERE id = $2 AND team_id = $3 AND EXISTS (SELECT 1 FROM teams WHERE teams.id = $3 AND teams.project_id = $4)",
+		rolesJSON, membershipID, teamID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("teams: update membership roles: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil, fmt.Errorf("membership not found")
 	}
-	return s.GetMembership(ctx, teamID, membershipID)
+	return s.GetMembership(ctx, teamID, membershipID, projectID)
 }
 
 // RolesForUser returns the RLS role tokens a user holds through team
@@ -406,8 +412,14 @@ func (s *Service) MembershipOf(ctx context.Context, teamID, userID string) (memb
 	return member, owner, rows.Err()
 }
 
+// DeleteMembership removes a membership, scoped to its team and the caller's
+// project. The EXISTS clause makes the projectID argument load-bearing (it was
+// previously accepted and ignored): a caller scoped to another project cannot
+// delete a membership in this team by guessing ids, because the team must belong
+// to the caller's project for any row to be removed.
 func (s *Service) DeleteMembership(ctx context.Context, membershipID, teamID, projectID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM memberships WHERE id = $1 AND team_id = $2", membershipID, teamID)
+		"DELETE FROM memberships WHERE id = $1 AND team_id = $2 AND EXISTS (SELECT 1 FROM teams WHERE teams.id = $2 AND teams.project_id = $3)",
+		membershipID, teamID, projectID)
 	return err
 }

@@ -10,6 +10,9 @@ export interface OAuthProviderConfig {
   provider: string;
   enabled: boolean;
   clientId: string;
+  /** Auxiliary non-secret fields (e.g. Microsoft tenantId, Apple keyId/teamId).
+   * Returned so the console can prefill them; secret material is never here. */
+  extra?: Record<string, string>;
 }
 
 export async function listOAuthProviders(projectId: string): Promise<OAuthProviderConfig[]> {
@@ -21,6 +24,8 @@ export interface SetOAuthProviderBody {
   clientId: string;
   /** Empty preserves the stored secret; the GET never returns it. */
   clientSecret?: string;
+  /** Auxiliary non-secret fields; omitted/undefined preserves the stored ones. */
+  extra?: Record<string, string>;
   enabled: boolean;
 }
 

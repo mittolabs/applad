@@ -4,8 +4,11 @@ export declare class Deploy {
     constructor(client: ApplAdServer);
     create(name: string, type: string, config?: Record<string, unknown>): Promise<any>;
     list(): Promise<any>;
-    get(deploymentId: string): Promise<any>;
-    update(deploymentId: string, data: Record<string, unknown>): Promise<any>;
-    updateStatus(deploymentId: string, status: string): Promise<any>;
-    delete(deploymentId: string): Promise<any>;
+    get(targetId: string): Promise<any>;
+    update(targetId: string, data: Record<string, unknown>): Promise<any>;
+    delete(targetId: string): Promise<any>;
+    deploy(targetId: string, options?: {
+        request?: string;
+        trigger?: string;
+    }): Promise<any>;
 }

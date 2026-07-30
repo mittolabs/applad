@@ -1,12 +1,48 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+// errMFARequired signals that the password was accepted but the account has
+// MFA enrolled and a second-factor code is still needed.
+var errMFARequired = errors.New("console_mfa_required")
+
+// consoleLogin posts credentials to /v1/console/login. Unlike the generic Post
+// helper it inspects the error "type" so the caller can tell an MFA challenge
+// (console_mfa_required) apart from a genuine failure and re-submit with a code.
+func consoleLogin(url string, body map[string]string) (map[string]interface{}, error) {
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, url+"/v1/console/login", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&out) //nolint:errcheck
+	if resp.StatusCode >= 400 {
+		if t, _ := out["type"].(string); t == "console_mfa_required" {
+			return nil, errMFARequired
+		}
+		msg, _ := out["message"].(string)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, msg)
+	}
+	return out, nil
+}
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
@@ -24,7 +60,13 @@ var loginCmd = &cobra.Command{
 		}
 
 		body := map[string]string{"email": email, "password": password}
-		res, err := Post(url+"/v1/console/login", "", body)
+		res, err := consoleLogin(url, body)
+		if errors.Is(err, errMFARequired) {
+			// Password was correct but the account has MFA enrolled. Ask for the
+			// code and re-submit, matching what the console UI does.
+			body["code"] = Prompt("Authentication code: ")
+			res, err = consoleLogin(url, body)
+		}
 		Must(err)
 
 		token, _ := res["token"].(string)

@@ -60,12 +60,12 @@ describe('Functions service', () => {
 describe('Deploy service', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it('create sends POST /deploy', async () => {
+  it('create sends POST /deploy/targets', async () => {
     const mock = mockFetch({ $id: 'd1' });
     const client = createClient();
-    await client.deploy.create('staging', 'docker');
+    await client.deploy.create('staging', 'web');
     expect(mock).toHaveBeenCalledWith(
-      'http://localhost:8080/v1/deploy',
+      'http://localhost:8080/v1/deploy/targets',
       expect.objectContaining({
         method: 'POST',
         body: expect.stringContaining('"name":"staging"'),
@@ -73,18 +73,32 @@ describe('Deploy service', () => {
     );
   });
 
-  it('list sends GET /deploy', async () => {
-    mockFetch({ deployments: [] });
+  it('list sends GET /deploy/targets', async () => {
+    const mock = mockFetch({ targets: [], total: 0 });
     const client = createClient();
     await client.deploy.list();
+    expect(mock).toHaveBeenCalledWith(
+      'http://localhost:8080/v1/deploy/targets',
+      expect.objectContaining({ method: 'GET' })
+    );
   });
 
-  it('delete sends DELETE /deploy/:id', async () => {
+  it('deploy triggers POST /deploy/targets/:id/executions', async () => {
+    const mock = mockFetch({ $id: 'exec1' });
+    const client = createClient();
+    await client.deploy.deploy('d1');
+    expect(mock).toHaveBeenCalledWith(
+      'http://localhost:8080/v1/deploy/targets/d1/executions',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('delete sends DELETE /deploy/targets/:id', async () => {
     const mock = mockFetch({}, 204);
     const client = createClient();
     await client.deploy.delete('d1');
     expect(mock).toHaveBeenCalledWith(
-      'http://localhost:8080/v1/deploy/d1',
+      'http://localhost:8080/v1/deploy/targets/d1',
       expect.objectContaining({ method: 'DELETE' })
     );
   });

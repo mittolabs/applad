@@ -252,22 +252,40 @@ function OAuthConfigDialog({
     [provider],
   );
 
-  const [enabled, setEnabled] = useState(config?.enabled ?? true);
-  // Prefill the client id from the stored config; secrets are never returned so
-  // their fields start empty and, left empty, keep the stored value.
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    idField ? { [idField.key]: config?.clientId ?? '' } : {},
+  // Fields that are neither the client id nor the secret map to `extra`:
+  // provider-specific, non-secret identifiers (Microsoft tenantId, Apple
+  // keyId/teamId) the backend used to drop on the floor.
+  const extraFields = useMemo(
+    () => provider.fields.filter((f) => f !== idField && f !== secretField),
+    [provider, idField, secretField],
   );
+
+  const [enabled, setEnabled] = useState(config?.enabled ?? true);
+  // Prefill the client id and any stored aux fields; secrets are never returned
+  // so their fields start empty and, left empty, keep the stored value.
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    if (idField) init[idField.key] = config?.clientId ?? '';
+    for (const f of provider.fields) {
+      if (f === idField || f === secretField) continue;
+      init[f.key] = config?.extra?.[f.key] ?? '';
+    }
+    return init;
+  });
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState(false);
 
   const save = useMutation({
-    mutationFn: () =>
-      setOAuthProvider(projectId, provider.id, {
+    mutationFn: () => {
+      const extra: Record<string, string> = {};
+      for (const f of extraFields) extra[f.key] = (values[f.key] ?? '').trim();
+      return setOAuthProvider(projectId, provider.id, {
         clientId: (idField ? values[idField.key] : '')?.trim() ?? '',
         clientSecret: secretField ? (values[secretField.key] ?? '') : '',
+        extra: extraFields.length > 0 ? extra : undefined,
         enabled,
-      }),
+      });
+    },
     onSuccess: onSaved,
   });
 

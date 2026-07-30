@@ -315,10 +315,35 @@ func (s *Service) DeleteMessage(ctx context.Context, projectID, id string) error
 // Email
 // ---------------------------------------------------------------------------
 
+// stripHeaderNewlines removes CR and LF from a value bound for a single email
+// header line. A value that carries "\r\n" would otherwise start a new header
+// (or the body), which is SMTP header injection. The subject and the From
+// display are folded to a single line rather than rejected, so a stray newline
+// degrades gracefully instead of failing a legitimate send.
+func stripHeaderNewlines(v string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(v)
+}
+
+// validateHeaderAddresses rejects the send if any recipient address contains a
+// CR or LF. Unlike the subject, an address cannot be silently repaired — a
+// newline in it is either a malformed address or an injection attempt — so the
+// whole send is refused with a clear error.
+func validateHeaderAddresses(to []string) error {
+	for _, addr := range to {
+		if strings.ContainsAny(addr, "\r\n") {
+			return fmt.Errorf("messaging: recipient address contains a newline")
+		}
+	}
+	return nil
+}
+
 // SendEmail sends an email via SMTP (primary) or returns an error if unconfigured.
 func (s *Service) SendEmail(ctx context.Context, to []string, subject, htmlBody string) error {
 	if s.cfg.Host == "" {
 		return fmt.Errorf("messaging: SMTP not configured")
+	}
+	if err := validateHeaderAddresses(to); err != nil {
+		return err
 	}
 	addr := s.cfg.Host + ":" + s.cfg.Port
 	var auth smtp.Auth
@@ -326,9 +351,9 @@ func (s *Service) SendEmail(ctx context.Context, to []string, subject, htmlBody 
 		auth = smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.Host)
 	}
 	headers := []string{
-		fmt.Sprintf("From: %s", s.cfg.From),
-		fmt.Sprintf("To: %s", strings.Join(to, ", ")),
-		fmt.Sprintf("Subject: %s", subject),
+		fmt.Sprintf("From: %s", stripHeaderNewlines(s.cfg.From)),
+		fmt.Sprintf("To: %s", stripHeaderNewlines(strings.Join(to, ", "))),
+		fmt.Sprintf("Subject: %s", stripHeaderNewlines(subject)),
 		"MIME-Version: 1.0",
 		"Content-Type: text/html; charset=UTF-8",
 	}
@@ -706,6 +731,9 @@ func (s *Service) sendEmailViaSMTPConfig(ctx context.Context, to []string, subje
 	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.Host == "" {
 		return fmt.Errorf("messaging: invalid SMTP provider config")
 	}
+	if err := validateHeaderAddresses(to); err != nil {
+		return err
+	}
 	port := cfg.Port
 	if port == "" {
 		port = "587"
@@ -716,9 +744,9 @@ func (s *Service) sendEmailViaSMTPConfig(ctx context.Context, to []string, subje
 		auth = smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
 	}
 	headers := []string{
-		fmt.Sprintf("From: %s", cfg.From),
-		fmt.Sprintf("To: %s", strings.Join(to, ", ")),
-		fmt.Sprintf("Subject: %s", subject),
+		fmt.Sprintf("From: %s", stripHeaderNewlines(cfg.From)),
+		fmt.Sprintf("To: %s", stripHeaderNewlines(strings.Join(to, ", "))),
+		fmt.Sprintf("Subject: %s", stripHeaderNewlines(subject)),
 		"MIME-Version: 1.0",
 		"Content-Type: text/html; charset=UTF-8",
 	}

@@ -192,6 +192,16 @@ services:
     depends_on: *worker-deps
     restart: unless-stopped
 
+  worker-jobs:
+    <<: *worker-image
+    command: go run ./cmd/workers/jobs
+    environment: *worker-env
+    volumes:
+      - ./apps/backend:/app
+      - go_mod_cache:/go/pkg/mod
+    depends_on: *worker-deps
+    restart: unless-stopped
+
   # ── Infrastructure (identical to production) ──────────────────────────────
   pgbouncer:
     image: edoburu/pgbouncer:latest

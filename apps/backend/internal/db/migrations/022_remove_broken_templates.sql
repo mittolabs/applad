@@ -12,8 +12,33 @@
 -- removed rather than hidden, so the catalogue can be repopulated with
 -- repositories that have been checked.
 
+-- deploy_templates has no is_seed/source column to mark a row's origin, and the
+-- broken-URL predicate below (NULL/empty/`/tree/`) would just as happily match a
+-- template a user created later. This migration already ran on existing installs
+-- (it will not re-run), so the risk is a fresh install: scope the delete to the
+-- exact ids seeded by 001_init so a user-created row can never be caught. The
+-- broken-URL predicate is kept as well so only the genuinely-unclonable seeds go.
 DELETE FROM deploy_templates
- WHERE repo_url IS NULL
-    OR repo_url = ''
-    OR repo_url LIKE '%/tree/%'
-    OR repo_url = 'https://github.com/nuxt/starter';
+ WHERE id IN (
+        'tpl_nextjs_starter',
+        'tpl_astro_blog',
+        'tpl_svelte_starter',
+        'tpl_nuxt_starter',
+        'tpl_react_vite',
+        'tpl_vue_starter',
+        'tpl_flutter_web',
+        'tpl_static_html',
+        'tpl_docker_node',
+        'tpl_docker_go',
+        'tpl_docker_python',
+        'tpl_flutter_mobile',
+        'tpl_flutter_desktop',
+        'tpl_electron',
+        'tpl_tauri'
+       )
+   AND (
+        repo_url IS NULL
+     OR repo_url = ''
+     OR repo_url LIKE '%/tree/%'
+     OR repo_url = 'https://github.com/nuxt/starter'
+       );

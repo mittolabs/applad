@@ -145,6 +145,15 @@ func (h *Handler) listTeams(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getTeam(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(r.Context())
 	teamID := chi.URLParam(r, "teamId")
+	// A team object carries its name, its owner-controlled prefs (arbitrary JSON)
+	// and its member count. Reading it is gated the same as the roster: only a
+	// joined member (or an API key / console admin) may, so a non-member cannot
+	// enumerate or guess team ids to harvest other users' teams. The invite-accept
+	// path authenticates with membershipId+secret rather than getTeam, so gating
+	// this members-only does not break joining.
+	if !h.authorizeTeam(w, r, teamID, false) {
+		return
+	}
 	t, err := h.svc.Get(r.Context(), teamID, projectID)
 	if err != nil {
 		apperr.NotFound(w, "team")
@@ -257,6 +266,7 @@ func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getMembership(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	teamID := chi.URLParam(r, "teamId")
 	membershipID := chi.URLParam(r, "membershipId")
 	// A single membership carries a member's email and roles, so reading it is
@@ -264,7 +274,7 @@ func (h *Handler) getMembership(w http.ResponseWriter, r *http.Request) {
 	if !h.authorizeTeam(w, r, teamID, false) {
 		return
 	}
-	m, err := h.svc.GetMembership(r.Context(), teamID, membershipID)
+	m, err := h.svc.GetMembership(r.Context(), teamID, membershipID, projectID)
 	if err != nil {
 		apperr.NotFound(w, "membership")
 		return
@@ -273,6 +283,7 @@ func (h *Handler) getMembership(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateMembership(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	teamID := chi.URLParam(r, "teamId")
 	membershipID := chi.URLParam(r, "membershipId")
 	// Changing a member's roles feeds database RLS, so it is owner-only, the same
@@ -288,7 +299,7 @@ func (h *Handler) updateMembership(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "invalid request body")
 		return
 	}
-	m, err := h.svc.UpdateMembershipRoles(r.Context(), teamID, membershipID, body.Roles)
+	m, err := h.svc.UpdateMembershipRoles(r.Context(), teamID, membershipID, projectID, body.Roles)
 	if err != nil {
 		if err.Error() == "membership not found" {
 			apperr.NotFound(w, "membership")

@@ -127,14 +127,14 @@ func TestUpdateMembershipRoles_RoundTrip(t *testing.T) {
 	defer mockDB.Close()
 
 	mock.ExpectExec(`UPDATE memberships SET roles = \$1 WHERE id = \$2 AND team_id = \$3`).
-		WithArgs([]byte(`["developer","lead"]`), "mem1", "t1").
+		WithArgs([]byte(`["developer","lead"]`), "mem1", "t1", "proj1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.id = \$1 AND m.team_id = \$2`).
-		WithArgs("mem1", "t1").
+	mock.ExpectQuery(`SELECT m.id, m.team_id, m.user_id, m.invited_email, m.roles, m.invited, m.joined, m.created_at, t.name FROM memberships m JOIN teams t ON t.id = m.team_id WHERE m.id = \$1 AND m.team_id = \$2 AND t.project_id = \$3`).
+		WithArgs("mem1", "t1", "proj1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "team_id", "user_id", "invited_email", "roles", "invited", "joined", "created_at", "name"}).
 			AddRow("mem1", "t1", "u2", "g@x.com", []byte(`["developer","lead"]`), true, true, time.Now().UTC(), "Team"))
 
-	m, err := svc.UpdateMembershipRoles(context.Background(), "t1", "mem1", []string{"developer", "lead"})
+	m, err := svc.UpdateMembershipRoles(context.Background(), "t1", "mem1", "proj1", []string{"developer", "lead"})
 	if err != nil {
 		t.Fatalf("UpdateMembershipRoles: %v", err)
 	}
@@ -152,10 +152,50 @@ func TestUpdateMembershipRoles_NotFound(t *testing.T) {
 	defer mockDB.Close()
 
 	mock.ExpectExec(`UPDATE memberships SET roles`).
-		WithArgs(sqlmock.AnyArg(), "missing", "t1").
+		WithArgs(sqlmock.AnyArg(), "missing", "t1", "proj123").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	_, err := svc.UpdateMembershipRoles(context.Background(), "t1", "missing", []string{"x"})
+	_, err := svc.UpdateMembershipRoles(context.Background(), "t1", "missing", "proj123", []string{"x"})
+	if err == nil || err.Error() != "membership not found" {
+		t.Fatalf("expected membership not found, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestDeleteMembership_ProjectScoped proves DeleteMembership's projectID is
+// load-bearing: the DELETE carries it into an EXISTS clause on teams, so a call
+// scoped to the wrong project matches no row (and removes nothing) rather than
+// deleting a membership in another project's team.
+func TestDeleteMembership_ProjectScoped(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	mock.ExpectExec(`DELETE FROM memberships WHERE id = \$1 AND team_id = \$2 AND EXISTS \(SELECT 1 FROM teams WHERE teams.id = \$2 AND teams.project_id = \$3\)`).
+		WithArgs("mem1", "t1", "proj1").
+		WillReturnResult(sqlmock.NewResult(0, 0)) // cross-project: nothing deleted
+
+	if err := svc.DeleteMembership(context.Background(), "mem1", "t1", "proj1"); err != nil {
+		t.Fatalf("DeleteMembership: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestUpdateMembershipRoles_CrossProjectNotFound proves a role update aimed at a
+// team in another project affects no row (the EXISTS clause fails) and surfaces
+// as "membership not found" rather than silently succeeding.
+func TestUpdateMembershipRoles_CrossProjectNotFound(t *testing.T) {
+	svc, mock, mockDB := newTestService(t)
+	defer mockDB.Close()
+
+	mock.ExpectExec(`UPDATE memberships SET roles = \$1 WHERE id = \$2 AND team_id = \$3 AND EXISTS`).
+		WithArgs([]byte(`["owner"]`), "mem1", "t1", "wrong-project").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	_, err := svc.UpdateMembershipRoles(context.Background(), "t1", "mem1", "wrong-project", []string{"owner"})
 	if err == nil || err.Error() != "membership not found" {
 		t.Fatalf("expected membership not found, got %v", err)
 	}

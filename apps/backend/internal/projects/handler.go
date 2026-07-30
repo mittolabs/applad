@@ -20,7 +20,7 @@ import (
 // stays testable without a database.
 type OAuthConfigStore interface {
 	ListProviders(ctx context.Context, projectID string) ([]oauthpkg.ProjectOAuthConfig, error)
-	SetProvider(ctx context.Context, projectID, provider, clientID, clientSecret string) error
+	SetProvider(ctx context.Context, projectID, provider, clientID, clientSecret string, extra map[string]string) error
 	DisableProvider(ctx context.Context, projectID, provider string) error
 	DeleteProvider(ctx context.Context, projectID, provider string) error
 }
@@ -640,9 +640,10 @@ func (h *Handler) setOAuthProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ClientID     string `json:"clientId"`
-		ClientSecret string `json:"clientSecret"`
-		Enabled      *bool  `json:"enabled"`
+		ClientID     string            `json:"clientId"`
+		ClientSecret string            `json:"clientSecret"`
+		Extra        map[string]string `json:"extra"`
+		Enabled      *bool             `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
@@ -655,7 +656,7 @@ func (h *Handler) setOAuthProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	// Upsert credentials, then flip enabled off when requested. SetProvider
 	// always stores enabled=TRUE, so a disable is a second step.
-	if err := h.oauthCfg.SetProvider(r.Context(), projectID, provider, strings.TrimSpace(body.ClientID), body.ClientSecret); err != nil {
+	if err := h.oauthCfg.SetProvider(r.Context(), projectID, provider, strings.TrimSpace(body.ClientID), body.ClientSecret, body.Extra); err != nil {
 		apperr.Internal(w, err)
 		return
 	}

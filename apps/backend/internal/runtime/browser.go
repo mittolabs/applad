@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,14 +42,121 @@ const studioImageName = "applad-studio-browser:1"
  * Host header is neither an IP nor localhost.
  *
  * So the browser image puts a forwarder in front: Chromium listens on
- * loopback, socat accepts from the network and relays. Callers still have to
- * present Host: localhost, which is why every request below sets it.
+ * loopback, the forwarder accepts from the network and relays. Callers still
+ * have to present Host: localhost, which is why every request below sets it.
+ *
+ * The forwarder used to be a plain `socat` relay, which meant DevTools was
+ * reachable, unauthenticated, by anything on the shared deploy network — a
+ * deployed customer container could drive the browser (navigate it, read the
+ * page under test, read local files). The relay now checks a per-session
+ * token (APPLAD_DEVTOOLS_TOKEN) before forwarding, so only the API, which
+ * minted the token, can drive the browser. The browser stays on the deploy
+ * network because it must reach the target app it records by container name.
  */
-const studioDockerfile = `FROM zenika/alpine-chrome:latest
-USER root
-RUN apk add --no-cache socat
+const studioDockerfile = `FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY devtools-proxy.go .
+RUN go build -o /devtools-proxy devtools-proxy.go
+FROM zenika/alpine-chrome:latest
+COPY --from=build /devtools-proxy /usr/local/bin/devtools-proxy
 USER chrome
-ENTRYPOINT ["/bin/sh","-c","socat TCP-LISTEN:9222,fork,reuseaddr TCP:127.0.0.1:9223 & exec chromium-browser --headless=new --remote-debugging-port=9223 --no-sandbox --disable-dev-shm-usage --disable-gpu --hide-scrollbars --window-size=1280,800 about:blank"]
+ENTRYPOINT ["/bin/sh","-c","/usr/local/bin/devtools-proxy & exec chromium-browser --headless=new --remote-debugging-port=9223 --no-sandbox --disable-dev-shm-usage --disable-gpu --hide-scrollbars --window-size=1280,800 about:blank"]
+`
+
+// devToolsTokenHeader and devToolsTokenParam carry the session token to the
+// forwarder. The header is used for plain HTTP calls the API controls
+// directly (/json/list); the query param rides in the returned WebSocket URL,
+// so the CDP client authenticates without any change to how it dials.
+const (
+	devToolsTokenHeader = "X-Applad-Devtools-Token"
+	devToolsTokenParam  = "_applad_token"
+)
+
+// devtoolsProxySource is the token-checking forwarder baked into the browser
+// image. It replaces `socat`: it accepts a connection, reads the HTTP request,
+// rejects it with 403 unless it presents the expected token (constant-time),
+// strips the token, forces Host: localhost, and then splices the connection
+// through to Chromium on loopback — which transparently carries the WebSocket
+// upgrade and every DevTools frame after it.
+const devtoolsProxySource = `package main
+
+import (
+	"bufio"
+	"crypto/subtle"
+	"io"
+	"net"
+	"net/http"
+	"os"
+)
+
+func main() {
+	token := os.Getenv("APPLAD_DEVTOOLS_TOKEN")
+	ln, err := net.Listen("tcp", ":9222")
+	if err != nil {
+		os.Exit(1)
+	}
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			continue
+		}
+		go handle(conn, token)
+	}
+}
+
+func deny(c net.Conn) {
+	io.WriteString(c, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+	c.Close()
+}
+
+func handle(client net.Conn, token string) {
+	br := bufio.NewReader(client)
+	req, err := http.ReadRequest(br)
+	if err != nil {
+		client.Close()
+		return
+	}
+
+	got := req.Header.Get("X-Applad-Devtools-Token")
+	if got == "" {
+		got = req.URL.Query().Get("_applad_token")
+	}
+	if token == "" || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+		deny(client)
+		return
+	}
+
+	// Strip the token before Chromium sees the request, and present the
+	// localhost Host it insists on.
+	q := req.URL.Query()
+	q.Del("_applad_token")
+	req.URL.RawQuery = q.Encode()
+	req.Header.Del("X-Applad-Devtools-Token")
+	req.Host = "localhost"
+	req.Header.Set("Host", "localhost")
+
+	upstream, err := net.Dial("tcp", "127.0.0.1:9223")
+	if err != nil {
+		client.Close()
+		return
+	}
+
+	if err := req.Write(upstream); err != nil {
+		upstream.Close()
+		client.Close()
+		return
+	}
+
+	// Splice both directions. br may already hold bytes read past the request
+	// header (the start of a WebSocket frame), so copy from it, not the raw
+	// conn.
+	go func() {
+		io.Copy(upstream, br)
+		upstream.Close()
+	}()
+	io.Copy(client, upstream)
+	client.Close()
+}
 `
 
 // ensureBrowserImage builds the studio's browser image if it is not already
@@ -61,6 +170,7 @@ func (d *DeployExecutor) ensureBrowserImage(ctx context.Context, image string) e
 	tarBuf := new(bytes.Buffer)
 	tw := tar.NewWriter(tarBuf)
 	addToTar(tw, "Dockerfile", []byte(studioDockerfile))
+	addToTar(tw, "devtools-proxy.go", []byte(devtoolsProxySource))
 	tw.Close()
 
 	_, err := d.docker.BuildImage(ctx, image, tarBuf)
@@ -82,30 +192,12 @@ func (d *DeployExecutor) StartBrowser(ctx context.Context, sessionID, image stri
 		return "", "", fmt.Errorf("browser: prepare image %s: %w", image, err)
 	}
 
-	body := map[string]interface{}{
-		"Image": image,
-		"Labels": map[string]string{
-			"applad.managed": "true",
-			"applad.type":    "studio",
-		},
-		"ExposedPorts": map[string]interface{}{"9222/tcp": struct{}{}},
-		// On the deploy network, so a session can record against an app
-		// deployed here by name.
-		"NetworkingConfig": map[string]interface{}{
-			"EndpointsConfig": map[string]interface{}{
-				deployNetwork(): map[string]interface{}{},
-			},
-		},
-		"HostConfig": map[string]interface{}{
-			"Memory":      int64(1536 * 1024 * 1024),
-			"NanoCPUs":    int64(2e9),
-			"NetworkMode": deployNetwork(),
-			"SecurityOpt": []string{"no-new-privileges"},
-			// A browser that outlives its session would hold a gigabyte for
-			// nothing, so it is never restarted.
-			"RestartPolicy": map[string]interface{}{"Name": "no"},
-		},
-	}
+	// A per-session secret the forwarder demands before it will relay DevTools.
+	// It is handed to the browser as an env var and echoed back to the API in
+	// the endpoint URL, so an unauthenticated peer on the deploy network cannot
+	// drive the browser even though it can reach the port.
+	token := newDevToolsToken()
+	body := studioBrowserBody(image, token)
 
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST",
@@ -134,7 +226,7 @@ func (d *DeployExecutor) StartBrowser(ctx context.Context, sessionID, image stri
 		return "", "", fmt.Errorf("browser: start: %w", err)
 	}
 
-	endpoint, err := d.waitForDevTools(ctx, name)
+	endpoint, err := d.waitForDevTools(ctx, name, token)
 	if err != nil {
 		d.StopBrowser(context.Background(), created.ID)
 		return "", "", err
@@ -142,10 +234,51 @@ func (d *DeployExecutor) StartBrowser(ctx context.Context, sessionID, image stri
 	return created.ID, endpoint, nil
 }
 
+// newDevToolsToken mints the per-session secret for the DevTools forwarder.
+func newDevToolsToken() string {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand does not fail in practice; a zero token would be a
+		// worse outcome than refusing to start, so make it obviously unusable.
+		return ""
+	}
+	return hex.EncodeToString(b)
+}
+
+// studioBrowserBody builds the Docker create request for a recording browser.
+// Split out so the token wiring and hardening can be asserted without a daemon.
+func studioBrowserBody(image, token string) map[string]interface{} {
+	return map[string]interface{}{
+		"Image": image,
+		"Env":   []string{"APPLAD_DEVTOOLS_TOKEN=" + token},
+		"Labels": map[string]string{
+			"applad.managed": "true",
+			"applad.type":    "studio",
+		},
+		"ExposedPorts": map[string]interface{}{"9222/tcp": struct{}{}},
+		// On the deploy network, so a session can record against an app
+		// deployed here by name.
+		"NetworkingConfig": map[string]interface{}{
+			"EndpointsConfig": map[string]interface{}{
+				deployNetwork(): map[string]interface{}{},
+			},
+		},
+		"HostConfig": map[string]interface{}{
+			"Memory":      int64(1536 * 1024 * 1024),
+			"NanoCPUs":    int64(2e9),
+			"NetworkMode": deployNetwork(),
+			"SecurityOpt": []string{"no-new-privileges"},
+			// A browser that outlives its session would hold a gigabyte for
+			// nothing, so it is never restarted.
+			"RestartPolicy": map[string]interface{}{"Name": "no"},
+		},
+	}
+}
+
 // waitForDevTools polls the browser until it reports a debuggable page.
 // Chromium accepts connections a moment before it has a target to attach to,
 // so asking for the endpoint is the only reliable readiness check.
-func (d *DeployExecutor) waitForDevTools(ctx context.Context, host string) (string, error) {
+func (d *DeployExecutor) waitForDevTools(ctx context.Context, host, token string) (string, error) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(30 * time.Second)
 
@@ -163,6 +296,8 @@ func (d *DeployExecutor) waitForDevTools(ctx context.Context, host string) (stri
 		}
 		// Chromium rejects a DevTools request from any other host.
 		req.Host = "localhost"
+		// Authenticate to the forwarder that guards the port.
+		req.Header.Set(devToolsTokenHeader, token)
 
 		resp, err := client.Do(req)
 		if err == nil {
@@ -176,8 +311,9 @@ func (d *DeployExecutor) waitForDevTools(ctx context.Context, host string) (stri
 				for _, t := range targets {
 					if t.Type == "page" && t.WebSocketDebuggerURL != "" {
 						// The URL Chromium reports is addressed to itself;
-						// reach it by container name on our shared network.
-						return rewriteDevToolsHost(t.WebSocketDebuggerURL, host), nil
+						// reach it by container name on our shared network, and
+						// carry the token so the forwarder relays the socket.
+						return withDevToolsToken(rewriteDevToolsHost(t.WebSocketDebuggerURL, host), token), nil
 					}
 				}
 			}
@@ -197,6 +333,19 @@ func rewriteDevToolsHost(wsURL, host string) string {
 		return fmt.Sprintf("%s%s:9222%s", prefix, host, rest[i:])
 	}
 	return wsURL
+}
+
+// withDevToolsToken appends the forwarder token to a DevTools WebSocket URL as
+// a query parameter, so the CDP client authenticates simply by dialing it.
+func withDevToolsToken(wsURL, token string) string {
+	if token == "" {
+		return wsURL
+	}
+	sep := "?"
+	if strings.Contains(wsURL, "?") {
+		sep = "&"
+	}
+	return wsURL + sep + devToolsTokenParam + "=" + token
 }
 
 // StopBrowserByName ends a session's browser given the session's container

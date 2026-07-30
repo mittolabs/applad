@@ -49,14 +49,14 @@ func (s *fakeOAuthStore) ListProviders(_ context.Context, projectID string) ([]o
 	for name, c := range s.set {
 		out = append(out, oauthpkg.ProjectOAuthConfig{
 			ID: "op_" + name, ProjectID: projectID, ProviderName: name,
-			Enabled: !s.disabled[name], ClientID: c.ClientID, // secret intentionally omitted
+			Enabled: !s.disabled[name], ClientID: c.ClientID, Extra: c.Extra, // secret intentionally omitted
 		})
 	}
 	return out, nil
 }
 
-func (s *fakeOAuthStore) SetProvider(_ context.Context, projectID, provider, clientID, clientSecret string) error {
-	s.set[provider] = oauthpkg.ProjectOAuthConfig{ClientID: clientID, ClientSecret: clientSecret}
+func (s *fakeOAuthStore) SetProvider(_ context.Context, projectID, provider, clientID, clientSecret string, extra map[string]string) error {
+	s.set[provider] = oauthpkg.ProjectOAuthConfig{ClientID: clientID, ClientSecret: clientSecret, Extra: extra}
 	delete(s.disabled, provider)
 	return nil
 }

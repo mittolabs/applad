@@ -20,6 +20,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mittolabs/applad/internal/db"
@@ -171,6 +173,60 @@ func decryptWithVersion(encoded string, version int) (string, error) {
 		return "", fmt.Errorf("credentials: decrypt: %w", err)
 	}
 	return string(plaintext), nil
+}
+
+// ── Reusable secret encryption ───────────────────────────────────────────────
+//
+// EncryptSecret / DecryptSecret let other packages protect a single secret at
+// rest with the exact AES-256-GCM mechanism the credential vault uses (keyed by
+// CREDENTIALS_ENCRYPTION_KEY). Unlike the credentials table there is no separate
+// key_version column to carry, so the version is embedded in a self-describing
+// "cv<version>:<base64>" token that survives later key rotation.
+
+const secretTokenPrefix = "cv"
+
+// EncryptSecret encrypts plaintext with the current key version and returns a
+// self-describing token that DecryptSecret can read back.
+func EncryptSecret(plaintext string) (string, error) {
+	version := currentKeyVersion()
+	ct, err := encryptWithVersion(plaintext, version)
+	if err != nil {
+		return "", err
+	}
+	return secretTokenPrefix + strconv.Itoa(version) + ":" + ct, nil
+}
+
+// DecryptSecret reverses EncryptSecret. A value that does not carry the token
+// marker is assumed to predate encryption and is returned verbatim, so a store
+// that once held plaintext keeps working while new writes are ciphertext.
+func DecryptSecret(token string) (string, error) {
+	version, ct, ok := parseSecretToken(token)
+	if !ok {
+		return token, nil // legacy plaintext
+	}
+	return decryptWithVersion(ct, version)
+}
+
+// IsEncryptedSecret reports whether token carries the EncryptSecret marker.
+func IsEncryptedSecret(token string) bool {
+	_, _, ok := parseSecretToken(token)
+	return ok
+}
+
+func parseSecretToken(token string) (int, string, bool) {
+	if !strings.HasPrefix(token, secretTokenPrefix) {
+		return 0, "", false
+	}
+	rest := token[len(secretTokenPrefix):]
+	i := strings.IndexByte(rest, ':')
+	if i <= 0 {
+		return 0, "", false
+	}
+	version, err := strconv.Atoi(rest[:i])
+	if err != nil {
+		return 0, "", false
+	}
+	return version, rest[i+1:], true
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────

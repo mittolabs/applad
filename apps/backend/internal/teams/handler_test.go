@@ -301,7 +301,7 @@ func TestGetMembership_MemberAllowed(t *testing.T) {
 		WithArgs("t1", "member1").
 		WillReturnRows(sqlmock.NewRows([]string{"roles"}).AddRow([]byte(`["member"]`)))
 	mock.ExpectQuery(membershipByIDSelect).
-		WithArgs("mem1", "t1").
+		WithArgs("mem1", "t1", "proj1").
 		WillReturnRows(membershipRow("mem1", "t1", "member1", `["member"]`))
 
 	w := serve(func(m *chi.Mux) { m.Get("/{teamId}/memberships/{membershipId}", h.getMembership) },
@@ -344,10 +344,10 @@ func TestUpdateMembership_OwnerAllowed(t *testing.T) {
 		WithArgs("t1", "owner1").
 		WillReturnRows(sqlmock.NewRows([]string{"roles"}).AddRow([]byte(`["owner"]`)))
 	mock.ExpectExec(`UPDATE memberships SET roles = \$1 WHERE id = \$2 AND team_id = \$3`).
-		WithArgs([]byte(`["developer","lead"]`), "mem1", "t1").
+		WithArgs([]byte(`["developer","lead"]`), "mem1", "t1", "proj1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(membershipByIDSelect).
-		WithArgs("mem1", "t1").
+		WithArgs("mem1", "t1", "proj1").
 		WillReturnRows(membershipRow("mem1", "t1", "u2", `["developer","lead"]`))
 
 	w := serve(func(m *chi.Mux) { m.Patch("/{teamId}/memberships/{membershipId}", h.updateMembership) },

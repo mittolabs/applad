@@ -479,6 +479,16 @@ secret field left blank keeps the one already stored. Providers configured this
 way are managed through `GET`, `PUT`, and `DELETE`
 `/v1/projects/{projectId}/auth/oauth`, which require a console session.
 
+Some providers need more than a client id and secret, and the form collects
+those fields too. Apple takes a Services ID, a Key ID, a Team ID, and the `.p8`
+private key, from which Applad signs the short-lived ES256 client secret Apple
+requires at each token exchange. Microsoft takes an optional Tenant ID that is
+wired into the authorize and token endpoints, so a single-tenant Azure app works
+instead of only the multi-tenant `common` endpoint. These auxiliary identifiers
+are non-secret and may be read back to prefill the form; the client secret and
+Apple's `.p8` key are secret, are stored encrypted at rest with
+`CREDENTIALS_ENCRYPTION_KEY`, and are never returned.
+
 ## Multi-factor authentication (TOTP)
 
 MFA uses time-based one-time passwords, the kind an authenticator app generates.

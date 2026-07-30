@@ -97,9 +97,8 @@ closed would turn a cache outage into a total one.
 
 - The **credential** and **project-work** layers fail open: if Redis cannot be
   reached, the request is allowed.
-- The **generic** layer trips a circuit breaker after five consecutive Redis
-  failures and falls back to an in-process limiter, so a single instance still
-  enforces a limit even with Redis down.
+- The **generic** layer falls back to an in-process limiter on a Redis error,
+  so a single instance still enforces a limit even with Redis down.
 
 ## Trusted proxies
 
