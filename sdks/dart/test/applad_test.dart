@@ -20,7 +20,6 @@ void main() {
       );
       expect(client.analytics, isA<Analytics>());
       expect(client.auth, isA<Auth>());
-      expect(client.billing, isA<Billing>());
       expect(client.users, isA<Users>());
       expect(client.databases, isA<Databases>());
       expect(client.edge, isA<Edge>());
@@ -90,7 +89,6 @@ void main() {
         apiKey: 'applad_key_abc123',
       );
       expect(srv.analytics, isNotNull);
-      expect(srv.billing, isNotNull);
       expect(srv.users, isNotNull);
       expect(srv.databases, isNotNull);
       expect(srv.storage, isNotNull);

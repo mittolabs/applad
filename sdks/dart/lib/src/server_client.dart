@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'server/analytics.dart';
-import 'server/billing.dart';
 import 'server/users.dart';
 import 'server/databases.dart';
 import 'server/storage.dart';
@@ -55,7 +54,6 @@ class ApplAdServer {
   final http.Client _httpClient;
 
   late final Analytics analytics;
-  late final Billing billing;
   late final Users users;
   late final Databases databases;
   late final Storage storage;
@@ -77,7 +75,6 @@ class ApplAdServer {
     http.Client? httpClient,
   }) : _httpClient = httpClient ?? http.Client() {
     analytics = Analytics(this);
-    billing = Billing(this);
     users = Users(this);
     databases = Databases(this);
     storage = Storage(this);

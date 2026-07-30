@@ -2,7 +2,6 @@ import 'package:dio/dio.dart';
 
 import 'analytics.dart';
 import 'auth.dart';
-import 'billing.dart';
 import 'databases.dart';
 import 'deploy.dart';
 import 'edge.dart';
@@ -25,7 +24,6 @@ class Applad {
 
   late final Analytics analytics;
   late final Auth auth;
-  late final Billing billing;
   late final Users users;
   late final Databases databases;
   late final Storage storage;
@@ -52,7 +50,6 @@ class Applad {
         )) {
     analytics = Analytics(_dio);
     auth = Auth(_dio);
-    billing = Billing(_dio);
     users = Users(_dio);
     databases = Databases(_dio);
     storage = Storage(_dio);

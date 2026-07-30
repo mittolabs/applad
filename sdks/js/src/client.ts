@@ -1,7 +1,6 @@
 import { Analytics } from './analytics';
 import { Auth } from './auth';
 import { Avatars } from './avatars';
-import { Billing } from './billing';
 import { Databases } from './databases';
 import { Deploy } from './deploy';
 import { Edge } from './edge';
@@ -31,7 +30,6 @@ export class Applad {
   readonly analytics: Analytics;
   readonly auth: Auth;
   readonly avatars: Avatars;
-  readonly billing: Billing;
   readonly databases: Databases;
   readonly deploy: Deploy;
   readonly edge: Edge;
@@ -57,7 +55,6 @@ export class Applad {
     this.analytics = new Analytics(this);
     this.auth = new Auth(this);
     this.avatars = new Avatars(this);
-    this.billing = new Billing(this);
     this.databases = new Databases(this);
     this.deploy = new Deploy(this);
     this.edge = new Edge(this);

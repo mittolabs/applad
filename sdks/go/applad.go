@@ -147,7 +147,6 @@ func (c *Client) Analytics() *AnalyticsService { return &AnalyticsService{client
 func (c *Client) Search() *SearchService       { return &SearchService{client: c} }
 func (c *Client) Vectors() *VectorsService     { return &VectorsService{client: c} }
 func (c *Client) Edge() *EdgeService           { return &EdgeService{client: c} }
-func (c *Client) Billing() *BillingService     { return &BillingService{client: c} }
 func (c *Client) Regions() *RegionsService     { return &RegionsService{client: c} }
 func (c *Client) Observe() *ObserveService     { return &ObserveService{client: c} }
 
@@ -1041,44 +1040,6 @@ func (s *EdgeService) Invoke(functionID string, data map[string]interface{}) (ma
 
 func (s *EdgeService) ListExecutions(functionID string) (map[string]interface{}, error) {
 	return s.client.call("GET", fmt.Sprintf("/edge/functions/%s/executions", functionID), nil)
-}
-
-// ---------------------------------------------------------------------------
-// Billing
-// ---------------------------------------------------------------------------
-
-type BillingService struct{ client *Client }
-
-func (s *BillingService) ListPlans() (map[string]interface{}, error) {
-	return s.client.call("GET", "/billing/plans", nil)
-}
-
-func (s *BillingService) GetSubscription() (map[string]interface{}, error) {
-	return s.client.call("GET", "/billing/subscription", nil)
-}
-
-func (s *BillingService) Subscribe(planID string, opts map[string]interface{}) (map[string]interface{}, error) {
-	body := map[string]interface{}{"planId": planID}
-	for key, value := range opts {
-		body[key] = value
-	}
-	return s.client.call("POST", "/billing/subscription", body)
-}
-
-func (s *BillingService) CancelSubscription() (map[string]interface{}, error) {
-	return s.client.call("DELETE", "/billing/subscription", nil)
-}
-
-func (s *BillingService) GetUsage() (map[string]interface{}, error) {
-	return s.client.call("GET", "/billing/usage", nil)
-}
-
-func (s *BillingService) ListInvoices() (map[string]interface{}, error) {
-	return s.client.call("GET", "/billing/invoices", nil)
-}
-
-func (s *BillingService) GetInvoice(invoiceID string) (map[string]interface{}, error) {
-	return s.client.call("GET", "/billing/invoices/"+invoiceID, nil)
 }
 
 // ---------------------------------------------------------------------------

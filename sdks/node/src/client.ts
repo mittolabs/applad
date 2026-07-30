@@ -1,5 +1,4 @@
 import { Analytics } from './analytics';
-import { Billing } from './billing';
 import { Users } from './users';
 import { Databases } from './databases';
 import { Storage } from './storage';
@@ -28,7 +27,6 @@ export class ApplAdServer {
   private headers: Record<string, string>;
 
   readonly analytics: Analytics;
-  readonly billing: Billing;
   readonly users: Users;
   readonly databases: Databases;
   readonly storage: Storage;
@@ -53,7 +51,6 @@ export class ApplAdServer {
       'Content-Type': 'application/json',
     };
     this.analytics = new Analytics(this);
-    this.billing = new Billing(this);
     this.users = new Users(this);
     this.databases = new Databases(this);
     this.storage = new Storage(this);

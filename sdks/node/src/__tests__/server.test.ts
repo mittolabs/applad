@@ -39,7 +39,6 @@ describe('ApplAdServer client', () => {
   it('exposes all service instances', () => {
     const srv = createServer();
     expect(srv.analytics).toBeDefined();
-    expect(srv.billing).toBeDefined();
     expect(srv.users).toBeDefined();
     expect(srv.databases).toBeDefined();
     expect(srv.storage).toBeDefined();
@@ -277,20 +276,6 @@ describe('Edge service', () => {
     expect(mock).toHaveBeenCalledWith(
       'http://localhost:8080/v1/edge/functions/edge1/invoke',
       expect.objectContaining({ method: 'POST' })
-    );
-  });
-});
-
-describe('Billing service', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  it('listPlans sends GET /billing/plans', async () => {
-    const mock = mockFetch({ plans: [] });
-    const srv = createServer();
-    await srv.billing.listPlans();
-    expect(mock).toHaveBeenCalledWith(
-      'http://localhost:8080/v1/billing/plans',
-      expect.objectContaining({ method: 'GET' })
     );
   });
 });

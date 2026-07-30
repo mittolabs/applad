@@ -1,5 +1,4 @@
 import { Analytics } from './analytics';
-import { Billing } from './billing';
 import { Users } from './users';
 import { Databases } from './databases';
 import { Storage } from './storage';
@@ -24,7 +23,6 @@ export declare class ApplAdServer {
     readonly projectId: string;
     private headers;
     readonly analytics: Analytics;
-    readonly billing: Billing;
     readonly users: Users;
     readonly databases: Databases;
     readonly storage: Storage;

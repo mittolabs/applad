@@ -216,20 +216,6 @@ describe('Edge service', () => {
   });
 });
 
-describe('Billing service', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  it('listPlans sends GET /billing/plans', async () => {
-    const mock = mockFetch({ plans: [] });
-    const client = createClient();
-    await client.billing.listPlans();
-    expect(mock).toHaveBeenCalledWith(
-      'http://localhost:8080/v1/billing/plans',
-      expect.objectContaining({ method: 'GET' })
-    );
-  });
-});
-
 describe('Regions service', () => {
   afterEach(() => jest.restoreAllMocks());
 

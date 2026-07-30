@@ -142,9 +142,6 @@ func TestServiceAccessors(t *testing.T) {
 	if c.Edge() == nil {
 		t.Error("Edge() returned nil")
 	}
-	if c.Billing() == nil {
-		t.Error("Billing() returned nil")
-	}
 	if c.Regions() == nil {
 		t.Error("Regions() returned nil")
 	}
@@ -514,21 +511,6 @@ func TestEdgeInvoke(t *testing.T) {
 	}
 	if gotPath != "/v1/edge/functions/edge1/invoke" {
 		t.Errorf("expected /v1/edge/functions/edge1/invoke, got %s", gotPath)
-	}
-}
-
-// ── Billing ──────────────────────────────────────────────────────────────────
-
-func TestBillingListPlans(t *testing.T) {
-	srv, client := newTestServer(t, jsonHandler(map[string]interface{}{"plans": []interface{}{}}, 200))
-	defer srv.Close()
-
-	res, err := client.Billing().ListPlans()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := res["plans"]; !ok {
-		t.Error("expected plans key")
 	}
 }
 

@@ -16,7 +16,6 @@ library applad_server;
 
 export 'src/server/analytics.dart';
 export 'src/server_client.dart';
-export 'src/server/billing.dart';
 export 'src/server/users.dart';
 export 'src/server/databases.dart';
 export 'src/query_builder.dart' show QueryBuilder, QueryResult;

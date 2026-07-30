@@ -35,7 +35,6 @@ class Client:
         self._search = None
         self._vectors = None
         self._edge = None
-        self._billing = None
         self._regions = None
         self._observe = None
 
@@ -155,13 +154,6 @@ class Client:
             from .edge import Edge
             self._edge = Edge(self)
         return self._edge
-
-    @property
-    def billing(self):
-        if self._billing is None:
-            from .billing import Billing
-            self._billing = Billing(self)
-        return self._billing
 
     @property
     def regions(self):

@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ApplAdServer = void 0;
 const analytics_1 = require("./analytics");
-const billing_1 = require("./billing");
 const users_1 = require("./users");
 const databases_1 = require("./databases");
 const storage_1 = require("./storage");
@@ -28,7 +27,6 @@ class ApplAdServer {
             'Content-Type': 'application/json',
         };
         this.analytics = new analytics_1.Analytics(this);
-        this.billing = new billing_1.Billing(this);
         this.users = new users_1.Users(this);
         this.databases = new databases_1.Databases(this);
         this.storage = new storage_1.Storage(this);

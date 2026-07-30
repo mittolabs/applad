@@ -44,7 +44,6 @@ class TestClient(unittest.TestCase):
         self.assertIsNotNone(self.client.search)
         self.assertIsNotNone(self.client.vectors)
         self.assertIsNotNone(self.client.edge)
-        self.assertIsNotNone(self.client.billing)
         self.assertIsNotNone(self.client.regions)
 
     @patch("urllib.request.urlopen")
@@ -303,23 +302,6 @@ class TestEdge(unittest.TestCase):
         mock_urlopen.return_value = _mock_response({"ok": True})
         result = self.client.edge.invoke("edge1", {"name": "test"})
         self.assertTrue(result["ok"])
-
-
-class TestBilling(unittest.TestCase):
-    def setUp(self):
-        self.client = Client("http://localhost:8080", "proj-1", "key-123")
-
-    @patch("urllib.request.urlopen")
-    def test_list_plans(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response({"plans": []})
-        result = self.client.billing.list_plans()
-        self.assertEqual(result["plans"], [])
-
-    @patch("urllib.request.urlopen")
-    def test_get_usage(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response({"requests": 100})
-        result = self.client.billing.get_usage()
-        self.assertEqual(result["requests"], 100)
 
 
 class TestRegions(unittest.TestCase):

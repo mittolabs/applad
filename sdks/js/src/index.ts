@@ -3,7 +3,6 @@ export { AppladError } from './errors';
 export { Analytics } from './analytics';
 export { Auth } from './auth';
 export { Avatars } from './avatars';
-export { Billing } from './billing';
 export { Databases } from './databases';
 export { QueryBuilder } from './query_builder';
 export type { QueryResult } from './query_builder';

@@ -2,7 +2,6 @@ export { ApplAdServer } from './client';
 export type { ApplAdServerConfig } from './client';
 export { AppladError } from './errors';
 export { Analytics } from './analytics';
-export { Billing } from './billing';
 export { Users } from './users';
 export { Databases } from './databases';
 export { QueryBuilder } from './query_builder';
