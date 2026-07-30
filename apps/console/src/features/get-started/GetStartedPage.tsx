@@ -257,14 +257,14 @@ function snippetsFor(lang: Lang, endpoint: string, projectId: string): { install
     case 'JavaScript':
       return {
         lang: 'ts',
-        install: 'npm install @mittolabs/applad',
-        init: `import { Applad } from '@mittolabs/applad';\n\nconst applad = new Applad({\n  endpoint: '${endpoint}',\n  projectId: '${pid}',\n});`,
+        install: 'npm install applad',
+        init: `import { Applad } from 'applad';\n\nconst applad = new Applad({\n  endpoint: '${endpoint}',\n  projectId: '${pid}',\n});`,
       };
     case 'Node.js':
       return {
         lang: 'ts',
-        install: 'npm install @mittolabs/applad-node',
-        init: `import { Applad } from '@mittolabs/applad-node';\n\nconst applad = new Applad({\n  endpoint: '${endpoint}',\n  projectId: '${pid}',\n  apiKey: process.env.APPLAD_API_KEY,\n});`,
+        install: 'npm install applad-node',
+        init: `import { Applad } from 'applad-node';\n\nconst applad = new Applad({\n  endpoint: '${endpoint}',\n  projectId: '${pid}',\n  apiKey: process.env.APPLAD_API_KEY,\n});`,
       };
     case 'Dart':
       return {

@@ -1,5 +1,5 @@
 {
-  "name": "@mittolabs/applad",
+  "name": "applad",
   "version": "0.1.0",
   "description": "Official JavaScript/TypeScript client SDK for Applad",
   "main": "dist/index.js",

@@ -49,14 +49,14 @@ browser or mobile app, use a client SDK and log the user in instead.
 | --- | --- | --- | --- |
 | Dart (client) | Client | `applad` → `package:applad/applad.dart` | Project + session |
 | Dart (server) | Server | `applad` → `package:applad/applad_server.dart` | API key |
-| JavaScript | Client | `@mittolabs/applad` | Project + session |
-| Node.js | Server | `@mittolabs/applad-node` | API key |
+| JavaScript | Client | `applad` | Project + session |
+| Node.js | Server | `applad-node` | API key |
 | Go | Server | `github.com/mittolabs/applad-go` | API key |
 | Python | Server | `applad` (PyPI) | API key |
 
 The Dart package is both a client and a server SDK in one; you choose by which
 file you import. The JavaScript SDK is client-only; for a Node backend use the
-separate `@mittolabs/applad-node` package.
+separate `applad-node` package.
 
 <Cards>
   <Card icon={<Braces />} title="JavaScript (client)" href="#javascript-client">Browser and mobile web, acting as the signed-in user.</Card>
@@ -72,13 +72,13 @@ separate `@mittolabs/applad-node` package.
   <Tab value="JavaScript">
   ```bash
   # JavaScript client (browser / mobile web)
-  npm install @mittolabs/applad
+  npm install applad
   ```
   </Tab>
   <Tab value="Node.js">
   ```bash
   # Node.js server
-  npm install @mittolabs/applad-node
+  npm install applad-node
   ```
   </Tab>
   <Tab value="Dart">
@@ -113,7 +113,7 @@ returns a session whose `secret` is the bearer token; apply it with `setJWT` to
 authenticate the rest of the session.
 
 ```ts
-import { Applad } from '@mittolabs/applad';
+import { Applad } from 'applad';
 
 const client = new Applad({
   endpoint: 'https://api.applad.io',
@@ -144,7 +144,7 @@ The server SDK for a Node backend. It takes an API key and acts with full
 project access, so keep it server-side.
 
 ```ts
-import { ApplAdServer } from '@mittolabs/applad-node';
+import { ApplAdServer } from 'applad-node';
 
 const server = new ApplAdServer({
   endpoint: 'https://api.applad.io',
@@ -313,7 +313,7 @@ secret store, never in client code or version control.
 ## Choosing an SDK
 
 - Building the app your users run (web, Flutter, mobile)? Use a **client SDK**
-  (`@mittolabs/applad` or `package:applad/applad.dart`) and log the user in.
+  (`applad` or `package:applad/applad.dart`) and log the user in.
 - Building a backend, script, or webhook handler? Use a **server SDK**
   (Node, Go, Python, or `package:applad/applad_server.dart`) with an API key.
 - Need something an SDK does not expose? Call the underlying `/v1` API

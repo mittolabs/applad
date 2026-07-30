@@ -55,11 +55,11 @@ Install a client SDK and point it at your instance and project.
 <Tabs items={['JavaScript', 'Dart']}>
   <Tab value="JavaScript">
     ```bash
-    npm install @mittolabs/applad
+    npm install applad
     ```
 
     ```ts
-    import { Applad } from '@mittolabs/applad';
+    import { Applad } from 'applad';
 
     const applad = new Applad({
       endpoint: 'https://api.applad.io', // your instance's API base
@@ -187,11 +187,11 @@ Construct the server client, provision a user, then write and read a row.
 <Tabs items={['Node.js', 'Go', 'Python']}>
   <Tab value="Node.js">
     ```bash
-    npm install @mittolabs/applad-node
+    npm install applad-node
     ```
 
     ```ts
-    import { ApplAdServer } from '@mittolabs/applad-node';
+    import { ApplAdServer } from 'applad-node';
 
     const server = new ApplAdServer({
       endpoint: 'https://api.applad.io', // your instance origin

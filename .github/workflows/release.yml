@@ -209,7 +209,7 @@ jobs:
 
   # ── SDK publishing ────────────────────────────────────────────────────────────
   # Publish the client/server SDKs to their public registries so the documented
-  # install commands (`npm install @mittolabs/applad`, `pip install applad`,
+  # install commands (`npm install applad`, `pip install applad`,
   # `dart pub add applad`) resolve. Each job builds and tests first, then
   # publishes only on a real published release.
   #
@@ -225,7 +225,7 @@ jobs:
   # so publishing means cutting the release tag — which this workflow already
   # runs on — and there is no registry step to perform.
 
-  # ── TypeScript client SDK → npm (@mittolabs/applad) ───────────────────────────
+  # ── TypeScript client SDK → npm (applad) ───────────────────────────
   publish-sdk-js:
     name: Publish SDK (npm client)
     if: github.event_name == 'release'
@@ -251,7 +251,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # ── Node.js server SDK → npm (@mittolabs/applad-node) ─────────────────────────
+  # ── Node.js server SDK → npm (applad-node) ─────────────────────────
   publish-sdk-node:
     name: Publish SDK (npm server)
     if: github.event_name == 'release'

@@ -1,5 +1,5 @@
 {
-  "name": "@mittolabs/applad-node",
+  "name": "applad-node",
   "version": "0.1.0",
   "description": "Official server-side Node.js SDK for Applad (API key auth)",
   "main": "dist/index.js",
