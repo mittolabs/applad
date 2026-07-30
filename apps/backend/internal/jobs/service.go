@@ -312,6 +312,64 @@ func (s *Service) Nack(ctx context.Context, jobID, errMsg string) error {
 	return err
 }
 
+// ── Dispatcher (push delivery) ──────────────────────────────────────────────────
+
+// PushQueues returns every queue across all projects that has a worker URL set
+// and is not paused. The jobs dispatcher worker calls this to discover which
+// queues push their jobs to an HTTP endpoint rather than being pulled.
+func (s *Service) PushQueues(ctx context.Context) ([]*Queue, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project_id, name, COALESCE(worker_url,''), concurrency, retry_limit, retry_delay_s,
+		        COALESCE(dead_letter_queue_id,''), paused, created_at, updated_at
+		 FROM job_queues
+		 WHERE worker_url IS NOT NULL AND worker_url != '' AND paused = 0
+		 ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Queue
+	for rows.Next() {
+		q, err := scanQueue(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, q)
+	}
+	return out, nil
+}
+
+// Retry re-queues a job to run again after delay, recording the last error.
+// The dispatcher calls this when a delivery failed but the job still has
+// attempts left, so a retry honours the queue's retryDelaySeconds rather than
+// hammering the endpoint immediately.
+func (s *Service) Retry(ctx context.Context, jobID, errMsg string, delay time.Duration) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE jobs SET status='pending', run_at=$1, last_error=$2, updated_at=$3 WHERE id=$4",
+		now.Add(delay), errMsg, now, jobID)
+	return err
+}
+
+// Fail marks a job as permanently failed and, if the queue names a dead-letter
+// queue, copies the job into it so a message that exhausted its retries is not
+// silently lost.
+func (s *Service) Fail(ctx context.Context, job *Job, errMsg, deadLetterQueueID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE jobs SET status='failed', last_error=$1, updated_at=$2 WHERE id=$3",
+		errMsg, time.Now().UTC(), job.ID)
+	if err != nil {
+		return err
+	}
+	if deadLetterQueueID != "" {
+		if _, dlqErr := s.Enqueue(ctx, job.ProjectID, deadLetterQueueID, job.Name,
+			job.Payload, job.Priority, time.Now().UTC(), job.MaxAttempts, job.DependsOn); dlqErr != nil {
+			return fmt.Errorf("jobs: dead-letter enqueue: %w", dlqErr)
+		}
+	}
+	return nil
+}
+
 // ── Stats ─────────────────────────────────────────────────────────────────────
 
 func (s *Service) queueStats(ctx context.Context, queueID string) (*QStats, error) {

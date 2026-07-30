@@ -402,6 +402,20 @@ services:
     <<: *limits-small
     restart: unless-stopped
 
+  worker-jobs:
+    image: ghcr.io/mittolabs/applad-worker-jobs:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: jobs
+    environment: *worker-env
+    networks: *worker-networks
+    logging: *default-logging
+    depends_on: *worker-deps
+    <<: *limits-small
+    restart: unless-stopped
+
   pgbouncer:
     image: edoburu/pgbouncer:latest
     environment:

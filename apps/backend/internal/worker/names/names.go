@@ -6,7 +6,7 @@
 // binary.
 package names
 
-// All is the canonical, ordered list of the 11 background workers that a
+// All is the canonical, ordered list of the 12 background workers that a
 // complete Applad install runs. Each worker publishes a Redis heartbeat keyed
 // by its name; the status service treats the set below as the expected roster.
 var All = []string{
@@ -16,6 +16,7 @@ var All = []string{
 	"databases",
 	"deletes",
 	"executions",
+	"jobs",
 	"mails",
 	"messaging",
 	"migrations",

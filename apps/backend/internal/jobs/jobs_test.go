@@ -130,6 +130,77 @@ func TestAck(t *testing.T) {
 	}
 }
 
+func TestRetry_RequeuesWithDelay(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	mock.ExpectExec("UPDATE jobs SET status='pending'").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := svc.Retry(context.Background(), "j1", "boom", 30*time.Second); err != nil {
+		t.Fatalf("Retry: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestFail_NoDeadLetter(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	mock.ExpectExec("UPDATE jobs SET status='failed'").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	job := &Job{ID: "j1", ProjectID: "proj1", Name: "send"}
+	if err := svc.Fail(context.Background(), job, "boom", ""); err != nil {
+		t.Fatalf("Fail: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestFail_CopiesToDeadLetterQueue(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	// First the job is marked failed, then a copy is enqueued into the DLQ.
+	mock.ExpectExec("UPDATE jobs SET status='failed'").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO jobs").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	job := &Job{ID: "j1", ProjectID: "proj1", Name: "send", MaxAttempts: 3}
+	if err := svc.Fail(context.Background(), job, "boom", "dlq1"); err != nil {
+		t.Fatalf("Fail: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestPushQueues(t *testing.T) {
+	database, mock := newMockDB(t)
+	svc := NewService(database)
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{
+		"id", "project_id", "name", "worker_url", "concurrency", "retry_limit",
+		"retry_delay_s", "dead_letter_queue_id", "paused", "created_at", "updated_at",
+	}).AddRow("q1", "proj1", "emails", "https://hook.example.com", 5, 3, 60, "", 0, now, now)
+	mock.ExpectQuery("SELECT id, project_id, name, COALESCE\\(worker_url").
+		WillReturnRows(rows)
+
+	queues, err := svc.PushQueues(context.Background())
+	if err != nil {
+		t.Fatalf("PushQueues: %v", err)
+	}
+	if len(queues) != 1 || queues[0].WorkerURL != "https://hook.example.com" {
+		t.Fatalf("PushQueues returned %+v", queues)
+	}
+}
+
 func TestBoolIntHelper(t *testing.T) {
 	if boolInt(true) != 1 || boolInt(false) != 0 {
 		t.Error("boolInt mismatch")

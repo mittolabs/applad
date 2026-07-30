@@ -285,7 +285,7 @@ RETURNING id, count, first_seen, last_seen`
 	}, nil
 }
 
-func (s *Service) ListErrors(ctx context.Context, projectID, status, level string, limit int) ([]Error, error) {
+func (s *Service) ListErrors(ctx context.Context, projectID, status, level, search string, limit int) ([]Error, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -298,6 +298,10 @@ func (s *Service) ListErrors(ctx context.Context, projectID, status, level strin
 	if level != "" {
 		args = append(args, level)
 		where += fmt.Sprintf(" AND level = $%d", len(args))
+	}
+	if search != "" {
+		args = append(args, "%"+search+"%")
+		where += fmt.Sprintf(" AND (title ILIKE $%d OR error_type ILIKE $%d OR stack_trace ILIKE $%d)", len(args), len(args), len(args))
 	}
 	args = append(args, limit)
 

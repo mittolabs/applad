@@ -104,8 +104,7 @@ func (h *Handler) listErrors(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
-	_ = search // search filtering not yet implemented in service
-	errs, err := h.svc.ListErrors(r.Context(), projectID, status, level, limit)
+	errs, err := h.svc.ListErrors(r.Context(), projectID, status, level, search, limit)
 	if err != nil {
 		apperr.Internal(w, err)
 		return

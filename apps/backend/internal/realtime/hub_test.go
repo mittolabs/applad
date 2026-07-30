@@ -190,6 +190,114 @@ func TestHub_MultipleChannels(t *testing.T) {
 	}
 }
 
+// TestHub_DatabaseNotificationRoutesByDatabaseID feeds a realistic pg_notify
+// payload — the exact shape applad_notify_change() emits (project_id,
+// database_id, schema, table, action, new, timestamp) — and asserts the change
+// fans out to all three derived channels: project-wide, database-scoped, and
+// table-scoped. The database-scoped and table-scoped channels both depend on
+// database_id being present in the payload; migration 032 regressed exactly
+// that field, so this test guards the full NOTIFY -> hub routing path.
+func TestHub_DatabaseNotificationRoutesByDatabaseID(t *testing.T) {
+	hub := NewHub("", "")
+
+	projectWide := newTestClient(hub)
+	dbScoped := newTestClient(hub)
+	tableScoped := newTestClient(hub)
+	for _, c := range []*Client{projectWide, dbScoped, tableScoped} {
+		hub.register <- c
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	hub.Subscribe(projectWide, "projects.proj1.databases.rows")
+	hub.Subscribe(dbScoped, "databases.proj1.db1")
+	hub.Subscribe(tableScoped, "databases.proj1.db1.posts")
+
+	// The literal payload PostgreSQL sends for an INSERT into a project table.
+	payload := `{"project_id":"proj1","database_id":"db1","schema":"p_proj1_db1",` +
+		`"table":"posts","action":"insert","old":null,` +
+		`"new":{"id":"row1","title":"Hello","_permissions":{"read":["any"]}},` +
+		`"timestamp":"2026-07-30T12:00:00Z"}`
+	hub.publishDatabaseNotification(payload)
+
+	// receive reads one event off a client's send channel or fails.
+	receive := func(name string, c *Client) Event {
+		select {
+		case msg := <-c.send:
+			var ev Event
+			if err := json.Unmarshal(msg, &ev); err != nil {
+				t.Fatalf("%s: unmarshal: %v", name, err)
+			}
+			return ev
+		case <-time.After(time.Second):
+			t.Fatalf("%s: timed out waiting for change event", name)
+			return Event{}
+		}
+	}
+
+	// assertRow checks the event carries the create type, the expected channel,
+	// the propagated timestamp, and the new row body (project_id/database_id are
+	// what routed it here in the first place).
+	assertRow := func(name string, ev Event, wantChannel string) {
+		if ev.Type != "databases.rows.create" {
+			t.Errorf("%s: expected type 'databases.rows.create', got '%s'", name, ev.Type)
+		}
+		if ev.Channel != wantChannel {
+			t.Errorf("%s: expected channel '%s', got '%s'", name, wantChannel, ev.Channel)
+		}
+		if ev.Timestamp != "2026-07-30T12:00:00Z" {
+			t.Errorf("%s: expected payload timestamp propagated, got '%s'", name, ev.Timestamp)
+		}
+		msg, ok := ev.Payload.(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s: payload is not an object: %T", name, ev.Payload)
+		}
+		if msg["database_id"] != "db1" {
+			t.Errorf("%s: expected database_id 'db1' in payload, got %v", name, msg["database_id"])
+		}
+		row, _ := msg["new"].(map[string]interface{})
+		if row == nil || row["title"] != "Hello" {
+			t.Errorf("%s: expected new.title 'Hello', got %v", name, msg["new"])
+		}
+	}
+
+	assertRow("project-wide", receive("project-wide", projectWide), "projects.proj1.databases.rows")
+	assertRow("database-scoped", receive("database-scoped", dbScoped), "databases.proj1.db1")
+	assertRow("table-scoped", receive("table-scoped", tableScoped), "databases.proj1.db1.posts")
+}
+
+// TestHub_DatabaseNotificationWithoutDatabaseID confirms that when database_id
+// is absent (the migration-032 failure mode), only the project-wide channel
+// fires — the database- and table-scoped subscribers get nothing — proving the
+// scoped channels are genuinely gated on database_id rather than always firing.
+func TestHub_DatabaseNotificationWithoutDatabaseID(t *testing.T) {
+	hub := NewHub("", "")
+
+	projectWide := newTestClient(hub)
+	dbScoped := newTestClient(hub)
+	hub.register <- projectWide
+	hub.register <- dbScoped
+	time.Sleep(10 * time.Millisecond)
+
+	hub.Subscribe(projectWide, "projects.proj1.databases.rows")
+	hub.Subscribe(dbScoped, "databases.proj1.db1")
+
+	hub.publishDatabaseNotification(`{"project_id":"proj1","table":"posts","action":"insert","new":{"id":"row1"}}`)
+
+	select {
+	case <-projectWide.send:
+		// Good: the project-wide channel always fires on a project row change.
+	case <-time.After(time.Second):
+		t.Fatal("project-wide subscriber timed out")
+	}
+
+	select {
+	case msg := <-dbScoped.send:
+		t.Fatalf("database-scoped subscriber should get nothing without database_id, got: %s", string(msg))
+	case <-time.After(100 * time.Millisecond):
+		// Good: no database_id means no database-scoped delivery.
+	}
+}
+
 func TestHub_DeployLogNotificationRoutes(t *testing.T) {
 	hub := NewHub("", "")
 	client := newTestClient(hub)

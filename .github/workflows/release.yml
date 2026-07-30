@@ -133,6 +133,7 @@ jobs:
           - usage
           - webhooks
           - cron
+          - jobs
     steps:
       - uses: actions/checkout@v4
 
@@ -205,6 +206,129 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ env.VERSION }}" "${{ env.ASSET }}" --clobber
+
+  # ── SDK publishing ────────────────────────────────────────────────────────────
+  # Publish the client/server SDKs to their public registries so the documented
+  # install commands (`npm install @mittolabs/applad`, `pip install applad`,
+  # `dart pub add applad`) resolve. Each job builds and tests first, then
+  # publishes only on a real published release.
+  #
+  # REQUIRED REPO SECRETS (jobs fail loudly until these are set and the package
+  # names are claimed on each registry):
+  #   NPM_TOKEN  — npmjs.com automation token with publish rights to the
+  #                @mittolabs scope (used by both sdk-js and sdk-node)
+  #   PYPI_TOKEN — PyPI API token (starts with `pypi-`) for the `applad` project
+  #   PUB_TOKEN  — pub.dev OAuth token for publishing the `applad` package
+  #
+  # The Go SDK (github.com/mittolabs/applad-go) is intentionally NOT published
+  # here: Go modules are consumed directly by version tag from the repository,
+  # so publishing means cutting the release tag — which this workflow already
+  # runs on — and there is no registry step to perform.
+
+  # ── TypeScript client SDK → npm (@mittolabs/applad) ───────────────────────────
+  publish-sdk-js:
+    name: Publish SDK (npm client)
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: sdks/js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdks/js/package-lock.json
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── Node.js server SDK → npm (@mittolabs/applad-node) ─────────────────────────
+  publish-sdk-node:
+    name: Publish SDK (npm server)
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: sdks/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdks/node/package-lock.json
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── Python server SDK → PyPI (applad) ─────────────────────────────────────────
+  publish-sdk-python:
+    name: Publish SDK (PyPI)
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tooling
+        run: python -m pip install --upgrade build twine
+      - name: Build sdist + wheel
+        run: python -m build
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: twine upload dist/*
+
+  # ── Dart SDK → pub.dev (applad) ───────────────────────────────────────────────
+  publish-sdk-dart:
+    name: Publish SDK (pub.dev)
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: sdks/dart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: "3.3"
+      - run: dart pub get
+      - name: Analyze
+        run: dart analyze
+      - name: Test
+        run: dart test
+      - name: Publish to pub.dev
+        env:
+          PUB_TOKEN: ${{ secrets.PUB_TOKEN }}
+        run: |
+          dart pub token add https://pub.dev --env-var PUB_TOKEN
+          dart pub publish --force
 
   # ── Attach install assets to the release ──────────────────────────────────────
   # Only on a real release (dispatch has no release to attach to). Lets a
