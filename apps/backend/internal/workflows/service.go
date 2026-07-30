@@ -315,6 +315,19 @@ func (s *Service) Update(ctx context.Context, id, projectID string, name, descri
 	if err != nil {
 		return nil, err
 	}
+
+	// A workflow switched to a webhook trigger needs a secret, otherwise its
+	// public /webhook/{id} endpoint accepts unsigned requests from anyone.
+	// Create mints one; mirror that here for any transition into webhook. Only
+	// set it when absent so re-saving a webhook workflow keeps its secret.
+	if triggerType == "webhook" {
+		b := make([]byte, 32)
+		if _, rerr := rand.Read(b); rerr == nil {
+			s.db.ExecContext(ctx, //nolint:errcheck
+				`UPDATE workflows SET webhook_secret=$1 WHERE id=$2 AND project_id=$3 AND (webhook_secret IS NULL OR webhook_secret='')`,
+				hex.EncodeToString(b), id, projectID)
+		}
+	}
 	return s.Get(ctx, id, projectID)
 }
 

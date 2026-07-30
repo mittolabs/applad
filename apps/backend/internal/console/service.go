@@ -6,6 +6,7 @@ package console
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -156,7 +157,9 @@ func (s *Service) consumeMFACode(ctx context.Context, userID, secretB32, recover
 		_ = json.Unmarshal([]byte(recoveryJSON), &recovery)
 	}
 	for i, rc := range recovery {
-		if rc == code {
+		// Constant-time compare so a timing difference cannot leak how many
+		// leading characters of a recovery code were guessed correctly.
+		if subtle.ConstantTimeCompare([]byte(rc), []byte(code)) == 1 {
 			recovery = append(recovery[:i], recovery[i+1:]...)
 			newJSON, _ := json.Marshal(recovery)
 			if _, err := s.db.ExecContext(ctx,
@@ -200,10 +203,41 @@ func (s *Service) MFAStatus(ctx context.Context, userID string) (bool, error) {
 }
 
 // BeginMFAEnrollment generates a fresh TOTP secret and recovery codes for the
-// user and stores them, but leaves mfa_enabled false: enrolment is not complete
-// until a first valid code is verified. Returns the secret, the otpauth URI to
-// render as a QR code, and the recovery codes to show once.
-func (s *Service) BeginMFAEnrollment(ctx context.Context, userID string) (secret, uri string, recovery []string, err error) {
+// user and stores them. Returns the secret, the otpauth URI to render as a QR
+// code, and the recovery codes to show once.
+//
+// On an account that does not yet have MFA, mfa_enabled is left false: enrolment
+// is not complete until a first valid code is verified.
+//
+// On an account that ALREADY has MFA, re-enrolment must present a valid current
+// code (TOTP or recovery), exactly as disabling does. Without that check a
+// walk-up on an unlocked session or a stolen console JWT could overwrite the
+// secret and strip the second factor with a single unauthenticated request. A
+// proven re-enrolment keeps mfa_enabled true — the account is never left
+// unprotected as a side effect of starting enrolment — and the new secret is
+// simply confirmed again by the next VerifyMFA.
+func (s *Service) BeginMFAEnrollment(ctx context.Context, userID, code string) (secret, uri string, recovery []string, err error) {
+	var email, curSecret, curRecovery sql.NullString
+	var enabled bool
+	if err = s.db.QueryRowContext(ctx,
+		"SELECT email, mfa_enabled, mfa_secret, mfa_recovery FROM console_users WHERE id = $1", userID).
+		Scan(&email, &enabled, &curSecret, &curRecovery); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", nil, fmt.Errorf("console: user not found")
+		}
+		return "", "", nil, err
+	}
+
+	if enabled {
+		ok, cerr := s.consumeMFACode(ctx, userID, curSecret.String, curRecovery.String, code)
+		if cerr != nil {
+			return "", "", nil, cerr
+		}
+		if !ok {
+			return "", "", nil, ErrMFAInvalid
+		}
+	}
+
 	secret, err = totp.NewSecret()
 	if err != nil {
 		return "", "", nil, err
@@ -214,14 +248,18 @@ func (s *Service) BeginMFAEnrollment(ctx context.Context, userID string) (secret
 	}
 	recoveryJSON, _ := json.Marshal(recovery)
 
-	var email sql.NullString
-	if err = s.db.QueryRowContext(ctx,
-		`UPDATE console_users SET mfa_secret = $1, mfa_recovery = $2, mfa_enabled = FALSE
-		  WHERE id = $3 RETURNING email`,
-		secret, string(recoveryJSON), userID).Scan(&email); err != nil {
-		if err == sql.ErrNoRows {
-			return "", "", nil, fmt.Errorf("console: user not found")
-		}
+	if enabled {
+		// Leave mfa_enabled true: the current factor was just proven, so the
+		// account stays protected while the new secret is confirmed.
+		_, err = s.db.ExecContext(ctx,
+			"UPDATE console_users SET mfa_secret = $1, mfa_recovery = $2 WHERE id = $3",
+			secret, string(recoveryJSON), userID)
+	} else {
+		_, err = s.db.ExecContext(ctx,
+			"UPDATE console_users SET mfa_secret = $1, mfa_recovery = $2, mfa_enabled = FALSE WHERE id = $3",
+			secret, string(recoveryJSON), userID)
+	}
+	if err != nil {
 		return "", "", nil, err
 	}
 	uri = totp.OTPAuthURL(mfaIssuer, email.String, secret)

@@ -271,6 +271,126 @@ func TestSubscribe_BroadAccessBypassesRowFiltering(t *testing.T) {
 	}
 }
 
+// --- Aggregate database feeds require broad access ---------------------------
+
+// A plain end-user session must NOT be able to subscribe to the table-less
+// aggregate database channel, which would leak every other user's row changes
+// bypassing table grants and row security.
+func TestSubscribe_RejectsUserSessionOnAggregateDatabaseChannel(t *testing.T) {
+	hub := NewHub("", "")
+	hub.SetReadAuthorizer(stubReadAuth{fn: func(_, _, _, _ string) (TableReadDecision, error) {
+		t.Fatal("read authorizer must not be consulted for the aggregate channel")
+		return TableReadDecision{}, nil
+	}})
+	c := authedClient(hub, "proj1", "user1", true, false)
+
+	hub.subscribeClient(c, "databases.proj1.db1")
+
+	if hub.subscribed(c, "databases.proj1.db1") {
+		t.Fatal("user session subscribed to the aggregate database feed; expected rejection")
+	}
+	ev := drainError(c)
+	if ev == nil || ev.Type != "error" {
+		t.Fatalf("expected an error frame, got %+v", ev)
+	}
+	if code, _ := ev.Payload.(map[string]interface{})["code"].(string); code != "realtime_forbidden_read" {
+		t.Fatalf("expected realtime_forbidden_read, got %v", ev.Payload)
+	}
+}
+
+// A broad-access connection (server API key) retains access to the aggregate
+// database feed.
+func TestSubscribe_AllowsBroadAccessOnAggregateDatabaseChannel(t *testing.T) {
+	hub := NewHub("", "")
+	c := authedClient(hub, "proj1", "api:key1", true, true)
+	channel := "databases.proj1.db1"
+
+	hub.subscribeClient(c, channel)
+	if !hub.subscribed(c, channel) {
+		t.Fatal("broad-access subscription to the aggregate database feed was rejected")
+	}
+	hub.Publish(Event{Type: "databases.rows.create", Channel: channel, Payload: map[string]interface{}{
+		"new": map[string]interface{}{"id": "r1"},
+	}})
+	if drainError(c) == nil {
+		t.Fatal("broad-access subscriber did not receive its event")
+	}
+}
+
+// The same user session that is denied the aggregate feed must still reach a
+// specific table channel, delivered per-row filtered.
+func TestSubscribe_UserSessionStillReachesTableChannel(t *testing.T) {
+	hub := NewHub("", "")
+	hub.SetReadAuthorizer(stubReadAuth{fn: func(_, _, _, userID string) (TableReadDecision, error) {
+		return TableReadDecision{RowFiltered: true, Roles: []string{"user:" + userID}}, nil
+	}})
+	c := authedClient(hub, "proj1", "user1", true, false)
+	channel := "databases.proj1.db1.posts"
+
+	hub.subscribeClient(c, channel)
+	if !hub.subscribed(c, channel) {
+		t.Fatal("user session was rejected from a specific table channel")
+	}
+	// A row readable only by user1 is delivered; a foreign row is not.
+	hub.Publish(Event{Type: "databases.rows.create", Channel: channel, Payload: map[string]interface{}{
+		"new": map[string]interface{}{"id": "other", "_permissions": map[string]interface{}{"read": []interface{}{"user:someoneelse"}}},
+	}})
+	hub.Publish(Event{Type: "databases.rows.create", Channel: channel, Payload: map[string]interface{}{
+		"new": map[string]interface{}{"id": "mine", "_permissions": map[string]interface{}{"read": []interface{}{"user:user1"}}},
+	}})
+
+	deadline := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case msg := <-c.send:
+			var ev Event
+			if err := json.Unmarshal(msg, &ev); err != nil {
+				t.Fatalf("bad event: %v", err)
+			}
+			row, _ := ev.Payload.(map[string]interface{})["new"].(map[string]interface{})
+			if row["id"] == "other" {
+				t.Fatal("table subscriber received a row it may not read")
+			}
+			if row["id"] == "mine" {
+				return // got the readable row, filtering works
+			}
+		case <-deadline:
+			t.Fatal("timed out before the readable row arrived")
+		}
+	}
+}
+
+// A plain end-user session must NOT subscribe to the project-wide row feed.
+func TestSubscribe_RejectsUserSessionOnProjectWideRowFeed(t *testing.T) {
+	hub := NewHub("", "")
+	c := authedClient(hub, "proj1", "user1", true, false)
+
+	hub.subscribeClient(c, "projects.proj1.databases.rows")
+
+	if hub.subscribed(c, "projects.proj1.databases.rows") {
+		t.Fatal("user session subscribed to the project-wide row feed; expected rejection")
+	}
+	ev := drainError(c)
+	if ev == nil || ev.Type != "error" {
+		t.Fatalf("expected an error frame, got %+v", ev)
+	}
+	if code, _ := ev.Payload.(map[string]interface{})["code"].(string); code != "realtime_forbidden_read" {
+		t.Fatalf("expected realtime_forbidden_read, got %v", ev.Payload)
+	}
+}
+
+// A broad-access connection retains access to the project-wide row feed.
+func TestSubscribe_AllowsBroadAccessOnProjectWideRowFeed(t *testing.T) {
+	hub := NewHub("", "")
+	c := authedClient(hub, "proj1", "api:key1", true, true)
+	channel := "projects.proj1.databases.rows"
+
+	hub.subscribeClient(c, channel)
+	if !hub.subscribed(c, channel) {
+		t.Fatal("broad-access subscription to the project-wide row feed was rejected")
+	}
+}
+
 // --- Deploy channels ---------------------------------------------------------
 
 func TestSubscribe_DeployChannelRejectsOtherProjectRelease(t *testing.T) {

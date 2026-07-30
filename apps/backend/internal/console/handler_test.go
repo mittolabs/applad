@@ -5,7 +5,77 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/mittolabs/applad/internal/db"
 )
+
+// PATCH /console/me updates the signed-in admin's name and email in one request
+// (the account page's single "Save changes"). Before this route existed the
+// console called a path with no handler and every profile edit 405'd.
+func TestUpdateProfile_PatchMe(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(&db.DB{DB: mockDB}, "test-jwt-secret-32chars-long!!")
+	h := &Handler{svc: svc}
+
+	// An empty session id means ValidateSession trusts the JWT without a
+	// session-table lookup, so no DB expectation is needed for auth.
+	token, err := svc.signJWT("uid1", "old@test.com", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mock.ExpectExec("UPDATE console_users SET name = \\$1 WHERE id = \\$2").
+		WithArgs("New Name", "uid1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE console_users SET email = \\$1 WHERE id = \\$2").
+		WithArgs("new@test.com", "uid1").WillReturnResult(sqlmock.NewResult(0, 1))
+	ts := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery("SELECT .+ FROM console_users WHERE id").
+		WithArgs("uid1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "mfa_enabled", "created_at", "updated_at"}).
+			AddRow("uid1", "new@test.com", "New Name", false, ts, ts))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("PATCH", "/me", strings.NewReader(`{"name":"New Name","email":"new@test.com"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	Routes(h).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "new@test.com") {
+		t.Errorf("expected updated user in response, got %s", rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// An unauthenticated PATCH /console/me is rejected — the update never reaches
+// the database.
+func TestUpdateProfile_PatchMe_Unauthorized(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(&db.DB{DB: mockDB}, "test-jwt-secret-32chars-long!!")
+	h := &Handler{svc: svc}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("PATCH", "/me", strings.NewReader(`{"name":"x"}`))
+	Routes(h).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
 
 // The hint cookie is what lets the marketing site on the parent domain know
 // someone is signed in. It must be scoped to that parent domain, carry no

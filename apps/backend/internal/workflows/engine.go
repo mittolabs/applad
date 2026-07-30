@@ -13,9 +13,10 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
-	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -30,10 +31,61 @@ var SubWorkflowRunner func(ctx context.Context, workflowID string, triggerData m
 
 const maxSubWorkflowDepth = 5
 
+// Run-level bounds. maxNodesPerRun caps how large a single workflow may be;
+// maxSubExecutions caps the TOTAL sub-workflow executions across the whole
+// recursion tree (depth alone permits a k^depth fan-out).
+const (
+	maxNodesPerRun   = 1000
+	maxSubExecutions = 100
+)
+
+// allDownstreamSentinel is the skip target a filter returns on a no-match; the
+// runner expands it to the filter node's real successors.
+const allDownstreamSentinel = "__all_downstream__"
+
+// ctxKey namespaces context values owned by this package.
+type ctxKey int
+
+const subExecCountKey ctxKey = iota
+
+// subExecCount returns the shared total-sub-execution counter carried in ctx.
+func subExecCount(ctx context.Context) *atomic.Int64 {
+	if c, ok := ctx.Value(subExecCountKey).(*atomic.Int64); ok {
+		return c
+	}
+	return new(atomic.Int64) // defensive: executeNode invoked outside RunWorkflow
+}
+
+// isNonIdempotent reports whether re-running a node would duplicate an external
+// side effect (a sent message, a charge, a created user). Such nodes are never
+// retried.
+func isNonIdempotent(node *Node) bool {
+	switch node.Type {
+	case "send_email", "sendgrid", "twilio_sms", "telegram", "stripe", "applad_messaging":
+		return true
+	case "applad_auth":
+		action, _ := node.Config["action"].(string)
+		return action == "create_user"
+	}
+	return false
+}
+
 // RunWorkflow executes a workflow and returns step logs.
 func RunWorkflow(ctx context.Context, wf *Workflow, triggerData map[string]interface{}) ([]StepLog, error) {
 	if len(wf.Nodes) == 0 {
 		return []StepLog{}, nil
+	}
+
+	// Bound the graph size so a single definition cannot pin a worker.
+	if len(wf.Nodes) > maxNodesPerRun {
+		return nil, fmt.Errorf("workflow exceeds the maximum of %d nodes per run", maxNodesPerRun)
+	}
+
+	// A shared counter, threaded through ctx, bounds the TOTAL number of
+	// sub-workflow executions across the whole recursion tree. Depth alone does
+	// not (a k-way fan-out at depth d is k^d executions), so cap the total.
+	if _, ok := ctx.Value(subExecCountKey).(*atomic.Int64); !ok {
+		ctx = context.WithValue(ctx, subExecCountKey, new(atomic.Int64))
 	}
 
 	// Read retry settings from the workflow
@@ -47,6 +99,16 @@ func RunWorkflow(ctx context.Context, wf *Workflow, triggerData map[string]inter
 	nodeMap := make(map[string]*Node, len(wf.Nodes))
 	for i := range wf.Nodes {
 		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+	}
+
+	// adjacency (source -> targets) and reverse (target -> sources), used to
+	// propagate a not-taken branch to its whole downstream subtree and to
+	// expand a filter's "skip everything after me" into concrete node ids.
+	adj := map[string][]string{}
+	incoming := map[string][]string{}
+	for _, e := range wf.Edges {
+		adj[e.Source] = append(adj[e.Source], e.Target)
+		incoming[e.Target] = append(incoming[e.Target], e.Source)
 	}
 
 	order := topoSort(wf.Nodes, wf.Edges)
@@ -79,7 +141,24 @@ func RunWorkflow(ctx context.Context, wf *Workflow, triggerData map[string]inter
 			continue
 		}
 
-		// Check if this node was skipped by an upstream condition
+		// A node is skipped if an upstream branch seeded it directly, OR every
+		// edge into it originates from a skipped node — i.e. it is reachable
+		// ONLY via not-taken paths. This propagates a not-taken branch to its
+		// whole transitive subtree. A node kept alive by any live predecessor
+		// (a merge that reconverges) still runs. Topological order guarantees
+		// every predecessor's skip status is already decided here.
+		if !skipped[nodeID] && len(incoming[nodeID]) > 0 {
+			allDead := true
+			for _, src := range incoming[nodeID] {
+				if !skipped[src] {
+					allDead = false
+					break
+				}
+			}
+			if allDead {
+				skipped[nodeID] = true
+			}
+		}
 		if skipped[nodeID] {
 			logs = append(logs, StepLog{
 				NodeID: node.ID, NodeType: node.Type, Label: node.Label,
@@ -100,20 +179,31 @@ func RunWorkflow(ctx context.Context, wf *Workflow, triggerData map[string]inter
 		if retryAttempts > 0 {
 			maxAttempts = retryAttempts + 1 // retryAttempts is the number of *retries*, not total attempts
 		}
+		// A retry re-runs the node from scratch. For nodes with external,
+		// non-idempotent side effects (sending mail/SMS, charging a card,
+		// creating a user) that would duplicate the action, so never retry them.
+		if isNonIdempotent(node) {
+			maxAttempts = 1
+		}
 
+		ctxCancelled := false
+	retryLoop:
 		for attempt := 0; attempt < maxAttempts; attempt++ {
 			output, skipTargets, err = executeNode(ctx, node, execCtx)
 			if err == nil {
 				break
 			}
-			// If there are remaining retries, wait before the next attempt
+			// If there are remaining retries, wait before the next attempt.
 			if attempt < maxAttempts-1 {
 				delay := time.Duration(retryDelayMs) * time.Millisecond
 				select {
 				case <-time.After(delay):
 				case <-ctx.Done():
+					// The run is cancelled/timed out: stop and abort, do not keep
+					// retrying against a dead context.
 					err = ctx.Err()
-					break
+					ctxCancelled = true
+					break retryLoop
 				}
 			}
 		}
@@ -133,6 +223,12 @@ func RunWorkflow(ctx context.Context, wf *Workflow, triggerData map[string]inter
 			stepLog.Status = "failed"
 			stepLog.Error = err.Error()
 			logs = append(logs, stepLog)
+
+			// A cancelled or timed-out context aborts the whole run immediately,
+			// bypassing try_catch — there is nothing to catch in a shutdown.
+			if ctxCancelled || ctx.Err() != nil {
+				return logs, err
+			}
 
 			// Check if this node is inside a try_catch scope
 			if catchTarget, inTryCatch := tryCatchScope[nodeID]; inTryCatch && catchTarget != "" {
@@ -169,8 +265,17 @@ func RunWorkflow(ctx context.Context, wf *Workflow, triggerData map[string]inter
 		// Store node output in context
 		execCtx[node.ID] = output
 
-		// Mark nodes to skip (from if_condition false branch)
+		// Seed skips from branch/switch/filter. A filter no-match returns the
+		// sentinel "__all_downstream__" ("skip everything after me"); expand it
+		// to this node's direct successors so the transitive rule at the top of
+		// the loop carries the skip through the entire downstream subtree.
 		for _, t := range skipTargets {
+			if t == allDownstreamSentinel {
+				for _, succ := range adj[nodeID] {
+					skipped[succ] = true
+				}
+				continue
+			}
 			skipped[t] = true
 		}
 	}
@@ -213,6 +318,8 @@ func executeNode(ctx context.Context, node *Node, execCtx map[string]interface{}
 			output = map[string]interface{}{"error": "workflowId is required"}
 		} else if SubWorkflowRunner == nil {
 			output = map[string]interface{}{"subWorkflowId": wfID, "status": "runner_not_configured"}
+		} else if n := subExecCount(ctx).Add(1); n > maxSubExecutions {
+			err = fmt.Errorf("execute_sub_workflow: total sub-execution cap %d exceeded", maxSubExecutions)
 		} else {
 			depth, _ := execCtx["__depth__"].(int)
 			if depth >= maxSubWorkflowDepth {
@@ -405,9 +512,19 @@ func execSendEmail(config map[string]interface{}, execCtx map[string]interface{}
 		auth = smtp.PlainAuth("", user, pass, host)
 	}
 
-	err := smtp.SendMail(host+":"+port, auth, from, strings.Split(to, ","), []byte(msg))
-	if err != nil {
-		return nil, fmt.Errorf("send_email: %w", err)
+	// smtp.SendMail takes no context and can block indefinitely on a slow or
+	// hung SMTP server, pinning the node. Bound it with a deadline.
+	done := make(chan error, 1)
+	go func() {
+		done <- smtp.SendMail(host+":"+port, auth, from, strings.Split(to, ","), []byte(msg))
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			return nil, fmt.Errorf("send_email: %w", err)
+		}
+	case <-time.After(30 * time.Second):
+		return nil, fmt.Errorf("send_email: timed out after 30s")
 	}
 
 	return map[string]interface{}{"status": "sent", "to": to}, nil
@@ -610,7 +727,7 @@ func execFilter(config map[string]interface{}, execCtx map[string]interface{}) (
 	// If not matched, skip all downstream (empty skip = pass through)
 	// The caller handles skipping via the edge targets
 	if !matched {
-		return result, []string{"__all_downstream__"}, nil
+		return result, []string{allDownstreamSentinel}, nil
 	}
 	return result, nil, nil
 }
@@ -867,7 +984,7 @@ func execWebhookPost(ctx context.Context, config map[string]interface{}, execCtx
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", service, err)
 	}
@@ -899,7 +1016,7 @@ func execTelegram(ctx context.Context, config map[string]interface{}, execCtx ma
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("telegram: %w", err)
 	}
@@ -933,7 +1050,7 @@ func execGitHub(ctx context.Context, config map[string]interface{}, execCtx map[
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github: %w", err)
 	}
@@ -986,7 +1103,7 @@ func execGoogleSheets(ctx context.Context, config map[string]interface{}, execCt
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("google_sheets: %w", err)
 	}
@@ -1045,7 +1162,7 @@ func execNotion(ctx context.Context, config map[string]interface{}, execCtx map[
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Notion-Version", "2022-06-28")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("notion: %w", err)
 	}
@@ -1108,7 +1225,7 @@ func execStripe(ctx context.Context, config map[string]interface{}, execCtx map[
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("stripe: %w", err)
 	}
@@ -1152,7 +1269,7 @@ func execTwilioSMS(ctx context.Context, config map[string]interface{}, execCtx m
 	req.SetBasicAuth(accountSID, authToken)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("twilio_sms: %w", err)
 	}
@@ -1199,7 +1316,7 @@ func execPostgresQuery(ctx context.Context, config map[string]interface{}, execC
 		req.Header.Set("Authorization", "Bearer "+resolveTemplate(token, execCtx))
 	}
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("postgres_query: %w", err)
 	}
@@ -1233,8 +1350,12 @@ func execRedisCommand(ctx context.Context, config map[string]interface{}, execCt
 	}
 	connURL = resolveTemplate(connURL, execCtx)
 
-	// Connect via raw TCP and send RESP protocol
-	conn, err := net.DialTimeout("tcp", connURL, 5*time.Second)
+	// Connect via raw TCP and send RESP protocol. The destination is
+	// workflow-author-controlled, so dial through a guard that refuses
+	// loopback/private/link-local targets (postgres, redis, the API, cloud
+	// metadata) after DNS resolution — otherwise a workflow could FLUSHALL the
+	// compose-internal redis or reach any internal service.
+	conn, err := guardedDial(ctx, "tcp", connURL, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("redis_command: connect to %s: %w", connURL, err)
 	}
@@ -1344,7 +1465,7 @@ func execS3(ctx context.Context, config map[string]interface{}, execCtx map[stri
 	cred := base64.StdEncoding.EncodeToString([]byte(accessKey + ":" + secretKey))
 	req.Header.Set("Authorization", "AWS "+accessKey+":"+cred)
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("s3: %w", err)
 	}
@@ -1401,7 +1522,7 @@ func execSendGrid(ctx context.Context, config map[string]interface{}, execCtx ma
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("sendgrid: %w", err)
 	}
@@ -1479,7 +1600,7 @@ func execJira(ctx context.Context, config map[string]interface{}, execCtx map[st
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := netguard.Client(15 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("jira: %w", err)
 	}
@@ -1558,7 +1679,9 @@ func execJavaScript(config map[string]interface{}, execCtx map[string]interface{
 	// Inject execution context as $input
 	vm.Set("$input", execCtx)
 	vm.Set("$json", execCtx)
-	vm.Set("$env", func(key string) string { return os.Getenv(key) })
+	// $env is deliberately NOT bound: a workflow author's JS must never reach
+	// the API process environment (JWT_SECRET, DATABASE_DSN, OAUTH_*_SECRET,
+	// GITHUB_APP_PRIVATE_KEY, SMTP_PASS, ...). Referencing $env is a ReferenceError.
 	vm.Set("$now", time.Now().UTC().Format(time.RFC3339))
 
 	// Inject console.log
@@ -1651,7 +1774,7 @@ func execAITransform(ctx context.Context, config map[string]interface{}, execCtx
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	resp, err := netguard.Client(120 * time.Second).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ai_transform: %w", err)
 	}
@@ -1744,7 +1867,7 @@ func execAIAgent(ctx context.Context, config map[string]interface{}, execCtx map
 		req.Header.Set("x-api-key", apiKey)
 		req.Header.Set("anthropic-version", "2023-06-01")
 
-		resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+		resp, err := netguard.Client(120 * time.Second).Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("ai_agent step %d: %w", step, err)
 		}
@@ -2065,6 +2188,62 @@ func execCompareDatasets(config map[string]interface{}, execCtx map[string]inter
 }
 
 // --- Helpers ---
+
+// guardedDial opens a raw TCP (or other) connection whose resolved address is
+// vetted by netguard's Control hook. Because the check runs on the address the
+// kernel is about to dial (post-DNS), a hostname that resolves to a private or
+// loopback IP — including via DNS rebinding — is refused before any bytes flow.
+func guardedDial(ctx context.Context, network, addr string, timeout time.Duration) (net.Conn, error) {
+	d := &net.Dialer{
+		Timeout: timeout,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			return netguard.CheckAddr(address)
+		},
+	}
+	return d.DialContext(ctx, network, addr)
+}
+
+// HasCycle reports whether the node/edge graph contains a directed cycle.
+// topoSort silently appends cyclic nodes in an arbitrary order, so a cyclic
+// definition would run in a nonsensical order; reject it at write time instead.
+// Edges referencing unknown node ids are ignored.
+func HasCycle(nodes []Node, edges []Edge) bool {
+	inDegree := map[string]int{}
+	adj := map[string][]string{}
+	for _, n := range nodes {
+		inDegree[n.ID] = 0
+	}
+	for _, e := range edges {
+		if _, ok := inDegree[e.Source]; !ok {
+			continue
+		}
+		if _, ok := inDegree[e.Target]; !ok {
+			continue
+		}
+		adj[e.Source] = append(adj[e.Source], e.Target)
+		inDegree[e.Target]++
+	}
+	var queue []string
+	for id, d := range inDegree {
+		if d == 0 {
+			queue = append(queue, id)
+		}
+	}
+	processed := 0
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+		processed++
+		for _, next := range adj[curr] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				queue = append(queue, next)
+			}
+		}
+	}
+	// Any node never reaching in-degree 0 sits on a cycle.
+	return processed < len(inDegree)
+}
 
 // topoSort returns node IDs in topological order.
 func topoSort(nodes []Node, edges []Edge) []string {

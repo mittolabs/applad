@@ -147,21 +147,25 @@ several channels at once, from the most specific (one table) to the broadest
 (the whole project), so you subscribe at whatever granularity your view needs.
 Every channel Applad publishes today:
 
-| Channel | Fires on | Event `type` |
-| --- | --- | --- |
-| `databases.{projectId}.{databaseId}.{tableName}` | any row change in one table | `databases.rows.create`, `.update`, `.delete` |
-| `databases.{projectId}.{databaseId}` | any row change in any table of one database | same three |
-| `projects.{projectId}.databases.rows` | any row change anywhere in the project | same three |
-| `projects.{projectId}.storage.files` | a file is uploaded or deleted | `storage.files.create`, `storage.files.delete` |
-| `deploy.{releaseId}` | a build streams a log line | `deploy.log` |
+| Channel | Fires on | Event `type` | Who may subscribe |
+| --- | --- | --- | --- |
+| `databases.{projectId}.{databaseId}.{tableName}` | any row change in one table | `databases.rows.create`, `.update`, `.delete` | any authenticated session (per-row filtered) |
+| `databases.{projectId}.{databaseId}` | any row change in any table of one database | same three | **server API key only** |
+| `projects.{projectId}.databases.rows` | any row change anywhere in the project | same three | **server API key only** |
+| `projects.{projectId}.storage.files` | a file is uploaded or deleted | `storage.files.create`, `storage.files.delete` | any authenticated session |
+| `deploy.{releaseId}` | a build streams a log line | `deploy.log` | any authenticated session |
 
 For example, `databases.proj_123.app.messages` is every row change in the
 `messages` table of the `app` database. This is exactly the channel the Dart
 `.database(databaseId, tableName)` builder computes for you, and the one you
 pass by hand to `subscribe(channel, callback)` in JS. Every write also lands on
-the database-scoped and project-wide channels above, so a dashboard that wants
-all of a project's activity can subscribe once to `projects.{projectId}.databases.rows`
-instead of one channel per table.
+the database-scoped and project-wide **aggregate feeds** above, but those two
+carry every table's changes with no per-row filtering possible, so they are
+restricted to connections that already hold project-wide read access — a
+**server API key** or a console administrator. A dashboard that wants all of a
+project's activity subscribes to `projects.{projectId}.databases.rows` from a
+trusted server context; an end-user client subscribes to the specific table
+channels it is allowed to read.
 
 <Callout title="Subscribe to any channel by its string">
 The fluent `.database(...)` builder only exists for the table channel. The
@@ -170,14 +174,15 @@ have no builder yet. Pass their string straight to `subscribe(channel, callback)
 in either SDK to receive them.
 </Callout>
 
-<Callout title="Delivery is table-scoped, not permission-filtered">
-Today, realtime delivers a table's changes to every subscriber on that table's
-channel. It does **not** yet apply row-level [permissions](/build/permissions) to the
-stream, so a subscriber receives events for rows it might not be allowed to read
-through the REST API. Treat a channel as a broadcast within a table: only
-subscribe from contexts allowed to see the whole table, and do not rely on
-realtime to hide rows. This is a known limitation, tracked separately from the
-permission checks enforced on reads and writes.
+<Callout title="A table channel is authorized and per-row filtered">
+Subscribing to a table channel is authorized with the same table-level and
+row-level [permissions](/build/permissions) the REST reads enforce: a session
+with no read grant on the table is rejected, and on a document-security table
+each event is delivered only if the changed row's own `_permissions` grant read
+to one of the subscriber's roles. The aggregate feeds
+(`databases.{projectId}.{databaseId}` and `projects.{projectId}.databases.rows`)
+cannot be filtered this way, which is why they require a server API key rather
+than an end-user session.
 </Callout>
 
 ## The event payload

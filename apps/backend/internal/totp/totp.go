@@ -11,6 +11,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
 	"fmt"
@@ -58,7 +59,9 @@ func Validate(secretB32, code string) bool {
 	}
 	step := time.Now().Unix() / 30
 	for _, offset := range []int64{-1, 0, 1} {
-		if Generate(secret, step+offset) == code {
+		// Constant-time compare so validation time does not leak how close a
+		// submitted code was to the expected one.
+		if subtle.ConstantTimeCompare([]byte(Generate(secret, step+offset)), []byte(code)) == 1 {
 			return true
 		}
 	}

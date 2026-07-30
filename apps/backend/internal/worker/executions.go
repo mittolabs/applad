@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/mittolabs/applad/internal/config"
@@ -12,6 +13,20 @@ import (
 	"github.com/mittolabs/applad/internal/workflows"
 	"github.com/redis/go-redis/v9"
 )
+
+// defaultExecutionTimeout bounds a single workflow run. A workflow can chain
+// external calls, waits and sub-workflows; without a ceiling one stuck run pins
+// the worker indefinitely. Overridable via WORKFLOW_EXECUTION_TIMEOUT.
+const defaultExecutionTimeout = 5 * time.Minute
+
+func executionTimeout() time.Duration {
+	if v := os.Getenv("WORKFLOW_EXECUTION_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultExecutionTimeout
+}
 
 type Executions struct {
 	cfg   *config.Config
@@ -88,7 +103,9 @@ func (w *Executions) process(ctx context.Context, job *queue.Job) error {
 	startedAt := time.Now().UTC()
 	svc.UpdateExecution(ctx, executionID, "running", &startedAt, nil, 0, "", nil) //nolint:errcheck
 
-	logs, execErr := workflows.RunWorkflow(ctx, wf, triggerData)
+	runCtx, cancel := context.WithTimeout(ctx, executionTimeout())
+	defer cancel()
+	logs, execErr := workflows.RunWorkflow(runCtx, wf, triggerData)
 
 	completedAt := time.Now().UTC()
 	durationMs := completedAt.Sub(startedAt).Milliseconds()

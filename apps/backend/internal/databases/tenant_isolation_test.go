@@ -133,7 +133,9 @@ func TestExecuteSQLHandler_IgnoresRolesFromBody(t *testing.T) {
 	h := NewHandler(svc)
 
 	// No authenticated user in context, so the anon role applies and the RLS
-	// claims must not contain the body-supplied "admin" role.
+	// claims must not contain the body-supplied "admin" role. The /sql endpoint
+	// is gated to a server API key (or console admin), so the caller is marked as
+	// a key here — a key still carries no user, hence the anon role.
 	expectDirectAccessPrelude(mock, "test-project", "db1", "",
 		notContainsArg{substr: "admin"}, "p_test_project_db1_anon")
 	mock.ExpectQuery(`^SELECT 1$`).
@@ -148,6 +150,11 @@ func TestExecuteSQLHandler_IgnoresRolesFromBody(t *testing.T) {
 
 	mux := chi.NewMux()
 	mux.Use(middleware.ProjectContext)
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(middleware.ContextWithAPIKey(r.Context())))
+		})
+	})
 	mux.Post("/{databaseId}/sql", h.executeSQL)
 	mux.ServeHTTP(w, req)
 

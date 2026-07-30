@@ -2214,6 +2214,146 @@ func (s *Service) DeleteRowWithAuth(ctx context.Context, rowID, tableID, databas
 	return tx.Commit()
 }
 
+// authorizeRowUpdate resolves a table (enforcing the project boundary the way
+// lookupProjectTable does) and, for a user session (userID != ""), checks the
+// row's update permission exactly as UpdateRowWithAuth. It is the shared auth
+// prelude for the single-statement atomic writes below. A server API key
+// (userID == "") skips the app-level check and keeps full access.
+func (s *Service) authorizeRowUpdate(ctx context.Context, projectID, tableID, rowID, userID string, roles []string) (*tableContext, error) {
+	table, err := s.lookupTableContext(ctx, tableID)
+	if err != nil {
+		return nil, err
+	}
+	if table.ProjectID != projectID {
+		return nil, fmt.Errorf("row not found")
+	}
+	if userID != "" {
+		perms, exists, err := s.existingRowPermissions(ctx, table, rowID)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fmt.Errorf("row not found")
+		}
+		if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "update", perms); err != nil {
+			return nil, err
+		}
+	}
+	return table, nil
+}
+
+// numericBounds returns the min/max bounds configured on a column, or nil when
+// unset, so an atomic increment can clamp its result within the same statement.
+func (s *Service) numericBounds(ctx context.Context, tableID, field string) (min, max *float64) {
+	var raw []byte
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(validation, '{}') FROM columns WHERE table_id = $1 AND key_name = $2`,
+		tableID, field,
+	).Scan(&raw); err != nil {
+		return nil, nil
+	}
+	var v model.ColumnValidation
+	if json.Unmarshal(raw, &v) != nil {
+		return nil, nil
+	}
+	return v.Min, v.Max
+}
+
+// AtomicNumericOp adds delta to a numeric field in a single UPDATE statement, so
+// concurrent increments cannot lose each other's writes the way the previous
+// read-in-one-tx then write-in-another pair did. The row's update permission is
+// enforced first for a user session and the write runs under the caller's RLS
+// role; a server API key keeps full access. Any min/max bound configured on the
+// column clamps the result within the same statement.
+func (s *Service) AtomicNumericOp(ctx context.Context, projectID, databaseID, tableID, rowID, field string, delta float64, userID string, roles []string) (*model.Row, error) {
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
+	table, err := s.authorizeRowUpdate(ctx, projectID, tableID, rowID, userID, roles)
+	if err != nil {
+		return nil, err
+	}
+
+	// Bounds come from trusted column metadata but are still bound as parameters
+	// rather than interpolated into the statement.
+	args := []interface{}{delta}
+	valueExpr := fmt.Sprintf("COALESCE(%s, 0) + $1", pgIdent(field))
+	if lower, upper := s.numericBounds(ctx, tableID, field); lower != nil || upper != nil {
+		if lower != nil {
+			args = append(args, *lower)
+			valueExpr = fmt.Sprintf("GREATEST(%s, $%d)", valueExpr, len(args))
+		}
+		if upper != nil {
+			args = append(args, *upper)
+			valueExpr = fmt.Sprintf("LEAST(%s, $%d)", valueExpr, len(args))
+		}
+	}
+	args = append(args, rowID)
+
+	tx, _, err := s.prepareDirectAccessTx(ctx, projectID, databaseID, userID, roles, false)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	query := fmt.Sprintf(
+		"UPDATE %s SET %s = %s, updated_at = NOW() WHERE id = $%d RETURNING to_jsonb(%s.*)",
+		pgIdent(table.Name), pgIdent(field), valueExpr, len(args), pgIdent(table.Name))
+	row, err := scanReturnedRow(ctx, tx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return mapToRow(row, tableID, databaseID), nil
+}
+
+// AtomicArrayAppend appends value to an array field in a single UPDATE, so
+// concurrent appends cannot clobber each other. array_append(NULL, v) yields
+// {v}, so a not-yet-set column becomes a single-element array. It enforces the
+// row's update permission for a user session, like AtomicNumericOp.
+func (s *Service) AtomicArrayAppend(ctx context.Context, projectID, databaseID, tableID, rowID, field string, value interface{}, userID string, roles []string) (*model.Row, error) {
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
+	table, err := s.authorizeRowUpdate(ctx, projectID, tableID, rowID, userID, roles)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, _, err := s.prepareDirectAccessTx(ctx, projectID, databaseID, userID, roles, false)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	query := fmt.Sprintf(
+		"UPDATE %s SET %s = array_append(%s, $1), updated_at = NOW() WHERE id = $2 RETURNING to_jsonb(%s.*)",
+		pgIdent(table.Name), pgIdent(field), pgIdent(field), pgIdent(table.Name))
+	row, err := scanReturnedRow(ctx, tx, query, value, rowID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return mapToRow(row, tableID, databaseID), nil
+}
+
+// scanReturnedRow runs an UPDATE ... RETURNING to_jsonb(t.*) and decodes the one
+// row it returns. No row (RLS filtered it, or the id is gone) is "row not found".
+func scanReturnedRow(ctx context.Context, tx *db.Tx, query string, args ...interface{}) (map[string]interface{}, error) {
+	var raw []byte
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&raw); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("row not found")
+		}
+		return nil, fmt.Errorf("atomic update: %w", err)
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, fmt.Errorf("atomic update: %w", err)
+	}
+	return data, nil
+}
+
 // TransactionOp defines a single operation in an atomic request.
 type TransactionOp struct {
 	Method  string                 `json:"method"`
@@ -2230,8 +2370,28 @@ type TransactionResult struct {
 	Body   interface{} `json:"body"`
 }
 
-func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID string, operations []TransactionOp) ([]TransactionResult, error) {
-	tx, _, err := s.prepareDirectAccessTx(ctx, projectID, databaseID, "", []string{"service"}, false)
+// txOpAction maps a transaction operation's method to the permission action it
+// requires, matching how the single-row handlers gate each verb.
+func txOpAction(method string) string {
+	switch strings.ToUpper(method) {
+	case "POST", "CREATE":
+		return "create"
+	case "PATCH", "UPDATE":
+		return "update"
+	case "DELETE":
+		return "delete"
+	default:
+		return "read"
+	}
+}
+
+func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID, userID string, roles []string, operations []TransactionOp) ([]TransactionResult, error) {
+	// Roles are resolved server-side from the caller's identity, never taken from
+	// the request. A user session (userID != "") runs under the _authenticated
+	// RLS role and is permission-checked per op below; a server API key
+	// (userID == "") keeps full access, exactly as the single-row WithAuth paths.
+	roles = s.resolveRoles(ctx, projectID, userID, roles)
+	tx, _, err := s.prepareDirectAccessTx(ctx, projectID, databaseID, userID, roles, false)
 	if err != nil {
 		return nil, err
 	}
@@ -2239,9 +2399,54 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID 
 
 	results := make([]TransactionResult, 0, len(operations))
 	for _, operation := range operations {
-		table, err := s.lookupProjectTable(ctx, operation.TableID, projectID)
+		// lookupTableContext is resolved by id, so enforce the project boundary
+		// here — the same tenant guard lookupProjectTable applies — while also
+		// getting the row-security flag existingRowPermissions needs.
+		table, err := s.lookupTableContext(ctx, operation.TableID)
 		if err != nil {
 			return nil, err
+		}
+		if table.ProjectID != projectID {
+			return nil, fmt.Errorf("table not found")
+		}
+		// Enforce per-op permission for a user session before touching the table.
+		// Non-row-security tables carry unconditional DML grants, so without this
+		// a user could read/modify/delete every row via a transaction op. A user
+		// lacking permission on any op fails the whole transaction (the tx is
+		// rolled back by the deferred Rollback), all-or-nothing. A server API key
+		// (userID == "") keeps full access.
+		if userID != "" {
+			action := txOpAction(operation.Method)
+			switch action {
+			case "update", "delete":
+				// Consult the row's own permissions, exactly as the single-row
+				// WithAuth methods do, so a document-security row grant still admits
+				// the write.
+				perms, exists, perr := s.existingRowPermissions(ctx, table, operation.RowID)
+				if perr != nil {
+					return nil, perr
+				}
+				if !exists {
+					return nil, fmt.Errorf("row not found")
+				}
+				if err := s.enforcePermission(ctx, projectID, operation.TableID, userID, roles, action, perms); err != nil {
+					return nil, err
+				}
+			case "read":
+				// A read/list op on a document-security table is filtered per row by
+				// RLS, so skip the blanket table-level gate there — matching
+				// ListRowsWithAuth. On a non-RLS table there is no RLS, so table-level
+				// read is required.
+				if !table.RowSecurity {
+					if err := s.enforcePermission(ctx, projectID, operation.TableID, userID, roles, action, nil); err != nil {
+						return nil, err
+					}
+				}
+			default: // create
+				if err := s.enforcePermission(ctx, projectID, operation.TableID, userID, roles, action, nil); err != nil {
+					return nil, err
+				}
+			}
 		}
 		result := TransactionResult{Method: operation.Method}
 		switch strings.ToUpper(operation.Method) {

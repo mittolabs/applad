@@ -168,6 +168,7 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/auth/{provider}", h.oauthRedirect)
 	r.Get("/auth/{provider}/callback", h.oauthCallback)
 	r.Get("/me", h.getMe)
+	r.Patch("/me", h.updateProfile)
 	r.Patch("/me/name", h.updateName)
 	r.Patch("/me/email", h.updateEmail)
 	r.Patch("/me/password", h.updatePassword)
@@ -537,6 +538,44 @@ func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
+// updateProfile updates the signed-in admin's name and/or email in one request.
+// Fields are pointers so an absent one is left untouched rather than cleared,
+// and the updated user is returned so the console can refresh without a second
+// round-trip. This backs the account page's single "Save changes" button.
+func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		apperr.Unauthorized(w)
+		return
+	}
+	var body struct {
+		Name  *string `json:"name"`
+		Email *string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.BadRequest(w, "invalid request body")
+		return
+	}
+	if body.Name != nil {
+		if err := h.svc.UpdateName(r.Context(), userID, *body.Name); err != nil {
+			apperr.Internal(w, err)
+			return
+		}
+	}
+	if body.Email != nil {
+		if err := h.svc.UpdateEmail(r.Context(), userID, *body.Email); err != nil {
+			apperr.Internal(w, err)
+			return
+		}
+	}
+	user, err := h.svc.GetMe(r.Context(), userID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
 func (h *Handler) updateName(w http.ResponseWriter, r *http.Request) {
 	userID, err := h.extractUserID(r)
 	if err != nil {
@@ -620,8 +659,18 @@ func (h *Handler) mfaEnroll(w http.ResponseWriter, r *http.Request) {
 		apperr.Unauthorized(w)
 		return
 	}
-	secret, uri, recovery, err := h.svc.BeginMFAEnrollment(r.Context(), userID)
+	// A code is required only to re-enrol an account that already has MFA; a
+	// first enrolment sends none.
+	var body struct {
+		Code string `json:"code"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	secret, uri, recovery, err := h.svc.BeginMFAEnrollment(r.Context(), userID, body.Code)
 	if err != nil {
+		if errors.Is(err, ErrMFAInvalid) {
+			apperr.Write(w, http.StatusBadRequest, "console_mfa_invalid", "Invalid authentication code")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}

@@ -1040,27 +1040,25 @@ func (h *Handler) atomicNumericOp(w http.ResponseWriter, r *http.Request, sign f
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "field and delta required")
 		return
 	}
-	row, err := h.svc.GetRow(ctx, rowID, tableID, dbID, projectID)
+	updated, err := h.svc.AtomicNumericOp(ctx, projectID, dbID, tableID, rowID, body.Field, body.Delta*sign, userID, nil)
 	if err != nil {
-		apperr.NotFound(w, "row")
-		return
-	}
-	data := row.Data
-	cur := 0.0
-	if v, ok := data[body.Field]; ok {
-		switch n := v.(type) {
-		case float64:
-			cur = n
-		}
-	}
-	cur += body.Delta * sign
-	updated, err := h.svc.UpdateRowWithAuth(ctx, rowID, tableID, dbID, projectID,
-		map[string]interface{}{body.Field: cur}, []string{}, userID, nil)
-	if err != nil {
-		apperr.Internal(w, err)
+		writeAtomicError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// writeAtomicError maps a service error from an atomic op to the right status:
+// a permission failure is 403, a missing row is 404, anything else is 500.
+func writeAtomicError(w http.ResponseWriter, err error) {
+	switch {
+	case strings.Contains(err.Error(), "permission denied"):
+		apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to update this row")
+	case strings.Contains(err.Error(), "not found"):
+		apperr.NotFound(w, "row")
+	default:
+		apperr.Internal(w, err)
+	}
 }
 
 func (h *Handler) atomicAppend(w http.ResponseWriter, r *http.Request) {
@@ -1078,20 +1076,9 @@ func (h *Handler) atomicAppend(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "field and value required")
 		return
 	}
-	row, err := h.svc.GetRow(ctx, rowID, tableID, dbID, projectID)
+	updated, err := h.svc.AtomicArrayAppend(ctx, projectID, dbID, tableID, rowID, body.Field, body.Value, userID, nil)
 	if err != nil {
-		apperr.NotFound(w, "row")
-		return
-	}
-	var arr []interface{}
-	if existing, ok := row.Data[body.Field].([]interface{}); ok {
-		arr = existing
-	}
-	arr = append(arr, body.Value)
-	updated, err := h.svc.UpdateRowWithAuth(ctx, rowID, tableID, dbID, projectID,
-		map[string]interface{}{body.Field: arr}, []string{}, userID, nil)
-	if err != nil {
-		apperr.Internal(w, err)
+		writeAtomicError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -1102,6 +1089,7 @@ func (h *Handler) atomicAppend(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) executeTransaction(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
+	userID := middleware.UserFromContext(ctx)
 	dbID := chi.URLParam(r, "databaseId")
 	var body struct {
 		Operations []TransactionOp `json:"operations"`
@@ -1114,8 +1102,15 @@ func (h *Handler) executeTransaction(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "operations array is required and must not be empty")
 		return
 	}
-	results, err := h.svc.ExecuteTransaction(ctx, projectID, dbID, body.Operations)
+	// Thread the caller's identity so each op is permission-checked for a user
+	// session; a server API key (userID == "") keeps full access. Roles are
+	// resolved server-side in the service, never taken from the request.
+	results, err := h.svc.ExecuteTransaction(ctx, projectID, dbID, userID, nil, body.Operations)
 	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") {
+			apperr.Write(w, http.StatusForbidden, "permission_denied", "You do not have permission to perform one of the operations in this transaction")
+			return
+		}
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "is required") || strings.Contains(err.Error(), "unsupported action") {
 			apperr.BadRequest(w, err.Error())
 			return
@@ -1131,6 +1126,16 @@ func (h *Handler) executeTransaction(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) executeSQL(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// The raw /sql endpoint runs under the schema's _authenticated role, whose
+	// GRANTs on a non-document-security table are unconditional — it applies no
+	// app-level table permission check. That makes it an operator/admin escape
+	// hatch, not a client API: a plain end-user session must not reach it, or it
+	// could SELECT/UPDATE/DELETE every row of any non-RLS table regardless of the
+	// table's grants. Restrict it to a server API key or a console admin.
+	if !middleware.IsAPIKey(ctx) && !middleware.IsConsoleAdmin(ctx) {
+		apperr.Write(w, http.StatusForbidden, "permission_denied", "The SQL editor requires a server API key or console admin.")
+		return
+	}
 	projectID := middleware.ProjectFromContext(ctx)
 	userID := middleware.UserFromContext(ctx)
 	databaseID := chi.URLParam(r, "databaseId")

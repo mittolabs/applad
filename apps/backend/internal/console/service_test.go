@@ -284,15 +284,33 @@ func currentTOTP(secretB32 string) string {
 	return totp.Generate(secret, time.Now().Unix()/30)
 }
 
-// BeginMFAEnrollment must persist a secret and return recovery codes, without
-// yet enabling MFA — enrolment completes only once a code is verified.
+// mfaLookupRows builds the row set BeginMFAEnrollment reads before deciding
+// whether a re-enrolment needs a current code.
+func mfaLookupRows(email string, enabled bool, secret, recovery string) *sqlmock.Rows {
+	var sec, rec interface{}
+	if secret != "" {
+		sec = secret
+	}
+	if recovery != "" {
+		rec = recovery
+	}
+	return sqlmock.NewRows([]string{"email", "mfa_enabled", "mfa_secret", "mfa_recovery"}).
+		AddRow(email, enabled, sec, rec)
+}
+
+// BeginMFAEnrollment on an account without MFA persists a secret and returns
+// recovery codes, without yet enabling MFA — enrolment completes only once a
+// code is verified.
 func TestBeginMFAEnrollment_ReturnsSecret(t *testing.T) {
 	svc, mock := newMockService(t)
-	mock.ExpectQuery("UPDATE console_users SET mfa_secret").
+	mock.ExpectQuery("SELECT email, mfa_enabled, mfa_secret, mfa_recovery FROM console_users WHERE id").
+		WithArgs("uid1").
+		WillReturnRows(mfaLookupRows("admin@test.com", false, "", ""))
+	mock.ExpectExec("UPDATE console_users SET mfa_secret = \\$1, mfa_recovery = \\$2, mfa_enabled = FALSE").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "uid1").
-		WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("admin@test.com"))
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	secret, uri, recovery, err := svc.BeginMFAEnrollment(context.Background(), "uid1")
+	secret, uri, recovery, err := svc.BeginMFAEnrollment(context.Background(), "uid1", "")
 	if err != nil {
 		t.Fatalf("begin enrolment: %v", err)
 	}
@@ -304,6 +322,55 @@ func TestBeginMFAEnrollment_ReturnsSecret(t *testing.T) {
 	}
 	if !strings.HasPrefix(uri, "otpauth://totp/") || !strings.Contains(uri, "secret="+secret) {
 		t.Errorf("unexpected otpauth uri: %q", uri)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// Re-enrolling on an already-enrolled account WITHOUT a valid code must be
+// rejected: no write happens, so the live secret is untouched and MFA stays
+// enabled. This is the downgrade attack — a walk-up or stolen JWT must not be
+// able to swap the second factor.
+func TestBeginMFAEnrollment_ReenrollWithoutCodeRejected(t *testing.T) {
+	svc, mock := newMockService(t)
+	secret, _ := totp.NewSecret()
+	mock.ExpectQuery("SELECT email, mfa_enabled, mfa_secret, mfa_recovery FROM console_users WHERE id").
+		WithArgs("uid1").
+		WillReturnRows(mfaLookupRows("admin@test.com", true, secret, ""))
+	// No UPDATE expected — a missing/invalid code must not reach a write.
+
+	_, _, _, err := svc.BeginMFAEnrollment(context.Background(), "uid1", "000000")
+	if !errors.Is(err, ErrMFAInvalid) {
+		t.Fatalf("expected ErrMFAInvalid, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// Re-enrolling WITH a valid current code proceeds and stores a new secret,
+// while leaving mfa_enabled true (the UPDATE does not clear it).
+func TestBeginMFAEnrollment_ReenrollWithValidCodeProceeds(t *testing.T) {
+	svc, mock := newMockService(t)
+	secret, _ := totp.NewSecret()
+	mock.ExpectQuery("SELECT email, mfa_enabled, mfa_secret, mfa_recovery FROM console_users WHERE id").
+		WithArgs("uid1").
+		WillReturnRows(mfaLookupRows("admin@test.com", true, secret, ""))
+	// The update must not mention mfa_enabled — the account stays protected.
+	mock.ExpectExec("UPDATE console_users SET mfa_secret = \\$1, mfa_recovery = \\$2 WHERE id = \\$3").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "uid1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	newSecret, _, _, err := svc.BeginMFAEnrollment(context.Background(), "uid1", currentTOTP(secret))
+	if err != nil {
+		t.Fatalf("re-enrol with valid code: %v", err)
+	}
+	if newSecret == "" || newSecret == secret {
+		t.Error("expected a fresh secret on re-enrolment")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 }
 

@@ -17,12 +17,14 @@ import (
 
 const maxRedirects = 5
 
-// allowPrivate is read once: egress policy is an instance-level decision.
-// Self-hosters whose workflows genuinely need to call internal services opt
-// out with ALLOW_PRIVATE_EGRESS=true; the default is closed.
-var allowPrivate = sync.OnceValue(func() bool {
+// allowPrivate reports the egress policy. Self-hosters whose workflows
+// genuinely need to call internal services opt out with
+// ALLOW_PRIVATE_EGRESS=true; the default is closed. It is read per-call (an env
+// lookup is negligible next to a network dial) so an operator toggling the
+// policy — and tests exercising both modes — see the current value.
+func allowPrivate() bool {
 	return os.Getenv("ALLOW_PRIVATE_EGRESS") == "true"
-})
+}
 
 // Client returns an http.Client whose dials are checked AFTER DNS resolution,
 // so a hostname that resolves to a private address is refused at connect time

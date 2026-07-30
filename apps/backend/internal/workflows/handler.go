@@ -101,6 +101,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, err.Error())
 		return
 	}
+	if HasCycle(body.Nodes, body.Edges) {
+		apperr.BadRequest(w, "workflow graph must be acyclic")
+		return
+	}
 
 	wf, err := h.svc.Create(r.Context(), projectID, body.Name, body.Description, body.TriggerType, body.TriggerConfig, body.Nodes, body.Edges)
 	if err != nil {
@@ -162,6 +166,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 
 	if err := validateTrigger(body.TriggerType, body.TriggerConfig); err != nil {
 		apperr.BadRequest(w, err.Error())
+		return
+	}
+	if HasCycle(body.Nodes, body.Edges) {
+		apperr.BadRequest(w, "workflow graph must be acyclic")
 		return
 	}
 
@@ -315,7 +323,15 @@ func (h *Handler) webhookTrigger(w http.ResponseWriter, r *http.Request) {
 // ── Versioning ──
 
 func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	workflowID := chi.URLParam(r, "workflowId")
+	// Scope by project: the workflow must belong to the caller's project, or the
+	// request is a cross-project read of another tenant's history. 404 (not 403)
+	// so we do not confirm the id exists elsewhere.
+	if _, err := h.svc.Get(r.Context(), workflowID, projectID); err != nil {
+		apperr.NotFound(w, "workflow")
+		return
+	}
 	versions, err := h.svc.ListVersions(r.Context(), workflowID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -330,7 +346,12 @@ func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 // ── Sharing ──
 
 func (h *Handler) shareWorkflow(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	workflowID := chi.URLParam(r, "workflowId")
+	if _, err := h.svc.Get(r.Context(), workflowID, projectID); err != nil {
+		apperr.NotFound(w, "workflow")
+		return
+	}
 	var body struct {
 		UserID string `json:"userId"`
 		Role   string `json:"role"`
@@ -350,7 +371,12 @@ func (h *Handler) shareWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	workflowID := chi.URLParam(r, "workflowId")
+	if _, err := h.svc.Get(r.Context(), workflowID, projectID); err != nil {
+		apperr.NotFound(w, "workflow")
+		return
+	}
 	shares, err := h.svc.ListShares(r.Context(), workflowID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -363,7 +389,12 @@ func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) unshareWorkflow(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
 	workflowID := chi.URLParam(r, "workflowId")
+	if _, err := h.svc.Get(r.Context(), workflowID, projectID); err != nil {
+		apperr.NotFound(w, "workflow")
+		return
+	}
 	userID := chi.URLParam(r, "userId")
 	if err := h.svc.UnshareWorkflow(r.Context(), workflowID, userID); err != nil {
 		apperr.Internal(w, err)

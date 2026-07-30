@@ -77,6 +77,8 @@ type parsedChannel struct {
 	databaseID string
 	tableName  string
 	releaseID  string
+	service    string // kindProjectData: the {service} segment, e.g. "databases"
+	resource   string // kindProjectData: the {resource} segment, e.g. "rows"
 }
 
 // parseChannel classifies a channel string and extracts its scoping segments.
@@ -109,6 +111,12 @@ func parseChannel(channel string) parsedChannel {
 		pc := parsedChannel{kind: kindProjectData}
 		if len(parts) >= 2 {
 			pc.projectID = parts[1]
+		}
+		if len(parts) >= 3 {
+			pc.service = parts[2]
+		}
+		if len(parts) >= 4 {
+			pc.resource = strings.Join(parts[3:], ".")
 		}
 		return pc
 	case "deploy":
@@ -150,11 +158,25 @@ func (h *Hub) authorizeSubscribe(c *Client, channel string) authDecision {
 		if !c.authenticated {
 			return deny("realtime_unauthenticated", "Authentication is required to subscribe to data channels.")
 		}
+		// A table-less database channel (databases.{proj}.{db}, or the even
+		// broader databases.{proj}) is an aggregate feed: it carries EVERY
+		// table's row changes with no per-row filtering possible, so it must
+		// not be readable by an ordinary end-user session. Only broad-access
+		// connections (server API keys, console administrators) — which already
+		// hold project-wide read access through the REST API — may subscribe.
+		// An end-user session reads a specific table channel instead, which is
+		// per-row filtered below.
+		if pc.tableName == "" {
+			if !c.broadAccess {
+				return deny("realtime_forbidden_read", "The aggregate database feed requires a server API key.")
+			}
+			return allow(nil)
+		}
 		// Server API keys and console administrators hold project-wide read
 		// access already; deliver everything within their own project without
-		// per-row filtering. Broad channels (no table segment) and connections
-		// with no read authorizer wired fall back to project+auth scoping only.
-		if c.broadAccess || h.readAuth == nil || pc.databaseID == "" || pc.tableName == "" {
+		// per-row filtering. Connections with no read authorizer wired fall
+		// back to project+auth scoping only.
+		if c.broadAccess || h.readAuth == nil {
 			return allow(nil)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -178,6 +200,15 @@ func (h *Hub) authorizeSubscribe(c *Client, channel string) authDecision {
 		}
 		if !c.authenticated {
 			return deny("realtime_unauthenticated", "Authentication is required to subscribe to data channels.")
+		}
+		// projects.{proj}.databases.rows is the project-wide row feed: it
+		// aggregates every table's row changes across the whole project with no
+		// per-row filtering, so — like the table-less database channel — it must
+		// require broad access rather than a plain end-user session. Other
+		// resource feeds (storage files, etc.) stay open to authenticated
+		// sessions.
+		if pc.service == "databases" && pc.resource == "rows" && !c.broadAccess {
+			return deny("realtime_forbidden_read", "The project-wide row feed requires a server API key.")
 		}
 		return allow(nil)
 
