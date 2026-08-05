@@ -595,12 +595,18 @@ func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID
 		return nil, fmt.Errorf("storage: read chunks: %w", err)
 	}
 
-	// Assemble all chunks in-memory
+	// Assemble all chunks in-memory, bounding total size so a caller cannot
+	// exhaust memory by uploading an unlimited number of chunks.
+	const hardMaxAssembled = 500 << 20 // 500 MB
 	var buf bytes.Buffer
 	for _, entry := range entries {
 		chunk, err := os.ReadFile(filepath.Join(chunkDir, entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("storage: read chunk %s: %w", entry.Name(), err)
+		}
+		if buf.Len()+len(chunk) > hardMaxAssembled {
+			os.RemoveAll(chunkDir) //nolint:errcheck
+			return nil, fmt.Errorf("storage: assembled upload exceeds maximum size: %w", ErrFileTooLarge)
 		}
 		buf.Write(chunk)
 	}
@@ -609,11 +615,32 @@ func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID
 	// Clean up temp chunks
 	os.RemoveAll(chunkDir) //nolint:errcheck
 
-	// Apply the bucket's at-rest transforms to the assembled bytes.
 	bucket, err := s.GetBucket(ctx, bucketID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("storage: bucket not found")
 	}
+	// The chunked path must enforce the SAME bucket controls as the buffered
+	// CreateFile: size limit, MIME/extension allow-list, and antivirus. Skipping
+	// them here let a caller defeat all three by uploading in chunks.
+	if bucket.FileSizeLimit > 0 && int64(len(assembled)) > bucket.FileSizeLimit {
+		return nil, fmt.Errorf("storage: file size %d exceeds bucket limit of %d bytes: %w", len(assembled), bucket.FileSizeLimit, ErrFileTooLarge)
+	}
+	if existing, gerr := s.GetFile(ctx, fileID, bucketID, projectID); gerr == nil {
+		if err := checkFileType(bucket, existing.Name, existing.MimeType); err != nil {
+			return nil, err
+		}
+	}
+	if s.clamavAddr != "" && bucket.Antivirus {
+		result, serr := ScanWithClamAV(s.clamavAddr, assembled)
+		if serr != nil {
+			return nil, fmt.Errorf("storage: antivirus scan failed: %w", serr)
+		}
+		if !result.Clean {
+			return nil, fmt.Errorf("storage: file rejected by antivirus: %s", result.Message)
+		}
+	}
+
+	// Apply the bucket's at-rest transforms to the assembled bytes.
 	stored, suffix, err := s.encodeAtRest(bucket, assembled)
 	if err != nil {
 		return nil, err

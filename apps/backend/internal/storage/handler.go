@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -231,8 +232,12 @@ func (h *Handler) createFile(w http.ResponseWriter, r *http.Request) {
 		mimeType = "application/octet-stream"
 	}
 
-	f, err := h.svc.CreateFileStream(ctx, projectID, bucketID, fileID, header.Filename, file, hardMaxBytes, mimeType, permissions)
+	f, err := h.svc.CreateFileStreamWithAuth(ctx, projectID, bucketID, fileID, header.Filename, file, hardMaxBytes, mimeType, permissions, callerUserID(ctx))
 	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			apperr.Write(w, http.StatusForbidden, "storage_permission_denied", "permission denied")
+			return
+		}
 		if errors.Is(err, ErrFileTooLarge) {
 			apperr.Write(w, http.StatusRequestEntityTooLarge, "storage_file_too_large", "file exceeds maximum allowed size")
 			return
@@ -248,7 +253,7 @@ func (h *Handler) listFiles(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(ctx)
 	bucketID := chi.URLParam(r, "bucketId")
 	pg := middleware.ParsePagination(r)
-	files, total, err := h.svc.ListFiles(ctx, projectID, bucketID, pg.Limit, pg.Offset)
+	files, total, err := h.svc.ListFilesWithAuth(ctx, projectID, bucketID, pg.Limit, pg.Offset, callerUserID(ctx))
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -259,14 +264,35 @@ func (h *Handler) listFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"total": total, "files": files})
 }
 
+// callerUserID returns the acting user for permission checks: the session user,
+// or "" for a server API key (which retains full access, exactly as the
+// databases module treats userID == "").
+func callerUserID(ctx context.Context) string {
+	if middleware.IsAPIKey(ctx) {
+		return ""
+	}
+	return middleware.UserFromContext(ctx)
+}
+
+// writeFileErr maps a storage access error to the right status: 403 for a
+// permission denial, 404 otherwise (so a caller cannot distinguish "missing"
+// from "not yours" beyond the deliberate forbidden signal).
+func writeFileErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrForbidden) {
+		apperr.Write(w, http.StatusForbidden, "storage_permission_denied", "permission denied")
+		return
+	}
+	apperr.NotFound(w, "file")
+}
+
 func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := middleware.ProjectFromContext(ctx)
 	bucketID := chi.URLParam(r, "bucketId")
 	fileID := chi.URLParam(r, "fileId")
-	f, err := h.svc.GetFile(ctx, fileID, bucketID, projectID)
+	f, err := h.svc.GetFileWithAuth(ctx, fileID, bucketID, projectID, callerUserID(ctx))
 	if err != nil {
-		apperr.NotFound(w, "file")
+		writeFileErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, f)
@@ -291,9 +317,9 @@ func (h *Handler) createSignedURL(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
 
-	token, err := h.svc.CreateSignedURL(ctx, fileID, bucketID, projectID, body.ExpiresIn)
+	token, err := h.svc.CreateSignedURLWithAuth(ctx, fileID, bucketID, projectID, body.ExpiresIn, callerUserID(ctx))
 	if err != nil {
-		apperr.NotFound(w, "file")
+		writeFileErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
@@ -305,7 +331,10 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, download boo
 	bucketID := chi.URLParam(r, "bucketId")
 	fileID := chi.URLParam(r, "fileId")
 
-	// If a signed token is provided, validate it instead of requiring auth context.
+	// A valid signed token is itself the authorization (it was minted by someone
+	// with read access), so it bypasses the per-user permission check. Otherwise
+	// the caller must be permitted to read the file.
+	signed := false
 	if token := r.URL.Query().Get("token"); token != "" {
 		tProjectID, tBucketID, tFileID, ok := h.svc.VerifySignedToken(token)
 		if !ok || tBucketID != bucketID || tFileID != fileID {
@@ -321,11 +350,21 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, download boo
 		projectID = tProjectID
 		bucketID = tBucketID
 		fileID = tFileID
+		signed = true
 	}
 
-	content, mimeType, err := h.svc.GetFileContent(ctx, fileID, bucketID, projectID)
+	var (
+		content  []byte
+		mimeType string
+		err      error
+	)
+	if signed {
+		content, mimeType, err = h.svc.GetFileContent(ctx, fileID, bucketID, projectID)
+	} else {
+		content, mimeType, err = h.svc.GetFileContentWithAuth(ctx, fileID, bucketID, projectID, callerUserID(ctx))
+	}
 	if err != nil {
-		apperr.NotFound(w, "file")
+		writeFileErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", mimeType)
@@ -345,9 +384,9 @@ func (h *Handler) previewFile(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketId")
 	fileID := chi.URLParam(r, "fileId")
 
-	content, mimeType, err := h.svc.GetFileContent(ctx, fileID, bucketID, projectID)
+	content, mimeType, err := h.svc.GetFileContentWithAuth(ctx, fileID, bucketID, projectID, callerUserID(ctx))
 	if err != nil {
-		apperr.NotFound(w, "file")
+		writeFileErr(w, err)
 		return
 	}
 
@@ -433,8 +472,12 @@ func (h *Handler) initChunkedUpload(w http.ResponseWriter, r *http.Request) {
 		body.Permissions = []string{}
 	}
 
-	fileID, err := h.svc.InitChunkedUpload(ctx, projectID, bucketID, body.FileID, body.Name, body.MimeType, body.Size, body.Permissions)
+	fileID, err := h.svc.InitChunkedUploadWithAuth(ctx, projectID, bucketID, body.FileID, body.Name, body.MimeType, body.Size, body.Permissions, callerUserID(ctx))
 	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			apperr.Write(w, http.StatusForbidden, "storage_permission_denied", "permission denied")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -479,8 +522,16 @@ func (h *Handler) completeChunkedUpload(w http.ResponseWriter, r *http.Request) 
 	bucketID := chi.URLParam(r, "bucketId")
 	fileID := chi.URLParam(r, "fileId")
 
-	f, err := h.svc.CompleteChunkedUpload(ctx, projectID, bucketID, fileID)
+	f, err := h.svc.CompleteChunkedUploadWithAuth(ctx, projectID, bucketID, fileID, callerUserID(ctx))
 	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			apperr.Write(w, http.StatusForbidden, "storage_permission_denied", "permission denied")
+			return
+		}
+		if errors.Is(err, ErrFileTooLarge) {
+			apperr.Write(w, http.StatusRequestEntityTooLarge, "storage_file_too_large", "file exceeds maximum allowed size")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}
@@ -492,8 +543,8 @@ func (h *Handler) deleteFile(w http.ResponseWriter, r *http.Request) {
 	projectID := middleware.ProjectFromContext(ctx)
 	bucketID := chi.URLParam(r, "bucketId")
 	fileID := chi.URLParam(r, "fileId")
-	if err := h.svc.DeleteFile(ctx, fileID, bucketID, projectID); err != nil {
-		apperr.Internal(w, err)
+	if err := h.svc.DeleteFileWithAuth(ctx, fileID, bucketID, projectID, callerUserID(ctx)); err != nil {
+		writeFileErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
