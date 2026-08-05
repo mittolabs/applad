@@ -130,7 +130,7 @@ func TestAuthenticate_JWT(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := Authenticate(secret, nil)(inner)
+	handler := Authenticate(secret, nil, nil)(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
@@ -145,6 +145,62 @@ func TestAuthenticate_JWT(t *testing.T) {
 	}
 }
 
+type stubSession struct{ valid bool }
+
+func (s stubSession) SessionValid(_ context.Context, _, _ string) bool { return s.valid }
+
+func jwtWithSession(t *testing.T, secret string) string {
+	t.Helper()
+	claims := Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user123",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			ID:        "sess456",
+		},
+		SessionID: "sess456",
+		ProjectID: "proj789",
+	}
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("sign jwt: %v", err)
+	}
+	return tok
+}
+
+// A signature-valid token whose session row is gone (logout / password change)
+// must be treated as unauthenticated.
+func TestAuthenticate_JWT_RevokedSessionRejected(t *testing.T) {
+	secret := "s"
+	handler := Authenticate(secret, nil, stubSession{valid: false})(
+		RequireAuth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("revoked session must not reach the handler")
+		})))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+jwtWithSession(t, secret))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for revoked session, got %d", w.Code)
+	}
+}
+
+func TestAuthenticate_JWT_ValidSessionAllowed(t *testing.T) {
+	secret := "s"
+	called := false
+	handler := Authenticate(secret, nil, stubSession{valid: true})(
+		RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		})))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+jwtWithSession(t, secret))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if !called || w.Code != http.StatusOK {
+		t.Fatalf("valid session should reach handler; code=%d called=%v", w.Code, called)
+	}
+}
+
 func TestAuthenticate_APIKey(t *testing.T) {
 	provider := testAPIKeyProvider{key: &model.APIKey{ID: "key1", ProjectID: "", Scopes: []string{"databases"}}}
 	var gotUser string
@@ -155,7 +211,7 @@ func TestAuthenticate_APIKey(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := Authenticate("secret", provider)(inner)
+	handler := Authenticate("secret", provider, nil)(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/databases", nil)
 	req.Header.Set("X-Applad-Key", "applad_key_abc123def456")
@@ -172,7 +228,7 @@ func TestAuthenticate_APIKey(t *testing.T) {
 
 func TestAuthenticate_APIKeyRejectsInvalidKey(t *testing.T) {
 	provider := testAPIKeyProvider{key: nil, err: errInvalidKey}
-	handler := Authenticate("secret", provider)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Authenticate("secret", provider, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called for invalid API key")
 	}))
 
@@ -188,7 +244,7 @@ func TestAuthenticate_APIKeyRejectsInvalidKey(t *testing.T) {
 
 func TestAuthenticate_APIKeyRejectsProjectMismatch(t *testing.T) {
 	provider := testAPIKeyProvider{key: &model.APIKey{ID: "key1", ProjectID: "proj-a", Scopes: []string{"databases"}}}
-	handler := Authenticate("secret", provider)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Authenticate("secret", provider, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called for project mismatch")
 	}))
 
@@ -205,7 +261,7 @@ func TestAuthenticate_APIKeyRejectsProjectMismatch(t *testing.T) {
 
 func TestAuthenticate_APIKeyRejectsMissingScope(t *testing.T) {
 	provider := testAPIKeyProvider{key: &model.APIKey{ID: "key1", ProjectID: "proj-a", Scopes: []string{"storage.read"}}}
-	handler := Authenticate("secret", provider)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Authenticate("secret", provider, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called without required scope")
 	}))
 
@@ -223,7 +279,7 @@ func TestAuthenticate_APIKeyRejectsMissingScope(t *testing.T) {
 func TestAuthenticate_APIKeyAllowsReadScope(t *testing.T) {
 	provider := testAPIKeyProvider{key: &model.APIKey{ID: "key1", ProjectID: "proj-a", Scopes: []string{"databases.read"}}}
 	called := false
-	handler := Authenticate("secret", provider)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Authenticate("secret", provider, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -249,7 +305,7 @@ func TestAuthenticate_InvalidJWT(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := Authenticate("secret", nil)(inner)
+	handler := Authenticate("secret", nil, nil)(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer invalid-token")
@@ -282,7 +338,7 @@ func TestAuthenticate_ExpiredJWT(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := Authenticate(secret, nil)(inner)
+	handler := Authenticate(secret, nil, nil)(inner)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
 	w := httptest.NewRecorder()
@@ -311,7 +367,7 @@ func TestRequireAuth_WithAuth(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := Authenticate(secret, nil)(RequireAuth(inner))
+	handler := Authenticate(secret, nil, nil)(RequireAuth(inner))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
 	w := httptest.NewRecorder()

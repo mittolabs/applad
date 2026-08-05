@@ -142,7 +142,14 @@ func ProjectContext(next http.Handler) http.Handler {
 // It does NOT reject unauthenticated requests; use RequireAuth for that.
 // consoleAccess (optional, at most one) is consulted for console JWTs: a
 // console credential only reaches projects whose org its subject belongs to.
-func Authenticate(jwtSecret string, provider interface{}, consoleAccess ...ConsoleAccessChecker) func(http.Handler) http.Handler {
+// SessionChecker reports whether a project session token is still valid (its
+// session row exists and has not expired). Injected so Authenticate can revoke
+// live tokens on logout / password change rather than trusting signature+expiry.
+type SessionChecker interface {
+	SessionValid(ctx context.Context, sessionID, projectID string) bool
+}
+
+func Authenticate(jwtSecret string, provider interface{}, sessionChecker SessionChecker, consoleAccess ...ConsoleAccessChecker) func(http.Handler) http.Handler {
 	var checker ConsoleAccessChecker
 	if len(consoleAccess) > 0 {
 		checker = consoleAccess[0]
@@ -246,6 +253,16 @@ func Authenticate(jwtSecret string, provider interface{}, consoleAccess ...Conso
 							// to prevent session fixation across projects.
 							headerProjectID := r.Header.Get("X-Applad-Project")
 							if claims.ProjectID != "" && headerProjectID != "" && claims.ProjectID != headerProjectID {
+								next.ServeHTTP(w, r)
+								return
+							}
+							// Honor a project session only while its session row still
+							// exists and has not expired, so logout / logout-everywhere /
+							// password-change invalidation actually revoke a live token.
+							// A revoked or expired session falls through as
+							// unauthenticated (RequireAuth then returns 401).
+							if sessionChecker != nil && claims.SessionID != "" &&
+								!sessionChecker.SessionValid(ctx, claims.SessionID, claims.ProjectID) {
 								next.ServeHTTP(w, r)
 								return
 							}

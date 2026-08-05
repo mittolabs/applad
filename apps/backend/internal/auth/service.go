@@ -71,7 +71,9 @@ type authSecurity struct {
 
 func (s *Service) loadSecurity(ctx context.Context, projectID string) authSecurity {
 	sec := authSecurity{
-		SessionLengthSeconds:       365 * 24 * 3600,
+		// 30 days by default (was a year): a leaked token is now bounded, and
+		// with session-row revocation in the middleware, logout cuts it sooner.
+		SessionLengthSeconds:       30 * 24 * 3600,
 		SessionsPerUser:            10,
 		PasswordMinLength:          8,
 		InvalidateOnPasswordChange: true,
@@ -241,6 +243,25 @@ func (s *Service) GetAccount(ctx context.Context, userID, projectID string) (*mo
 		`SELECT id, project_id, email, phone, name, email_verified, phone_verified, status, labels, prefs, created_at, updated_at
 		 FROM users WHERE id = $1 AND project_id = $2`, userID, projectID)
 	return scanUser(row)
+}
+
+// SessionValid reports whether a project session token may still be honored:
+// its session row must still exist and not have expired. Logout deletes the row
+// and password-change (when configured) deletes the user's rows, so this is what
+// makes those revoke a live bearer token. A short-lived token with no session id
+// (GetJWT) is allowed through, since it has no session row to check.
+func (s *Service) SessionValid(ctx context.Context, sessionID, projectID string) bool {
+	if sessionID == "" {
+		return true
+	}
+	query := "SELECT 1 FROM sessions WHERE id = $1 AND expires_at > NOW()"
+	args := []interface{}{sessionID}
+	if projectID != "" {
+		query += " AND project_id = $2"
+		args = append(args, projectID)
+	}
+	var one int
+	return s.db.QueryRowContext(ctx, query, args...).Scan(&one) == nil
 }
 
 // GetUser is an alias for GetAccount (used by server-side user management).
@@ -580,7 +601,7 @@ func (s *Service) createSession(ctx context.Context, userID, projectID, provider
 	sessionID := uid.New("unique()")
 	length := time.Duration(sec.SessionLengthSeconds) * time.Second
 	if length <= 0 {
-		length = 365 * 24 * time.Hour
+		length = 30 * 24 * time.Hour
 	}
 	expires := time.Now().UTC().Add(length)
 	now := time.Now().UTC()

@@ -326,7 +326,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			r.Use(mw.ProjectContext)
 			// consoleSvc gates console JWTs by org membership: a console token
 			// is an administrator's identity, not a skeleton key to every project.
-			r.Use(mw.Authenticate(cfg.JWTSecret, projectSvc, consoleSvc))
+			r.Use(mw.Authenticate(cfg.JWTSecret, projectSvc, authSvc, consoleSvc))
 
 			// Account (client-side) — some public, some require auth
 			authHandler := auth.NewHandler(authSvc)
