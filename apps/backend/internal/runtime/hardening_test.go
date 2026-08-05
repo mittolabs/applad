@@ -44,16 +44,17 @@ func TestDeployContainerBodyIsHardened(t *testing.T) {
 	}
 }
 
-// A deployed web app still has to bind its port and be routable, so hardening
-// must not have removed the networking the app depends on.
+// A deployed web app is routed by container name on the deploy network through
+// the edge proxy, so it must join that network. It must NOT publish its port on
+// the host (that exposed it without the proxy in front).
 func TestDeployContainerBodyStaysRoutable(t *testing.T) {
 	body := deployContainerBody(
 		"applad-site-demo", "img:1", "8080", nil, nil, "applad_default",
 	)
 	hc := hostConfigOf(t, body)
 
-	if hc["PublishAllPorts"] != true {
-		t.Errorf("PublishAllPorts = %#v, want true", hc["PublishAllPorts"])
+	if _, present := hc["PublishAllPorts"]; present {
+		t.Errorf("PublishAllPorts should not be set (routing is by network name): %#v", hc["PublishAllPorts"])
 	}
 	if hc["NetworkMode"] != "applad_default" {
 		t.Errorf("NetworkMode = %#v, want applad_default", hc["NetworkMode"])

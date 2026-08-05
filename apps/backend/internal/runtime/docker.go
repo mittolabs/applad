@@ -191,15 +191,16 @@ func (c *Client) CreateContainer(ctx context.Context, name string, cfg Container
 			"3000/tcp": struct{}{},
 		},
 		"HostConfig": map[string]interface{}{
-			"PublishAllPorts": true,
-			"Memory":          int64(256 * 1024 * 1024), // 256MB
-			"MemorySwap":      int64(256 * 1024 * 1024), // no swap
-			"NanoCPUs":        int64(1e9),               // 1 CPU
-			"PidsLimit":       int64(256),               // limit process count
-			"NetworkMode":     "bridge",
-			"ReadonlyRootfs":  true,
-			"SecurityOpt":     []string{"no-new-privileges"},
-			"CapDrop":         []string{"ALL"},
+			// No PublishAllPorts: a function is reached by its container IP:3000
+			// over the Docker network, so it need not be bound on the host.
+			"Memory":         int64(256 * 1024 * 1024), // 256MB
+			"MemorySwap":     int64(256 * 1024 * 1024), // no swap
+			"NanoCPUs":       int64(1e9),               // 1 CPU
+			"PidsLimit":      int64(256),               // limit process count
+			"NetworkMode":    "bridge",
+			"ReadonlyRootfs": true,
+			"SecurityOpt":    []string{"no-new-privileges"},
+			"CapDrop":        []string{"ALL"},
 			"Tmpfs": map[string]string{
 				"/tmp": "rw,noexec,nosuid,size=64m",
 			},

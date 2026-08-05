@@ -179,9 +179,12 @@ func (d *DeployExecutor) createTestContainer(ctx context.Context, name, image st
 			"PidsLimit":   int64(2048),
 			"NetworkMode": deployNetwork(),
 			"SecurityOpt": []string{"no-new-privileges"},
-			// Browsers need their sandbox syscalls; dropping every capability
-			// makes Chromium refuse to start.
-			"CapAdd": []string{"SYS_ADMIN"},
+			// Test code is untrusted (the suite's command is arbitrary), so drop
+			// every Linux capability. SYS_ADMIN in particular is the single most
+			// escape-prone capability and must not be granted. Headless Chromium
+			// runs under --no-sandbox instead (as the studio browser image does),
+			// which needs no extra capabilities.
+			"CapDrop": []string{"ALL"},
 			// One shot: a suite that exits is finished, however it exited.
 			"RestartPolicy": map[string]interface{}{"Name": "no"},
 		},

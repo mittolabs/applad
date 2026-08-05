@@ -268,6 +268,11 @@ func studioBrowserBody(image, token string) map[string]interface{} {
 			"NanoCPUs":    int64(2e9),
 			"NetworkMode": deployNetwork(),
 			"SecurityOpt": []string{"no-new-privileges"},
+			// Chromium runs with --no-sandbox, so it needs no Linux capabilities;
+			// drop them all and bound process count to match the function/deploy
+			// containers rather than running the browser at full privilege.
+			"CapDrop":   []string{"ALL"},
+			"PidsLimit": int64(512),
 			// A browser that outlives its session would hold a gigabyte for
 			// nothing, so it is never restarted.
 			"RestartPolicy": map[string]interface{}{"Name": "no"},

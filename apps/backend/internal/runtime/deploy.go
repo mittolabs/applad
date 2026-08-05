@@ -587,10 +587,12 @@ func deployContainerBody(name, image, port string, env []string, labels map[stri
 			exposedPort: struct{}{},
 		},
 		"HostConfig": map[string]interface{}{
-			"PublishAllPorts": true,
-			"Memory":          int64(512 * 1024 * 1024), // 512MB for deployments
-			"NanoCPUs":        int64(2e9),               // 2 CPUs
-			"NetworkMode":     network,
+			// No PublishAllPorts: the app is reached by container name on the
+			// deploy network through the edge proxy, so binding its port on the
+			// host is unnecessary and would expose it without the proxy in front.
+			"Memory":      int64(512 * 1024 * 1024), // 512MB for deployments
+			"NanoCPUs":    int64(2e9),               // 2 CPUs
+			"NetworkMode": network,
 			// Baseline hardening for untrusted customer code. These do not
 			// interfere with a normal web server binding its port.
 			"CapDrop":     []string{"ALL"},
