@@ -3,6 +3,22 @@
 :80 {
 	root * /srv
 	encode gzip
+
+	# Security headers on the console document. The console holds a bearer token
+	# in the browser, so a strict CSP is its defense-in-depth against script
+	# injection exfiltrating it, and frame-ancestors blocks clickjacking.
+	#   - connect-src 'self': the API is same-origin (/v1 via the edge), incl. ws.
+	#   - style-src 'unsafe-inline': React/Tailwind set element style attributes.
+	#   - img-src data:/blob:: avatars and generated/preview images.
+	header {
+		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		-Server
+	}
+
 	try_files {path} /index.html
 	file_server
 }

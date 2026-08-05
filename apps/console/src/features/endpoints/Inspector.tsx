@@ -308,10 +308,12 @@ function BlockConfig({
           />
           <TextField
             label="Project API key"
+            type="password"
+            autoComplete="off"
             value={String(c.apiKey ?? '')}
             onChange={(e) => onChange({ apiKey: e.target.value })}
             placeholder="applad_key_…"
-            hint="Server-side call, so it needs a project API key. Store it in a Vault value and template it in."
+            hint="Server-side call, so it needs a project API key. Prefer a Vault value templated in ({{.vault.NAME}}) over pasting a raw key."
           />
         </>
       );
@@ -339,10 +341,12 @@ function BlockConfig({
           />
           <TextField
             label="Project API key"
+            type="password"
+            autoComplete="off"
             value={String(c.apiKey ?? '')}
             onChange={(e) => onChange({ apiKey: e.target.value })}
             placeholder="applad_key_…"
-            hint="Sending is a server-side action, so it needs a project API key."
+            hint="Sending is a server-side action, so it needs a project API key. Prefer a Vault value templated in ({{.vault.NAME}})."
           />
         </>
       );
