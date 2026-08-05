@@ -234,5 +234,7 @@ func ProjectWorkRules() []Rule {
 			Message: "Too many test runs started in the last minute. Each one builds and runs a container."},
 		{Name: "uploads", Prefix: "/storage/", Method: http.MethodPost, Scope: ScopeProject, PerMinute: 120,
 			Message: "Too many uploads in the last minute."},
+		{Name: "migrations", Prefix: "/migrations", Method: http.MethodPost, Scope: ScopeProject, PerMinute: 10,
+			Message: "Too many migration operations in the last minute. Importing a project is expensive, so it is limited."},
 	}
 }

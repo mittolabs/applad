@@ -148,9 +148,9 @@ func TestUpdatePassword_ReusedRejected(t *testing.T) {
 		WillReturnRows(securityConfigRows(`{"passwordHistory":3}`))
 
 	// fetch current hash to verify old password
-	mock.ExpectQuery(`SELECT password_hash FROM users WHERE`).
+	mock.ExpectQuery(`SELECT password_hash, password_algo, password_params FROM users WHERE`).
 		WithArgs(testUserID, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(string(currentHash)))
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash", "password_algo", "password_params"}).AddRow(string(currentHash), "bcrypt", nil))
 
 	// history lookup returns a hash matching the candidate
 	mock.ExpectQuery(`SELECT password_hash FROM password_history WHERE`).
@@ -184,9 +184,9 @@ func TestUpdatePassword_FreshAccepted(t *testing.T) {
 		WithArgs(testProjectID).
 		WillReturnRows(securityConfigRows(`{"passwordHistory":3}`))
 
-	mock.ExpectQuery(`SELECT password_hash FROM users WHERE`).
+	mock.ExpectQuery(`SELECT password_hash, password_algo, password_params FROM users WHERE`).
 		WithArgs(testUserID, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(string(currentHash)))
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash", "password_algo", "password_params"}).AddRow(string(currentHash), "bcrypt", nil))
 
 	// history has only unrelated hashes, so the candidate is fresh
 	mock.ExpectQuery(`SELECT password_hash FROM password_history WHERE`).

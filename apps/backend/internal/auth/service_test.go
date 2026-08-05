@@ -129,9 +129,9 @@ func TestCreateEmailSession_Success(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
 
 	// SELECT for email login
-	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+	mock.ExpectQuery(`SELECT id, password_hash, password_algo, password_params FROM users WHERE email`).
 		WithArgs(testEmail, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "password_algo", "password_params"}).AddRow(testUserID, string(hash), "bcrypt", nil))
 
 	// INSERT session
 	mock.ExpectExec(`INSERT INTO sessions`).
@@ -193,9 +193,9 @@ func TestCreateEmailSession_InvalidPassword(t *testing.T) {
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("correct-password"), 12)
 
-	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+	mock.ExpectQuery(`SELECT id, password_hash, password_algo, password_params FROM users WHERE email`).
 		WithArgs(testEmail, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "password_algo", "password_params"}).AddRow(testUserID, string(hash), "bcrypt", nil))
 
 	_, err := svc.CreateEmailSession(context.Background(), testProjectID, testEmail, "wrong-password", "", "127.0.0.1", "TestAgent")
 	if err == nil {
@@ -215,7 +215,7 @@ func TestCreateEmailSession_UserNotFound(t *testing.T) {
 	svc, mock, mockDB := newTestService(t)
 	defer mockDB.Close()
 
-	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+	mock.ExpectQuery(`SELECT id, password_hash, password_algo, password_params FROM users WHERE email`).
 		WithArgs(testEmail, testProjectID).
 		WillReturnError(sql.ErrNoRows)
 
@@ -341,9 +341,9 @@ func TestUpdatePassword_VerifiesOldPassword(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte(oldPassword), 12)
 
 	// SELECT password_hash
-	mock.ExpectQuery(`SELECT password_hash FROM users WHERE`).
+	mock.ExpectQuery(`SELECT password_hash, password_algo, password_params FROM users WHERE`).
 		WithArgs(testUserID, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(string(hash)))
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash", "password_algo", "password_params"}).AddRow(string(hash), "bcrypt", nil))
 
 	// With wrong old password, should fail
 	_, err := svc.UpdatePassword(context.Background(), testUserID, testProjectID, "new-password", "wrong-old-password")
@@ -355,9 +355,9 @@ func TestUpdatePassword_VerifiesOldPassword(t *testing.T) {
 	}
 
 	// Now test with correct old password
-	mock.ExpectQuery(`SELECT password_hash FROM users WHERE`).
+	mock.ExpectQuery(`SELECT password_hash, password_algo, password_params FROM users WHERE`).
 		WithArgs(testUserID, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(string(hash)))
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash", "password_algo", "password_params"}).AddRow(string(hash), "bcrypt", nil))
 
 	mock.ExpectExec(`UPDATE users SET password_hash`).
 		WithArgs(sqlmock.AnyArg(), testUserID, testProjectID).
@@ -643,9 +643,9 @@ func TestCreateEmailSession_MFAEnrolled_ChallengeRequired(t *testing.T) {
 	defer mockDB.Close()
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
-	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+	mock.ExpectQuery(`SELECT id, password_hash, password_algo, password_params FROM users WHERE email`).
 		WithArgs(testEmail, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "password_algo", "password_params"}).AddRow(testUserID, string(hash), "bcrypt", nil))
 	mock.ExpectQuery(`SELECT auth_config FROM projects WHERE`).
 		WithArgs(testProjectID).
 		WillReturnRows(authConfigRows(false))
@@ -674,9 +674,9 @@ func TestCreateEmailSession_MFAEnrolled_ValidCode(t *testing.T) {
 	secretB32, code := knownTOTP()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
 
-	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+	mock.ExpectQuery(`SELECT id, password_hash, password_algo, password_params FROM users WHERE email`).
 		WithArgs(testEmail, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "password_algo", "password_params"}).AddRow(testUserID, string(hash), "bcrypt", nil))
 	mock.ExpectQuery(`SELECT auth_config FROM projects WHERE`).
 		WithArgs(testProjectID).
 		WillReturnRows(authConfigRows(false))
@@ -711,9 +711,9 @@ func TestCreateEmailSession_MFAEnrolled_InvalidCode(t *testing.T) {
 	secretB32, _ := knownTOTP()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
 
-	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+	mock.ExpectQuery(`SELECT id, password_hash, password_algo, password_params FROM users WHERE email`).
 		WithArgs(testEmail, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "password_algo", "password_params"}).AddRow(testUserID, string(hash), "bcrypt", nil))
 	mock.ExpectQuery(`SELECT auth_config FROM projects WHERE`).
 		WithArgs(testProjectID).
 		WillReturnRows(authConfigRows(false))
@@ -741,9 +741,9 @@ func TestCreateEmailSession_MFARequired_NoFactor_EnrollmentSignal(t *testing.T) 
 	defer mockDB.Close()
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte(testPassword), 12)
-	mock.ExpectQuery(`SELECT id, password_hash FROM users WHERE email`).
+	mock.ExpectQuery(`SELECT id, password_hash, password_algo, password_params FROM users WHERE email`).
 		WithArgs(testEmail, testProjectID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(testUserID, string(hash)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash", "password_algo", "password_params"}).AddRow(testUserID, string(hash), "bcrypt", nil))
 	mock.ExpectQuery(`SELECT auth_config FROM projects WHERE`).
 		WithArgs(testProjectID).
 		WillReturnRows(authConfigRows(true)) // mfaRequired = true

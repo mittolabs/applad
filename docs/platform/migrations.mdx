@@ -1,0 +1,202 @@
+---
+title: Migrations
+icon: DownloadCloud
+description: "Move a project into Applad from another platform (another Applad instance, Appwrite, Supabase, NHost, Firebase). Migrations copy accounts, databases and storage, and imported users keep their passwords."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A **migration** imports a project's data into Applad from another platform. It
+copies user accounts, databases (tables, columns, indexes and rows) and storage
+(buckets and files) from a **source** into the Applad project you run it from.
+The headline case is moving between Applad instances (self-hosted to cloud, or
+back), and importing from Appwrite, Supabase, NHost and Firebase.
+
+Migrations are **non-destructive to the source**: nothing is written back or
+deleted there. They are also **idempotent**, so a job that fails part way can be
+retried and converges on the same result rather than duplicating data.
+
+## How it works
+
+Every migration follows one shape: a **source** adapter reads the origin
+platform and produces a normalized stream of resources; the engine hands each
+resource to the **Applad destination**, which writes it through the same service
+layer the API uses (so all validation, schema rules and storage drivers apply).
+Work runs on the dedicated **transfer worker**, and progress is written to the
+migration record, which the console polls to show live counts.
+
+Resources are grouped so you can import them independently:
+
+| Group | Resources |
+|---|---|
+| **Auth** | Users (with password credential), teams, memberships |
+| **Databases** | Databases, tables, columns, indexes, rows |
+| **Storage** | Buckets, files |
+| **Functions** | Metadata only (see limitations) |
+
+## Passwords: users keep them
+
+You cannot read a user's plaintext password out of any platform, so a migration
+carries the **password hash and the algorithm that produced it**. Applad stores
+both, and at the user's next sign-in it verifies against that foreign algorithm
+and transparently **re-hashes to its native bcrypt**. Over time every imported
+account converges on bcrypt with no password reset.
+
+Supported algorithms include bcrypt, Argon2, Firebase's modified scrypt, generic
+scrypt, and SHA/MD5 digests. An account whose algorithm is not supported is
+imported without a usable password and must use password recovery or an OAuth
+provider to sign in.
+
+<Callout title="OAuth-only accounts">
+  Users who only ever signed in with an OAuth provider have no password to carry.
+  They are imported as accounts, but they re-link the provider on first sign-in.
+  Their provider sessions are held by the third party and are never migrated.
+</Callout>
+
+## Sources
+
+Every migration targets an Applad project (the one you start it from). Pick the
+source and provide its credentials.
+
+### Applad (this or another instance)
+
+Move a project between Applad instances (self-hosted to cloud, cloud to
+self-hosted) or duplicate one on the same instance.
+
+| Credential | Where to find it |
+|---|---|
+| **Instance URL** | The source instance, e.g. `https://api.applad.io`. Leave blank to read a project on **this** instance |
+| **Source project ID** | The project you are importing from |
+| **Source API key** | An API key for that project |
+
+For a cross-instance move, the destination instance calls the source instance's
+authenticated export endpoint (`GET /v1/migrations/export`), which streams the
+project as NDJSON and, because the call is authenticated with a key for that
+project, includes password hashes. Same-instance imports read directly.
+
+<Callout type="warn" title="You must hold a key for the source">
+  Reading a project's data (including password hashes) requires a valid,
+  unexpired API key for **that** project. On the same instance the key is checked
+  locally; across instances the source instance checks it. Either way, a caller
+  cannot name a project they do not hold a key for and copy it into their own.
+</Callout>
+
+### Appwrite
+
+Reads over the Appwrite server REST API.
+
+| Credential | Notes |
+|---|---|
+| **Endpoint** | e.g. `https://cloud.appwrite.io/v1` |
+| **Project ID** | The Appwrite project |
+| **API key** | A server API key with read access to users, databases and storage |
+
+Appwrite exposes each user's password hash and its algorithm, so accounts keep
+their passwords. bcrypt and Argon2 (Appwrite's defaults) carry over exactly;
+scrypt and Firebase-style scrypt are best-effort from the exposed options.
+
+### Supabase
+
+Reads tables and `auth.users` over the Postgres connection, and Storage over the
+REST API.
+
+| Credential | Notes |
+|---|---|
+| **Host, port, user, password** | From the project's connection pooler string |
+| **Project URL** | `https://<ref>.supabase.co`, for Storage (optional) |
+| **service_role key** | For Storage (optional). Use the hidden `service_role`, not the anon key |
+
+Supabase stores passwords as bcrypt, which carry over directly.
+
+### NHost
+
+Reads public-schema tables and `auth.users` (bcrypt) over the Postgres
+connection. Storage is imported when the storage URL and admin secret are given:
+file metadata comes from the `storage.*` tables over the same connection, and the
+bytes from the hasura-storage service.
+
+| Credential | Notes |
+|---|---|
+| **Host, port, user, password** | The project's Postgres connection |
+| **Storage URL** | `https://<sub>.storage.<region>.nhost.run`, for files (optional) |
+| **Hasura admin secret** | For files (optional) |
+
+### Firebase
+
+Reads Authentication, Firestore and Cloud Storage using a service account.
+
+| Credential | Notes |
+|---|---|
+| **Service account JSON** | With `project_id`, `client_email`, `private_key` |
+| **Password hash params** | `signerKey`, `saltSeparator`, `rounds`, `memCost` from the Firebase console (Authentication → users menu → password hash parameters). Required to carry passwords |
+| **Storage bucket** | Optional, defaults to `<projectId>.appspot.com` |
+
+Firebase passwords use its modified scrypt; with the hash parameters supplied,
+imported users keep them. Firestore is schemaless, so each collection becomes a
+table whose columns are inferred from the documents.
+
+<Callout title="External sources connect out from your instance">
+  A migration from Appwrite, Supabase, NHost or Firebase connects to that
+  platform from the Applad instance running the job, using the credentials you
+  provide. All outbound connections are checked to refuse internal or
+  metadata addresses.
+</Callout>
+
+## Running a migration from the console
+
+1. Open **Settings → Migrations** in your project.
+2. Click **Import data** and choose a source.
+3. Enter the source credentials.
+4. Click **Validate** to see how many resources are available per group.
+5. Choose the groups to import and click **Start import**.
+6. Watch progress on the migrations list. A running job can be **cancelled**.
+
+## API
+
+The migration API lives under `/v1/migrations` and is a server task: call it with
+your project **API key** (`x-applad-key: <apiKey>`) or from the console.
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/v1/migrations/validate` | Pre-flight: connect to the source and count available resources |
+| `POST` | `/v1/migrations` | Create and start a migration |
+| `GET` | `/v1/migrations` | List this project's migrations |
+| `GET` | `/v1/migrations/{id}` | Fetch one migration with live counts |
+| `POST` | `/v1/migrations/{id}/cancel` | Cancel a pending or running migration |
+
+```bash
+curl -X POST https://api.applad.io/v1/migrations \
+  -H "x-applad-project: <projectId>" \
+  -H "x-applad-key: <apiKey>" \
+  -H "content-type: application/json" \
+  -d '{
+    "source": "applad",
+    "groups": ["auth", "databases", "storage"],
+    "credentials": {
+      "sourceProjectId": "<other-project-id>",
+      "sourceApiKey": "<other-project-api-key>"
+    }
+  }'
+```
+
+Source credentials are **encrypted at rest** with the credential vault key and
+are **cleared** once the job reaches a terminal state.
+
+## Limitations
+
+Migrations copy data faithfully but are not a perfect clone. Copy Appwrite's own
+honesty here:
+
+- **Timestamps reset.** `createdAt` / `updatedAt` become the time of the import,
+  not the original time.
+- **OAuth-only users re-authenticate.** Provider sessions are not portable.
+- **Functions are not run.** Runtimes and syntax differ between platforms, so
+  function code is not migrated automatically; rebuild it on Applad.
+- **Applad-specific resources** (workflows, endpoints, deploy targets) transfer
+  only between Applad instances.
+- **Source-only database features** (Postgres functions, triggers, advanced
+  indexes, RLS policies) do not map to Applad's model.
+- **Large files** above the per-file import limit are skipped and reported.
+
+After a migration, validate permissions and data, register your app platforms,
+and rebuild any functions.

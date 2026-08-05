@@ -27,6 +27,7 @@ import (
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/deploy"
 	"github.com/mittolabs/applad/internal/edge"
+	"github.com/mittolabs/applad/internal/endpoints"
 	"github.com/mittolabs/applad/internal/entitlements"
 	"github.com/mittolabs/applad/internal/extensions"
 	"github.com/mittolabs/applad/internal/flags"
@@ -38,7 +39,6 @@ import (
 	"github.com/mittolabs/applad/internal/messaging"
 	"github.com/mittolabs/applad/internal/metrics"
 	mw "github.com/mittolabs/applad/internal/middleware"
-	"github.com/mittolabs/applad/internal/migrations"
 	oauthpkg "github.com/mittolabs/applad/internal/oauth"
 	"github.com/mittolabs/applad/internal/observe"
 	"github.com/mittolabs/applad/internal/organizations"
@@ -53,6 +53,7 @@ import (
 	"github.com/mittolabs/applad/internal/teams"
 	"github.com/mittolabs/applad/internal/testlab"
 	"github.com/mittolabs/applad/internal/trace"
+	"github.com/mittolabs/applad/internal/transfer"
 	"github.com/mittolabs/applad/internal/usage"
 	"github.com/mittolabs/applad/internal/vectors"
 	"github.com/mittolabs/applad/internal/webhooks"
@@ -196,6 +197,11 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	workflowQueue := queue.New(cacheClient.Client())
 	workflowSvc := workflows.NewService(database, workflowQueue)
 	workflowHandler := workflows.NewHandler(workflowSvc)
+
+	// Endpoints: visual REST endpoints, executed synchronously in-process. The
+	// data nodes run their reads/writes through dbSvc, so they share the same
+	// RLS-safe path a client SDK does.
+	endpointsHandler := endpoints.NewHandler(endpoints.NewService(database, dbSvc))
 
 	// Deploy handler — created here so it can be shared between the public webhook
 	// route (no auth) and the authenticated /deploy mount below.
@@ -386,6 +392,16 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			// Workflow webhook trigger — no auth required, resolves project from workflow ID
 			r.Mount("/workflows/webhooks", workflows.WebhookRoutes(workflowHandler))
 
+			// Public endpoint execution: project + optional auth. The endpoint's
+			// own auth field (public/session/api_key) decides who may call it. A
+			// project-scoped rate rule caps the work one project's endpoints can
+			// cause, on top of the in-process concurrency bound and the generic
+			// per-caller limiter.
+			r.With(mw.RateLimitRules(cacheClient.Client(), []mw.Rule{{
+				Name: "endpoint_exec", Scope: mw.ScopeProject, PerMinute: 1200,
+				Message: "Too many endpoint calls in the last minute for this project.",
+			}})).Mount("/e", endpoints.ExecuteRoutes(endpointsHandler))
+
 			// Git push/PR webhook — no project auth; HMAC-verified by the handler.
 			r.Mount("/deploy/git/webhook", deploy.WebhookRoutes(deployHandler))
 
@@ -409,14 +425,17 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/deploy", deploy.Routes(deployHandler))
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))
+				r.Mount("/endpoints", endpoints.Routes(endpointsHandler))
 				r.Mount("/tests", testlab.Routes(testlabHandler))
 				r.Mount("/plan", plan.Routes(plan.NewHandler(plan.NewService(database))))
 				r.Mount("/studio", testlab.StudioRoutes(testlabHandler))
 
-				// Migrations
-				migrationQueue := queue.New(cacheClient.Client())
-				migrationSvc := migrations.NewService(database, migrationQueue)
-				r.Mount("/migrations", migrations.Routes(migrations.NewHandler(migrationSvc)))
+				// Data migrations: import a project's data from another platform
+				// (another Applad instance, Appwrite, Supabase, NHost, Firebase).
+				// The transfer engine is the executor; the transfer worker runs it.
+				transferQueue := queue.New(cacheClient.Client())
+				transferSvc := transfer.NewService(database, authSvc, dbSvc, storageSvc, projectSvc, transferQueue)
+				r.Mount("/migrations", transfer.Routes(transfer.NewHandler(transferSvc)))
 				r.Mount("/credentials", credentials.Routes(credentials.NewHandler(credentials.NewService(database))))
 				r.Mount("/flags", flags.Routes(flags.NewHandler(flags.NewService(database))))
 

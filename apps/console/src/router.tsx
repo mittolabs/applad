@@ -39,6 +39,8 @@ const FlagsPage = named(() => import('./features/flags/FlagsPage'), 'FlagsPage')
 const SettingsPage = named(() => import('./features/settings/SettingsPage'), 'SettingsPage');
 const ApiKeyDetailPage = named(() => import('./features/settings/ApiKeyDetailPage'), 'ApiKeyDetailPage');
 const WorkflowsPage = named(() => import('./features/workflows/WorkflowsPage'), 'WorkflowsPage');
+const EndpointsPage = named(() => import('./features/endpoints/EndpointsPage'), 'EndpointsPage');
+const MigrationsPage = named(() => import('./features/migrations/MigrationsPage'), 'MigrationsPage');
 const TestPage = named(() => import('./features/testlab/TestPage'), 'TestPage');
 const SitesPage = named(() => import('./features/sites/SitesPage'), 'SitesPage');
 const ContainersPage = named(() => import('./features/containers/ContainersPage'), 'ContainersPage');
@@ -108,6 +110,8 @@ const shellSegments: [string, string][] = [
   ['databases/:databaseId/:tableId', 'Databases'],
   ['functions', 'Functions'],
   ['functions/:functionId', 'Functions'],
+  ['endpoints', 'Endpoints'],
+  ['endpoints/:endpointId', 'Endpoints'],
   ['storage', 'Storage'],
   ['storage/:bucketId', 'Storage'],
   ['storage/:bucketId/:fileId', 'Storage'],
@@ -140,6 +144,7 @@ const shellSegments: [string, string][] = [
   ['health', 'Health'],
   ['settings', 'Settings'],
   ['settings/keys/:keyId', 'API Key'],
+  ['migrations', 'Migrations'],
   ['vault', 'Vault'],
   ['environments', 'Environments'],
 ];
@@ -160,11 +165,14 @@ const FEATURE_ELEMENTS: Record<string, React.ReactNode> = {
   'storage/:bucketId/:fileId': <StoragePage />,
   functions: <FunctionsPage />,
   'functions/:functionId': <FunctionsPage />,
+  endpoints: <EndpointsPage />,
+  'endpoints/:endpointId': <EndpointsPage />,
   messaging: <MessagingPage />,
   flags: <FlagsPage />,
   'flags/:flagId': <FlagsPage />,
   settings: <SettingsPage />,
   'settings/keys/:keyId': <ApiKeyDetailPage />,
+  migrations: <MigrationsPage />,
   workflows: <WorkflowsPage />,
   'workflows/:workflowId': <WorkflowsPage />,
   tests: <TestPage />,

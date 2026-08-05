@@ -328,6 +328,21 @@ services:
     <<: *limits-small
     restart: unless-stopped
 
+  worker-transfer:
+    image: ghcr.io/mittolabs/applad-worker-transfer:${APPLAD_VERSION:-latest}
+    healthcheck: *worker-healthcheck
+    build:
+      <<: *worker-build
+      args:
+        WORKER_TYPE: transfer
+    environment: *worker-env
+    volumes: *worker-volumes
+    networks: *worker-networks
+    logging: *default-logging
+    depends_on: *worker-deps
+    <<: *limits-small
+    restart: unless-stopped
+
   worker-messaging:
     image: ghcr.io/mittolabs/applad-worker-messaging:${APPLAD_VERSION:-latest}
     healthcheck: *worker-healthcheck

@@ -4,6 +4,8 @@
   "pages": [
     "---Infrastructure---",
     "regions",
+    "---Operations---",
+    "migrations",
     "---Experimental---",
     "edge"
   ]

@@ -145,6 +145,96 @@ func (s *Service) CreateAccount(ctx context.Context, projectID, userID, email, p
 	return s.GetAccount(ctx, id, projectID)
 }
 
+// ImportedUser is a user account carried in from another platform by the
+// migration engine, with a password credential already produced elsewhere.
+type ImportedUser struct {
+	ID             string // optional; generated when empty
+	Email          string
+	Phone          string
+	Name           string
+	PasswordHash   string         // may be empty for OAuth-only accounts
+	PasswordAlgo   string         // one of the auth.Algo* values; defaults to bcrypt
+	PasswordParams map[string]any // algorithm-specific verify parameters, may be nil
+	EmailVerified  bool
+	PhoneVerified  bool
+	Labels         []string
+	Prefs          map[string]any
+	CreatedAt      time.Time // optional; defaults to now
+}
+
+// ImportUser inserts a user with a pre-computed password credential (hash +
+// algorithm + params) that another platform produced, bypassing Applad's own
+// bcrypt hashing. The account verifies against the foreign algorithm at first
+// sign-in and is transparently re-hashed to bcrypt then (see checkAndRehash).
+//
+// It is idempotent on (project_id, email): importing the same account twice
+// returns the existing user's ID rather than failing, so a migration can resume.
+// Returns the resolved user ID.
+func (s *Service) ImportUser(ctx context.Context, projectID string, u ImportedUser) (string, error) {
+	id := u.ID
+	if id == "" {
+		id = uid.New("")
+	}
+	algo := u.PasswordAlgo
+	if algo == "" {
+		algo = AlgoBcrypt
+	}
+	now := time.Now().UTC()
+	created := u.CreatedAt
+	if created.IsZero() {
+		created = now
+	}
+	labels := u.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+	labelsJSON, _ := json.Marshal(labels)
+	prefs := u.Prefs
+	if prefs == nil {
+		prefs = map[string]interface{}{}
+	}
+	prefsJSON, _ := json.Marshal(prefs)
+
+	var hash sql.NullString
+	if u.PasswordHash != "" {
+		hash = sql.NullString{String: u.PasswordHash, Valid: true}
+	}
+	var email sql.NullString
+	if u.Email != "" {
+		email = sql.NullString{String: u.Email, Valid: true}
+	}
+	var phone sql.NullString
+	if u.Phone != "" {
+		phone = sql.NullString{String: u.Phone, Valid: true}
+	}
+	var paramsJSON []byte
+	if len(u.PasswordParams) > 0 {
+		paramsJSON, _ = json.Marshal(u.PasswordParams)
+	}
+
+	// Idempotency is keyed on the primary key (id): the migration engine passes a
+	// stable, source-derived id, so re-running or resuming a job updates the same
+	// row rather than inserting a duplicate. This is why email cannot be the
+	// conflict key: it is NULL for OAuth/phone accounts and NULLs never conflict,
+	// so an email-based upsert would duplicate every email-less user on each run.
+	// A different account already holding this email trips the (project_id,email)
+	// unique constraint and returns an error the caller treats as "exists".
+	var resolvedID string
+	err := s.db.QueryRowContext(ctx,
+		`INSERT INTO users
+		   (id, project_id, email, phone, name, password_hash, password_algo, password_params,
+		    email_verified, phone_verified, status, labels, prefs, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,1,$11,$12,$13,$13)
+		 ON CONFLICT (id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+		 RETURNING id`,
+		id, projectID, email, phone, u.Name, hash, algo, paramsJSON,
+		u.EmailVerified, u.PhoneVerified, labelsJSON, prefsJSON, created).Scan(&resolvedID)
+	if err != nil {
+		return "", fmt.Errorf("auth: import user: %w", err)
+	}
+	return resolvedID, nil
+}
+
 // GetAccount returns the user account by userID.
 func (s *Service) GetAccount(ctx context.Context, userID, projectID string) (*model.User, error) {
 	row := s.db.QueryRowContext(ctx,
@@ -170,13 +260,11 @@ func (s *Service) UpdateName(ctx context.Context, userID, projectID, name string
 
 // UpdateEmail updates a user's email after verifying the password.
 func (s *Service) UpdateEmail(ctx context.Context, userID, projectID, email, password string) (*model.User, error) {
-	var hash string
-	err := s.db.QueryRowContext(ctx,
-		"SELECT password_hash FROM users WHERE id = $1 AND project_id = $2", userID, projectID).Scan(&hash)
+	ok, err := s.verifyUserPassword(ctx, projectID, userID, password)
 	if err != nil {
 		return nil, fmt.Errorf("auth: user not found")
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+	if !ok {
 		return nil, fmt.Errorf("auth: invalid password")
 	}
 	_, err = s.db.ExecContext(ctx,
@@ -195,14 +283,20 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, passwor
 		return nil, fmt.Errorf("password_too_short: password must be at least %d characters", sec.PasswordMinLength)
 	}
 
-	var hash string
+	var hash, algo string
+	var paramsRaw []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT password_hash FROM users WHERE id = $1 AND project_id = $2", userID, projectID).Scan(&hash)
+		"SELECT password_hash, password_algo, password_params FROM users WHERE id = $1 AND project_id = $2",
+		userID, projectID).Scan(&hash, &algo, &paramsRaw)
 	if err != nil {
 		return nil, fmt.Errorf("auth: user not found")
 	}
 	if oldPassword != "" {
-		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(oldPassword)); err != nil {
+		var params map[string]any
+		if len(paramsRaw) > 0 {
+			_ = json.Unmarshal(paramsRaw, &params)
+		}
+		if ok, _ := verifyForeignPassword(algo, hash, params, oldPassword); !ok {
 			return nil, fmt.Errorf("auth: invalid old password")
 		}
 	}
@@ -230,7 +324,8 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, projectID, passwor
 		return nil, err
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET password_hash = $1 WHERE id = $2 AND project_id = $3", string(newHash), userID, projectID)
+		"UPDATE users SET password_hash = $1, password_algo = 'bcrypt', password_params = NULL WHERE id = $2 AND project_id = $3",
+		string(newHash), userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: update password: %w", err)
 	}
@@ -300,6 +395,46 @@ func (s *Service) userHasMFA(ctx context.Context, projectID, userID string) bool
 	return enabled.Bool
 }
 
+// checkAndRehash verifies password against a credential produced by algo (with
+// the given params, raw JSON from users.password_params) and, on a successful
+// match with a non-native algorithm, transparently re-hashes to bcrypt. The
+// rehash is best-effort: a failure to persist the upgrade never fails the check.
+// Returns whether the password matched; an unsupported/malformed algorithm is a
+// non-match with a returned error (callers that only care about the boolean can
+// ignore it).
+func (s *Service) checkAndRehash(ctx context.Context, projectID, userID, hash, algo string, paramsRaw []byte, password string) (bool, error) {
+	var params map[string]any
+	if len(paramsRaw) > 0 {
+		_ = json.Unmarshal(paramsRaw, &params)
+	}
+	ok, err := verifyForeignPassword(algo, hash, params, password)
+	if err != nil || !ok {
+		return false, err
+	}
+	if passwordNeedsRehash(algo) {
+		if nh, herr := bcrypt.GenerateFromPassword([]byte(password), 12); herr == nil {
+			s.db.ExecContext(ctx,
+				"UPDATE users SET password_hash = $1, password_algo = 'bcrypt', password_params = NULL WHERE id = $2 AND project_id = $3",
+				string(nh), userID, projectID)
+		}
+	}
+	return true, nil
+}
+
+// verifyUserPassword loads a user's stored credential and verifies password
+// against it (rehashing to bcrypt on a successful foreign-algorithm match, via
+// checkAndRehash). A missing user is (false, error).
+func (s *Service) verifyUserPassword(ctx context.Context, projectID, userID, password string) (bool, error) {
+	var hash, algo string
+	var paramsRaw []byte
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT password_hash, password_algo, password_params FROM users WHERE id = $1 AND project_id = $2",
+		userID, projectID).Scan(&hash, &algo, &paramsRaw); err != nil {
+		return false, err
+	}
+	return s.checkAndRehash(ctx, projectID, userID, hash, algo, paramsRaw, password)
+}
+
 // CreateEmailSession validates email+password and, when the account or project
 // calls for it, enforces MFA before a session is opened:
 //   - an account with an enrolled factor must present a valid TOTP or recovery
@@ -307,14 +442,15 @@ func (s *Service) userHasMFA(ctx context.Context, projectID, userID string) bool
 //   - a project with mfaRequired=true but a user with no factor still gets a
 //     session (never a lockout), flagged so the client can force enrolment.
 func (s *Service) CreateEmailSession(ctx context.Context, projectID, email, password, code, ip, ua string) (*LoginResult, error) {
-	var userID, hash string
+	var userID, hash, algo string
+	var paramsRaw []byte
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, password_hash FROM users WHERE email = $1 AND project_id = $2 AND status = 1",
-		email, projectID).Scan(&userID, &hash)
+		"SELECT id, password_hash, password_algo, password_params FROM users WHERE email = $1 AND project_id = $2 AND status = 1",
+		email, projectID).Scan(&userID, &hash, &algo, &paramsRaw)
 	if err != nil {
 		return nil, fmt.Errorf("auth: invalid credentials")
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+	if ok, _ := s.checkAndRehash(ctx, projectID, userID, hash, algo, paramsRaw, password); !ok {
 		return nil, fmt.Errorf("auth: invalid credentials")
 	}
 
@@ -911,7 +1047,7 @@ func (s *Service) ResetPassword(ctx context.Context, projectID, secret, newPassw
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET password_hash = $1 WHERE id = $2 AND project_id = $3",
+		"UPDATE users SET password_hash = $1, password_algo = 'bcrypt', password_params = NULL WHERE id = $2 AND project_id = $3",
 		string(hash), userID, projectID)
 	if err != nil {
 		return err
