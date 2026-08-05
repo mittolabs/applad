@@ -283,6 +283,22 @@ func RunWorkflow(ctx context.Context, wf *Workflow, triggerData map[string]inter
 	return logs, nil
 }
 
+// ExecNode runs a single workflow node against the given execution context and
+// returns its output plus any skip targets (for branch/switch/filter nodes).
+// It is exported so the endpoints engine can reuse the hardened logic,
+// transform, and integration node implementations without duplicating them;
+// endpoints owns only its request/response/data nodes and delegates the rest
+// here. skipTargets uses the same conventions as the workflow runner, including
+// the allDownstreamSentinel ("__all_downstream__") returned by a filter no-match.
+func ExecNode(ctx context.Context, node *Node, execCtx map[string]interface{}) (interface{}, []string, error) {
+	return executeNode(ctx, node, execCtx)
+}
+
+// AllDownstreamSentinel is the skip target a filter node returns on a no-match,
+// meaning "skip every node downstream of me". A reusing engine expands it to the
+// filter node's direct successors.
+const AllDownstreamSentinel = allDownstreamSentinel
+
 // executeNode runs a single node and returns its output.
 // skipTargets is non-nil only for if_condition nodes — contains node IDs to skip.
 func executeNode(ctx context.Context, node *Node, execCtx map[string]interface{}) (output interface{}, skipTargets []string, err error) {
@@ -2243,6 +2259,12 @@ func HasCycle(nodes []Node, edges []Edge) bool {
 	}
 	// Any node never reaching in-degree 0 sits on a cycle.
 	return processed < len(inDegree)
+}
+
+// TopoSort returns node IDs in topological (dependency) order. Exported for the
+// endpoints engine, which walks an endpoint graph with the same shape.
+func TopoSort(nodes []Node, edges []Edge) []string {
+	return topoSort(nodes, edges)
 }
 
 // topoSort returns node IDs in topological order.

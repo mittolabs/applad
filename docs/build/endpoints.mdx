@@ -1,0 +1,230 @@
+---
+title: Endpoints
+icon: Workflow
+description: "Compose a REST endpoint from blocks: request in, data and logic nodes in the middle, response out. The no-code sibling of Functions, run inline with no cold start."
+---
+
+import { Code2, Database, Shield, Workflow } from 'lucide-react';
+
+An **endpoint** is a REST API route you build from blocks instead of code. You
+give it a **method** and a **path**, then wire a graph: a request enters at a
+**handler** node, flows through **data** and **logic** nodes, and terminates at a
+**response** node that produces the HTTP response. It is the visual sibling of
+[Functions](/build/functions). Where a function runs your code in a container,
+an endpoint runs a graph **synchronously inside the API process**, so there is no
+container and no cold start.
+
+The graph is stored in the same shape as a [workflow](/automate/workflows) and
+runs on the same hardened node executor. The difference is the contract:
+Workflows are event- and schedule-driven and run asynchronously; an endpoint is
+a synchronous request → response, which is why it lives in **Build** beside
+Functions rather than in Automate.
+
+<Callout title="Managing endpoints is a server task">
+  Creating, updating and publishing endpoints changes your project's API
+  surface, so do it from a trusted context with your project **API key**
+  (`x-applad-key: <apiKey>`) or from the console, not from end-user code.
+  *Calling* a published endpoint is a normal request whose auth the endpoint
+  itself declares.
+</Callout>
+
+## The model: request, graph, response
+
+An endpoint is a `method` + `path` + a graph of `nodes` and `edges`. Every node
+can read a shared **request context**, and each node writes a named output that
+later nodes reference by expression.
+
+The request context is available to every node as `request`:
+
+| Field | Contains |
+| --- | --- |
+| `request.method` | the HTTP method |
+| `request.path` | the matched path |
+| `request.params` | path parameters captured from the route (`/users/{id}` → `params.id`) |
+| `request.query` | parsed query string |
+| `request.headers` | request headers |
+| `request.body` | the parsed JSON body |
+| `request.user` | the caller's user id, if a session authenticated |
+| `request.project` | the project id |
+
+Nodes reference values with Go template expressions, either from the request or
+from an earlier node's output by its **node id**:
+
+```
+{{.request.body.email}}      # a field from the request body
+{{.createUser.$id}}          # the id of a row a "createUser" data node made
+```
+
+## Nodes
+
+An endpoint reuses the whole [workflow node palette](/automate/workflows) for
+logic and integrations, and adds three of its own.
+
+### Handler
+
+One `endpoint_handler` node marks the entry point. It carries no configuration
+beyond the endpoint's method, path and auth (declared on the endpoint itself).
+
+### Response
+
+An `endpoint_response` node produces the HTTP response and ends the run. The
+first response node reached wins, so branches can each end in their own response.
+
+| Config | Meaning |
+| --- | --- |
+| `status` | HTTP status code (default `200`) |
+| `mode` | `json` (default), `text`, `html`, or `error` |
+| `bodyField` | a node id / dot path whose value becomes the body (e.g. `createUser`) |
+| `body` | a template string; in `json` mode it is parsed as JSON when it is valid JSON |
+
+### Data
+
+An `endpoint_data` node reads or writes your [database](/build/databases). It is
+the same row API a client SDK uses, so it is subject to the same
+[permissions and row security](/build/permissions).
+
+| Config | Meaning |
+| --- | --- |
+| `action` | `create`, `get`, `list` (or `query`), `update`, `delete` |
+| `databaseId`, `tableId` | which table to act on (templatable) |
+| `rowId` | the row for `get` / `update` / `delete` (templatable) |
+| `data` | fields for `create` / `update`; string values are templated |
+| `filters` | for `list`: `[{ "field": "status", "method": "equal", "value": "active" }]` |
+| `limit`, `offset` | for `list` (default limit `25`) |
+| `applyRules` | **the permission toggle** (see below), default `true` |
+
+## The permission model
+
+There are two independent layers, and keeping them distinct is the point.
+
+**(a) Who may call the endpoint**, declared on the endpoint as `auth`:
+
+| `auth` | Who may call |
+| --- | --- |
+| `public` | anyone |
+| `session` | a request carrying a valid user session |
+| `api_key` | a request carrying a project API key |
+| `either` | a session **or** an API key |
+
+**(b) What the nodes may touch**, the per-data-node `applyRules` toggle, which
+chooses the database role the operation runs under:
+
+<Callout title="Apply rules: scoped by default, elevated by choice">
+  - **`applyRules: true`** (the default) runs the operation under the **caller's**
+    role. Table grants and row security are enforced exactly as they are for a
+    client SDK call. A public endpoint's caller is the anonymous role; an
+    authenticated one carries the user's resolved roles and team memberships.
+  - **`applyRules: false`** runs the operation under the elevated **service**
+    role (full access) for admin operations the endpoint author deliberately
+    trusts.
+</Callout>
+
+Because the two layers are separate, a **public** endpoint can still safely write
+data: its nodes run as the anonymous role unless the author explicitly elevates a
+node. Elevation is a visible choice, not a default.
+
+## Calling an endpoint
+
+A published endpoint is served under your project at `/v1/e/{path}`. Path
+parameters in the template are captured into `request.params`.
+
+```bash
+curl -X POST https://api.applad.io/v1/e/signup \
+  -H "x-applad-project: <projectId>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"ada@example.com","name":"Ada"}'
+```
+
+The router matches by method and path. A literal route (`/users/me`) beats a
+parameterised one (`/users/{id}`) when both match. Only endpoints with status
+`published` are served; a `draft` is reachable only from the console test runner.
+
+## A worked example: a signup endpoint
+
+`POST /signup` that creates a row and returns it. The `createUser` node runs with
+`applyRules: false` because signup writes for a not-yet-authenticated caller, and
+the response returns the new row.
+
+```json
+{
+  "method": "POST",
+  "path": "/signup",
+  "auth": "public",
+  "status": "published",
+  "nodes": [
+    { "id": "in",  "type": "endpoint_handler" },
+    { "id": "createUser", "type": "endpoint_data", "config": {
+        "action": "create", "databaseId": "app", "tableId": "users",
+        "applyRules": false,
+        "data": { "email": "{{.request.body.email}}", "name": "{{.request.body.name}}" }
+    }},
+    { "id": "out", "type": "endpoint_response", "config": {
+        "status": 201, "bodyField": "createUser"
+    }}
+  ],
+  "edges": [
+    { "source": "in", "target": "createUser" },
+    { "source": "createUser", "target": "out" }
+  ]
+}
+```
+
+Branch on a value with an `if_condition` node (from the workflow palette) and
+give each branch its own response:
+
+```json
+{ "id": "check", "type": "if_condition", "config": {
+    "field": "request.body.email", "operator": "not_empty",
+    "trueBranch": "createUser", "falseBranch": "reject" }}
+```
+
+## Execution and performance
+
+An endpoint runs **synchronously in the API process**: the request goroutine
+executes the graph and returns. Because Go serves each request on its own
+goroutine, a slow endpoint blocks only its own request, never the server. What
+keeps it fast and safe on the shared API:
+
+- **No cold start.** Inline dispatch is sub-millisecond; the latency is your
+  database round-trips, not the executor.
+- **A per-request deadline.** Each run is bounded (default 15s, override with
+  `ENDPOINT_EXECUTION_TIMEOUT`); a run that exceeds it returns `504`.
+- **A node cap.** A single endpoint graph is capped at 200 nodes.
+- **Guarded egress.** Any node that calls outward goes through the same SSRF
+  guard as workflows, so an endpoint cannot be turned into a pivot into internal
+  services.
+
+For genuinely heavy or long work, a node should hand off (call a
+[Function](/build/functions) or enqueue a job) rather than doing it inline.
+
+## Testing and history
+
+While building, run an endpoint against a sample request without publishing it:
+
+```bash
+curl -X POST https://api.applad.io/v1/endpoints/<endpointId>/test \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"body":{"email":"ada@example.com"}}'
+```
+
+The response includes the status, body, and a per-node **trace** so you can see
+what each node produced. Every real call is recorded too; read recent runs with
+`GET /v1/endpoints/<endpointId>/executions`.
+
+## Related
+
+<Cards>
+  <Card icon={<Code2 />} title="Functions" href="/build/functions">
+    The code sibling: run your own language in a container when a graph is not enough.
+  </Card>
+  <Card icon={<Database />} title="Databases" href="/build/databases">
+    What an endpoint's data nodes read and write.
+  </Card>
+  <Card icon={<Shield />} title="Permissions" href="/build/permissions">
+    The row security the apply-rules toggle enforces.
+  </Card>
+  <Card icon={<Workflow />} title="Workflows" href="/automate/workflows">
+    The async sibling, and the node palette an endpoint reuses.
+  </Card>
+</Cards>
