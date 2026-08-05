@@ -556,21 +556,21 @@ func (s *Service) SendPhoneOTP(ctx context.Context, projectID, phone string) (st
 
 // VerifyPhoneOTP verifies the OTP and creates a session. Creates user if needed.
 func (s *Service) VerifyPhoneOTP(ctx context.Context, projectID, phone, code, ip, ua string) (*model.Session, string, error) {
+	// Consume one attempt atomically. The `attempts < 5` guard lives inside the
+	// UPDATE, so Postgres row-locks serialize concurrent verifies and at most 5
+	// ever succeed — a read-then-write check would let a burst of concurrent
+	// guesses all read attempts=0 and bypass the cap. No matching row means no
+	// OTP, expired, or the cap is exhausted.
 	var otpID, storedCode string
-	var attempts int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, code, attempts FROM phone_otps WHERE project_id=$1 AND phone=$2 AND expires_at > $3`,
-		projectID, phone, time.Now().UTC()).Scan(&otpID, &storedCode, &attempts)
+		`UPDATE phone_otps SET attempts = attempts + 1
+		 WHERE project_id=$1 AND phone=$2 AND expires_at > $3 AND attempts < 5
+		 RETURNING id, code`,
+		projectID, phone, time.Now().UTC()).Scan(&otpID, &storedCode)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: invalid or expired OTP")
 	}
-	// Bound brute force: after too many wrong guesses the code is burned.
-	if attempts >= 5 {
-		s.db.ExecContext(ctx, "DELETE FROM phone_otps WHERE id=$1", otpID)
-		return nil, "", fmt.Errorf("auth: too many attempts; request a new code")
-	}
 	if subtle.ConstantTimeCompare([]byte(storedCode), []byte(code)) != 1 {
-		s.db.ExecContext(ctx, "UPDATE phone_otps SET attempts=attempts+1 WHERE id=$1", otpID)
 		return nil, "", fmt.Errorf("auth: invalid or expired OTP")
 	}
 	// Correct: single-use.

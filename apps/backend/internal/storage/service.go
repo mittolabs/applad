@@ -579,6 +579,20 @@ func (s *Service) UploadChunk(_ context.Context, projectID, bucketID, fileID str
 	if err := os.MkdirAll(chunkDir, 0755); err != nil {
 		return err
 	}
+	// Bound total staged bytes per upload: without a cap a caller could PATCH
+	// chunks indefinitely and never complete, filling the storage volume.
+	const maxStagedBytes = 500 << 20
+	var staged int64
+	if entries, e := os.ReadDir(chunkDir); e == nil {
+		for _, en := range entries {
+			if info, ie := en.Info(); ie == nil {
+				staged += info.Size()
+			}
+		}
+	}
+	if staged+int64(len(data)) > maxStagedBytes {
+		return fmt.Errorf("storage: staged upload exceeds maximum size: %w", ErrFileTooLarge)
+	}
 	chunkPath := filepath.Join(chunkDir, fmt.Sprintf("%06d", index))
 	return os.WriteFile(chunkPath, data, 0644)
 }

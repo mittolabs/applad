@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/mittolabs/applad/internal/model"
@@ -179,7 +180,9 @@ func (s *Service) assertPendingUpload(ctx context.Context, projectID, bucketID, 
 		fileID, bucketID, projectID).Scan(&path); err != nil {
 		return ErrForbidden
 	}
-	if !strings.Contains(path, "_chunks") {
+	// Match the exact staging root rather than a bare substring, so it holds even
+	// if STORAGE_PATH itself happens to contain "_chunks".
+	if !strings.HasPrefix(path, filepath.Join(s.storagePath, "_chunks")) {
 		return ErrForbidden
 	}
 	return nil

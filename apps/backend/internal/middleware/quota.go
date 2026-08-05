@@ -209,6 +209,13 @@ func AuthRules() []Rule {
 		{Name: "pwreset", Prefix: "/password-reset", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 5, Message: tooMany},
 		{Name: "pwreset_account", Prefix: "/password-reset", Method: http.MethodPost, Scope: ScopeAccount, PerMinute: 5, Message: tooMany},
 		{Name: "magic", Prefix: "/magic-url", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 10, Message: tooMany},
+		// Phone OTP: send is billable SMS, verify is a brute-force target. Bound
+		// both by IP and by the phone being acted on (accountIdentifier reads it
+		// from the body).
+		{Name: "phone_send_ip", Suffix: "/sessions/phone", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 10, Message: tooMany},
+		{Name: "phone_send_account", Suffix: "/sessions/phone", Method: http.MethodPost, Scope: ScopeAccount, PerMinute: 3, Message: tooMany},
+		{Name: "phone_verify_ip", Suffix: "/sessions/phone", Method: http.MethodPut, Scope: ScopeIP, PerMinute: 20, Message: tooMany},
+		{Name: "phone_verify_account", Suffix: "/sessions/phone", Method: http.MethodPut, Scope: ScopeAccount, PerMinute: 10, Message: tooMany},
 		{Name: "verification", Prefix: "/verification", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 10, Message: tooMany},
 		{Name: "invite_redeem", Prefix: "/invites/", Method: http.MethodPost, Scope: ScopeIP, PerMinute: 20, Message: tooMany},
 	}
