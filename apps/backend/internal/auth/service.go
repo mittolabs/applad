@@ -13,6 +13,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
 	"math/big"
@@ -524,19 +525,30 @@ func (s *Service) SendPhoneOTP(ctx context.Context, projectID, phone string) (st
 	if phone == "" {
 		return "", fmt.Errorf("auth: phone is required")
 	}
+	now := time.Now().UTC()
+	// Throttle: at most one code per phone per 30s, to bound SMS cost / spam.
+	var recent int
+	s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM phone_otps WHERE project_id=$1 AND phone=$2 AND created_at > $3",
+		projectID, phone, now.Add(-30*time.Second)).Scan(&recent)
+	if recent > 0 {
+		return "", fmt.Errorf("auth: please wait before requesting another code")
+	}
+
 	// Generate 6-digit OTP
 	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
 	code := fmt.Sprintf("%06d", n.Int64()+100000)
 
-	tokenID := uid.New("unique()")
-	expires := time.Now().UTC().Add(10 * time.Minute)
-	// The auth_tokens value column is "secret", not "token"; the previous name
-	// did not exist and every phone-OTP login failed at runtime.
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO auth_tokens (id, user_id, project_id, type, secret, expires_at, created_at)
-		 VALUES ($1, $2, $3, 'phone_otp', $4, $5, $6)`,
-		tokenID, phone, projectID, code, expires, time.Now().UTC())
-	if err != nil {
+	// One active OTP per phone. Stored in phone_otps (not auth_tokens): this is a
+	// pre-auth flow with no user row yet, so it cannot satisfy auth_tokens' FK to
+	// users.id.
+	s.db.ExecContext(ctx, "DELETE FROM phone_otps WHERE project_id=$1 AND phone=$2", projectID, phone)
+	id := uid.New("unique()")
+	expires := now.Add(10 * time.Minute)
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO phone_otps (id, project_id, phone, code, expires_at, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		id, projectID, phone, code, expires, now); err != nil {
 		return "", fmt.Errorf("auth: store phone OTP: %w", err)
 	}
 	return code, nil
@@ -544,15 +556,25 @@ func (s *Service) SendPhoneOTP(ctx context.Context, projectID, phone string) (st
 
 // VerifyPhoneOTP verifies the OTP and creates a session. Creates user if needed.
 func (s *Service) VerifyPhoneOTP(ctx context.Context, projectID, phone, code, ip, ua string) (*model.Session, string, error) {
-	var tokenID string
+	var otpID, storedCode string
+	var attempts int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM auth_tokens WHERE user_id=$1 AND project_id=$2 AND type='phone_otp' AND secret=$3 AND expires_at > $4`,
-		phone, projectID, code, time.Now().UTC()).Scan(&tokenID)
+		`SELECT id, code, attempts FROM phone_otps WHERE project_id=$1 AND phone=$2 AND expires_at > $3`,
+		projectID, phone, time.Now().UTC()).Scan(&otpID, &storedCode, &attempts)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: invalid or expired OTP")
 	}
-	// Delete used token
-	s.db.ExecContext(ctx, "DELETE FROM auth_tokens WHERE id=$1", tokenID)
+	// Bound brute force: after too many wrong guesses the code is burned.
+	if attempts >= 5 {
+		s.db.ExecContext(ctx, "DELETE FROM phone_otps WHERE id=$1", otpID)
+		return nil, "", fmt.Errorf("auth: too many attempts; request a new code")
+	}
+	if subtle.ConstantTimeCompare([]byte(storedCode), []byte(code)) != 1 {
+		s.db.ExecContext(ctx, "UPDATE phone_otps SET attempts=attempts+1 WHERE id=$1", otpID)
+		return nil, "", fmt.Errorf("auth: invalid or expired OTP")
+	}
+	// Correct: single-use.
+	s.db.ExecContext(ctx, "DELETE FROM phone_otps WHERE id=$1", otpID)
 
 	// Find or create user by phone
 	var userID string

@@ -504,7 +504,11 @@ func (h *Handler) uploadChunk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.svc.UploadChunk(ctx, projectID, bucketID, fileID, chunkIndex, chunk); err != nil {
+	if err := h.svc.UploadChunkWithAuth(ctx, projectID, bucketID, fileID, chunkIndex, chunk, callerUserID(ctx)); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			apperr.Write(w, http.StatusForbidden, "storage_permission_denied", "permission denied")
+			return
+		}
 		apperr.Internal(w, err)
 		return
 	}

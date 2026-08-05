@@ -1298,16 +1298,14 @@ func (s *Service) SendTemplate(ctx context.Context, templateID, projectID string
 			return err
 		}
 	case "sms":
-		for _, num := range to {
-			if err := s.SendSMS(ctx, num, body); err != nil {
-				return err
-			}
+		// Route through the capped multi-sender, not the raw per-recipient one,
+		// so a template send cannot fan out past the recipient limit.
+		if err := s.SendSMSMulti(ctx, projectID, to, body); err != nil {
+			return err
 		}
 	case "push":
-		for _, token := range to {
-			if err := s.SendPush(ctx, token, subject, body, nil); err != nil {
-				return err
-			}
+		if err := s.SendPushMulti(ctx, projectID, to, subject, body, nil); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("messaging: unknown template type %q", t.Type)

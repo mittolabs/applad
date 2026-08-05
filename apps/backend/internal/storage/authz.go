@@ -151,6 +151,10 @@ func (s *Service) CompleteChunkedUploadWithAuth(ctx context.Context, projectID, 
 	if err := s.authorizeCreate(ctx, bucketID, projectID, userID); err != nil {
 		return nil, err
 	}
+	// Only complete an in-progress upload, never overwrite a committed file id.
+	if err := s.assertPendingUpload(ctx, projectID, bucketID, fileID); err != nil {
+		return nil, err
+	}
 	return s.CompleteChunkedUpload(ctx, projectID, bucketID, fileID)
 }
 
@@ -160,6 +164,37 @@ func (s *Service) authorizeCreate(ctx context.Context, bucketID, projectID, user
 		return err
 	}
 	return s.authorizeFile(bucket, nil, userID, "create")
+}
+
+// assertPendingUpload confirms fileID names a chunked upload still in progress in
+// this project+bucket (its stored path points at the _chunks staging area), not
+// a committed file. Without this, the chunk path could target any existing
+// file's id and UPDATE it to attacker bytes — overwriting another user's file
+// with only bucket "create" permission. A committed file must be replaced
+// through the normal (permission-checked) write, never through chunk completion.
+func (s *Service) assertPendingUpload(ctx context.Context, projectID, bucketID, fileID string) error {
+	var path string
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT path FROM files WHERE id = $1 AND bucket_id = $2 AND project_id = $3",
+		fileID, bucketID, projectID).Scan(&path); err != nil {
+		return ErrForbidden
+	}
+	if !strings.Contains(path, "_chunks") {
+		return ErrForbidden
+	}
+	return nil
+}
+
+// UploadChunkWithAuth authorizes a chunk write: the caller must hold bucket
+// create, and fileID must be an in-progress upload in this project+bucket.
+func (s *Service) UploadChunkWithAuth(ctx context.Context, projectID, bucketID, fileID string, index int, data []byte, userID string) error {
+	if err := s.authorizeCreate(ctx, bucketID, projectID, userID); err != nil {
+		return err
+	}
+	if err := s.assertPendingUpload(ctx, projectID, bucketID, fileID); err != nil {
+		return err
+	}
+	return s.UploadChunk(ctx, projectID, bucketID, fileID, index, data)
 }
 
 // ListFilesWithAuth lists files a signed-in user may read. A server API key sees
@@ -178,11 +213,17 @@ func (s *Service) ListFilesWithAuth(ctx context.Context, projectID, bucketID str
 	if err != nil {
 		return nil, 0, err
 	}
-	filtered := files[:0]
+	// If the bucket grants read at the bucket level and file security is off,
+	// every file is readable: return the page and the true total (correct
+	// pagination). Only when per-file security applies do we filter the page.
+	if !bucket.FileSecurity && permMatch(bucket.Permissions, storageRoles(userID), "read") {
+		return files, total, nil
+	}
+	filtered := make([]*model.File, 0, len(files))
 	for _, f := range files {
 		if s.canReadFile(bucket, f, userID) {
 			filtered = append(filtered, f)
 		}
 	}
-	return filtered, total, nil
+	return filtered, len(filtered), nil
 }
