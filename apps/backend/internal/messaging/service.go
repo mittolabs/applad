@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -338,7 +339,23 @@ func validateHeaderAddresses(to []string) error {
 }
 
 // SendEmail sends an email via SMTP (primary) or returns an error if unconfigured.
+// Recipient caps per single send. The project-work rate limit counts requests,
+// but one request accepts a recipient array; without a cap a single call could
+// fan out to an unbounded (and, for SMS, billable) list. Higher-volume delivery
+// belongs to topics, which fan out to actual subscribers.
+const (
+	maxSMSRecipients   = 100
+	maxEmailRecipients = 1000
+	maxPushRecipients  = 1000
+)
+
+// ErrTooManyRecipients is returned when a single send exceeds its recipient cap.
+var ErrTooManyRecipients = errors.New("messaging: too many recipients in one request")
+
 func (s *Service) SendEmail(ctx context.Context, to []string, subject, htmlBody string) error {
+	if len(to) > maxEmailRecipients {
+		return ErrTooManyRecipients
+	}
 	if s.cfg.Host == "" {
 		return fmt.Errorf("messaging: SMTP not configured")
 	}
@@ -701,6 +718,9 @@ func (s *Service) getEnabledProvider(ctx context.Context, projectID, typ string)
 // SendEmailForProject sends an email using the project's configured email provider.
 // Falls back to the global SMTP if no project provider is configured.
 func (s *Service) SendEmailForProject(ctx context.Context, projectID string, to []string, subject, htmlBody string) error {
+	if len(to) > maxEmailRecipients {
+		return ErrTooManyRecipients
+	}
 	p, _ := s.getEnabledProvider(ctx, projectID, "email")
 	if p == nil {
 		return s.SendEmail(ctx, to, subject, htmlBody)
@@ -946,6 +966,9 @@ func (s *Service) SendPushForProject(ctx context.Context, projectID, token, titl
 // project's provider per send. It attempts every recipient and returns the
 // first error, mirroring how a multi-recipient email reports failure.
 func (s *Service) SendSMSMulti(ctx context.Context, projectID string, to []string, body string) error {
+	if len(to) > maxSMSRecipients {
+		return ErrTooManyRecipients
+	}
 	var firstErr error
 	for _, num := range to {
 		if err := s.SendSMSForProject(ctx, projectID, num, body); err != nil && firstErr == nil {
@@ -958,6 +981,9 @@ func (s *Service) SendSMSMulti(ctx context.Context, projectID string, to []strin
 // SendPushMulti sends the same push notification to each recipient token,
 // forwarding the optional data payload, and returns the first error.
 func (s *Service) SendPushMulti(ctx context.Context, projectID string, tokens []string, title, body string, data map[string]string) error {
+	if len(tokens) > maxPushRecipients {
+		return ErrTooManyRecipients
+	}
 	var firstErr error
 	for _, token := range tokens {
 		if err := s.SendPushForProject(ctx, projectID, token, title, body, data); err != nil && firstErr == nil {

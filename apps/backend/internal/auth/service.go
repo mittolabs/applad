@@ -530,8 +530,10 @@ func (s *Service) SendPhoneOTP(ctx context.Context, projectID, phone string) (st
 
 	tokenID := uid.New("unique()")
 	expires := time.Now().UTC().Add(10 * time.Minute)
+	// The auth_tokens value column is "secret", not "token"; the previous name
+	// did not exist and every phone-OTP login failed at runtime.
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO auth_tokens (id, user_id, project_id, type, token, expires_at, created_at)
+		`INSERT INTO auth_tokens (id, user_id, project_id, type, secret, expires_at, created_at)
 		 VALUES ($1, $2, $3, 'phone_otp', $4, $5, $6)`,
 		tokenID, phone, projectID, code, expires, time.Now().UTC())
 	if err != nil {
@@ -544,7 +546,7 @@ func (s *Service) SendPhoneOTP(ctx context.Context, projectID, phone string) (st
 func (s *Service) VerifyPhoneOTP(ctx context.Context, projectID, phone, code, ip, ua string) (*model.Session, string, error) {
 	var tokenID string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM auth_tokens WHERE user_id=$1 AND project_id=$2 AND type='phone_otp' AND token=$3 AND expires_at > $4`,
+		`SELECT id FROM auth_tokens WHERE user_id=$1 AND project_id=$2 AND type='phone_otp' AND secret=$3 AND expires_at > $4`,
 		phone, projectID, code, time.Now().UTC()).Scan(&tokenID)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: invalid or expired OTP")

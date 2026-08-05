@@ -3,6 +3,7 @@ package messaging
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -155,6 +156,10 @@ func (h *Handler) createEmail(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "subject is required")
 		return
 	}
+	if len(body.To) > maxEmailRecipients {
+		apperr.BadRequest(w, fmt.Sprintf("too many recipients (%d); max %d per email send", len(body.To), maxEmailRecipients))
+		return
+	}
 	scheduledAt, err := parseScheduledAt(body.ScheduledAt)
 	if err != nil {
 		apperr.BadRequest(w, "scheduledAt must be an RFC 3339 timestamp")
@@ -211,6 +216,10 @@ func (h *Handler) createSMS(w http.ResponseWriter, r *http.Request) {
 	if recipients == nil {
 		recipients = []string{}
 	}
+	if len(recipients) > maxSMSRecipients {
+		apperr.BadRequest(w, fmt.Sprintf("too many recipients (%d); max %d per SMS send", len(recipients), maxSMSRecipients))
+		return
+	}
 
 	msg, err := h.svc.CreateMessage(r.Context(), projectID, "sms", "", body.Body, recipients, status, scheduledAt)
 	if err != nil {
@@ -261,6 +270,10 @@ func (h *Handler) createPush(w http.ResponseWriter, r *http.Request) {
 	recipients := firstNonEmpty(body.To, body.Token)
 	if recipients == nil {
 		recipients = []string{}
+	}
+	if len(recipients) > maxPushRecipients {
+		apperr.BadRequest(w, fmt.Sprintf("too many recipients (%d); max %d per push send", len(recipients), maxPushRecipients))
+		return
 	}
 
 	msg, err := h.svc.CreateMessage(r.Context(), projectID, "push", body.Title, body.Body, recipients, status, scheduledAt)
