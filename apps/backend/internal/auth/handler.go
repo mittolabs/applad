@@ -158,10 +158,11 @@ type OAuthResolver interface {
 
 // OAuthUserInfo is normalized OAuth user info.
 type OAuthUserInfo struct {
-	ID       string
-	Email    string
-	Name     string
-	Provider string
+	ID            string
+	Email         string
+	EmailVerified bool
+	Name          string
+	Provider      string
 }
 
 // NewHandler creates a new auth Handler.
@@ -1056,7 +1057,7 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create or link user and session
-	sess, token, err := h.svc.CreateOAuthSession(ctx, projectID, providerName, userInfo.ID, userInfo.Email, userInfo.Name, r.RemoteAddr, r.UserAgent())
+	sess, token, err := h.svc.CreateOAuthSession(ctx, projectID, providerName, userInfo.ID, userInfo.Email, userInfo.Name, userInfo.EmailVerified, r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		http.Redirect(w, r, failureURL+"?error=session_failed", http.StatusTemporaryRedirect)
 		return

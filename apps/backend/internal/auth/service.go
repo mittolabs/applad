@@ -1171,44 +1171,65 @@ func nullString(s string) sql.NullString {
 }
 
 // CreateOAuthSession creates or links an OAuth user and returns a session.
-func (s *Service) CreateOAuthSession(ctx context.Context, projectID, provider, oauthID, email, name, ip, ua string) (*model.Session, string, error) {
-	// Check if user exists with this OAuth identity
+func (s *Service) CreateOAuthSession(ctx context.Context, projectID, provider, oauthID, email, name string, emailVerified bool, ip, ua string) (*model.Session, string, error) {
+	// 1. An exact identity match (provider + oauth_id) always wins.
 	var userID string
 	err := s.db.QueryRowContext(ctx,
 		"SELECT id FROM users WHERE project_id = $1 AND oauth_provider = $2 AND oauth_id = $3",
 		projectID, provider, oauthID).Scan(&userID)
-
-	if err == sql.ErrNoRows {
-		// Check if user exists with this email
-		err2 := s.db.QueryRowContext(ctx,
-			"SELECT id FROM users WHERE project_id = $1 AND email = $2",
-			projectID, email).Scan(&userID)
-
-		if err2 == sql.ErrNoRows {
-			// Create new user
-			userID = uid.New("unique()")
-			now := time.Now().UTC()
-			labelsJSON, _ := json.Marshal([]string{})
-			prefsJSON, _ := json.Marshal(map[string]interface{}{})
-			_, err := s.db.ExecContext(ctx,
-				`INSERT INTO users (id, project_id, email, name, oauth_provider, oauth_id, email_verified, labels, prefs, created_at, updated_at)
-				 VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10)`,
-				userID, projectID, email, name, provider, oauthID, labelsJSON, prefsJSON, now, now)
-			if err != nil {
-				return nil, "", fmt.Errorf("auth: create oauth user: %w", err)
-			}
-		} else if err2 == nil {
-			// Link OAuth to existing email user
-			s.db.ExecContext(ctx,
-				"UPDATE users SET oauth_provider = $1, oauth_id = $2, email_verified = 1 WHERE id = $3 AND project_id = $4",
-				provider, oauthID, userID, projectID)
-		} else {
-			return nil, "", err2
-		}
-	} else if err != nil {
+	if err == nil {
+		return s.createSession(ctx, userID, projectID, provider, ip, ua)
+	}
+	if err != sql.ErrNoRows {
 		return nil, "", err
 	}
 
+	// 2. No identity match. Only a VERIFIED, non-empty email may attach this
+	// OAuth identity to an existing account. An unverified or provider-chosen
+	// email must not, or it becomes an account-takeover vector; and an empty
+	// email (emailless providers) is never a match key, or the first emailless
+	// user's account would swallow every later one.
+	if email != "" {
+		var existingID string
+		e := s.db.QueryRowContext(ctx,
+			"SELECT id FROM users WHERE project_id = $1 AND email = $2",
+			projectID, email).Scan(&existingID)
+		if e == nil {
+			if !emailVerified {
+				return nil, "", fmt.Errorf("oauth_email_unverified: an account with this email already exists; sign in with it and link %s from your account", provider)
+			}
+			if _, uerr := s.db.ExecContext(ctx,
+				"UPDATE users SET oauth_provider = $1, oauth_id = $2, email_verified = 1 WHERE id = $3 AND project_id = $4",
+				provider, oauthID, existingID, projectID); uerr != nil {
+				return nil, "", uerr
+			}
+			return s.createSession(ctx, existingID, projectID, provider, ip, ua)
+		}
+		if e != sql.ErrNoRows {
+			return nil, "", e
+		}
+	}
+
+	// 3. Create a new account. Store the email only if present, and mark it
+	// verified only if the provider asserted verification.
+	userID = uid.New("unique()")
+	now := time.Now().UTC()
+	labelsJSON, _ := json.Marshal([]string{})
+	prefsJSON, _ := json.Marshal(map[string]interface{}{})
+	var emailArg interface{}
+	if email != "" {
+		emailArg = email
+	}
+	verified := 0
+	if emailVerified {
+		verified = 1
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO users (id, project_id, email, name, oauth_provider, oauth_id, email_verified, labels, prefs, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		userID, projectID, emailArg, name, provider, oauthID, verified, labelsJSON, prefsJSON, now, now); err != nil {
+		return nil, "", fmt.Errorf("auth: create oauth user: %w", err)
+	}
 	return s.createSession(ctx, userID, projectID, provider, ip, ua)
 }
 

@@ -560,6 +560,7 @@ func (a *oauthAdapter) GetUserInfo(ctx context.Context, accessToken string) (aut
 		return auth.OAuthUserInfo{}, err
 	}
 	return auth.OAuthUserInfo{
-		ID: info.ID, Email: info.Email, Name: info.Name, Provider: info.Provider,
+		ID: info.ID, Email: info.Email, EmailVerified: info.EmailVerified,
+		Name: info.Name, Provider: info.Provider,
 	}, nil
 }

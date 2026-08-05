@@ -411,14 +411,17 @@ func ListAvailableProviders() []string {
 
 func parseGoogleUser(body []byte) (*UserInfo, error) {
 	var u struct {
-		ID    string `json:"id"`
-		Email string `json:"email"`
-		Name  string `json:"name"`
+		ID            string `json:"id"`
+		Email         string `json:"email"`
+		Name          string `json:"name"`
+		VerifiedEmail bool   `json:"verified_email"` // userinfo v2
+		EmailVerified bool   `json:"email_verified"` // OIDC
 	}
 	if err := json.Unmarshal(body, &u); err != nil {
 		return nil, err
 	}
-	return &UserInfo{ID: u.ID, Email: u.Email, Name: u.Name, Provider: "google"}, nil
+	return &UserInfo{ID: u.ID, Email: u.Email, Name: u.Name,
+		EmailVerified: u.VerifiedEmail || u.EmailVerified, Provider: "google"}, nil
 }
 
 func parseGitHubUser(body []byte) (*UserInfo, error) {
@@ -442,17 +445,20 @@ func parseAppleUser(body []byte) (*UserInfo, error) {
 	var u struct {
 		Sub   string `json:"sub"`
 		Email string `json:"email"`
+		// Apple encodes email_verified as the string "true"/"false".
+		EmailVerified string `json:"email_verified"`
 	}
 	if err := json.Unmarshal(body, &u); err != nil {
 		return nil, err
 	}
-	return &UserInfo{ID: u.Sub, Email: u.Email, Provider: "apple"}, nil
+	return &UserInfo{ID: u.Sub, Email: u.Email, EmailVerified: u.EmailVerified == "true", Provider: "apple"}, nil
 }
 
 func parseDiscordUser(body []byte) (*UserInfo, error) {
 	var u struct {
 		ID       string `json:"id"`
 		Email    string `json:"email"`
+		Verified bool   `json:"verified"` // Discord asserts email verification
 		Username string `json:"username"`
 		Global   string `json:"global_name"`
 	}
@@ -463,7 +469,7 @@ func parseDiscordUser(body []byte) (*UserInfo, error) {
 	if name == "" {
 		name = u.Username
 	}
-	return &UserInfo{ID: u.ID, Email: u.Email, Name: name, Provider: "discord"}, nil
+	return &UserInfo{ID: u.ID, Email: u.Email, EmailVerified: u.Verified, Name: name, Provider: "discord"}, nil
 }
 
 func parseTwitterUser(body []byte) (*UserInfo, error) {

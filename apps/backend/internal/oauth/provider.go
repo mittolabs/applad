@@ -15,10 +15,14 @@ import (
 
 // UserInfo is the normalized user info returned by any OAuth provider.
 type UserInfo struct {
-	ID       string `json:"id"`
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	// EmailVerified is true only when the provider asserts the email is
+	// verified. It gates account linking: an unverified (or attacker-chosen)
+	// email must never attach an OAuth identity to an existing account.
+	EmailVerified bool   `json:"emailVerified"`
+	Name          string `json:"name"`
+	Provider      string `json:"provider"`
 }
 
 // Provider defines an OAuth2 provider configuration.
