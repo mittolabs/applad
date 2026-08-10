@@ -329,11 +329,13 @@ DB_PASSWORD="$(gen_secret 16)"
 CREDENTIALS_ENCRYPTION_KEY="$(gen_secret 32)"
 API_KEY_SECRET="$(gen_secret 32)"
 STORAGE_ENCRYPTION_KEY="$(gen_secret 32)"
+MASTER_ENCRYPTION_KEY="$(gen_secret 32)"
 log "JWT_SECRET                 (64 hex chars)"
 log "DB_PASSWORD                (32 hex chars)"
 log "CREDENTIALS_ENCRYPTION_KEY (64 hex chars)"
 log "API_KEY_SECRET             (64 hex chars)"
 log "STORAGE_ENCRYPTION_KEY     (64 hex chars)"
+log "MASTER_ENCRYPTION_KEY      (64 hex chars)"
 printf '\n'
 
 # Storage
@@ -431,6 +433,11 @@ API_KEY_SECRET=${API_KEY_SECRET}
 # Encrypts files in buckets that have encryption enabled. Only used once such a
 # bucket exists — but if you LOSE this key, that data is UNRECOVERABLE. Back it up.
 STORAGE_ENCRYPTION_KEY=${STORAGE_ENCRYPTION_KEY}
+# Wraps each project's own field-encryption key (encrypted Databases columns,
+# and Storage buckets once migrated off STORAGE_ENCRYPTION_KEY above). Only
+# used once an encrypted column/bucket exists — but if you LOSE this key,
+# that data is UNRECOVERABLE. Back it up.
+MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
 
 DB_PASSWORD=${DB_PASSWORD}
 DATABASE_DSN=postgres://applad:${DB_PASSWORD}@pgbouncer:5432/applad?sslmode=disable
@@ -467,7 +474,7 @@ AI_BASE_URL=${AI_BASE_URL}
 EOF
 
 log ".env written"
-warn "Back up .env: STORAGE_ENCRYPTION_KEY is unrecoverable — losing it loses any encrypted-bucket data."
+warn "Back up .env: STORAGE_ENCRYPTION_KEY and MASTER_ENCRYPTION_KEY are unrecoverable — losing either loses the data encrypted under it."
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 7. Write the Caddyfile

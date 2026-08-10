@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckSquare, Columns3, Plus, Square, X } from 'lucide-react';
+import { CheckSquare, Columns3, Lock, Plus, Square, X } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -106,6 +106,7 @@ export function ColumnsPanel({
                   const key = str(col['key']);
                   const type = str(col['type']);
                   const required = col['required'] === true;
+                  const encrypted = col['encrypted'] === true;
                   const def = str(col['default']) || '-';
                   const perms = (col['$permissions'] as string[] | undefined) ?? ['read', 'write'];
                   const Icon = columnTypeIcon(type);
@@ -122,6 +123,15 @@ export function ColumnsPanel({
                           {required && (
                             <span className="rounded-[var(--radius-sm)] bg-[color-mix(in_srgb,var(--color-accent)_15%,transparent)] px-1.5 py-0.5 text-[length:var(--text-caption)] font-medium text-[var(--color-accent)]">
                               required
+                            </span>
+                          )}
+                          {encrypted && (
+                            <span
+                              title="Values are stored as opaque ciphertext at rest"
+                              className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-[color-mix(in_srgb,var(--status-success)_15%,transparent)] px-1.5 py-0.5 text-[length:var(--text-caption)] font-medium text-[var(--status-success)]"
+                            >
+                              <Lock size={10} />
+                              encrypted
                             </span>
                           )}
                         </span>
@@ -239,6 +249,7 @@ function CreateColumnPanel({
   const [elements, setElements] = useState('');
   const [required, setRequired] = useState(false);
   const [array, setArray] = useState(false);
+  const [encrypted, setEncrypted] = useState(false);
   const [minLen, setMinLen] = useState('');
   const [maxLen, setMaxLen] = useState('');
   const [minVal, setMinVal] = useState('');
@@ -255,7 +266,7 @@ function CreateColumnPanel({
     setCreating(true);
     setError(null);
     try {
-      const data: Json = { key: key.trim(), required, array };
+      const data: Json = { key: key.trim(), required, array, encrypted };
       if (defaultVal.trim()) data['default'] = defaultVal.trim();
       if (type === 'string') data['size'] = Number.parseInt(size, 10) || 256;
       if (type === 'enum') {
@@ -359,6 +370,18 @@ function CreateColumnPanel({
           subtitle="Indicate whether this column is an array."
           value={array}
           onChange={setArray}
+          disabled={encrypted}
+        />
+        <ToggleRow
+          label="Encrypted"
+          subtitle={
+            array
+              ? 'Not available for array columns — store a single encrypted JSON value instead.'
+              : 'Store this column’s values as opaque ciphertext at rest. Requires field-level encryption to be configured on this instance.'
+          }
+          value={encrypted}
+          onChange={setEncrypted}
+          disabled={array}
         />
 
         {showValidation && (
@@ -436,15 +459,17 @@ function ToggleRow({
   subtitle,
   value,
   onChange,
+  disabled,
 }: {
   label: string;
   subtitle: string;
   value: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <Switch checked={value} onCheckedChange={onChange} />
+    <div className={`flex items-start gap-3${disabled ? ' opacity-50' : ''}`}>
+      <Switch checked={value} onCheckedChange={onChange} disabled={disabled} />
       <div className="min-w-0">
         <div className="text-[length:var(--text-body)] text-text-primary">{label}</div>
         <div className="text-[length:var(--text-caption)] text-text-muted">{subtitle}</div>

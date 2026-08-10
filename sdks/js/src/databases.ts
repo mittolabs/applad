@@ -76,7 +76,16 @@ export class Databases {
     databaseId: string,
     tableId: string,
     key: string,
-    opts?: { required?: boolean; size?: number; defaultValue?: string; array?: boolean }
+    opts?: {
+      required?: boolean;
+      size?: number;
+      defaultValue?: string;
+      array?: boolean;
+      /** Store this column's values as opaque ciphertext at rest (see field-level
+       * encryption docs). Cannot be combined with `array`, and requires the
+       * instance to have MASTER_ENCRYPTION_KEY configured. */
+      encrypted?: boolean;
+    }
   ) {
     return this.client.call(
       'POST',
@@ -87,6 +96,7 @@ export class Databases {
         array: opts?.array ?? false,
         ...(opts?.size && { size: opts.size }),
         ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
+        ...(opts?.encrypted !== undefined && { encrypted: opts.encrypted }),
       }
     );
   }
@@ -95,7 +105,14 @@ export class Databases {
     databaseId: string,
     tableId: string,
     key: string,
-    opts?: { required?: boolean; min?: number; max?: number; defaultValue?: number; array?: boolean }
+    opts?: {
+      required?: boolean;
+      min?: number;
+      max?: number;
+      defaultValue?: number;
+      array?: boolean;
+      encrypted?: boolean;
+    }
   ) {
     return this.client.call(
       'POST',
@@ -107,6 +124,7 @@ export class Databases {
         ...(opts?.min !== undefined && { min: opts.min }),
         ...(opts?.max !== undefined && { max: opts.max }),
         ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
+        ...(opts?.encrypted !== undefined && { encrypted: opts.encrypted }),
       }
     );
   }
@@ -115,7 +133,7 @@ export class Databases {
     databaseId: string,
     tableId: string,
     key: string,
-    opts?: { required?: boolean; defaultValue?: boolean; array?: boolean }
+    opts?: { required?: boolean; defaultValue?: boolean; array?: boolean; encrypted?: boolean }
   ) {
     return this.client.call(
       'POST',
@@ -125,6 +143,7 @@ export class Databases {
         required: opts?.required ?? false,
         array: opts?.array ?? false,
         ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
+        ...(opts?.encrypted !== undefined && { encrypted: opts.encrypted }),
       }
     );
   }

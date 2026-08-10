@@ -127,6 +127,41 @@ class TestDatabases(unittest.TestCase):
         result = self.client.databases.list_rows("db1", "t1")
         self.assertEqual(result["documents"], [])
 
+    @patch("urllib.request.urlopen")
+    def test_create_column_defaults_encrypted_false(self, mock_urlopen):
+        mock_urlopen.return_value = _mock_response({"key": "name"})
+        self.client.databases.create_column("db1", "t1", "string", "name")
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(body["encrypted"], False)
+        self.assertEqual(body["required"], False)
+        self.assertEqual(body["array"], False)
+        self.assertIn("/databases/db1/tables/t1/columns/string", req.full_url)
+
+    @patch("urllib.request.urlopen")
+    def test_create_column_encrypted(self, mock_urlopen):
+        mock_urlopen.return_value = _mock_response({"key": "ssn"})
+        self.client.databases.create_column(
+            "db1", "t1", "string", "ssn", encrypted=True
+        )
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(body["encrypted"], True)
+
+    @patch("urllib.request.urlopen")
+    def test_create_column_options(self, mock_urlopen):
+        mock_urlopen.return_value = _mock_response({"key": "age"})
+        self.client.databases.create_column(
+            "db1", "t1", "integer", "age",
+            required=True, min_value=0, max_value=120, default=18,
+        )
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(body["required"], True)
+        self.assertEqual(body["min"], 0)
+        self.assertEqual(body["max"], 120)
+        self.assertEqual(body["default"], 18)
+
 
 class TestStorage(unittest.TestCase):
     def setUp(self):

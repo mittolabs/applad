@@ -276,6 +276,57 @@ class Databases:
             "GET", f"/databases/{database_id}/tables/{table_id}/rows/{row_id}/versions"
         )
 
+    # --- Columns ---
+
+    def create_column(
+        self,
+        database_id: str,
+        table_id: str,
+        column_type: str,
+        key: str,
+        *,
+        required: bool = False,
+        array: bool = False,
+        encrypted: bool = False,
+        default=None,
+        size: int | None = None,
+        min_value=None,
+        max_value=None,
+        elements: list | None = None,
+        validation: dict | None = None,
+    ):
+        """Create a column of the given type ("string", "integer", "boolean",
+        "double", "datetime", "email", "url", "enum", ...) on a table.
+
+        Set ``encrypted=True`` to store this column's values as opaque
+        ciphertext at rest (see the field-level encryption docs). Cannot be
+        combined with ``array=True``, and requires the instance to have
+        MASTER_ENCRYPTION_KEY configured.
+        """
+        body = {
+            "key": key,
+            "required": required,
+            "array": array,
+            "encrypted": encrypted,
+        }
+        if default is not None:
+            body["default"] = default
+        if size is not None:
+            body["size"] = size
+        if min_value is not None:
+            body["min"] = min_value
+        if max_value is not None:
+            body["max"] = max_value
+        if elements is not None:
+            body["elements"] = elements
+        if validation is not None:
+            body["validation"] = validation
+        return self.client._call(
+            "POST",
+            f"/databases/{database_id}/tables/{table_id}/columns/{column_type}",
+            body,
+        )
+
     # --- Column permissions ---
 
     def get_column_permissions(self, database_id: str, table_id: str, key: str):

@@ -137,6 +137,11 @@ type Column struct {
 	Options     map[string]interface{} `json:"options,omitempty"`
 	Validation  *ColumnValidation      `json:"validation,omitempty"`
 	Permissions []string               `json:"$permissions"`
+	// Encrypted marks this column for field-level encryption at rest: values
+	// are stored as opaque ciphertext (see internal/dek), decrypted only for
+	// authorized reads, and cannot be filtered, sorted, or searched on.
+	// Mutually exclusive with Array (see internal/databases.CreateColumn).
+	Encrypted bool `json:"encrypted"`
 }
 
 // Index represents a table index.

@@ -134,8 +134,12 @@ func (d *appladDest) importColumn(ctx context.Context, c Column) Result {
 	if !ok {
 		return Result{Status: StatusError, Message: "parent table not imported: " + c.TableID}
 	}
+	// Encrypted columns are not carried across a transfer: the source value was
+	// already ciphertext under the source project's key, and re-encrypting it
+	// under the destination project's key would require decrypting on read
+	// first — a data-migration concern this importer does not yet handle.
 	_, err := d.dbs.CreateColumn(ctx, d.projectID, ref.table, c.Key, mapColumnType(c.Type),
-		c.Required, c.Array, c.Default, c.Options, nil)
+		c.Required, c.Array, false, c.Default, c.Options, nil)
 	if err != nil && !isExists(err) {
 		return errResult(err)
 	}

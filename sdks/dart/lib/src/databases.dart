@@ -135,6 +135,10 @@ class Databases {
   // --- Columns ---
 
   /// Create a string column.
+  ///
+  /// Set [encrypted] to store this column's values as opaque ciphertext at
+  /// rest (see field-level encryption docs). Cannot be combined with [array],
+  /// and requires the instance to have MASTER_ENCRYPTION_KEY configured.
   Future<Map<String, dynamic>> createStringColumn({
     required String databaseId,
     required String tableId,
@@ -143,6 +147,7 @@ class Databases {
     int? size,
     String? defaultValue,
     bool array = false,
+    bool encrypted = false,
   }) async {
     final res = await _dio.post(
       '/v1/databases/$databaseId/tables/$tableId/columns/string',
@@ -150,6 +155,7 @@ class Databases {
         'key': key,
         'required': required_,
         'array': array,
+        'encrypted': encrypted,
         if (size != null) 'size': size,
         if (defaultValue != null) 'default': defaultValue,
       },
@@ -167,6 +173,7 @@ class Databases {
     num? max,
     int? defaultValue,
     bool array = false,
+    bool encrypted = false,
   }) async {
     final res = await _dio.post(
       '/v1/databases/$databaseId/tables/$tableId/columns/integer',
@@ -174,6 +181,7 @@ class Databases {
         'key': key,
         'required': required_,
         'array': array,
+        'encrypted': encrypted,
         if (min != null) 'min': min,
         if (max != null) 'max': max,
         if (defaultValue != null) 'default': defaultValue,
@@ -190,6 +198,7 @@ class Databases {
     bool required_ = false,
     bool? defaultValue,
     bool array = false,
+    bool encrypted = false,
   }) async {
     final res = await _dio.post(
       '/v1/databases/$databaseId/tables/$tableId/columns/boolean',
@@ -197,6 +206,7 @@ class Databases {
         'key': key,
         'required': required_,
         'array': array,
+        'encrypted': encrypted,
         if (defaultValue != null) 'default': defaultValue,
       },
     );
@@ -212,6 +222,7 @@ class Databases {
     bool required_ = false,
     String? defaultValue,
     bool array = false,
+    bool encrypted = false,
   }) async {
     final res = await _dio.post(
       '/v1/databases/$databaseId/tables/$tableId/columns/enum',
@@ -219,6 +230,7 @@ class Databases {
         'key': key,
         'required': required_,
         'array': array,
+        'encrypted': encrypted,
         'elements': elements,
         if (defaultValue != null) 'default': defaultValue,
       },

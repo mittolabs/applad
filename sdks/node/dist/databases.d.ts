@@ -26,6 +26,10 @@ export declare class Databases {
         size?: number;
         defaultValue?: string;
         array?: boolean;
+        /** Store this column's values as opaque ciphertext at rest (see field-level
+         * encryption docs). Cannot be combined with `array`, and requires the
+         * instance to have MASTER_ENCRYPTION_KEY configured. */
+        encrypted?: boolean;
     }): Promise<any>;
     createIntegerColumn(databaseId: string, tableId: string, key: string, opts?: {
         required?: boolean;
@@ -33,11 +37,13 @@ export declare class Databases {
         max?: number;
         defaultValue?: number;
         array?: boolean;
+        encrypted?: boolean;
     }): Promise<any>;
     createBooleanColumn(databaseId: string, tableId: string, key: string, opts?: {
         required?: boolean;
         defaultValue?: boolean;
         array?: boolean;
+        encrypted?: boolean;
     }): Promise<any>;
     listColumns(databaseId: string, tableId: string): Promise<any>;
     deleteColumn(databaseId: string, tableId: string, key: string): Promise<any>;

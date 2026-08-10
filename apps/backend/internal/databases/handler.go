@@ -2,12 +2,14 @@ package databases
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mittolabs/applad/internal/apperr"
+	"github.com/mittolabs/applad/internal/dek"
 	"github.com/mittolabs/applad/internal/middleware"
 	"github.com/mittolabs/applad/internal/model"
 )
@@ -273,6 +275,7 @@ func (h *Handler) createColumn(attrType string) http.HandlerFunc {
 			Key        string                  `json:"key"`
 			Required   bool                    `json:"required"`
 			Array      bool                    `json:"array"`
+			Encrypted  bool                    `json:"encrypted"`
 			Default    interface{}             `json:"default"`
 			Validation *model.ColumnValidation `json:"validation"`
 			// type-specific
@@ -283,6 +286,10 @@ func (h *Handler) createColumn(attrType string) http.HandlerFunc {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Key == "" {
 			apperr.BadRequest(w, "key is required")
+			return
+		}
+		if body.Array && body.Encrypted {
+			apperr.BadRequest(w, "encrypted array columns are not supported; store a single encrypted JSON value instead")
 			return
 		}
 		options := map[string]interface{}{}
@@ -301,10 +308,14 @@ func (h *Handler) createColumn(attrType string) http.HandlerFunc {
 		case "enum":
 			options["elements"] = body.Elements
 		}
-		column, err := h.svc.CreateColumn(r.Context(), projectID, tableID, body.Key, attrType, body.Required, body.Array, body.Default, options, body.Validation)
+		column, err := h.svc.CreateColumn(r.Context(), projectID, tableID, body.Key, attrType, body.Required, body.Array, body.Encrypted, body.Default, options, body.Validation)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				apperr.NotFound(w, "table")
+				return
+			}
+			if errors.Is(err, dek.ErrDisabled) || strings.Contains(err.Error(), "not supported") {
+				apperr.BadRequest(w, err.Error())
 				return
 			}
 			apperr.Internal(w, err)

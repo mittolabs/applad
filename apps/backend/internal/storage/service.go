@@ -6,11 +6,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/md5"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -27,12 +24,15 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	_ "image/gif" // register GIF decoder
 
+	appladcrypto "github.com/mittolabs/applad/internal/crypto"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/dek"
 	"github.com/mittolabs/applad/internal/model"
 	"github.com/mittolabs/applad/internal/realtime"
 	"github.com/mittolabs/applad/internal/uid"
@@ -44,9 +44,11 @@ type Service struct {
 	storagePath string // kept for local-driver chunk temp path
 	driver      Driver
 	clamavAddr  string
-	encKey      []byte // AES key for encryption at rest; empty means disabled
-	jwtSecret   string
-	events      realtime.EventPublisher
+	encKey      []byte // legacy global AES key (STORAGE_ENCRYPTION_KEY); kept only to
+	// decode files already encrypted under it before per-project DEKs existed
+	dek       *dek.Service // per-project field-encryption keys; new writes prefer this
+	jwtSecret string
+	events    realtime.EventPublisher
 }
 
 // NewService creates a new storage Service using the local filesystem driver.
@@ -68,6 +70,13 @@ func (s *Service) SetDriver(d Driver) { s.driver = d }
 // SetEventPublisher sets the realtime event publisher.
 func (s *Service) SetEventPublisher(pub realtime.EventPublisher) {
 	s.events = pub
+}
+
+// SetDEKService wires per-project field-encryption key management in. New
+// encrypted-bucket writes prefer this over the legacy global encKey once set;
+// files already encrypted under encKey keep decoding via it regardless.
+func (s *Service) SetDEKService(d *dek.Service) {
+	s.dek = d
 }
 
 // SetClamAV configures antivirus scanning.
@@ -97,17 +106,47 @@ func (s *Service) SetEncryptionKey(hexKey string) error {
 // flags — toggling a bucket after upload never mis-decodes existing files.
 const (
 	compressedSuffix = ".gz"
-	encryptedSuffix  = ".enc"
+	// encryptedSuffix marks a file encrypted under the legacy global
+	// STORAGE_ENCRYPTION_KEY, from before per-project DEKs existed. Decoding
+	// still supports it indefinitely; new writes never produce it once a
+	// dek.Service is configured (see encodeAtRest).
+	encryptedSuffix = ".enc"
+	// encryptedVersionMarker prefixes the DEK version on a per-project
+	// encrypted file, e.g. ".enc.v3" — self-describing so a rotated-away
+	// project key still decodes files it encrypted.
+	encryptedVersionMarker = ".enc.v"
 )
 
 func bucketCompresses(b *model.Bucket) bool {
 	return b.Compression != "" && b.Compression != "none"
 }
 
+func encryptedVersionSuffix(version int) string {
+	return encryptedVersionMarker + strconv.Itoa(version)
+}
+
+// parseEncryptedVersionSuffix reports the DEK version a path's trailing
+// ".enc.vN" suffix names, if it has one.
+func parseEncryptedVersionSuffix(path string) (version int, ok bool) {
+	idx := strings.LastIndex(path, encryptedVersionMarker)
+	if idx == -1 {
+		return 0, false
+	}
+	numPart := path[idx+len(encryptedVersionMarker):]
+	v, err := strconv.Atoi(numPart)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
 // encodeAtRest applies the bucket's at-rest transforms (compression, then
 // encryption) and returns the bytes to store plus a path suffix recording how
-// they were encoded.
-func (s *Service) encodeAtRest(bucket *model.Bucket, content []byte) ([]byte, string, error) {
+// they were encoded. When a dek.Service is configured, encryption always uses
+// the project's own key (new writes never fall back to the legacy global key,
+// even if STORAGE_ENCRYPTION_KEY also happens to be set — that key becomes a
+// read-only compatibility path for files it already encrypted).
+func (s *Service) encodeAtRest(ctx context.Context, projectID string, bucket *model.Bucket, content []byte) ([]byte, string, error) {
 	out := content
 	suffix := ""
 	if bucketCompresses(bucket) {
@@ -123,19 +162,48 @@ func (s *Service) encodeAtRest(bucket *model.Bucket, content []byte) ([]byte, st
 		suffix += compressedSuffix
 	}
 	if bucket.Encryption {
-		enc, err := s.encrypt(out)
-		if err != nil {
-			return nil, "", err
+		if s.dek != nil && s.dek.Enabled() {
+			key, version, err := s.dek.Unwrap(ctx, projectID)
+			if err != nil {
+				return nil, "", fmt.Errorf("storage: unwrap project encryption key: %w", err)
+			}
+			enc, err := s.encryptWithKey(key, out)
+			if err != nil {
+				return nil, "", err
+			}
+			out = enc
+			suffix += encryptedVersionSuffix(version)
+		} else {
+			enc, err := s.encrypt(out)
+			if err != nil {
+				return nil, "", err
+			}
+			out = enc
+			suffix += encryptedSuffix
 		}
-		out = enc
-		suffix += encryptedSuffix
 	}
 	return out, suffix, nil
 }
 
-// decodeAtRest reverses encodeAtRest using the stored path's suffix.
-func (s *Service) decodeAtRest(path string, content []byte) ([]byte, error) {
-	if strings.HasSuffix(path, encryptedSuffix) {
+// decodeAtRest reverses encodeAtRest using the stored path's suffix, which is
+// self-describing regardless of the bucket's current flags or any key
+// rotation since the file was written.
+func (s *Service) decodeAtRest(ctx context.Context, projectID, path string, content []byte) ([]byte, error) {
+	if version, ok := parseEncryptedVersionSuffix(path); ok {
+		if s.dek == nil {
+			return nil, dek.ErrDisabled
+		}
+		key, err := s.dek.UnwrapVersion(ctx, projectID, version)
+		if err != nil {
+			return nil, fmt.Errorf("storage: unwrap project encryption key: %w", err)
+		}
+		dec, err := s.decryptWithKey(key, content)
+		if err != nil {
+			return nil, err
+		}
+		content = dec
+		path = strings.TrimSuffix(path, encryptedVersionSuffix(version))
+	} else if strings.HasSuffix(path, encryptedSuffix) {
 		dec, err := s.decrypt(content)
 		if err != nil {
 			return nil, err
@@ -158,47 +226,39 @@ func (s *Service) decodeAtRest(path string, content []byte) ([]byte, error) {
 	return content, nil
 }
 
-// encrypt seals plaintext with AES-GCM, prepending the random nonce.
+// encrypt seals plaintext with AES-GCM under the legacy global instance key,
+// prepending the random nonce.
 func (s *Service) encrypt(plaintext []byte) ([]byte, error) {
 	if len(s.encKey) == 0 {
 		return nil, fmt.Errorf("storage: encryption enabled but STORAGE_ENCRYPTION_KEY not configured")
 	}
-	block, err := aes.NewCipher(s.encKey)
-	if err != nil {
-		return nil, fmt.Errorf("storage: cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("storage: gcm: %w", err)
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("storage: nonce: %w", err)
-	}
-	return gcm.Seal(nonce, nonce, plaintext, nil), nil
+	return s.encryptWithKey(s.encKey, plaintext)
 }
 
-// decrypt opens an AES-GCM payload whose nonce is prepended.
+// decrypt opens an AES-GCM payload whose nonce is prepended, using the legacy
+// global instance key.
 func (s *Service) decrypt(ciphertext []byte) ([]byte, error) {
 	if len(s.encKey) == 0 {
 		return nil, fmt.Errorf("storage: file is encrypted but STORAGE_ENCRYPTION_KEY not configured")
 	}
-	block, err := aes.NewCipher(s.encKey)
+	return s.decryptWithKey(s.encKey, ciphertext)
+}
+
+// encryptWithKey/decryptWithKey seal/open with an explicit key rather than the
+// service's legacy s.encKey field — used by the per-project DEK path so the
+// same AEAD primitive backs both the legacy global key and per-project keys.
+func (s *Service) encryptWithKey(key, plaintext []byte) ([]byte, error) {
+	sealed, err := appladcrypto.SealBytes(key, plaintext)
 	if err != nil {
-		return nil, fmt.Errorf("storage: cipher: %w", err)
+		return nil, fmt.Errorf("storage: %w", err)
 	}
-	gcm, err := cipher.NewGCM(block)
+	return sealed, nil
+}
+
+func (s *Service) decryptWithKey(key, ciphertext []byte) ([]byte, error) {
+	plain, err := appladcrypto.OpenBytes(key, ciphertext)
 	if err != nil {
-		return nil, fmt.Errorf("storage: gcm: %w", err)
-	}
-	ns := gcm.NonceSize()
-	if len(ciphertext) < ns {
-		return nil, fmt.Errorf("storage: ciphertext too short")
-	}
-	nonce, ct := ciphertext[:ns], ciphertext[ns:]
-	plain, err := gcm.Open(nil, nonce, ct, nil)
-	if err != nil {
-		return nil, fmt.Errorf("storage: decrypt: %w", err)
+		return nil, fmt.Errorf("storage: %w", err)
 	}
 	return plain, nil
 }
@@ -370,7 +430,7 @@ func (s *Service) CreateFile(ctx context.Context, projectID, bucketID, fileID, n
 	// transform, so downloads verify against what the caller uploaded.
 	sig := fmt.Sprintf("%x", md5.Sum(content))
 
-	stored, suffix, err := s.encodeAtRest(bucket, content)
+	stored, suffix, err := s.encodeAtRest(ctx, projectID, bucket, content)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +567,7 @@ func (s *Service) GetFileContent(ctx context.Context, fileID, bucketID, projectI
 	if err != nil {
 		return nil, "", err
 	}
-	content, err = s.decodeAtRest(path, content)
+	content, err = s.decodeAtRest(ctx, projectID, path, content)
 	if err != nil {
 		return nil, "", err
 	}
@@ -655,7 +715,7 @@ func (s *Service) CompleteChunkedUpload(ctx context.Context, projectID, bucketID
 	}
 
 	// Apply the bucket's at-rest transforms to the assembled bytes.
-	stored, suffix, err := s.encodeAtRest(bucket, assembled)
+	stored, suffix, err := s.encodeAtRest(ctx, projectID, bucket, assembled)
 	if err != nil {
 		return nil, err
 	}

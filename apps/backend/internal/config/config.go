@@ -151,6 +151,14 @@ type Config struct {
 	// If unset, falls back to JWT_SECRET. Changing this value invalidates all existing API keys.
 	APIKeySecret string
 
+	// MasterEncryptionKey is the root key ("KEK") that wraps every project's
+	// field-encryption data key (see internal/dek). Unlike JWT_SECRET this is
+	// optional: field/bucket encryption is opt-in per column/bucket, so an
+	// instance that never uses it can leave this unset. If set, it must decode
+	// (after optional hex-decoding) to at least 32 bytes.
+	// Generate: openssl rand -hex 32
+	MasterEncryptionKey string
+
 	// Console OAuth — for admin console login (separate from per-project OAuth)
 	ConsoleGitHubClientID     string
 	ConsoleGitHubClientSecret string
@@ -307,6 +315,7 @@ func Load() *Config {
 
 		CredentialsEncryptionKey: getEnv("CREDENTIALS_ENCRYPTION_KEY", ""),
 		APIKeySecret:             getEnv("API_KEY_SECRET", ""),
+		MasterEncryptionKey:      getEnv("MASTER_ENCRYPTION_KEY", ""),
 
 		ConsoleGitHubClientID:     getEnv("CONSOLE_GITHUB_CLIENT_ID", ""),
 		ConsoleGitHubClientSecret: getEnv("CONSOLE_GITHUB_CLIENT_SECRET", ""),

@@ -10,20 +10,15 @@ package credentials
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
+	appladcrypto "github.com/mittolabs/applad/internal/crypto"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/uid"
 )
@@ -124,26 +119,19 @@ func keyForVersion(v int) ([]byte, error) {
 }
 
 // encryptWithVersion encrypts plaintext with the key for the given version.
-// Returns base64(nonce || ciphertext).
+// Returns base64(nonce || ciphertext) — the credentials table carries the
+// version in its own key_version column, so no self-describing token prefix
+// is needed here (contrast EncryptSecret below).
 func encryptWithVersion(plaintext string, version int) (string, error) {
 	key, err := keyForVersion(version)
 	if err != nil {
 		return "", err
 	}
-	block, err := aes.NewCipher(key)
+	sealed, err := appladcrypto.SealBytes(key, []byte(plaintext))
 	if err != nil {
-		return "", fmt.Errorf("credentials: aes cipher: %w", err)
+		return "", fmt.Errorf("credentials: %w", err)
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("credentials: gcm: %w", err)
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("credentials: nonce: %w", err)
-	}
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
+	return base64.StdEncoding.EncodeToString(sealed), nil
 }
 
 // decryptWithVersion decrypts base64(nonce || ciphertext) using the key for version.
@@ -156,21 +144,9 @@ func decryptWithVersion(encoded string, version int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("credentials: base64 decode: %w", err)
 	}
-	block, err := aes.NewCipher(key)
+	plaintext, err := appladcrypto.OpenBytes(key, data)
 	if err != nil {
-		return "", fmt.Errorf("credentials: aes cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("credentials: gcm: %w", err)
-	}
-	nonceSize := gcm.NonceSize()
-	if len(data) < nonceSize {
-		return "", fmt.Errorf("credentials: ciphertext too short")
-	}
-	plaintext, err := gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
-	if err != nil {
-		return "", fmt.Errorf("credentials: decrypt: %w", err)
+		return "", fmt.Errorf("credentials: %w", err)
 	}
 	return string(plaintext), nil
 }
@@ -189,44 +165,31 @@ const secretTokenPrefix = "cv"
 // self-describing token that DecryptSecret can read back.
 func EncryptSecret(plaintext string) (string, error) {
 	version := currentKeyVersion()
-	ct, err := encryptWithVersion(plaintext, version)
+	key, err := keyForVersion(version)
 	if err != nil {
 		return "", err
 	}
-	return secretTokenPrefix + strconv.Itoa(version) + ":" + ct, nil
+	return appladcrypto.SealToken(secretTokenPrefix, version, key, []byte(plaintext))
 }
 
 // DecryptSecret reverses EncryptSecret. A value that does not carry the token
 // marker is assumed to predate encryption and is returned verbatim, so a store
 // that once held plaintext keeps working while new writes are ciphertext.
 func DecryptSecret(token string) (string, error) {
-	version, ct, ok := parseSecretToken(token)
-	if !ok {
+	if !IsEncryptedSecret(token) {
 		return token, nil // legacy plaintext
 	}
-	return decryptWithVersion(ct, version)
+	plaintext, _, err := appladcrypto.OpenToken(secretTokenPrefix, keyForVersion, token)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
 }
 
 // IsEncryptedSecret reports whether token carries the EncryptSecret marker.
 func IsEncryptedSecret(token string) bool {
-	_, _, ok := parseSecretToken(token)
-	return ok
-}
-
-func parseSecretToken(token string) (int, string, bool) {
-	if !strings.HasPrefix(token, secretTokenPrefix) {
-		return 0, "", false
-	}
-	rest := token[len(secretTokenPrefix):]
-	i := strings.IndexByte(rest, ':')
-	if i <= 0 {
-		return 0, "", false
-	}
-	version, err := strconv.Atoi(rest[:i])
-	if err != nil {
-		return 0, "", false
-	}
-	return version, rest[i+1:], true
+	prefix, _, _, ok := appladcrypto.ParseToken(token)
+	return ok && prefix == secretTokenPrefix
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────

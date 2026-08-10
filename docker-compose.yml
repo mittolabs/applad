@@ -94,6 +94,12 @@ services:
       DATABASE_DSN: "postgres://applad:${DB_PASSWORD:-applad}@pgbouncer:5432/applad?sslmode=disable"
       REDIS_ADDR: "redis:6379"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      # At-rest secrets. Each falls back to JWT_SECRET (or, for
+      # MASTER_ENCRYPTION_KEY, stays disabled) if unset — see .env.example.
+      CREDENTIALS_ENCRYPTION_KEY: "${CREDENTIALS_ENCRYPTION_KEY:-}"
+      API_KEY_SECRET: "${API_KEY_SECRET:-}"
+      STORAGE_ENCRYPTION_KEY: "${STORAGE_ENCRYPTION_KEY:-}"
+      MASTER_ENCRYPTION_KEY: "${MASTER_ENCRYPTION_KEY:-}"
       STORAGE_PATH: "/var/applad/storage"
       APP_ENV: "${APP_ENV:-development}"
       # auto (disabled once the first admin exists), true, or false.

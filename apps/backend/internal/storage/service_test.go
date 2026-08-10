@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	appladcrypto "github.com/mittolabs/applad/internal/crypto"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/dek"
 )
 
 // helper: create a service backed by sqlmock + temp directory.
@@ -490,6 +492,129 @@ func TestCreateFile_EncryptionRequiresKey(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestCreateFile_PerProjectDEKEncryptionRoundTrip covers the new envelope
+// scheme: once a dek.Service is wired in, an encrypted bucket writes under
+// the project's own key (not the legacy global STORAGE_ENCRYPTION_KEY), the
+// stored path records the DEK version (".enc.vN"), and GetFileContent
+// unwraps that exact version to decrypt — the version stays correct even
+// though it comes from a project key wrapped under the master key rather
+// than a flat instance-wide secret.
+func TestCreateFile_PerProjectDEKEncryptionRoundTrip(t *testing.T) {
+	svc, mock, tmpDir := setup(t)
+
+	masterKeyHex := strings.Repeat("11", 32) // 64 hex chars -> 32 bytes
+	database := &db.DB{DB: svc.db.DB}
+	dekSvc, err := dek.NewService(database, masterKeyHex)
+	if err != nil {
+		t.Fatalf("dek.NewService: %v", err)
+	}
+	svc.SetDEKService(dekSvc)
+
+	masterKey, err := dek.ParseMasterKey(masterKeyHex)
+	if err != nil {
+		t.Fatalf("ParseMasterKey: %v", err)
+	}
+	rawDEK := bytes.Repeat([]byte{0x42}, 32)
+	wrapped, err := appladcrypto.SealToken("dek", 1, masterKey, rawDEK)
+	if err != nil {
+		t.Fatalf("SealToken: %v", err)
+	}
+
+	mock.ExpectQuery("SELECT id, name, permissions").
+		WithArgs("b1", "proj1").
+		WillReturnRows(bucketRowsFor("", true, false))
+	mock.ExpectQuery("SELECT key_version, wrapped_dek").
+		WithArgs("proj1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_version", "wrapped_dek"}).AddRow(1, wrapped))
+	expectInsertFiles(mock)
+
+	original := []byte("top secret payload — do not store in the clear")
+	f, err := svc.CreateFile(context.Background(), "proj1", "b1", "unique()", "secret.txt", original, "text/plain", nil)
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+
+	// On disk the path carries the versioned marker, not the bare legacy ".enc".
+	diskPath := filepath.Join(tmpDir, "proj1", "b1", f.ID) + ".enc.v1"
+	raw, err := os.ReadFile(diskPath)
+	if err != nil {
+		t.Fatalf("encrypted file not written at %s: %v", diskPath, err)
+	}
+	if bytes.Contains(raw, original) {
+		t.Error("plaintext is present in the stored bytes")
+	}
+
+	// Reading it back unwraps DEK version 1 specifically (a fresh query, since
+	// UnwrapVersion's cache is keyed separately from Unwrap's).
+	mock.ExpectQuery("SELECT path, mime_type").
+		WithArgs(f.ID, "b1", "proj1").
+		WillReturnRows(sqlmock.NewRows([]string{"path", "mime_type"}).AddRow(diskPath, "text/plain"))
+	mock.ExpectQuery("SELECT wrapped_dek FROM project_encryption_keys").
+		WithArgs("proj1", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"wrapped_dek"}).AddRow(wrapped))
+
+	got, mimeType, err := svc.GetFileContent(context.Background(), f.ID, "b1", "proj1")
+	if err != nil {
+		t.Fatalf("GetFileContent: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatalf("got %q, want %q", got, original)
+	}
+	if mimeType != "text/plain" {
+		t.Fatalf("unexpected mime type %q", mimeType)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestGetFileContent_LegacyGlobalKeyStillDecodes proves upgrading an instance
+// to a per-project dek.Service does not strand files already encrypted under
+// the old global STORAGE_ENCRYPTION_KEY: a bare ".enc" suffix (no version
+// marker) still decodes via the legacy key, never attempting to unwrap a
+// project DEK that file was never encrypted with.
+func TestGetFileContent_LegacyGlobalKeyStillDecodes(t *testing.T) {
+	svc, mock, tmpDir := setup(t)
+	if err := svc.SetEncryptionKey(strings.Repeat("ab", 32)); err != nil {
+		t.Fatalf("SetEncryptionKey: %v", err)
+	}
+	// A dek.Service is also configured (as it would be on an upgraded
+	// instance), but must not be consulted for a legacy-suffixed file.
+	dekSvc, err := dek.NewService(&db.DB{DB: svc.db.DB}, strings.Repeat("11", 32))
+	if err != nil {
+		t.Fatalf("dek.NewService: %v", err)
+	}
+	svc.SetDEKService(dekSvc)
+
+	original := []byte("legacy encrypted before per-project DEKs existed")
+	sealed, err := svc.encrypt(original)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	diskPath := filepath.Join(tmpDir, "proj1", "b1", "f1") + ".enc"
+	if err := os.MkdirAll(filepath.Dir(diskPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(diskPath, sealed, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mock.ExpectQuery("SELECT path, mime_type").
+		WithArgs("f1", "b1", "proj1").
+		WillReturnRows(sqlmock.NewRows([]string{"path", "mime_type"}).AddRow(diskPath, "text/plain"))
+
+	got, _, err := svc.GetFileContent(context.Background(), "f1", "b1", "proj1")
+	if err != nil {
+		t.Fatalf("GetFileContent: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatalf("got %q, want %q", got, original)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations (no project-DEK query should have run): %v", err)
 	}
 }
 

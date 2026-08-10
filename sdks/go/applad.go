@@ -290,6 +290,49 @@ func (s *DatabasesService) ListRowVersions(databaseID, tableID, rowID string) (m
 	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables/%s/rows/%s/versions", databaseID, tableID, rowID), nil)
 }
 
+// ColumnOptions configures optional column-creation settings. The zero value
+// creates a required=false, array=false, encrypted=false column with no
+// default, size, bound, or enum constraint.
+type ColumnOptions struct {
+	Required bool
+	Array    bool
+	// Encrypted stores this column's values as opaque ciphertext at rest (see
+	// field-level encryption docs). Cannot be combined with Array, and
+	// requires the instance to have MASTER_ENCRYPTION_KEY configured.
+	Encrypted bool
+	Default   interface{}
+	Size      int      // string columns
+	Min, Max  *float64 // integer/double columns
+	Elements  []string // enum columns
+}
+
+// CreateColumn creates a column of the given type ("string", "integer",
+// "boolean", "double", "datetime", "email", "url", "enum", ...) on a table.
+func (s *DatabasesService) CreateColumn(databaseID, tableID, columnType, key string, opts ColumnOptions) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"key":       key,
+		"required":  opts.Required,
+		"array":     opts.Array,
+		"encrypted": opts.Encrypted,
+	}
+	if opts.Default != nil {
+		body["default"] = opts.Default
+	}
+	if opts.Size > 0 {
+		body["size"] = opts.Size
+	}
+	if opts.Min != nil {
+		body["min"] = *opts.Min
+	}
+	if opts.Max != nil {
+		body["max"] = *opts.Max
+	}
+	if len(opts.Elements) > 0 {
+		body["elements"] = opts.Elements
+	}
+	return s.client.call("POST", fmt.Sprintf("/databases/%s/tables/%s/columns/%s", databaseID, tableID, columnType), body)
+}
+
 func (s *DatabasesService) GetColumnPermissions(databaseID, tableID, key string) (map[string]interface{}, error) {
 	return s.client.call("GET", fmt.Sprintf("/databases/%s/tables/%s/columns/%s/permissions", databaseID, tableID, key), nil)
 }

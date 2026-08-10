@@ -17,7 +17,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	appladcrypto "github.com/mittolabs/applad/internal/crypto"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/dek"
 	"github.com/mittolabs/applad/internal/model"
 	"github.com/mittolabs/applad/internal/realtime"
 	"github.com/mittolabs/applad/internal/uid"
@@ -30,6 +32,7 @@ type Service struct {
 	db       *db.DB
 	events   realtime.EventPublisher
 	resolver RoleResolver
+	dek      *dek.Service // per-project field-encryption keys; nil disables encrypted columns
 }
 
 // RoleResolver returns the extra RLS role tokens a user holds, beyond the
@@ -64,6 +67,13 @@ func (s *Service) SetEventPublisher(pub realtime.EventPublisher) {
 // read("team:X") match no one — which is the safe default, not a silent open.
 func (s *Service) SetRoleResolver(r RoleResolver) {
 	s.resolver = r
+}
+
+// SetDEKService wires per-project field-encryption key management in. Without
+// it, creating or writing to an "encrypted" column fails with dek.ErrDisabled
+// rather than silently storing plaintext.
+func (s *Service) SetDEKService(d *dek.Service) {
+	s.dek = d
 }
 
 // resolveRoles fills in a caller's group roles when the caller did not pass an
@@ -173,7 +183,13 @@ func createPolicySQL(schema, table, policyName, scope, command, usingExpr, check
 	return strings.Join(parts, " ")
 }
 
-func toSQLType(columnType string, options map[string]interface{}) string {
+func toSQLType(columnType string, options map[string]interface{}, encrypted bool) string {
+	// Ciphertext is an opaque base64 token, never a valid int/bool/timestamp/etc,
+	// and always longer than its plaintext — so an encrypted column is always
+	// TEXT regardless of logical type, ignoring any size option.
+	if encrypted {
+		return "TEXT"
+	}
 	switch columnType {
 	case "string":
 		if options != nil {
@@ -500,13 +516,26 @@ func (s *Service) DeleteTable(ctx context.Context, tableID, databaseID, projectI
 	return nil
 }
 
-func (s *Service) CreateColumn(ctx context.Context, projectID, tableID, key, columnType string, required, array bool, defaultValue interface{}, options map[string]interface{}, validation *model.ColumnValidation) (*model.Column, error) {
+func (s *Service) CreateColumn(ctx context.Context, projectID, tableID, key, columnType string, required, array, encrypted bool, defaultValue interface{}, options map[string]interface{}, validation *model.ColumnValidation) (*model.Column, error) {
+	if array && encrypted {
+		return nil, fmt.Errorf("encrypted array columns are not supported; store a single encrypted JSON value instead")
+	}
+
 	tableContext, err := s.lookupProjectTable(ctx, tableID, projectID)
 	if err != nil {
 		return nil, err
 	}
 
-	sqlType := toSQLType(columnType, options)
+	if encrypted {
+		if s.dek == nil {
+			return nil, dek.ErrDisabled
+		}
+		if err := s.dek.EnsureProjectKey(ctx, projectID); err != nil {
+			return nil, err
+		}
+	}
+
+	sqlType := toSQLType(columnType, options, encrypted)
 	if array {
 		sqlType += "[]"
 	}
@@ -530,9 +559,9 @@ func (s *Service) CreateColumn(ctx context.Context, projectID, tableID, key, col
 		}
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO columns (id, table_id, key_name, type, required, "array", default_value, options, validation, permissions, status, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '["read","write"]', 'available', $10)`,
-		uid.New("unique()"), tableID, key, columnType, required, array, defaultJSON, optionsJSON, validationJSON, time.Now().UTC(),
+		`INSERT INTO columns (id, table_id, key_name, type, required, "array", default_value, options, validation, permissions, status, encrypted, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '["read","write"]', 'available', $10, $11)`,
+		uid.New("unique()"), tableID, key, columnType, required, array, defaultJSON, optionsJSON, validationJSON, encrypted, time.Now().UTC(),
 	); err != nil {
 		return nil, fmt.Errorf("insert column metadata: %w", err)
 	}
@@ -540,12 +569,12 @@ func (s *Service) CreateColumn(ctx context.Context, projectID, tableID, key, col
 		return nil, err
 	}
 
-	return &model.Column{Key: key, Type: columnType, Status: "available", Required: required, Array: array, Default: defaultValue, Options: options, Validation: validation, Permissions: []string{"read", "write"}}, nil
+	return &model.Column{Key: key, Type: columnType, Status: "available", Required: required, Array: array, Default: defaultValue, Options: options, Validation: validation, Permissions: []string{"read", "write"}, Encrypted: encrypted}, nil
 }
 
 func (s *Service) ListColumns(ctx context.Context, tableID string) ([]model.Column, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key_name, type, status, required, "array", default_value, COALESCE(options, '{}'), COALESCE(validation, '{}'), COALESCE(permissions, '["read","write"]')
+		`SELECT key_name, type, status, required, "array", default_value, COALESCE(options, '{}'), COALESCE(validation, '{}'), COALESCE(permissions, '["read","write"]'), encrypted
 		 FROM columns WHERE table_id = $1 ORDER BY created_at ASC`,
 		tableID,
 	)
@@ -561,7 +590,7 @@ func (s *Service) ListColumns(ctx context.Context, tableID string) ([]model.Colu
 		var optionsJSON []byte
 		var validationJSON []byte
 		var permsJSON []byte
-		if err := rows.Scan(&column.Key, &column.Type, &column.Status, &column.Required, &column.Array, &defaultJSON, &optionsJSON, &validationJSON, &permsJSON); err != nil {
+		if err := rows.Scan(&column.Key, &column.Type, &column.Status, &column.Required, &column.Array, &defaultJSON, &optionsJSON, &validationJSON, &permsJSON, &column.Encrypted); err != nil {
 			return nil, err
 		}
 		if len(defaultJSON) > 0 {
@@ -691,6 +720,125 @@ func (s *Service) writableColumns(ctx context.Context, tableID string) (map[stri
 		result[key] = writable
 	}
 	return result, nil
+}
+
+// encryptedColumns returns the set of column keys flagged encrypted for a
+// table (present and true only — absent means not encrypted). Used by row
+// CRUD to know which values need to be sealed/opened, and to reject
+// filter/sort/search against ciphertext.
+func (s *Service) encryptedColumns(ctx context.Context, tableID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key_name, encrypted FROM columns WHERE table_id = $1`,
+		tableID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool)
+	for rows.Next() {
+		var key string
+		var encrypted bool
+		if err := rows.Scan(&key, &encrypted); err != nil {
+			continue
+		}
+		if encrypted {
+			result[key] = true
+		}
+	}
+	return result, nil
+}
+
+// encryptRowData replaces each encCols-flagged, non-nil value in data with an
+// AES-256-GCM-sealed token under the project's field-encryption key, so the
+// generic INSERT/UPDATE builders that follow treat it as an opaque string
+// destined for a TEXT column. A nil value is left as SQL NULL rather than
+// encrypting a JSON "null", so a NOT NULL/required check on the raw column
+// behaves the same as it would unencrypted.
+func (s *Service) encryptRowData(ctx context.Context, projectID string, data map[string]interface{}, encCols map[string]bool) error {
+	if len(encCols) == 0 {
+		return nil
+	}
+	var dekKey []byte
+	var dekVersion int
+	for key, val := range data {
+		if !encCols[key] || val == nil {
+			continue
+		}
+		if dekKey == nil {
+			if s.dek == nil {
+				return dek.ErrDisabled
+			}
+			var err error
+			dekKey, dekVersion, err = s.dek.Unwrap(ctx, projectID)
+			if err != nil {
+				return fmt.Errorf("unwrap project encryption key: %w", err)
+			}
+		}
+		plaintext, err := json.Marshal(val)
+		if err != nil {
+			return fmt.Errorf("encrypt field %q: %w", key, err)
+		}
+		token, err := appladcrypto.SealToken("fe", dekVersion, dekKey, plaintext)
+		if err != nil {
+			return fmt.Errorf("encrypt field %q: %w", key, err)
+		}
+		data[key] = token
+	}
+	return nil
+}
+
+// decryptFieldValue reverses encryptRowData for a single stored value. The
+// DEK version is read from the token itself, so this works for ciphertext
+// written under a since-rotated-away project key.
+func (s *Service) decryptFieldValue(ctx context.Context, projectID string, value interface{}) (interface{}, error) {
+	if value == nil {
+		return nil, nil
+	}
+	token, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("encrypted column value has unexpected type %T", value)
+	}
+	if s.dek == nil {
+		return nil, dek.ErrDisabled
+	}
+	plaintext, _, err := appladcrypto.OpenToken("fe", func(version int) ([]byte, error) {
+		return s.dek.UnwrapVersion(ctx, projectID, version)
+	}, token)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt field: %w", err)
+	}
+	var out interface{}
+	if err := json.Unmarshal(plaintext, &out); err != nil {
+		return nil, fmt.Errorf("decrypt field: unmarshal: %w", err)
+	}
+	return out, nil
+}
+
+// rejectEncryptedFilterOrSort refuses a query that would filter, order, or
+// search on an encrypted column: the stored value is opaque ciphertext, so
+// such an operation would either error confusingly deep in Postgres or —
+// worse — silently "succeed" while returning wrong results (e.g. an ILIKE
+// that can never match). isNull/isNotNull are exempt: NULL-ness survives
+// encryption unchanged, since encryptRowData never encrypts a nil value.
+func rejectEncryptedFilterOrSort(queries []Query, orderAttr string, encCols map[string]bool) error {
+	if len(encCols) == 0 {
+		return nil
+	}
+	for _, q := range queries {
+		if !encCols[q.Field] {
+			continue
+		}
+		if q.Method == "isNull" || q.Method == "isNotNull" {
+			continue
+		}
+		return fmt.Errorf("field %q is encrypted and cannot be filtered, sorted, or searched (opaque ciphertext)", q.Field)
+	}
+	if orderAttr != "" && encCols[orderAttr] {
+		return fmt.Errorf("field %q is encrypted and cannot be used for ordering", orderAttr)
+	}
+	return nil
 }
 
 // applyReadFilter strips non-readable columns from row data.
@@ -1562,7 +1710,13 @@ func queryRowsAsJSON(ctx context.Context, exec sqlContextExecutor, tableName, ro
 	return result, rows.Err()
 }
 
-func mapToRow(data map[string]interface{}, tableID, databaseID string) *model.Row {
+// mapToRow assembles a model.Row from a raw to_jsonb-decoded map. When encCols
+// is non-empty, flagged columns are decrypted here — the single choke point
+// every read path (Create/Update's post-write re-fetch, Get, List, and the
+// atomic-op RETURNING paths) funnels through, so this is the only place row
+// data needs to know about encryption at all. A decrypt failure fails the
+// whole call rather than returning partial or garbage data.
+func (s *Service) mapToRow(ctx context.Context, data map[string]interface{}, tableID, databaseID, projectID string, encCols map[string]bool) (*model.Row, error) {
 	row := &model.Row{TableID: tableID, DatabaseID: databaseID, Data: map[string]interface{}{}}
 	for key, value := range data {
 		switch key {
@@ -1588,10 +1742,18 @@ func mapToRow(data map[string]interface{}, tableID, databaseID string) *model.Ro
 			// keep it out of the row's data.
 			row.Permissions = append(row.Permissions, rowPermissionsToStrings(value)...)
 		default:
-			row.Data[key] = value
+			if encCols[key] {
+				decoded, err := s.decryptFieldValue(ctx, projectID, value)
+				if err != nil {
+					return nil, fmt.Errorf("row %v: %w", data["id"], err)
+				}
+				row.Data[key] = decoded
+			} else {
+				row.Data[key] = value
+			}
 		}
 	}
-	return row
+	return row, nil
 }
 
 // queryToWhereSQL converts a slice of Query filters into a SQL WHERE clause and
@@ -1829,6 +1991,14 @@ func (s *Service) CreateRowWithAuth(ctx context.Context, projectID, databaseID, 
 		data = applyWriteFilter(data, writeCols)
 	}
 
+	encCols, err := s.encryptedColumns(ctx, tableID)
+	if err != nil {
+		return nil, fmt.Errorf("load encrypted columns: %w", err)
+	}
+	if err := s.encryptRowData(ctx, projectID, data, encCols); err != nil {
+		return nil, err
+	}
+
 	// Translate the "unique()" sentinel (and any empty/invalid id) into a fresh
 	// id. Only checking for "" left the literal string "unique()" as the row id,
 	// so the first row took it and every subsequent insert collided on the
@@ -1885,7 +2055,7 @@ func (s *Service) CreateRowWithAuth(ctx context.Context, projectID, databaseID, 
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return mapToRow(rows[0], tableID, databaseID), nil
+	return s.mapToRow(ctx, rows[0], tableID, databaseID, projectID, encCols)
 }
 
 func (s *Service) GetRow(ctx context.Context, rowID, tableID, databaseID, projectID string) (*model.Row, error) {
@@ -1908,7 +2078,14 @@ func (s *Service) GetRowWithAuth(ctx context.Context, rowID, tableID, databaseID
 	if err != nil || len(rows) == 0 {
 		return nil, fmt.Errorf("row not found")
 	}
-	row := mapToRow(rows[0], tableID, databaseID)
+	encCols, err := s.encryptedColumns(ctx, tableID)
+	if err != nil {
+		return nil, fmt.Errorf("load encrypted columns: %w", err)
+	}
+	row, err := s.mapToRow(ctx, rows[0], tableID, databaseID, projectID, encCols)
+	if err != nil {
+		return nil, err
+	}
 	if userID != "" {
 		if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "read", row.Permissions); err != nil {
 			return nil, err
@@ -1955,6 +2132,14 @@ func (s *Service) ListRowsWithAuth(ctx context.Context, projectID, databaseID, t
 
 	if params.Limit <= 0 {
 		params.Limit = 25
+	}
+
+	encCols, err := s.encryptedColumns(ctx, tableID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("load encrypted columns: %w", err)
+	}
+	if err := rejectEncryptedFilterOrSort(params.Queries, params.OrderAttr, encCols); err != nil {
+		return nil, 0, err
 	}
 
 	tx, _, err := s.prepareDirectAccessTx(ctx, projectID, databaseID, userID, roles, true)
@@ -2047,7 +2232,11 @@ func (s *Service) ListRowsWithAuth(ctx context.Context, projectID, databaseID, t
 		if err := json.Unmarshal(raw, &item); err != nil {
 			return nil, 0, err
 		}
-		result = append(result, mapToRow(item, tableID, databaseID))
+		mapped, err := s.mapToRow(ctx, item, tableID, databaseID, projectID, encCols)
+		if err != nil {
+			return nil, 0, err
+		}
+		result = append(result, mapped)
 	}
 	if err := sqlRows.Err(); err != nil {
 		return nil, 0, err
@@ -2097,6 +2286,14 @@ func (s *Service) UpdateRowWithAuth(ctx context.Context, rowID, tableID, databas
 		data = applyWriteFilter(data, writeCols)
 	}
 
+	encCols, err := s.encryptedColumns(ctx, tableID)
+	if err != nil {
+		return nil, fmt.Errorf("load encrypted columns: %w", err)
+	}
+	if err := s.encryptRowData(ctx, projectID, data, encCols); err != nil {
+		return nil, err
+	}
+
 	keys := make([]string, 0, len(data))
 	for key := range data {
 		if key != "$permissions" && key != "id" && key != "created_at" {
@@ -2142,7 +2339,7 @@ func (s *Service) UpdateRowWithAuth(ctx context.Context, rowID, tableID, databas
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return mapToRow(rows[0], tableID, databaseID), nil
+	return s.mapToRow(ctx, rows[0], tableID, databaseID, projectID, encCols)
 }
 
 func (s *Service) DeleteRow(ctx context.Context, rowID, tableID, databaseID, projectID string) error {
@@ -2304,7 +2501,11 @@ func (s *Service) AtomicNumericOp(ctx context.Context, projectID, databaseID, ta
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return mapToRow(row, tableID, databaseID), nil
+	encCols, err := s.encryptedColumns(ctx, tableID)
+	if err != nil {
+		return nil, fmt.Errorf("load encrypted columns: %w", err)
+	}
+	return s.mapToRow(ctx, row, tableID, databaseID, projectID, encCols)
 }
 
 // AtomicArrayAppend appends value to an array field in a single UPDATE, so
@@ -2334,7 +2535,11 @@ func (s *Service) AtomicArrayAppend(ctx context.Context, projectID, databaseID, 
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return mapToRow(row, tableID, databaseID), nil
+	encCols, err := s.encryptedColumns(ctx, tableID)
+	if err != nil {
+		return nil, fmt.Errorf("load encrypted columns: %w", err)
+	}
+	return s.mapToRow(ctx, row, tableID, databaseID, projectID, encCols)
 }
 
 // scanReturnedRow runs an UPDATE ... RETURNING to_jsonb(t.*) and decodes the one
@@ -2456,6 +2661,13 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID,
 			for key, value := range operation.Data {
 				data[key] = value
 			}
+			encCols, err := s.encryptedColumns(ctx, operation.TableID)
+			if err != nil {
+				return nil, fmt.Errorf("load encrypted columns: %w", err)
+			}
+			if err := s.encryptRowData(ctx, projectID, data, encCols); err != nil {
+				return nil, err
+			}
 			keys := make([]string, 0, len(data))
 			for key := range data {
 				keys = append(keys, key)
@@ -2478,8 +2690,18 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID,
 				return nil, fmt.Errorf("transaction create fetch failed")
 			}
 			result.Status = http.StatusCreated
-			result.Body = mapToRow(rows[0], operation.TableID, databaseID)
+			result.Body, err = s.mapToRow(ctx, rows[0], operation.TableID, databaseID, projectID, encCols)
+			if err != nil {
+				return nil, err
+			}
 		case "PATCH", "UPDATE":
+			encCols, err := s.encryptedColumns(ctx, operation.TableID)
+			if err != nil {
+				return nil, fmt.Errorf("load encrypted columns: %w", err)
+			}
+			if err := s.encryptRowData(ctx, projectID, operation.Data, encCols); err != nil {
+				return nil, err
+			}
 			keys := make([]string, 0, len(operation.Data))
 			for key := range operation.Data {
 				keys = append(keys, key)
@@ -2502,7 +2724,10 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID,
 				return nil, fmt.Errorf("transaction update fetch failed")
 			}
 			result.Status = http.StatusOK
-			result.Body = mapToRow(rows[0], operation.TableID, databaseID)
+			result.Body, err = s.mapToRow(ctx, rows[0], operation.TableID, databaseID, projectID, encCols)
+			if err != nil {
+				return nil, err
+			}
 		case "DELETE":
 			if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = $1", pgIdent(table.Name)), operation.RowID); err != nil {
 				return nil, err
@@ -2513,9 +2738,17 @@ func (s *Service) ExecuteTransaction(ctx context.Context, projectID, databaseID,
 			if err != nil {
 				return nil, err
 			}
+			encCols, err := s.encryptedColumns(ctx, operation.TableID)
+			if err != nil {
+				return nil, fmt.Errorf("load encrypted columns: %w", err)
+			}
 			mapped := make([]*model.Row, 0, len(rows))
 			for _, item := range rows {
-				mapped = append(mapped, mapToRow(item, operation.TableID, databaseID))
+				row, err := s.mapToRow(ctx, item, operation.TableID, databaseID, projectID, encCols)
+				if err != nil {
+					return nil, err
+				}
+				mapped = append(mapped, row)
 			}
 			result.Status = http.StatusOK
 			result.Body = map[string]interface{}{"total": len(mapped), "rows": mapped}

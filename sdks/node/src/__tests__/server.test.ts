@@ -122,6 +122,37 @@ describe('Databases service', () => {
       expect.objectContaining({ method: 'GET' })
     );
   });
+
+  it('createStringColumn omits encrypted by default', async () => {
+    const mock = mockFetch({ key: 'name' });
+    const srv = createServer();
+    await srv.databases.createStringColumn('db1', 't1', 'name');
+    const body = JSON.parse((mock.mock.calls[0][1] as any).body);
+    expect(body.encrypted).toBeUndefined();
+  });
+
+  it('createStringColumn sends encrypted:true when requested', async () => {
+    const mock = mockFetch({ key: 'ssn' });
+    const srv = createServer();
+    await srv.databases.createStringColumn('db1', 't1', 'ssn', { encrypted: true });
+    expect(mock).toHaveBeenCalledWith(
+      'http://localhost:8080/v1/databases/db1/tables/t1/columns/string',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"encrypted":true'),
+      })
+    );
+  });
+
+  it('createIntegerColumn and createBooleanColumn send encrypted:true when requested', async () => {
+    const mock = mockFetch({});
+    const srv = createServer();
+    await srv.databases.createIntegerColumn('db1', 't1', 'salary', { encrypted: true });
+    await srv.databases.createBooleanColumn('db1', 't1', 'flag', { encrypted: true });
+    const bodies = mock.mock.calls.map((c) => JSON.parse((c[1] as any).body));
+    expect(bodies[0].encrypted).toBe(true);
+    expect(bodies[1].encrypted).toBe(true);
+  });
 });
 
 describe('Flags service', () => {

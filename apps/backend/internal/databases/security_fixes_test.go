@@ -90,6 +90,9 @@ func TestExecuteTransaction_AuthorizedUserSucceeds(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM permissions`).
 		WithArgs("proj1", "table", "t1", "create", "any", "users", "user:u1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT key_name, encrypted FROM columns`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_name", "encrypted"}))
 	mock.ExpectExec(`INSERT INTO "posts"`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_jsonb(t) FROM "posts" AS t WHERE id = $1`)).
@@ -150,6 +153,9 @@ func TestExecuteTransaction_DocumentSecurityReadSkipsGate(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_jsonb(t) FROM "posts" AS t ORDER BY created_at DESC LIMIT $1 OFFSET $2`)).
 		WithArgs(25, 0).
 		WillReturnRows(sqlmock.NewRows([]string{"row"}).AddRow([]byte(`{"id":"mine"}`)))
+	mock.ExpectQuery(`SELECT key_name, encrypted FROM columns`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_name", "encrypted"}))
 	mock.ExpectCommit()
 
 	ops := []TransactionOp{{Method: "GET", TableID: "t1"}}
@@ -211,6 +217,9 @@ func TestAtomicNumericOp_EmitsSingleAtomicUpdate(t *testing.T) {
 		WithArgs(float64(5), "r1").
 		WillReturnRows(sqlmock.NewRows([]string{"to_jsonb"}).AddRow([]byte(`{"id":"r1","views":5}`)))
 	mock.ExpectCommit()
+	mock.ExpectQuery(`SELECT key_name, encrypted FROM columns`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_name", "encrypted"}))
 
 	row, err := svc.AtomicNumericOp(context.Background(), "proj1", "db1", "t1", "r1", "views", 5, "", nil)
 	if err != nil {
@@ -238,6 +247,9 @@ func TestAtomicNumericOp_ClampsToConfiguredBounds(t *testing.T) {
 		WithArgs(float64(-5), float64(0), float64(10), "r1").
 		WillReturnRows(sqlmock.NewRows([]string{"to_jsonb"}).AddRow([]byte(`{"id":"r1","views":0}`)))
 	mock.ExpectCommit()
+	mock.ExpectQuery(`SELECT key_name, encrypted FROM columns`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_name", "encrypted"}))
 
 	if _, err := svc.AtomicNumericOp(context.Background(), "proj1", "db1", "t1", "r1", "views", -5, "", nil); err != nil {
 		t.Fatalf("AtomicNumericOp returned error: %v", err)
@@ -284,6 +296,9 @@ func TestAtomicArrayAppend_EmitsSingleAtomicUpdate(t *testing.T) {
 		WithArgs("new", "r1").
 		WillReturnRows(sqlmock.NewRows([]string{"to_jsonb"}).AddRow([]byte(`{"id":"r1","tags":["new"]}`)))
 	mock.ExpectCommit()
+	mock.ExpectQuery(`SELECT key_name, encrypted FROM columns`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_name", "encrypted"}))
 
 	row, err := svc.AtomicArrayAppend(context.Background(), "proj1", "db1", "t1", "r1", "tags", "new", "", nil)
 	if err != nil {

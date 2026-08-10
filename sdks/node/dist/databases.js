@@ -58,6 +58,7 @@ class Databases {
             array: opts?.array ?? false,
             ...(opts?.size && { size: opts.size }),
             ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
+            ...(opts?.encrypted !== undefined && { encrypted: opts.encrypted }),
         });
     }
     createIntegerColumn(databaseId, tableId, key, opts) {
@@ -68,6 +69,7 @@ class Databases {
             ...(opts?.min !== undefined && { min: opts.min }),
             ...(opts?.max !== undefined && { max: opts.max }),
             ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
+            ...(opts?.encrypted !== undefined && { encrypted: opts.encrypted }),
         });
     }
     createBooleanColumn(databaseId, tableId, key, opts) {
@@ -76,6 +78,7 @@ class Databases {
             required: opts?.required ?? false,
             array: opts?.array ?? false,
             ...(opts?.defaultValue !== undefined && { default: opts.defaultValue }),
+            ...(opts?.encrypted !== undefined && { encrypted: opts.encrypted }),
         });
     }
     listColumns(databaseId, tableId) {

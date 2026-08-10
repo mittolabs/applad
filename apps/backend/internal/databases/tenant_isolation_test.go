@@ -182,7 +182,7 @@ func TestCreateColumn_OtherTenantsTableIsNotFound(t *testing.T) {
 	// lookup must not resolve it, and no DDL may run.
 	expectLookupTableNotFound(mock, "victim-table", "attacker-proj")
 
-	_, err := svc.CreateColumn(context.Background(), "attacker-proj", "victim-table", "evil", "string", false, false, nil, nil, nil)
+	_, err := svc.CreateColumn(context.Background(), "attacker-proj", "victim-table", "evil", "string", false, false, false, nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "table not found") {
 		t.Fatalf("expected table not found, got %v", err)
 	}

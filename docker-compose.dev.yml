@@ -54,6 +54,9 @@ services:
       DATABASE_DSN: "postgres://applad:applad@pgbouncer:5432/applad?sslmode=disable"
       REDIS_ADDR: "redis:6379"
       JWT_SECRET: "dev-only-insecure-jwt-secret-change-me-0123456789"
+      # Dev-only default so encrypted columns/buckets work locally without
+      # extra setup. Never reuse this value outside local development.
+      MASTER_ENCRYPTION_KEY: "dev-only-insecure-master-key-change-me-0123456789"
       STORAGE_PATH: "/var/applad/storage"
       APP_ENV: "development"
       STORAGE_DRIVER: "local"

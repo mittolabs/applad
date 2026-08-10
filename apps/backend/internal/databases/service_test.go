@@ -304,6 +304,7 @@ func expectListRowsPrelude(mock sqlmock.Sqlmock, tableID, databaseID, projectID,
 		WithArgs(tableID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "database_id", "project_id", "name", "row_security"}).
 			AddRow(tableID, databaseID, projectID, tableName, rowSecurity))
+	expectNoEncryptedColumns(mock, tableID)
 	mock.ExpectBegin()
 	mock.ExpectExec(`SET LOCAL search_path`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`SET LOCAL statement_timeout`).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -324,6 +325,15 @@ func expectListRowsPostlude(mock sqlmock.Sqlmock, tableID string) {
 		WithArgs(tableID).
 		WillReturnRows(sqlmock.NewRows([]string{"key_name", "permissions"}))
 	mock.ExpectRollback()
+}
+
+// expectNoEncryptedColumns mocks encryptedColumns returning no encrypted
+// columns for a table — the common case in tests that don't exercise
+// field-level encryption at rest.
+func expectNoEncryptedColumns(mock sqlmock.Sqlmock, tableID string) {
+	mock.ExpectQuery(`SELECT key_name, encrypted FROM columns`).
+		WithArgs(tableID).
+		WillReturnRows(sqlmock.NewRows([]string{"key_name", "encrypted"}))
 }
 
 func newMockService(t *testing.T) (*Service, sqlmock.Sqlmock, *sql.DB) {
@@ -413,6 +423,7 @@ func TestListRowsWithAuth_UserWithTableReadListsRows(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM permissions`).
 		WithArgs("proj1", "table", "t1", "read", "any", "users", "user:u1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectNoEncryptedColumns(mock, "t1")
 	expectAuthedTx(mock, "db1", "proj1", "u1")
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM "posts"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
@@ -470,6 +481,7 @@ func TestListRowsWithAuth_DocumentSecurityListsPermittedRows(t *testing.T) {
 	defer mockDB.Close()
 
 	expectTableContext(mock, "t1", "db1", "proj1", "posts", true)
+	expectNoEncryptedColumns(mock, "t1")
 	expectAuthedTx(mock, "db1", "proj1", "u1")
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM "posts"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))

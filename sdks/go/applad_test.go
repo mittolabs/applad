@@ -241,6 +241,50 @@ func TestDatabasesCreateTable(t *testing.T) {
 	}
 }
 
+func TestDatabasesCreateColumn(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]interface{}
+	srv, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&gotBody) //nolint:errcheck
+		w.WriteHeader(200)
+		w.Write([]byte(`{"key":"ssn"}`)) //nolint:errcheck
+	})
+	defer srv.Close()
+
+	_, err := client.Databases().CreateColumn("db1", "t1", "string", "ssn", ColumnOptions{Encrypted: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/v1/databases/db1/tables/t1/columns/string" {
+		t.Errorf("expected .../columns/string, got %s", gotPath)
+	}
+	if gotBody["encrypted"] != true {
+		t.Errorf("expected encrypted=true in request body, got %v", gotBody["encrypted"])
+	}
+	if gotBody["required"] != false || gotBody["array"] != false {
+		t.Errorf("expected required/array to default false, got %v", gotBody)
+	}
+}
+
+func TestDatabasesCreateColumn_DefaultsEncryptedFalse(t *testing.T) {
+	var gotBody map[string]interface{}
+	srv, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&gotBody) //nolint:errcheck
+		w.WriteHeader(200)
+		w.Write([]byte(`{"key":"name"}`)) //nolint:errcheck
+	})
+	defer srv.Close()
+
+	_, err := client.Databases().CreateColumn("db1", "t1", "string", "name", ColumnOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotBody["encrypted"] != false {
+		t.Errorf("expected encrypted=false by default, got %v", gotBody["encrypted"])
+	}
+}
+
 func TestDatabasesRowCRUD(t *testing.T) {
 	srv, client := newTestServer(t, jsonHandler(map[string]interface{}{"$id": "r1", "data": map[string]interface{}{"name": "test"}}, 200))
 	defer srv.Close()

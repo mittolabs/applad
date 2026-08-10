@@ -25,6 +25,7 @@ import (
 	"github.com/mittolabs/applad/internal/credentials"
 	"github.com/mittolabs/applad/internal/databases"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/dek"
 	"github.com/mittolabs/applad/internal/deploy"
 	"github.com/mittolabs/applad/internal/edge"
 	"github.com/mittolabs/applad/internal/endpoints"
@@ -134,6 +135,22 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			slog.Info("storage encryption at rest enabled")
 		}
 	}
+	// Field-level encryption at rest: a shared per-project key manager for both
+	// Databases (encrypted columns) and Storage (encrypted buckets, superseding
+	// the single global StorageEncryptionKey above for new writes). Optional —
+	// cfg.MasterEncryptionKey empty yields a disabled dek.Service rather than an
+	// error, since encryption is opt-in per column/bucket. main.go already
+	// refuses to boot if a configured key is malformed, so an error here would
+	// be unexpected; fall back to disabled rather than panic mid-wiring.
+	dekSvc, err := dek.NewService(database, cfg.MasterEncryptionKey)
+	if err != nil {
+		slog.Error("MASTER_ENCRYPTION_KEY invalid — field-level encryption will be unavailable", "error", err)
+		dekSvc, _ = dek.NewService(database, "")
+	} else if dekSvc.Enabled() {
+		slog.Info("field-level encryption at rest enabled")
+	}
+	dbSvc.SetDEKService(dekSvc)
+	storageSvc.SetDEKService(dekSvc)
 	teamSvc := teams.NewService(database)
 	deployQueue := queue.New(cacheClient.Client())
 	deploySvc := deploy.NewService(database, deployQueue)

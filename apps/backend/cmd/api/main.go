@@ -12,6 +12,7 @@ import (
 	"github.com/mittolabs/applad/internal/cache"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
+	"github.com/mittolabs/applad/internal/dek"
 	"github.com/mittolabs/applad/internal/extensions"
 	"github.com/mittolabs/applad/internal/logger"
 	"github.com/mittolabs/applad/internal/router"
@@ -35,6 +36,18 @@ func main() {
 	if len(cfg.JWTSecret) < 32 {
 		slog.Error("JWT_SECRET must be at least 32 characters — generate one: openssl rand -hex 32")
 		panic("refusing to start with short JWT_SECRET")
+	}
+
+	// MASTER_ENCRYPTION_KEY is optional — field/bucket encryption is opt-in
+	// per column/bucket, so an instance that never uses it should boot fine
+	// without one. A configured-but-malformed value is treated as fatal,
+	// though: unlike "absent", it looks configured and would only be
+	// discovered broken the first time someone tries to use it.
+	if cfg.MasterEncryptionKey == "" {
+		slog.Warn("MASTER_ENCRYPTION_KEY not set — field-level encryption at rest and per-project bucket encryption are disabled until it is configured")
+	} else if _, err := dek.ParseMasterKey(cfg.MasterEncryptionKey); err != nil {
+		slog.Error("MASTER_ENCRYPTION_KEY is invalid", "error", err)
+		panic("refusing to start with invalid MASTER_ENCRYPTION_KEY")
 	}
 
 	database, err := db.Connect(cfg.DatabaseDSN, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
