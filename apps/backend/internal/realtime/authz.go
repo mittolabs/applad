@@ -58,6 +58,15 @@ type ReleaseVerifier interface {
 	ReleaseBelongsToProject(ctx context.Context, releaseID, projectID string) (bool, error)
 }
 
+// ConversationMembershipVerifier reports whether a user belongs to a chat
+// conversation. It is implemented by the chat service and lets a
+// chat.{conversationId} channel be authorized per-conversation rather than
+// by the coarse project+auth scoping other project-wide channels use — a
+// conversation is private to its members, not to everyone in the project.
+type ConversationMembershipVerifier interface {
+	IsConversationMember(ctx context.Context, projectID, conversationID, userID string) (bool, error)
+}
+
 type channelKind int
 
 const (
@@ -69,16 +78,21 @@ const (
 	kindProjectData
 	// kindDeploy: deploy.{releaseID} — build/deploy log stream.
 	kindDeploy
+	// kindChat: chat.{conversationId} — one conversation's live messages,
+	// authorized by membership rather than by project scoping alone (see
+	// ConversationMembershipVerifier).
+	kindChat
 )
 
 type parsedChannel struct {
-	kind       channelKind
-	projectID  string
-	databaseID string
-	tableName  string
-	releaseID  string
-	service    string // kindProjectData: the {service} segment, e.g. "databases"
-	resource   string // kindProjectData: the {resource} segment, e.g. "rows"
+	kind           channelKind
+	projectID      string
+	databaseID     string
+	tableName      string
+	releaseID      string
+	service        string // kindProjectData: the {service} segment, e.g. "databases"
+	resource       string // kindProjectData: the {resource} segment, e.g. "rows"
+	conversationID string // kindChat
 }
 
 // parseChannel classifies a channel string and extracts its scoping segments.
@@ -124,6 +138,15 @@ func parseChannel(channel string) parsedChannel {
 		pc := parsedChannel{kind: kindDeploy}
 		if len(parts) >= 2 {
 			pc.releaseID = strings.Join(parts[1:], ".")
+		}
+		return pc
+	case "chat":
+		// chat.{conversationId} — published directly by the chat service
+		// (not via PublishResourceEvent, whose projects.{project}.{service}.
+		// {resource} shape would route into the coarser kindProjectData case).
+		pc := parsedChannel{kind: kindChat}
+		if len(parts) >= 2 {
+			pc.conversationID = strings.Join(parts[1:], ".")
 		}
 		return pc
 	}
@@ -223,6 +246,30 @@ func (h *Hub) authorizeSubscribe(c *Client, channel string) authDecision {
 			if err != nil || !ok {
 				return deny("realtime_forbidden_project", "Release belongs to a different project.")
 			}
+		}
+		return allow(nil)
+
+	case kindChat:
+		// No project check here by design: a conversation's membership check
+		// below is strictly narrower than "belongs to this project" (a member
+		// is always a user of this project), and conversation ids are opaque
+		// random ids, not guessable/enumerable across projects.
+		if pc.conversationID == "" {
+			return deny("realtime_unknown_channel", "Unknown channel.")
+		}
+		if !c.authenticated {
+			return deny("realtime_unauthenticated", "Authentication is required to subscribe to chat channels.")
+		}
+		if h.chatVerifier == nil {
+			return deny("realtime_forbidden_read", "Chat realtime delivery is not configured.")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		ok, err := h.chatVerifier.IsConversationMember(ctx, c.projectID, pc.conversationID, c.userID)
+		if err != nil || !ok {
+			// Fail closed: an unresolved membership check is a denied one,
+			// same posture as the table-read path above.
+			return deny("realtime_forbidden_read", "You are not a member of this conversation.")
 		}
 		return allow(nil)
 

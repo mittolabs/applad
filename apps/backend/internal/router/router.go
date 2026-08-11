@@ -20,6 +20,7 @@ import (
 	"github.com/mittolabs/applad/internal/auth"
 	"github.com/mittolabs/applad/internal/avatars"
 	"github.com/mittolabs/applad/internal/cache"
+	"github.com/mittolabs/applad/internal/chat"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/console"
 	"github.com/mittolabs/applad/internal/credentials"
@@ -192,12 +193,19 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	functionQueue := queue.New(cacheClient.Client())
 	functionSvc := functions.NewService(database, functionQueue)
 
+	// Chat — E2E-encrypted messaging. The server relays ciphertext and public
+	// keys only; SetMessagingService lets it wake offline devices with a
+	// content-free push notification via the same providers messaging uses.
+	chatSvc := chat.NewService(database)
+	chatSvc.SetMessagingService(messagingSvc)
+
 	// Realtime hub — wire into services for auto-publishing.
 	// Pass RedisAddr so events are fanned through Redis when scaling horizontally.
 	hub := realtime.NewHub(cfg.DatabaseDSN, cfg.RedisAddr)
 	realtimeHandler := realtime.NewHandler(hub)
 	dbSvc.SetEventPublisher(hub)
 	storageSvc.SetEventPublisher(hub)
+	chatSvc.SetEventPublisher(hub)
 	// Realtime subscription authorization: a table-channel subscription is
 	// checked against the table's read permissions (and document-security rows
 	// filtered per event), and a deploy-log channel is tied to the subscriber's
@@ -205,6 +213,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	// project-scopes and requires auth, but cannot per-row filter.
 	hub.SetReadAuthorizer(dbSvc)
 	hub.SetReleaseVerifier(deploySvc)
+	// A chat.{conversationId} channel is authorized by conversation
+	// membership rather than the coarse project+auth scoping other channels
+	// use — a conversation is private to its members, not the whole project.
+	hub.SetChatVerifier(chatSvc)
 	// Team membership becomes RLS roles, so a row's read("team:X") admits exactly
 	// that team's members. Resolved server-side per request from the caller's own
 	// identity; without this only the built-in roles (any/users/user:<id>) apply.
@@ -439,6 +451,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/databases", databases.Routes(databases.NewHandler(dbSvc)))
 				r.Mount("/storage", storage.Routes(storage.NewHandler(storageSvc)))
 				r.Mount("/messaging", messaging.Routes(messaging.NewHandler(messagingSvc)))
+				r.Mount("/chat", chat.Routes(chat.NewHandler(chatSvc)))
 				r.Mount("/deploy", deploy.Routes(deployHandler))
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))

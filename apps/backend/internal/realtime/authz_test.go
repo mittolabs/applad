@@ -3,6 +3,7 @@ package realtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -429,6 +430,99 @@ func TestSubscribe_DeployChannelRejectsUnauthenticated(t *testing.T) {
 	}
 }
 
+// --- Chat channels: authorized by conversation membership, not project scoping --
+
+// stubChatVerifier reports membership only for the configured
+// (projectID, conversationID, userID) triples.
+type stubChatVerifier struct {
+	members map[string]bool // "projectID|conversationID|userID" -> true
+	err     error
+}
+
+func (s stubChatVerifier) IsConversationMember(_ context.Context, projectID, conversationID, userID string) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	return s.members[projectID+"|"+conversationID+"|"+userID], nil
+}
+
+func TestSubscribe_ChatChannelAllowsConversationMember(t *testing.T) {
+	hub := NewHub("", "")
+	hub.SetChatVerifier(stubChatVerifier{members: map[string]bool{"proj1|conv1|user1": true}})
+	c := authedClient(hub, "proj1", "user1", true, false)
+
+	hub.subscribeClient(c, "chat.conv1")
+
+	if !hub.subscribed(c, "chat.conv1") {
+		t.Fatal("chat subscription for a conversation member was rejected")
+	}
+}
+
+func TestSubscribe_ChatChannelRejectsNonMember(t *testing.T) {
+	hub := NewHub("", "")
+	hub.SetChatVerifier(stubChatVerifier{members: map[string]bool{"proj1|conv1|user1": true}})
+	c := authedClient(hub, "proj1", "user2", true, false)
+
+	hub.subscribeClient(c, "chat.conv1")
+
+	if hub.subscribed(c, "chat.conv1") {
+		t.Fatal("chat subscription for a non-member was accepted")
+	}
+}
+
+func TestSubscribe_ChatChannelRejectsUnauthenticated(t *testing.T) {
+	hub := NewHub("", "")
+	hub.SetChatVerifier(stubChatVerifier{members: map[string]bool{"proj1|conv1|": true}})
+	c := authedClient(hub, "proj1", "", false, false)
+
+	hub.subscribeClient(c, "chat.conv1")
+
+	if hub.subscribed(c, "chat.conv1") {
+		t.Fatal("unauthenticated chat subscription was accepted")
+	}
+}
+
+// A broad-access connection (server API key) gets no special treatment on a
+// chat channel: chat participants are real users, and an API key's synthetic
+// identity is never a real conversation member, so it must still be denied.
+func TestSubscribe_ChatChannelBroadAccessStillRequiresMembership(t *testing.T) {
+	hub := NewHub("", "")
+	hub.SetChatVerifier(stubChatVerifier{members: map[string]bool{}})
+	c := authedClient(hub, "proj1", "api:key1", true, true)
+
+	hub.subscribeClient(c, "chat.conv1")
+
+	if hub.subscribed(c, "chat.conv1") {
+		t.Fatal("broad-access connection without conversation membership was accepted")
+	}
+}
+
+func TestSubscribe_ChatChannelFailsClosedWithoutVerifier(t *testing.T) {
+	hub := NewHub("", "")
+	c := authedClient(hub, "proj1", "user1", true, false)
+
+	hub.subscribeClient(c, "chat.conv1")
+
+	if hub.subscribed(c, "chat.conv1") {
+		t.Fatal("chat subscription was accepted with no verifier wired")
+	}
+	if ev := drainError(c); ev == nil || ev.Type != "error" {
+		t.Fatal("expected an error frame when chat delivery is not configured")
+	}
+}
+
+func TestSubscribe_ChatChannelFailsClosedOnVerifierError(t *testing.T) {
+	hub := NewHub("", "")
+	hub.SetChatVerifier(stubChatVerifier{err: fmt.Errorf("db unavailable")})
+	c := authedClient(hub, "proj1", "user1", true, false)
+
+	hub.subscribeClient(c, "chat.conv1")
+
+	if hub.subscribed(c, "chat.conv1") {
+		t.Fatal("chat subscription was accepted despite the membership check erroring")
+	}
+}
+
 // --- Unknown channels fail closed -------------------------------------------
 
 func TestSubscribe_RejectsUnknownChannel(t *testing.T) {
@@ -466,5 +560,12 @@ func TestParseChannel(t *testing.T) {
 			t.Errorf("parseChannel(%q) = %+v, want kind=%d proj=%q db=%q tbl=%q rel=%q",
 				tc.in, pc, tc.kind, tc.proj, tc.db, tc.tbl, tc.rel)
 		}
+	}
+}
+
+func TestParseChannel_Chat(t *testing.T) {
+	pc := parseChannel("chat.conv123")
+	if pc.kind != kindChat || pc.conversationID != "conv123" {
+		t.Errorf("parseChannel(chat.conv123) = %+v, want kind=kindChat conversationID=conv123", pc)
 	}
 }

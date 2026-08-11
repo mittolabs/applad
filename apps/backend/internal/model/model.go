@@ -226,3 +226,109 @@ type AppwriteError struct {
 	Type    string `json:"type"`
 	Version string `json:"version"`
 }
+
+// ── Chat ─────────────────────────────────────────────────────────────────────
+//
+// E2E-encrypted chat: the server stores and relays ciphertext, public keys,
+// and routing metadata only. None of these structs ever carry plaintext
+// content or private key material — see internal/chat.
+
+// Device is a chat client install (a phone app, a browser tab, a desktop
+// app) identified by its public identity/prekey bundle. Not the same as a
+// Session: a device outlives many logins, and a user may hold several at
+// once (multi-device). The push token is write-only and never echoed back.
+type Device struct {
+	ID              string     `json:"$id"`
+	CreatedAt       time.Time  `json:"$createdAt"`
+	UpdatedAt       time.Time  `json:"$updatedAt"`
+	UserID          string     `json:"userId"`
+	Name            string     `json:"name"`
+	RegistrationID  int        `json:"registrationId"`
+	IdentityKey     string     `json:"identityKey"`
+	SignedPrekeyID  int        `json:"signedPrekeyId"`
+	SignedPrekey    string     `json:"signedPrekey"`
+	SignedPrekeySig string     `json:"signedPrekeySig"`
+	PushProvider    string     `json:"pushProvider,omitempty"`
+	Status          string     `json:"status"`
+	LastSeenAt      *time.Time `json:"lastSeenAt,omitempty"`
+}
+
+// DeviceRef is the minimal, public information about another user's device:
+// enough to know it exists and target it, not enough to start a session with
+// it (that needs a PrekeyBundle, fetched per-device).
+type DeviceRef struct {
+	ID             string `json:"$id"`
+	RegistrationID int    `json:"registrationId"`
+	Status         string `json:"status"`
+}
+
+// PrekeyBundle is what another device fetches to start an X3DH session with
+// this device — public keys only. OneTimePrekeyID/OneTimePrekey are present
+// only if the pool wasn't empty; the key is consumed atomically on fetch.
+type PrekeyBundle struct {
+	DeviceID         string `json:"deviceId"`
+	RegistrationID   int    `json:"registrationId"`
+	IdentityKey      string `json:"identityKey"`
+	SignedPrekeyID   int    `json:"signedPrekeyId"`
+	SignedPrekey     string `json:"signedPrekey"`
+	SignedPrekeySig  string `json:"signedPrekeySig"`
+	OneTimePrekeyID  *int   `json:"oneTimePrekeyId,omitempty"`
+	OneTimePrekey    string `json:"oneTimePrekey,omitempty"`
+	PrekeysRemaining int    `json:"prekeysRemaining"`
+}
+
+// Conversation is a direct (1:1) or group chat. Only metadata is visible to
+// the server — message content is end-to-end encrypted and never touches
+// this struct. Title stays in the clear (matches WhatsApp's own model).
+type Conversation struct {
+	ID        string    `json:"$id"`
+	CreatedAt time.Time `json:"$createdAt"`
+	UpdatedAt time.Time `json:"$updatedAt"`
+	Type      string    `json:"type"`
+	Title     string    `json:"title"`
+	CreatedBy string    `json:"createdBy"`
+}
+
+// ConversationMember is one user's membership in a Conversation.
+type ConversationMember struct {
+	ID             string     `json:"$id"`
+	ConversationID string     `json:"conversationId"`
+	UserID         string     `json:"userId"`
+	Role           string     `json:"role"`
+	JoinedAt       time.Time  `json:"joinedAt"`
+	RemovedAt      *time.Time `json:"removedAt,omitempty"`
+}
+
+// MessageTarget is one recipient device's ciphertext for a prekey/whisper
+// (Double Ratchet, per-device) send — the client already resolved the
+// recipient's device list and encrypted once per device.
+type MessageTarget struct {
+	DeviceID   string `json:"deviceId"`
+	Ciphertext string `json:"ciphertext"`
+}
+
+// Message is an opaque ciphertext envelope routed through a conversation.
+// Ciphertext is set directly for a sender_key (shared-across-recipients)
+// envelope; a prekey/whisper envelope leaves it empty here and carries
+// per-recipient-device ciphertext in Targets instead.
+type Message struct {
+	ID              string          `json:"$id"`
+	CreatedAt       time.Time       `json:"$createdAt"`
+	ClientMessageID string          `json:"clientMessageId"`
+	ConversationID  string          `json:"conversationId"`
+	SenderUserID    string          `json:"senderUserId"`
+	SenderDeviceID  string          `json:"senderDeviceId"`
+	EnvelopeType    string          `json:"envelopeType"`
+	Ciphertext      string          `json:"ciphertext,omitempty"`
+	Seq             int64           `json:"seq"`
+	Targets         []MessageTarget `json:"targets,omitempty"`
+}
+
+// MessageReceipt tracks one recipient device's delivery/read status for a message.
+type MessageReceipt struct {
+	MessageID         string     `json:"messageId"`
+	RecipientDeviceID string     `json:"deviceId"`
+	Status            string     `json:"status"`
+	DeliveredAt       *time.Time `json:"deliveredAt,omitempty"`
+	ReadAt            *time.Time `json:"readAt,omitempty"`
+}

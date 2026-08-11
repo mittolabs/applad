@@ -43,6 +43,11 @@ type Hub struct {
 	// releaseVerifier ties a deploy channel to a project. Nil falls back to
 	// requiring authentication only.
 	releaseVerifier ReleaseVerifier
+	// chatVerifier authorizes a chat.{conversationId} subscription by
+	// membership. Nil denies every chat channel subscription rather than
+	// falling back to a coarser check — a conversation has no meaningful
+	// "project-wide" access level to fall back to.
+	chatVerifier ConversationMembershipVerifier
 }
 
 // SetReadAuthorizer wires database read authorization (table-level and
@@ -52,6 +57,11 @@ func (h *Hub) SetReadAuthorizer(a ReadAuthorizer) { h.readAuth = a }
 // SetReleaseVerifier wires deploy-release ownership checks into subscription
 // handling so a deploy-log channel is scoped to the subscriber's project.
 func (h *Hub) SetReleaseVerifier(v ReleaseVerifier) { h.releaseVerifier = v }
+
+// SetChatVerifier wires conversation-membership checks into subscription
+// handling so a chat.{conversationId} channel is scoped to that
+// conversation's members.
+func (h *Hub) SetChatVerifier(v ConversationMembershipVerifier) { h.chatVerifier = v }
 
 // NewHub creates a hub. Pass databaseDSN to enable PostgreSQL CDC and
 // redisAddr (host:port) to enable cross-instance Redis pub/sub.

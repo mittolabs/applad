@@ -330,6 +330,13 @@ func apiKeyResourceScope(path string) string {
 		return "functions"
 	case strings.HasPrefix(trimmed, "/messaging"):
 		return "messaging"
+	// A "chat" scope lets an API key pass this middleware layer, but every
+	// current /chat route additionally requires a real end-user session
+	// (chat.requireUser rejects an API key outright) — participants are
+	// people, not server keys. This scope exists for the admin/moderation
+	// endpoints a server SDK will get in a later milestone.
+	case strings.HasPrefix(trimmed, "/chat"):
+		return "chat"
 	case strings.HasPrefix(trimmed, "/deploy"):
 		return "deploy"
 	case strings.HasPrefix(trimmed, "/workflows"):
