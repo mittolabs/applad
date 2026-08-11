@@ -10,6 +10,13 @@ dependencies:
   dio: ^5.4.3
   http: ^1.2.0
   web_socket_channel: ^3.0.0
+  # Chat E2EE: audited X25519/Ed25519/AES-GCM/HKDF primitives the Double
+  # Ratchet + X3DH protocol (lib/src/crypto/) is built on top of. No
+  # maintained Dart FFI binding to libsignal-client exists, so — same
+  # reasoning as the JS client SDK — the protocol state machine is
+  # hand-assembled here on audited primitives rather than trusting a
+  # from-scratch implementation of both the math and the protocol.
+  cryptography: ^2.7.0
 
 dev_dependencies:
   lints: ^3.0.0
