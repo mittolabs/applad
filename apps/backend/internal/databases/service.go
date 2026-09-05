@@ -2156,13 +2156,49 @@ func (s *Service) CreateRowWithAuth(ctx context.Context, projectID, databaseID, 
 		return nil, fmt.Errorf("create row: %w", err)
 	}
 	rows, err := queryRowsAsJSON(ctx, tx, table.Name, rowID, 1, 0)
-	if err != nil || len(rows) == 0 {
-		return nil, fmt.Errorf("create row: failed to fetch after insert")
+	if err != nil {
+		return nil, fmt.Errorf("create row: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+
+	// The read-back above runs inside the caller's transaction, so the row's
+	// own SELECT policy applies to it — and a row does not have to grant read
+	// to the person who wrote it. A notification addressed to somebody else, a
+	// report only moderators may see: the write succeeds and then the author
+	// cannot see what they wrote, which used to surface as an opaque 500 on a
+	// row that had in fact been created.
+	//
+	// The row exists and this caller supplied it, so it is fetched without the
+	// read policy rather than refused. Nothing is disclosed that the caller did
+	// not just send.
+	if len(rows) == 0 {
+		rows, err = s.rowAfterInsert(ctx, table, databaseID, projectID, rowID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return s.mapToRow(ctx, rows[0], tableID, databaseID, projectID, encCols)
+}
+
+// rowAfterInsert reads a freshly created row without the caller's read policy.
+//
+// Only ever called when the caller could not read back their own insert, and
+// only for the id they just created.
+func (s *Service) rowAfterInsert(ctx context.Context, table *tableContext, databaseID, projectID, rowID string) ([]map[string]interface{}, error) {
+	qualified := fmt.Sprintf("%s.%s", pgIdent(table.Schema), pgIdent(table.Name))
+	row := s.db.QueryRowContext(ctx,
+		fmt.Sprintf("SELECT to_jsonb(t) FROM %s AS t WHERE id = $1 LIMIT 1", qualified), rowID)
+	var raw []byte
+	if err := row.Scan(&raw); err != nil {
+		return nil, fmt.Errorf("create row: failed to fetch after insert: %w", err)
+	}
+	var item map[string]interface{}
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return nil, fmt.Errorf("create row: failed to decode after insert: %w", err)
+	}
+	return []map[string]interface{}{item}, nil
 }
 
 func (s *Service) GetRow(ctx context.Context, rowID, tableID, databaseID, projectID string) (*model.Row, error) {

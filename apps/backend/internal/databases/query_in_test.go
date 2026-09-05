@@ -1,6 +1,7 @@
 package databases
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -92,5 +93,42 @@ func TestQueryFieldName_MapsDollarNames(t *testing.T) {
 	}
 	if len(args) != 2 {
 		t.Errorf("args = %v", args)
+	}
+}
+
+// A row does not have to grant read to whoever wrote it.
+//
+// Writing a notification addressed to somebody else, or a report only
+// moderators may see, is a normal thing to do. The read-back after an insert
+// runs under the caller's own policies, so it found nothing and the whole
+// create failed with an opaque 500 — on a row that had in fact been created.
+func TestCreateRow_AuthorNeedNotBeAbleToReadItBack(t *testing.T) {
+	// The permission shape that used to break it: read for the recipient,
+	// delete for the author, and no read for the author at all.
+	perms := []string{`read("user:recipient")`, `delete("user:author")`}
+	raw, err := rowPermissionsJSON(perms)
+	if err != nil {
+		t.Fatalf("rowPermissionsJSON: %v", err)
+	}
+	var stored map[string][]string
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(stored["read"]) != 1 || stored["read"][0] != "user:recipient" {
+		t.Errorf("read = %v, want [user:recipient]", stored["read"])
+	}
+
+	// The author's roles do not satisfy the row's read grant — which is the
+	// whole point, and is what made the post-insert SELECT return nothing.
+	authorRoles := []string{"any", "users", "user:author"}
+	if checkRowPermission(perms, authorRoles, "read") {
+		t.Error("the author should not be able to read this row")
+	}
+	if !checkRowPermission(perms, authorRoles, "delete") {
+		t.Error("the author should still be able to delete it")
+	}
+	recipientRoles := []string{"any", "users", "user:recipient"}
+	if !checkRowPermission(perms, recipientRoles, "read") {
+		t.Error("the recipient should be able to read it")
 	}
 }
