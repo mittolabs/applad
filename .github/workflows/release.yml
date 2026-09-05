@@ -134,6 +134,7 @@ jobs:
           - webhooks
           - cron
           - jobs
+          - transfer
     steps:
       - uses: actions/checkout@v4
 
@@ -247,6 +248,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - name: Publish to npm
+        if: env.NODE_AUTH_TOKEN != ''
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -273,6 +275,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - name: Publish to npm
+        if: env.NODE_AUTH_TOKEN != ''
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -298,6 +301,7 @@ jobs:
       - name: Build sdist + wheel
         run: python -m build
       - name: Publish to PyPI
+        if: env.TWINE_PASSWORD != ''
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
@@ -324,6 +328,7 @@ jobs:
       - name: Test
         run: dart test
       - name: Publish to pub.dev
+        if: env.PUB_TOKEN != ''
         env:
           PUB_TOKEN: ${{ secrets.PUB_TOKEN }}
         run: |
