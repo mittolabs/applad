@@ -83,4 +83,19 @@ class Applad {
   void setKey(String key) {
     _dio.options.headers['x-applad-key'] = key;
   }
+
+  /// Forgets whoever was signed in.
+  ///
+  /// Without this a client keeps its bearer token after sign-out, so the very
+  /// next request is still made as the user who just left — and the realtime
+  /// socket stays subscribed with their authorization.
+  void clearSession() {
+    _dio.options.headers.remove('Authorization');
+    realtime.setToken(null);
+  }
+
+  /// Forgets the API key, for a server client that swaps credentials.
+  void clearKey() {
+    _dio.options.headers.remove('x-applad-key');
+  }
 }
