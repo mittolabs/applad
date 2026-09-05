@@ -1,7 +1,7 @@
 import { Github, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { APP_VERSION } from '@/lib/version';
 
-const VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 const YEAR = 2026; // Date.* is avoided; bump on release.
 
 /* Ports console_footer.dart — 44px bottom bar: © year, GitHub/Discord icons,
@@ -33,7 +33,7 @@ export function ConsoleFooter({ className }: { className?: string }) {
       >
         <MessageCircle size={14} />
       </a>
-      <span className="text-text-subtle">v{VERSION}</span>
+      <span className="text-text-subtle">{APP_VERSION}</span>
       <div className="ml-auto flex items-center gap-4">
         {[
           ['Docs', 'https://docs.applad.io'],
