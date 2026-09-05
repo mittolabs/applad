@@ -85,6 +85,25 @@ class QueryBuilder {
   QueryBuilder search(String field, String value) =>
       _scalar('search', field, value);
 
+  /// Matches rows where [field] is any of [values].
+  ///
+  /// An empty list matches nothing, which is what asking for "any of none"
+  /// means — the alternative, quietly dropping the filter, would return the
+  /// whole table to a caller who asked for a specific few.
+  QueryBuilder inList(String field, List<dynamic> values) {
+    final encoded = values.map((v) => '"$v"').join(',');
+    _queries.add(values.isEmpty ? 'in("$field")' : 'in("$field",$encoded)');
+    return this;
+  }
+
+  /// Matches rows where [field] is none of [values]. An empty list excludes
+  /// nothing and so matches everything.
+  QueryBuilder notInList(String field, List<dynamic> values) {
+    final encoded = values.map((v) => '"$v"').join(',');
+    _queries.add(values.isEmpty ? 'notIn("$field")' : 'notIn("$field",$encoded)');
+    return this;
+  }
+
   /// Matches rows where [field] is NULL.
   QueryBuilder isNull(String field) {
     _queries.add('isNull("$field")');
