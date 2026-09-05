@@ -382,4 +382,114 @@ class Databases {
   }) async {
     await _dio.delete('/v1/databases/$databaseId/tables/$tableId/rows/$rowId');
   }
+
+  /// Create or replace a row at a known id.
+  Future<Map<String, dynamic>> upsertRow({
+    required String databaseId,
+    required String tableId,
+    required String rowId,
+    required Map<String, dynamic> data,
+    List<String>? permissions,
+  }) async {
+    final res = await _dio.put(
+      '/v1/databases/$databaseId/tables/$tableId/rows/$rowId',
+      data: {
+        'data': data,
+        if (permissions != null) 'permissions': permissions,
+      },
+    );
+    return res.data;
+  }
+
+  // ── Atomic numeric operations ───────────────────────────────────────────────
+  //
+  // A counter that is read, added to and written back loses concurrent updates:
+  // two people liking the same meme at once produce one like. These are a single
+  // UPDATE ... RETURNING on the server, so they cannot.
+
+  /// Atomically add [delta] to a numeric [field] and return the updated row.
+  Future<Map<String, dynamic>> increment({
+    required String databaseId,
+    required String tableId,
+    required String rowId,
+    required String field,
+    num delta = 1,
+  }) async {
+    final res = await _dio.post(
+      '/v1/databases/$databaseId/tables/$tableId/rows/$rowId/increment',
+      data: {'field': field, 'delta': delta},
+    );
+    return res.data;
+  }
+
+  /// Atomically subtract [delta] from a numeric [field] and return the row.
+  Future<Map<String, dynamic>> decrement({
+    required String databaseId,
+    required String tableId,
+    required String rowId,
+    required String field,
+    num delta = 1,
+  }) async {
+    final res = await _dio.post(
+      '/v1/databases/$databaseId/tables/$tableId/rows/$rowId/decrement',
+      data: {'field': field, 'delta': delta},
+    );
+    return res.data;
+  }
+
+  /// Atomically append [value] to an array [field] and return the row.
+  Future<Map<String, dynamic>> append({
+    required String databaseId,
+    required String tableId,
+    required String rowId,
+    required String field,
+    required dynamic value,
+  }) async {
+    final res = await _dio.post(
+      '/v1/databases/$databaseId/tables/$tableId/rows/$rowId/append',
+      data: {'field': field, 'value': value},
+    );
+    return res.data;
+  }
+
+  // ── Bulk row operations ─────────────────────────────────────────────────────
+
+  /// Create many rows in one call.
+  Future<Map<String, dynamic>> bulkCreateRows({
+    required String databaseId,
+    required String tableId,
+    required List<Map<String, dynamic>> rows,
+  }) async {
+    final res = await _dio.post(
+      '/v1/databases/$databaseId/tables/$tableId/rows/bulk',
+      data: {'rows': rows},
+    );
+    return res.data;
+  }
+
+  /// Update many rows in one call. Each entry is `{'$id': ..., 'data': {...}}`.
+  Future<Map<String, dynamic>> bulkUpdateRows({
+    required String databaseId,
+    required String tableId,
+    required List<Map<String, dynamic>> rows,
+  }) async {
+    final res = await _dio.patch(
+      '/v1/databases/$databaseId/tables/$tableId/rows/bulk',
+      data: {'rows': rows},
+    );
+    return res.data;
+  }
+
+  /// Delete many rows by id in one call.
+  Future<Map<String, dynamic>> bulkDeleteRows({
+    required String databaseId,
+    required String tableId,
+    required List<String> ids,
+  }) async {
+    final res = await _dio.delete(
+      '/v1/databases/$databaseId/tables/$tableId/rows/bulk',
+      data: {'ids': ids},
+    );
+    return res.data;
+  }
 }

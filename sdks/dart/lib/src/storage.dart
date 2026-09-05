@@ -110,6 +110,46 @@ class Storage {
     return res.data;
   }
 
+  /// The URL a stored file is served from.
+  ///
+  /// [downloadFile] and [viewFile] return bytes, which is the wrong shape for
+  /// an image in a list: a feed hands a URL to its image cache and lets that
+  /// decide what to fetch and when. This builds the URL without a round trip.
+  ///
+  /// Whether it resolves for an unauthenticated viewer is decided by the bucket
+  /// and file permissions — a bucket that grants `read("any")` serves publicly.
+  String fileViewUrl({
+    required String bucketId,
+    required String fileId,
+    String? projectId,
+  }) =>
+      _fileUrl(bucketId, fileId, 'view', projectId);
+
+  /// The URL a stored file downloads from, as an attachment.
+  String fileDownloadUrl({
+    required String bucketId,
+    required String fileId,
+    String? projectId,
+  }) =>
+      _fileUrl(bucketId, fileId, 'download', projectId);
+
+  String _fileUrl(
+    String bucketId,
+    String fileId,
+    String action,
+    String? projectId,
+  ) {
+    var base = _dio.options.baseUrl;
+    while (base.endsWith('/')) {
+      base = base.substring(0, base.length - 1);
+    }
+    final project =
+        projectId ?? _dio.options.headers['X-Applad-Project']?.toString();
+    final path = '/v1/storage/buckets/$bucketId/files/$fileId/$action';
+    if (project == null || project.isEmpty) return '$base$path';
+    return '$base$path?project=${Uri.encodeQueryComponent(project)}';
+  }
+
   /// Get file metadata.
   Future<Map<String, dynamic>> getFile({
     required String bucketId,

@@ -138,3 +138,47 @@ func TestCheckRowPermission_QuotedRoles(t *testing.T) {
 		t.Error("any should match")
 	}
 }
+
+// A counter that anyone may move must not also be a row anyone may rewrite.
+//
+// Atomic increments used to authorize as row updates, so the only way to let
+// every user like a post was to let every user edit it. `increment` is a
+// separate action for exactly that reason, and these assert the separation
+// holds in both directions.
+func TestIncrementIsItsOwnPermission(t *testing.T) {
+	parsed, err := parsePermissionStrings([]string{`increment("users")`})
+	if err != nil {
+		t.Fatalf("increment should be a valid action: %v", err)
+	}
+	if len(parsed) != 1 || parsed[0].Action != "increment" || parsed[0].Role != "users" {
+		t.Fatalf("parsed = %+v, want one increment/users", parsed)
+	}
+
+	// The grant must not leak into update or delete: that is the whole point.
+	perms := []string{`increment("users")`}
+	roles := []string{"users", "user:someone-else"}
+	if !checkRowPermission(perms, roles, "increment") {
+		t.Error("increment(users) should allow a signed-in user to increment")
+	}
+	for _, action := range []string{"update", "delete", "read"} {
+		if checkRowPermission(perms, roles, action) {
+			t.Errorf("increment(users) must not grant %q", action)
+		}
+	}
+
+	// And the row still stores it, or the grant would vanish on write.
+	raw, err := rowPermissionsJSON([]string{`increment("users")`, `update("user:author")`})
+	if err != nil {
+		t.Fatalf("rowPermissionsJSON: %v", err)
+	}
+	var stored map[string][]string
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatalf("unmarshal stored permissions: %v", err)
+	}
+	if len(stored["increment"]) != 1 || stored["increment"][0] != "users" {
+		t.Errorf("stored increment = %v, want [users]", stored["increment"])
+	}
+	if len(stored["update"]) != 1 || stored["update"][0] != "user:author" {
+		t.Errorf("stored update = %v, want [user:author]", stored["update"])
+	}
+}
