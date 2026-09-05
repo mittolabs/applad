@@ -143,11 +143,24 @@ class Storage {
     while (base.endsWith('/')) {
       base = base.substring(0, base.length - 1);
     }
-    final project =
-        projectId ?? _dio.options.headers['X-Applad-Project']?.toString();
+    final project = projectId ?? _projectHeader();
     final path = '/v1/storage/buckets/$bucketId/files/$fileId/$action';
     if (project == null || project.isEmpty) return '$base$path';
     return '$base$path?project=${Uri.encodeQueryComponent(project)}';
+  }
+
+  /// The project id the client is configured with.
+  ///
+  /// Dio stores headers in a plain map, so the lookup has to be
+  /// case-insensitive: the client sets 'x-applad-project' and reading
+  /// 'X-Applad-Project' quietly returns null.
+  String? _projectHeader() {
+    for (final entry in _dio.options.headers.entries) {
+      if (entry.key.toLowerCase() == 'x-applad-project') {
+        return entry.value?.toString();
+      }
+    }
+    return null;
   }
 
   /// Get file metadata.
