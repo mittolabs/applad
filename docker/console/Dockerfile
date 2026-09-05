@@ -8,6 +8,13 @@ COPY apps/console/package.json apps/console/package-lock.json* ./console/
 RUN cd console && npm ci
 
 # Build.
+#
+# The version is baked in here because Vite resolves import.meta.env at build
+# time: nothing set on the running container can reach the bundle. Without it
+# the console fell back to a hard-coded 0.2.0 and every release since has
+# reported that, whatever it actually was.
+ARG APP_VERSION=dev
+ENV VITE_APP_VERSION=$APP_VERSION
 COPY apps/console/ ./console/
 RUN cd console && npm run build
 
