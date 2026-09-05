@@ -1854,6 +1854,29 @@ func queryToWhereSQL(queries []Query) (string, []interface{}) {
 			conditions = append(conditions, fmt.Sprintf("to_tsvector('english', %s::text) @@ plainto_tsquery('english', $%d)", field, n))
 			args = append(args, valStr)
 			n++
+		case "in", "notIn":
+			// A list is expanded into its own placeholders rather than a single
+			// bound array: the column may be text, int or enum, and one
+			// parameterised IN works for all of them without a cast.
+			values := listValues(q.Values)
+			if len(values) == 0 {
+				// An empty list matches nothing. Degrading to "no filter" would
+				// silently return the whole table, which is the opposite of
+				// what the caller asked for.
+				conditions = append(conditions, map[string]string{"in": "FALSE", "notIn": "TRUE"}[q.Method])
+				continue
+			}
+			placeholders := make([]string, 0, len(values))
+			for _, v := range values {
+				placeholders = append(placeholders, fmt.Sprintf("$%d", n))
+				args = append(args, v)
+				n++
+			}
+			operator := "IN"
+			if q.Method == "notIn" {
+				operator = "NOT IN"
+			}
+			conditions = append(conditions, fmt.Sprintf("%s %s (%s)", field, operator, strings.Join(placeholders, ", ")))
 		case "isNull":
 			conditions = append(conditions, fmt.Sprintf("%s IS NULL", field))
 		case "isNotNull":
@@ -1865,6 +1888,40 @@ func queryToWhereSQL(queries []Query) (string, []interface{}) {
 		}
 	}
 	return "WHERE " + strings.Join(conditions, " AND "), args
+}
+
+// listValues normalises what an in/notIn filter carries into a flat list of
+// scalars. The handler parses one shape and a direct caller may pass another,
+// so both are accepted rather than trusting either.
+func listValues(raw interface{}) []interface{} {
+	switch v := raw.(type) {
+	case []interface{}:
+		out := make([]interface{}, 0, len(v))
+		for _, item := range v {
+			if item == nil {
+				continue
+			}
+			out = append(out, item)
+		}
+		return out
+	case []string:
+		out := make([]interface{}, 0, len(v))
+		for _, item := range v {
+			out = append(out, item)
+		}
+		return out
+	case string:
+		// A single value is a list of one, which is what a caller who passed a
+		// bare string meant.
+		if v == "" {
+			return nil
+		}
+		return []interface{}{v}
+	case nil:
+		return nil
+	default:
+		return []interface{}{raw}
+	}
 }
 
 // betweenBounds extracts the two bounds a between filter carries. The handler

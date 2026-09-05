@@ -682,6 +682,17 @@ func parseQueryString(q string) *Query {
 			return nil
 		}
 		return &Query{Field: args[0], Method: method, Values: []interface{}{args[1], args[2], args[3], args[4]}}
+	case "in", "notIn":
+		// Variadic: in("author_id", "a", "b", "c"). Everything after the field
+		// is a member of the list.
+		if len(args) < 2 {
+			return nil
+		}
+		values := make([]interface{}, 0, len(args)-1)
+		for _, a := range args[1:] {
+			values = append(values, a)
+		}
+		return &Query{Field: args[0], Method: method, Values: values}
 	case "isNull", "isNotNull":
 		if len(args) < 1 {
 			return nil
