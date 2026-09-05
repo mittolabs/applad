@@ -1,4 +1,4 @@
-package observe
+package analytics
 
 import (
 	"context"
@@ -23,7 +23,7 @@ type sampleBucket struct {
 }
 
 // PerfCollector buffers per-request latency samples in memory and periodically
-// flushes aggregated percentile snapshots to observe_perf_snapshots via
+// flushes aggregated percentile snapshots to analytics_perf_snapshots via
 // Service.RecordPerf. Call Start() once to begin the flush loop.
 type PerfCollector struct {
 	svc      *Service

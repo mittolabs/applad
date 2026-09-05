@@ -17,4 +17,3 @@ export { Flags } from './flags';
 export { Regions } from './regions';
 export { Search } from './search';
 export { Vectors } from './vectors';
-export { Observe } from './observe';

@@ -8,7 +8,6 @@ const KEY = 'applad_experiments';
 export type ExperimentKey =
   | 'aiChat'
   | 'search'
-  | 'analytics'
   | 'cache'
   | 'edgeFunctions'
   | 'vectors'
@@ -17,7 +16,6 @@ export type ExperimentKey =
 const DEFAULTS: Record<ExperimentKey, boolean> = {
   aiChat: false,
   search: false,
-  analytics: false,
   cache: false,
   edgeFunctions: false,
   vectors: false,

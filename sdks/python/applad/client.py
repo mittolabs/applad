@@ -36,7 +36,6 @@ class Client:
         self._vectors = None
         self._edge = None
         self._regions = None
-        self._observe = None
 
     # -----------------------------------------------------------------
     # Internal helpers
@@ -162,9 +161,3 @@ class Client:
             self._regions = Regions(self)
         return self._regions
 
-    @property
-    def observe(self):
-        if self._observe is None:
-            from .observe import Observe
-            self._observe = Observe(self)
-        return self._observe

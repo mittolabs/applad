@@ -5,19 +5,20 @@ import { FormDialog, SelectField, TextField } from '@/components/form-dialog';
 import { api, friendlyError } from '@/api/client';
 import { toast } from '@/components/toast';
 import {
-  OB_GREEN,
-  OB_ORANGE,
-  OB_RED,
-  OB_SLATE,
+  GREEN,
+  ORANGE,
+  RED,
+  SLATE,
   asRows,
   cap,
   healthColor,
   metric,
-  obTimeAgo,
-  useObserveResource,
-} from './observe-shared';
+  timeAgo,
+  useAnalyticsResource,
+} from './analytics-shared';
 
-/* ObserveUptime — ports observe_uptime.dart. HTTP monitor list + add dialog. */
+/* AnalyticsUptime — HTTP monitor list + add dialog. Uptime stayed with the
+ * platform when error monitoring moved to Bugslad: Applad polls these itself. */
 
 const COLUMNS: DataTableColumn[] = [
   { key: 'status', label: 'Status', flex: 2 },
@@ -29,11 +30,11 @@ const COLUMNS: DataTableColumn[] = [
 ];
 
 function statusColor(s: string): string {
-  return s === 'up' ? OB_GREEN : s === 'down' ? OB_RED : s === 'degraded' ? OB_ORANGE : OB_SLATE;
+  return s === 'up' ? GREEN : s === 'down' ? RED : s === 'degraded' ? ORANGE : SLATE;
 }
 
-export function ObserveUptime({ projectId }: { projectId?: string }) {
-  const query = useObserveResource('/observe/uptime', projectId);
+export function AnalyticsUptime({ projectId }: { projectId?: string }) {
+  const query = useAnalyticsResource('/analytics/uptime', projectId);
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Record<string, string | null>>({});
   const [adding, setAdding] = useState(false);
@@ -72,7 +73,7 @@ export function ObserveUptime({ projectId }: { projectId?: string }) {
             case 'latency':
               return metric(row.latencyMs, { suffix: 'ms' });
             case 'checked':
-              return obTimeAgo(row.lastChecked);
+              return timeAgo(row.lastChecked);
             default:
               return '';
           }
@@ -105,7 +106,7 @@ export function ObserveUptime({ projectId }: { projectId?: string }) {
         rowIconColor={(row) => statusColor(String(row.status ?? 'unknown'))}
         onDeleteRow={async (row) => {
           try {
-            await api.delete(`/observe/uptime/${row.$id}`);
+            await api.delete(`/analytics/uptime/${row.$id}`);
             await query.refetch();
           } catch (e) {
             toast.error(friendlyError(e));
@@ -164,7 +165,7 @@ function AddMonitorDialog({
   const submit = async () => {
     setSaving(true);
     try {
-      await api.post('/observe/uptime', {
+      await api.post('/analytics/uptime', {
         name: name.trim(),
         url: url.trim(),
         checkType,

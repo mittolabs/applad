@@ -130,7 +130,7 @@ const { rows } = await client.databases.listRows('main', 'posts', { limit: 25 })
 
 Services: `auth`, `databases`, `storage`, `functions`, `messaging`, `realtime`,
 `deploy`, `workflows`, `flags`, `analytics`, `search`, `vectors`, `edge`,
-`regions`, `observe`, `avatars`, `locale`.
+`regions`, `avatars`, `locale`.
 
 <Callout title="Anonymous sessions">
 Not every app starts with a login. `client.auth.createAnonymousSession()`
@@ -160,7 +160,7 @@ const user = await server.users.createUser('ada@example.com', 'hunter2', {
 
 Services: `users`, `databases`, `storage`, `functions`, `teams`, `workflows`,
 `messaging`, `deploy`, `flags`, `analytics`, `search`, `vectors`, `edge`,
-`regions`, `observe`.
+`regions`.
 
 ## Dart (client)
 
@@ -191,7 +191,7 @@ yourself and pass it back with `client.setJWT(secret)`.
 
 Services: `auth`, `users`, `databases`, `storage`, `teams`, `functions`,
 `messaging`, `realtime`, `deploy`, `workflows`, `flags`, `analytics`, `search`,
-`vectors`, `edge`, `regions`, `observe`.
+`vectors`, `edge`, `regions`.
 
 ## Dart (server)
 
@@ -255,7 +255,7 @@ result, err := client.Databases().From("main", "posts").
 
 Services: `Users`, `Databases`, `Storage`, `Functions`, `Teams`, `Workflows`,
 `Messaging`, `Deploy`, `Flags`, `Analytics`, `Search`, `Vectors`, `Edge`,
-`Regions`, `Observe`.
+`Regions`.
 
 ## Python (server)
 
@@ -276,7 +276,7 @@ response body.
 
 Services: `users`, `databases`, `storage`, `functions`, `teams`, `workflows`,
 `messaging`, `deploy`, `flags`, `analytics`, `search`, `vectors`, `edge`,
-`regions`, `observe`.
+`regions`.
 
 ## The auth model, in headers
 

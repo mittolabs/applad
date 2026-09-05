@@ -23,4 +23,3 @@ export 'src/search.dart';
 export 'src/vectors.dart';
 export 'src/workflows.dart';
 export 'src/flags.dart';
-export 'src/observe.dart';

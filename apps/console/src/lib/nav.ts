@@ -1,8 +1,6 @@
 import {
   Activity,
-  AlertTriangle,
   BarChart3,
-  Bell,
   Box,
   Clock,
   Code2,
@@ -10,19 +8,19 @@ import {
   Database,
   Flag,
   FlaskConical,
+  Filter,
   FolderOpen,
   Globe,
   KeyRound,
   DownloadCloud,
   type LucideIcon,
   LayoutDashboard,
+  LineChart,
   ListTodo,
   Mail,
   Monitor,
-  Play,
   Radio,
   Rocket,
-  ScrollText,
   Settings,
   Smartphone,
   Users,
@@ -95,18 +93,18 @@ export const navGroups: NavGroup[] = [
     children: [{ label: 'Workflows', route: 'workflows', icon: Workflow }],
   },
   {
-    id: 'observe',
-    label: 'Observe',
-    icon: Activity,
+    // Errors, logs, replays and alerts left with Bugslad. What remains is what
+    // the platform measures about itself, plus the product analytics it was
+    // already collecting and never showed.
+    id: 'analytics',
+    label: 'Analytics',
+    icon: LineChart,
     children: [
-      { label: 'Overview', route: 'observe', icon: LayoutDashboard },
-      { label: 'Errors', route: 'errors', icon: AlertTriangle },
-      { label: 'Releases', route: 'releases', icon: Rocket },
-      { label: 'Logs', route: 'logs', icon: ScrollText },
-      { label: 'Replays', route: 'replays', icon: Play },
+      { label: 'Overview', route: 'analytics', icon: LayoutDashboard },
+      { label: 'Events', route: 'events', icon: BarChart3 },
+      { label: 'Funnels', route: 'funnels', icon: Filter },
       { label: 'Uptime', route: 'uptime', icon: Activity },
       { label: 'Crons', route: 'crons', icon: Clock },
-      { label: 'Alerts', route: 'alerts', icon: Bell },
     ],
   },
   {
@@ -157,7 +155,7 @@ export const routeToGroup: Record<string, string> = (() => {
   // extra segments that live under a group but aren't nav children
   map['get-started'] = 'overview';
   map['platforms'] = 'deploy';
-  map['health'] = 'observe';
+  map['health'] = 'analytics';
   map['environments'] = 'settings';
   return map;
 })();

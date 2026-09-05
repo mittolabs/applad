@@ -13,7 +13,6 @@ import {
 const EXPERIMENTS: { key: ExperimentKey; label: string; description: string }[] = [
   { key: 'aiChat', label: 'AI Assistant', description: 'Show the in-console AI chat panel.' },
   { key: 'search', label: 'Advanced Search', description: 'Full-text search across resources.' },
-  { key: 'analytics', label: 'Analytics', description: 'Product analytics dashboards.' },
   { key: 'cache', label: 'Edge Cache', description: 'Response caching controls.' },
   { key: 'edgeFunctions', label: 'Edge Functions', description: 'Run functions at the edge.' },
   { key: 'vectors', label: 'Vectors', description: 'Vector storage and search.' },

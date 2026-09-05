@@ -1,0 +1,25 @@
+---
+icon: Gauge
+title: Performance
+description: Per-route latency percentiles, throughput and error rate, sampled by Applad on every request it serves.
+---
+
+Applad records latency for you. A built-in collector samples every request the
+API serves and flushes per-route percentiles (p50/p75/p95/p99), requests per
+second and error rate to hourly buckets. Read the last 24 hours, aggregated per
+route with an Apdex score:
+
+```bash
+curl "$APPLAD/v1/analytics/performance" \
+  -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
+```
+
+`POST /analytics/performance` records a snapshot for a path you name, if you
+want to feed in numbers Applad cannot see itself.
+
+<Callout title="This is server-side latency only">
+These percentiles are what the API measured while answering. Browser Core Web
+Vitals, crash-free sessions and anything else your app reports about its own
+health belong with the errors that explain them, in
+[Bugslad](https://bugslad.com) rather than here.
+</Callout>

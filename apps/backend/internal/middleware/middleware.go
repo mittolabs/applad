@@ -361,8 +361,6 @@ func apiKeyResourceScope(path string) string {
 		return "audit"
 	case strings.HasPrefix(trimmed, "/webhooks"):
 		return "webhooks"
-	case strings.HasPrefix(trimmed, "/observe"):
-		return "observe"
 	case strings.HasPrefix(trimmed, "/jobs"):
 		return "jobs"
 	case strings.HasPrefix(trimmed, "/cache"):

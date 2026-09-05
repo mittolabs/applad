@@ -1,4 +1,5 @@
 ---
+icon: CalendarClock
 title: Cron monitors
 description: Watch a scheduled job by having it check in when it runs; the monitor records status, duration, and history.
 ---
@@ -9,21 +10,20 @@ check-in at the end of each run:
 
 ```bash
 # define the monitor
-curl -X POST "$APPLAD/v1/observe/crons" \
+curl -X POST "$APPLAD/v1/analytics/crons" \
   -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"nightly-report","schedule":"0 2 * * *","timezone":"UTC","gracePeriod":5}'
 
 # the job checks in
-curl -X POST "$APPLAD/v1/observe/crons/<monitorId>/checkin" \
+curl -X POST "$APPLAD/v1/analytics/crons/<monitorId>/checkin" \
   -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY" \
   -H "Content-Type: application/json" \
   -d '{"status":"ok","durationMs":8200}'
 ```
 
 Each check-in records status, duration, and history, and updates the monitor's
-`lastRunAt`. Monitors can be toggled (`PATCH .../toggle`) and deleted. See
-Cron monitors.
+`lastRunAt`. Monitors can be toggled (`PATCH .../toggle`) and deleted.
 
 <Callout title="Check-ins are recorded, not yet policed">
 Check-ins and their history are stored, and a monitor carries a `gracePeriod`.

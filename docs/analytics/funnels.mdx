@@ -1,0 +1,45 @@
+---
+title: Funnels
+description: Define an ordered sequence of events and measure how many users make it through each step, and where they drop out.
+icon: Filter
+---
+
+A funnel measures how many users make it through an ordered sequence of events.
+Define it once with a name and at least two steps, then analyse it over any
+window.
+
+```bash
+# Define a funnel
+curl -X POST https://api.applad.io/v1/analytics/funnels \
+  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Checkout","steps":["viewed_product","added_to_cart","order_completed"]}'
+```
+
+Then `GET /v1/analytics/funnels/{funnelId}/analyze` returns, for each step, the
+number of distinct users who did it and the conversion rate against the previous
+step:
+
+```json
+{
+  "funnelId": "fnl_1",
+  "steps": [
+    { "step": "viewed_product",  "count": 1000, "conversionRate": 100 },
+    { "step": "added_to_cart",   "count": 420,  "conversionRate": 42 },
+    { "step": "order_completed", "count": 180,  "conversionRate": 42.86 }
+  ]
+}
+```
+
+List funnels with `GET /v1/analytics/funnels` and remove one with
+`DELETE /v1/analytics/funnels/{funnelId}`.
+
+<Callout title="How conversion is measured">
+Conversion in a funnel is measured over distinct users within the window, not
+per-user step ordering, so it is a cohort-style rate rather than a strict path
+trace. Someone who did the last step but not the first still counts toward the
+last step.
+</Callout>
+
+The console renders each funnel as a bar per step with the drop against the
+previous one, under **Analytics → Funnels**.

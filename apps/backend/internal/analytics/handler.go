@@ -42,6 +42,25 @@ func Routes(h *Handler) http.Handler {
 	r.Get("/funnels/{funnelId}/analyze", h.analyzeFunnel)
 	r.Delete("/funnels/{funnelId}", h.deleteFunnel)
 
+	// Overview
+	r.Get("/overview", h.overview)
+
+	// Request performance, measured by the platform itself
+	r.Get("/performance", h.getPerformance)
+	r.Post("/performance", h.recordPerf)
+
+	// Uptime monitors
+	r.Get("/uptime", h.listUptime)
+	r.Post("/uptime", h.createUptime)
+	r.Delete("/uptime/{monitorId}", h.deleteUptime)
+
+	// Cron monitors
+	r.Get("/crons", h.listCrons)
+	r.Post("/crons", h.createCron)
+	r.Patch("/crons/{monitorId}/toggle", h.toggleCron)
+	r.Delete("/crons/{monitorId}", h.deleteCron)
+	r.Post("/crons/{monitorId}/checkin", h.cronCheckin)
+
 	return r
 }
 
@@ -218,4 +237,143 @@ func parseTimeRange(fromStr, toStr string) (from, to time.Time) {
 		to = t
 	}
 	return
+}
+
+// ── Overview ─────────────────────────────────────────────────────────────────
+
+func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	data, err := h.svc.GetOverview(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
+// ── Performance ──────────────────────────────────────────────────────────────
+
+func (h *Handler) getPerformance(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	data, err := h.svc.GetPerformance(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
+func (h *Handler) recordPerf(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var req RecordPerfRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "invalid body")
+		return
+	}
+	if err := h.svc.RecordPerf(r.Context(), projectID, req); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Uptime ───────────────────────────────────────────────────────────────────
+
+func (h *Handler) listUptime(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	monitors, err := h.svc.ListUptimeMonitors(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if monitors == nil {
+		monitors = []UptimeMonitor{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"monitors": monitors})
+}
+
+func (h *Handler) createUptime(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var req CreateUptimeMonitorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.URL == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name and url are required")
+		return
+	}
+	mon, err := h.svc.CreateUptimeMonitor(r.Context(), projectID, req)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, mon)
+}
+
+func (h *Handler) deleteUptime(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	monitorID := chi.URLParam(r, "monitorId")
+	if err := h.svc.DeleteUptimeMonitor(r.Context(), projectID, monitorID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Crons ────────────────────────────────────────────────────────────────────
+
+func (h *Handler) listCrons(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	monitors, err := h.svc.ListCronMonitors(r.Context(), projectID)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	if monitors == nil {
+		monitors = []CronMonitor{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"monitors": monitors})
+}
+
+func (h *Handler) createCron(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	var req CreateCronMonitorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.Schedule == "" {
+		apperr.Write(w, http.StatusBadRequest, "general_argument_invalid", "name and schedule are required")
+		return
+	}
+	mon, err := h.svc.CreateCronMonitor(r.Context(), projectID, req)
+	if err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, mon)
+}
+
+func (h *Handler) toggleCron(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	monitorID := chi.URLParam(r, "monitorId")
+	if err := h.svc.ToggleCronMonitor(r.Context(), projectID, monitorID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"toggled": true})
+}
+
+func (h *Handler) deleteCron(w http.ResponseWriter, r *http.Request) {
+	projectID := middleware.ProjectFromContext(r.Context())
+	monitorID := chi.URLParam(r, "monitorId")
+	if err := h.svc.DeleteCronMonitor(r.Context(), projectID, monitorID); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) cronCheckin(w http.ResponseWriter, r *http.Request) {
+	monitorID := chi.URLParam(r, "monitorId")
+	var req CronCheckinRequest
+	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
+	if err := h.svc.CronCheckin(r.Context(), monitorID, req); err != nil {
+		apperr.Internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"received": true})
 }

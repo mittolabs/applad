@@ -6,18 +6,19 @@ import { Switch } from '@/components/ui/switch';
 import { api, friendlyError } from '@/api/client';
 import { toast } from '@/components/toast';
 import {
-  OB_ACCENT,
-  OB_GREEN,
-  OB_ORANGE,
-  OB_RED,
-  OB_SLATE,
+  ACCENT,
+  GREEN,
+  ORANGE,
+  RED,
+  SLATE,
   asRows,
   cap,
-  obTimeAgo,
-  useObserveResource,
-} from './observe-shared';
+  timeAgo,
+  useAnalyticsResource,
+} from './analytics-shared';
 
-/* ObserveCrons — ports observe_crons.dart. Cron monitor list + add dialog. */
+/* AnalyticsCrons — cron monitor list + add dialog. A job checks in when it
+ * finishes; one that stays silent past its grace period is marked missed. */
 
 const COLUMNS: DataTableColumn[] = [
   { key: 'status', label: 'Status', flex: 2 },
@@ -32,20 +33,20 @@ const COLUMNS: DataTableColumn[] = [
 function statusMeta(s: string): [string, LucideIcon] {
   switch (s) {
     case 'ok':
-      return [OB_GREEN, CheckCircle2];
+      return [GREEN, CheckCircle2];
     case 'missed':
-      return [OB_ORANGE, Clock];
+      return [ORANGE, Clock];
     case 'failed':
-      return [OB_RED, XCircle];
+      return [RED, XCircle];
     case 'running':
-      return [OB_ACCENT, Loader];
+      return [ACCENT, Loader];
     default:
-      return [OB_SLATE, Timer];
+      return [SLATE, Timer];
   }
 }
 
-export function ObserveCrons({ projectId }: { projectId?: string }) {
-  const query = useObserveResource('/observe/crons', projectId);
+export function AnalyticsCrons({ projectId }: { projectId?: string }) {
+  const query = useAnalyticsResource('/analytics/crons', projectId);
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Record<string, string | null>>({});
   const [adding, setAdding] = useState(false);
@@ -68,7 +69,7 @@ export function ObserveCrons({ projectId }: { projectId?: string }) {
 
   const toggle = async (id: string) => {
     try {
-      await api.patch(`/observe/crons/${id}/toggle`);
+      await api.patch(`/analytics/crons/${id}/toggle`);
       await query.refetch();
     } catch (e) {
       toast.error(friendlyError(e));
@@ -91,9 +92,9 @@ export function ObserveCrons({ projectId }: { projectId?: string }) {
             case 'timezone':
               return String(row.timezone ?? 'UTC');
             case 'lastRun':
-              return obTimeAgo(row.lastRunAt);
+              return timeAgo(row.lastRunAt);
             case 'nextRun':
-              return obTimeAgo(row.nextRunAt);
+              return timeAgo(row.nextRunAt);
             case 'enabled':
               return String(row.enabled !== false);
             default:
@@ -115,7 +116,7 @@ export function ObserveCrons({ projectId }: { projectId?: string }) {
             return (
               <span
                 className="font-[family-name:var(--font-mono)] text-[length:var(--text-label)] font-medium"
-                style={{ color: OB_ACCENT }}
+                style={{ color: ACCENT }}
               >
                 {String(row.schedule ?? '')}
               </span>
@@ -137,7 +138,7 @@ export function ObserveCrons({ projectId }: { projectId?: string }) {
         rowIconColor={(row) => statusMeta(String(row.status ?? 'waiting'))[0]}
         onDeleteRow={async (row) => {
           try {
-            await api.delete(`/observe/crons/${row.$id}`);
+            await api.delete(`/analytics/crons/${row.$id}`);
             await query.refetch();
           } catch (e) {
             toast.error(friendlyError(e));
@@ -199,7 +200,7 @@ function AddCronDialog({
   const submit = async () => {
     setSaving(true);
     try {
-      await api.post('/observe/crons', {
+      await api.post('/analytics/crons', {
         name: name.trim(),
         schedule: schedule.trim(),
         timezone,

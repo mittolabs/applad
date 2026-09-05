@@ -42,7 +42,6 @@ import (
 	"github.com/mittolabs/applad/internal/metrics"
 	mw "github.com/mittolabs/applad/internal/middleware"
 	oauthpkg "github.com/mittolabs/applad/internal/oauth"
-	"github.com/mittolabs/applad/internal/observe"
 	"github.com/mittolabs/applad/internal/organizations"
 	"github.com/mittolabs/applad/internal/plan"
 	"github.com/mittolabs/applad/internal/projects"
@@ -70,9 +69,9 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	auditSvc := audit.NewService(database)
 
 	// Perf collector — buffers per-request latencies and flushes percentiles
-	// to observe_perf_snapshots every 60 s.
-	observeSvcEarly := observe.NewService(database)
-	perfCollector := observe.NewPerfCollector(observeSvcEarly, 60*time.Second)
+	// to analytics_perf_snapshots every 60 s.
+	analyticsSvc := analytics.NewService(database)
+	perfCollector := analytics.NewPerfCollector(analyticsSvc, 60*time.Second)
 	perfCollector.Start(context.Background())
 
 	// JSON 404 / 405 — override chi's plain-text defaults.
@@ -480,8 +479,13 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				usageSvc := usage.NewService(database)
 				r.Mount("/usage", usage.Routes(usage.NewHandler(usageSvc)))
 
+				// Analytics — product events and funnels, plus the uptime and cron
+				// monitors the platform runs for itself. Error monitoring is not here:
+				// that is Bugslad's product (see migration 043).
+				analyticsSvc.StartUptimeWorker(context.Background())
+				r.Mount("/analytics", analytics.Routes(analytics.NewHandler(analyticsSvc)))
+
 				// Future services (experimental)
-				r.Mount("/analytics", analytics.Routes(analytics.NewHandler(analytics.NewService(database))))
 				r.Mount("/cache", appcache.Routes(appcache.NewHandler(appcache.NewService(cacheClient.Client()))))
 				r.Mount("/edge", edge.Routes(edge.NewHandler(edge.NewService(database))))
 				r.Mount("/jobs", jobs.Routes(jobs.NewHandler(jobs.NewService(database))))
@@ -489,10 +493,6 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/vectors", vectors.Routes(vectors.NewHandler(vectors.NewService(database))))
 				r.Mount("/project-regions", regions.ProjectRoutes(regions.NewHandler(regions.NewService(database))))
 
-				// Observe (errors, logs, performance, releases, replays, uptime, crons, alerts)
-				observeSvc := observeSvcEarly
-				observeSvc.StartUptimeWorker(context.Background())
-				r.Mount("/observe", observe.Routes(observe.NewHandler(observeSvc)))
 			})
 		})
 	})
@@ -503,7 +503,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 // observabilityMiddleware records HTTP request metrics (count + latency) using
 // the built-in metrics package, and also feeds per-project latency samples
 // into the PerfCollector for DB-backed percentile snapshots.
-func observabilityMiddleware(pc *observe.PerfCollector) func(http.Handler) http.Handler {
+func observabilityMiddleware(pc *analytics.PerfCollector) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
