@@ -257,8 +257,7 @@ func (s *Service) Chat(ctx context.Context, messages []Message, pageContext stri
 
 // Explain runs a single, tool-free completion: a system instruction and a user
 // prompt in, the assistant's text out. It is the one-shot cousin of Chat, for
-// callers that want a summary rather than a conversation (the studio's "explain
-// this capture", say).
+// callers that want a summary rather than a conversation.
 func (s *Service) Explain(ctx context.Context, system, user string) (string, error) {
 	if !s.IsConfigured() {
 		return "", fmt.Errorf("ai is not configured")

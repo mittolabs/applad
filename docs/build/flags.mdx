@@ -4,7 +4,7 @@ icon: Flag
 description: "Ship behind a switch: boolean, string, number and JSON flags with targeting rules, per-user overrides and percentage rollouts, evaluated per request."
 ---
 
-import { FlaskConical, Users, LineChart, Boxes } from 'lucide-react';
+import { Users, LineChart, Boxes } from 'lucide-react';
 
 A feature flag decouples "is this code deployed" from "is this feature on". You
 ship the code dark, then turn it on for yourself, then a team, then five percent
@@ -280,9 +280,6 @@ expect before you widen it.
   </Card>
   <Card icon={<Users />} title="Teams" href="/build/teams">
     Target a whole team with a `team` override or a `teamId` rule.
-  </Card>
-  <Card icon={<FlaskConical />} title="Test" href="/test">
-    Quarantine and roll out safely, hand in hand with your test suite.
   </Card>
   <Card icon={<Boxes />} title="SDKs" href="/sdks">
     Every SDK exposes `flags` with the three evaluation methods.

@@ -7,7 +7,6 @@ import {
   Container,
   Database,
   Flag,
-  FlaskConical,
   Filter,
   FolderOpen,
   Globe,
@@ -65,12 +64,6 @@ export const navGroups: NavGroup[] = [
       { label: 'Realtime', route: 'realtime', icon: Radio },
       { label: 'Feature Flags', route: 'flags', icon: Flag },
     ],
-  },
-  {
-    id: 'test',
-    label: 'Test',
-    icon: FlaskConical,
-    children: [{ label: 'Suites', route: 'tests', icon: FlaskConical }],
   },
   {
     // Every child here is a deploy target — /deploy/targets filtered by type —

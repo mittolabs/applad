@@ -29,7 +29,6 @@ func TestRulesMatchTheOperationsTheyName(t *testing.T) {
 		{"messaging", "POST", "/v1/messaging/sms", true},
 		{"messaging", "GET", "/v1/messaging/topics", false},
 		{"functions_exec", "POST", "/v1/functions/abc/executions", true},
-		{"test_runs", "POST", "/v1/tests/runs", true},
 	}
 	for _, c := range cases {
 		rule, ok := byName[c.rule]

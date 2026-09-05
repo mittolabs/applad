@@ -12,7 +12,6 @@ import (
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/messaging"
 	"github.com/mittolabs/applad/internal/queue"
-	"github.com/mittolabs/applad/internal/testlab"
 	"github.com/mittolabs/applad/internal/workflows"
 	"github.com/redis/go-redis/v9"
 )
@@ -107,19 +106,6 @@ func (w *Cron) collect(ctx context.Context) []schedulable {
 		for rows.Next() {
 			var s schedulable
 			s.kind = q.kind
-			if err := rows.Scan(&s.id, &s.projectID, &s.expr); err == nil {
-				out = append(out, s)
-			}
-		}
-		rows.Close()
-	}
-
-	// Test suites schedule themselves the same way anything else does.
-	if rows, err := w.db.QueryContext(ctx,
-		`SELECT id, project_id, cron FROM test_suites WHERE cron IS NOT NULL AND cron != ''`); err == nil {
-		for rows.Next() {
-			var s schedulable
-			s.kind = "test_suite"
 			if err := rows.Scan(&s.id, &s.projectID, &s.expr); err == nil {
 				out = append(out, s)
 			}
@@ -376,24 +362,6 @@ func (w *Cron) fire(ctx context.Context, s schedulable) {
 		w.fireTarget(ctx, s.id, s.projectID)
 	case "function":
 		w.fireFunction(ctx, s.id, s.projectID)
-	case "test_suite":
-		svc := testlab.NewService(w.db, w.queue)
-		sel, err := svc.GetSelection(ctx, s.id, s.projectID)
-		if err != nil {
-			slog.Error("cron worker: suite lookup failed", "suite_id", s.id, "error", err)
-			return
-		}
-		runnerID := sel.RunnerID
-		if runnerID == "" {
-			if runner, err := svc.RecordedRunner(ctx, s.projectID); err == nil {
-				runnerID = runner.ID
-			}
-		}
-		if _, err := svc.Trigger(ctx, runnerID, s.projectID, "schedule", "cron",
-			testlab.TriggerOptions{SuiteID: sel.ID}); err != nil {
-			slog.Error("cron worker: fire test suite failed", "suite_id", s.id, "error", err)
-		}
-
 	case "workflow":
 		svc := workflows.NewService(w.db, w.queue)
 		if _, err := svc.Execute(ctx, s.id, s.projectID, map[string]interface{}{"trigger": "cron"}); err != nil {

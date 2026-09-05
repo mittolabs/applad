@@ -140,9 +140,9 @@ services:
     networks:
       - internal
       - backend
-      # The recording studio dials browser containers by name, and those live
-      # on the deploy network with the customer apps they record against.
-      - deploy
+      # Not on the deploy network. The studio was the only thing here that
+      # dialled containers by name; the API now reaches them only by asking the
+      # builds worker over Redis, so a customer app can no longer see it.
     logging: *default-logging
     depends_on: *worker-deps
     <<: *limits-medium
@@ -239,8 +239,8 @@ services:
       # which is what will let a remote server build and run in one place.
       BUILDKIT_HOST: "${BUILDKIT_HOST:-tcp://buildkit:1234}"
       # The network deployed customer containers are started on. Only the
-      # proxy (routing), the api (studio) and this worker (health checks)
-      # also join it, so a customer app cannot see buildkit or postgres.
+      # proxy (routing) and this worker (health checks, previews) also join it,
+      # so a customer app cannot see buildkit, postgres or the API.
       APPLAD_DEPLOY_NETWORK: "${APPLAD_DEPLOY_NETWORK:-applad_deploy}"
     volumes:
       - storage_data:/var/applad/storage

@@ -18,7 +18,6 @@ import { AccountPage } from './features/account/AccountPage';
 import { OnboardingPage } from './features/onboarding/OnboardingPage';
 import { ExperimentsPage } from './features/experiments/ExperimentsPage';
 import { extensionRoutes, extensionStandaloneRoutes } from '@/extensions';
-import { PublicCapturePage } from '@/features/testlab/PublicCapturePage';
 import { AppError } from '@/components/app-error';
 // Shell feature pages are lazy-loaded so heavy deps (Monaco in databases/
 // functions, React Flow in workflows) only download when the route is visited.
@@ -41,7 +40,6 @@ const ApiKeyDetailPage = named(() => import('./features/settings/ApiKeyDetailPag
 const WorkflowsPage = named(() => import('./features/workflows/WorkflowsPage'), 'WorkflowsPage');
 const EndpointsPage = named(() => import('./features/endpoints/EndpointsPage'), 'EndpointsPage');
 const MigrationsPage = named(() => import('./features/migrations/MigrationsPage'), 'MigrationsPage');
-const TestPage = named(() => import('./features/testlab/TestPage'), 'TestPage');
 const SitesPage = named(() => import('./features/sites/SitesPage'), 'SitesPage');
 const ContainersPage = named(() => import('./features/containers/ContainersPage'), 'ContainersPage');
 const MobilePage = named(() => import('./features/mobile/MobilePage'), 'MobilePage');
@@ -121,8 +119,6 @@ const shellSegments: [string, string][] = [
   ['workflows/:workflowId', 'Workflows'],
   ['flags', 'Feature Flags'],
   ['flags/:flagId', 'Feature Flags'],
-  ['tests', 'Test'],
-  ['tests/:testId', 'Test'],
   ['platforms', 'Platforms'],
   ['platforms/:platformId', 'Platforms'],
   ['sites', 'Sites'],
@@ -172,8 +168,6 @@ const FEATURE_ELEMENTS: Record<string, React.ReactNode> = {
   migrations: <MigrationsPage />,
   workflows: <WorkflowsPage />,
   'workflows/:workflowId': <WorkflowsPage />,
-  tests: <TestPage />,
-  'tests/:testId': <TestPage />,
   sites: <SitesPage />,
   'sites/:siteId': <SitesPage />,
   containers: <ContainersPage />,
@@ -214,9 +208,6 @@ export const router = createBrowserRouter([
       // Invite redemption stands apart from login: the token is the
       // credential, and it works on instances where signup is closed.
       { path: '/invite/:token', element: <InvitePage /> },
-      // A shared capture replay, opened by anyone with the link. The token in
-      // the path is the only credential, so it sits outside auth.
-      { path: '/capture/:token', element: <PublicCapturePage /> },
       // Fixed by the GitHub App's own configuration: GitHub returns everyone
       // here after an install, whichever project sent them.
       { path: '/git/setup', element: <GitHubSetupPage /> },

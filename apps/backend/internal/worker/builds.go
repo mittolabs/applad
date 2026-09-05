@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mittolabs/applad/internal/browsershot"
 	"github.com/mittolabs/applad/internal/config"
 	"github.com/mittolabs/applad/internal/db"
 	"github.com/mittolabs/applad/internal/deploy"
@@ -26,7 +27,6 @@ import (
 	"github.com/mittolabs/applad/internal/metrics"
 	"github.com/mittolabs/applad/internal/queue"
 	"github.com/mittolabs/applad/internal/runtime"
-	"github.com/mittolabs/applad/internal/testlab"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -79,7 +79,7 @@ func (w *Builds) Start(ctx context.Context) error {
 	}
 
 	w.queue.StartReaper(ctx, "builds")
-	w.startStudioReaper(ctx)
+	w.startBrowserReaper(ctx)
 
 	slog.Info("builds worker: listening for jobs")
 
@@ -121,12 +121,6 @@ func (w *Builds) process(ctx context.Context, job *queue.Job) error {
 		return w.processRollback(ctx, job)
 	case "deploy_teardown":
 		return w.processTeardown(ctx, job)
-	case "test_run":
-		return w.processTestRun(ctx, job)
-	case "studio_start":
-		return w.processStudioStart(ctx, job)
-	case "studio_stop":
-		return w.processStudioStop(ctx, job)
 	case "container_logs":
 		return w.processContainerLogs(ctx, job)
 	default:
@@ -322,159 +316,6 @@ func extractZip(archive, dir string) error {
 	return nil
 }
 
-// processTestRun executes a project's own test suite and records what it
-// found. A suite that fails is a normal outcome recorded as results; only the
-// run itself failing to execute is an error.
-func (w *Builds) processTestRun(ctx context.Context, job *queue.Job) error {
-	runID, _ := job.Payload["runId"].(string)
-	runnerID, _ := job.Payload["runnerId"].(string)
-	projectID, _ := job.Payload["projectId"].(string)
-	target, _ := job.Payload["target"].(string)
-	grep, _ := job.Payload["grep"].(string)
-	start := time.Now()
-
-	svc := testlab.NewService(w.db, w.queue)
-	runner, err := svc.GetRunner(ctx, runnerID, projectID)
-	if err != nil {
-		svc.RecordResults(ctx, runID, projectID, runnerID, nil, "", "runner no longer exists", 0) //nolint:errcheck
-		return err
-	}
-	svc.MarkRunning(ctx, runID)
-
-	sourceDir, err := w.testSource(ctx, runner)
-	if err != nil {
-		svc.RecordResults(ctx, runID, projectID, runnerID, nil, "", err.Error(), time.Since(start).Milliseconds()) //nolint:errcheck
-		return err
-	}
-	defer os.RemoveAll(sourceDir)
-
-	// The target belongs to the run, not the runner, so testing a branch and
-	// testing main is the same configuration pointed somewhere else.
-	env := map[string]string{}
-	for k, v := range runner.EnvVars {
-		env[k] = v
-	}
-	if target != "" {
-		env["BASE_URL"] = target
-	}
-
-	command := runner.Command
-	if grep != "" {
-		// A selection is passed to the runner as a name filter rather than by
-		// rewriting the project, which keeps the runner ignorant of selections.
-		command += " --grep " + shellQuote(grep)
-	}
-
-	// Published as it happens, so the console can show a run unfolding rather
-	// than a spinner. Redis is the carrier because the API, which serves the
-	// console, cannot see this container.
-	onLine := func(line string) {
-		w.rdb.Publish(ctx, "applad:testrun:"+runID, line) //nolint:errcheck
-	}
-
-	result, runErr := w.deployExecutor.RunTests(ctx, runID, runtime.TestRunConfig{
-		OnLine:        onLine,
-		SourceDir:     sourceDir,
-		Image:         runner.Image,
-		SetupCmd:      runner.SetupCmd,
-		Command:       command,
-		ReportPath:    runner.ReportPath,
-		ArtifactsPath: runner.ArtifactsPath,
-		Env:           env,
-		TimeoutMs:     runner.TimeoutMs,
-	})
-	durationMs := time.Since(start).Milliseconds()
-
-	if runErr != nil {
-		logOut := ""
-		if result != nil {
-			logOut = result.Log
-		}
-		svc.RecordResults(ctx, runID, projectID, runnerID, nil, logOut, runErr.Error(), durationMs) //nolint:errcheck
-		return runErr
-	}
-
-	cases, parseErr := testlab.ParseJUnit(bytes.NewReader(result.Report))
-	if parseErr != nil {
-		msg := fmt.Sprintf("no test report at %s: %v", runner.ReportPath, parseErr)
-		if result.ExitCode != 0 {
-			msg = fmt.Sprintf("tests exited %d and left no report at %s", result.ExitCode, runner.ReportPath)
-		}
-		svc.RecordResults(ctx, runID, projectID, runnerID, nil, result.Log, msg, durationMs) //nolint:errcheck
-		slog.Warn("builds worker: test run produced no report", "run_id", runID, "error", parseErr)
-		return nil
-	}
-
-	// Attempts at the same test are one result, and one that failed then
-	// passed is flaky rather than failing.
-	cases = testlab.MergeRetries(cases)
-
-	if err := svc.RecordResults(ctx, runID, projectID, runnerID, cases, result.Log, "", durationMs); err != nil {
-		return err
-	}
-	if err := svc.StoreArtifacts(ctx, runID, projectID, result.Artifacts); err != nil {
-		slog.Warn("builds worker: storing test artifacts failed", "run_id", runID, "error", err)
-	}
-
-	summary := testlab.Summarise(cases)
-	slog.Info("builds worker: test run complete", "run_id", runID,
-		"total", summary.Total, "failed", summary.Failed, "flaky", summary.Flaky,
-		"duration_ms", durationMs)
-	return nil
-}
-
-// shellQuote makes a value safe inside the single-quoted command the runner
-// executes.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// testSource materialises the project under test, from git or from an upload.
-func (w *Builds) testSource(ctx context.Context, runner *testlab.Runner) (string, error) {
-	if runner.SourceType == "git" && runner.SourceURL != "" {
-		return w.cloneToSource(ctx, runner.ProjectID, runner.SourceURL, runner.Branch)
-	}
-	return extractUploadedSource(runner.ID)
-}
-
-// processStudioStart opens a browser for a recording session.
-//
-// The API asks for it rather than doing it, because only this worker holds the
-// Docker socket. Once it is up the API talks to it directly over the shared
-// network, so the endpoint is all that needs handing back.
-func (w *Builds) processStudioStart(ctx context.Context, job *queue.Job) error {
-	sessionID, _ := job.Payload["sessionId"].(string)
-	image, _ := job.Payload["image"].(string)
-	if image == "" {
-		image = runtime.StudioBrowserImage()
-	}
-
-	key := "applad:studio:" + sessionID
-	_, wsURL, err := w.deployExecutor.StartBrowser(ctx, sessionID, image)
-	if err != nil {
-		// Reported rather than dropped, so the console says what went wrong
-		// instead of waiting out the timeout.
-		w.rdb.Set(ctx, key, "error:"+err.Error(), 5*time.Minute) //nolint:errcheck
-		return err
-	}
-
-	// The session holds the browser open, so the key outlives a long recording
-	// but not a forgotten one.
-	w.rdb.Set(ctx, key, wsURL, 4*time.Hour) //nolint:errcheck
-	slog.Info("builds worker: studio browser ready", "session_id", sessionID)
-	return nil
-}
-
-func (w *Builds) processStudioStop(ctx context.Context, job *queue.Job) error {
-	sessionID, _ := job.Payload["sessionId"].(string)
-	name := "applad-studio-" + sessionID
-	if err := w.deployExecutor.StopBrowserByName(ctx, name); err != nil {
-		slog.Warn("builds worker: stopping studio browser", "session_id", sessionID, "error", err)
-	}
-	w.rdb.Del(ctx, "applad:studio:"+sessionID) //nolint:errcheck
-	return nil
-}
-
 // processContainerLogs answers a request for a running container's output.
 // The API cannot see containers, so it asks and reads the reply from Redis.
 func (w *Builds) processContainerLogs(ctx context.Context, job *queue.Job) error {
@@ -570,14 +411,14 @@ func (w *Builds) captureSitePreview(ctx context.Context, targetID, subdomain str
 	url := fmt.Sprintf("http://applad-site-%s", subdomain)
 
 	sessionID := "preview-" + targetID
-	containerID, wsURL, err := w.deployExecutor.StartBrowser(ctx, sessionID, runtime.StudioBrowserImage())
+	containerID, wsURL, err := w.deployExecutor.StartBrowser(ctx, sessionID, runtime.BrowserImage())
 	if err != nil {
 		slog.Warn("builds worker: preview browser failed to start", "target_id", targetID, "error", err)
 		return
 	}
 	defer w.deployExecutor.StopBrowser(context.Background(), containerID) //nolint:errcheck
 
-	png, err := testlab.Screenshot(ctx, wsURL, url, 1280, 800)
+	png, err := browsershot.Screenshot(ctx, wsURL, url, 1280, 800)
 	if err != nil {
 		slog.Warn("builds worker: preview capture failed", "target_id", targetID, "error", err)
 		return
@@ -1095,13 +936,6 @@ func (w *Builds) processRelease(ctx context.Context, job *queue.Job) error {
 	if deployErr == nil && cfg.subdomain != "" {
 		// A picture of what shipped, taken now rather than promised later.
 		w.captureSitePreview(ctx, targetID, cfg.subdomain)
-
-		// What just shipped is what gets checked.
-		svc := testlab.NewService(w.db, w.queue)
-		if n, err := svc.TriggerOnDeploy(ctx, projectID,
-			"http://applad-site-"+cfg.subdomain, "deploy:"+releaseID); err == nil && n > 0 {
-			slog.Info("builds worker: triggered tests after deploy", "release_id", releaseID, "suites", n)
-		}
 	}
 	if deployErr != nil {
 		// The log matters most when it failed, so it is stored alongside the
@@ -1381,17 +1215,17 @@ func buildPlatformFor(d deploy.Detection) string {
 	return ""
 }
 
-// studioBrowserMaxAge is the hard ceiling on a recording browser's life. The API
-// reaps idle sessions it knows about; this covers the ones it cannot know about,
-// such as every session live across an API restart.
-const studioBrowserMaxAge = 2 * time.Hour
+// browserMaxAge is the hard ceiling on a preview browser's life. Capturing a
+// site preview stops its own browser, so this only covers the ones that outlive
+// their capture — a worker killed mid-deploy, say.
+const browserMaxAge = 2 * time.Hour
 
-// startStudioReaper sweeps abandoned recording browsers.
+// startBrowserReaper sweeps abandoned browsers.
 //
 // Only this worker holds the Docker socket, so it is the only thing that can
-// see a container the API has forgotten. Without it an abandoned recording left
-// a Chromium running indefinitely.
-func (w *Builds) startStudioReaper(ctx context.Context) {
+// see a container nothing is tracking any more. Without it a crashed capture
+// left a Chromium running indefinitely.
+func (w *Builds) startBrowserReaper(ctx context.Context) {
 	if w.deployExecutor == nil {
 		return
 	}
@@ -1403,13 +1237,13 @@ func (w *Builds) startStudioReaper(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				n, err := w.deployExecutor.ReapStaleBrowsers(ctx, studioBrowserMaxAge)
+				n, err := w.deployExecutor.ReapStaleBrowsers(ctx, browserMaxAge)
 				if err != nil {
-					slog.Warn("builds worker: studio reap failed", "error", err)
+					slog.Warn("builds worker: browser reap failed", "error", err)
 					continue
 				}
 				if n > 0 {
-					slog.Info("builds worker: reaped stale studio browsers", "count", n)
+					slog.Info("builds worker: reaped stale browsers", "count", n)
 				}
 			}
 		}
