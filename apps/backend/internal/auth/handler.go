@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 
@@ -36,19 +35,6 @@ func newStateNonce() (string, error) {
 
 // e164Re validates E.164 phone numbers: +<country code><number>, 8–15 digits total.
 var e164Re = regexp.MustCompile(`^\+[1-9]\d{7,14}$`)
-
-// safeRedirectURL returns the URL only if it is relative (no scheme/host).
-// This prevents open-redirect attacks where attacker-controlled URLs are used.
-func safeRedirectURL(raw string) string {
-	if raw == "" {
-		return "/"
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "" || u.Host != "" {
-		return "/"
-	}
-	return raw
-}
 
 // EmailSender sends emails for auth flows.
 type EmailSender interface {
@@ -77,6 +63,32 @@ type Handler struct {
 	mailer         EmailSender
 	smsSender      SMSSender
 	templates      AuthTemplateResolver
+	redirects      RedirectAllowlist
+}
+
+// RedirectAllowlist reports the off-origin redirect targets a project has
+// registered against its platforms. Without one, only relative paths are
+// allowed — which is what every project got before targets could be registered.
+type RedirectAllowlist interface {
+	RedirectURIsForProject(ctx context.Context, projectID string) ([]string, error)
+}
+
+// SetRedirectAllowlist wires the registry an OAuth redirect is checked against.
+func (h *Handler) SetRedirectAllowlist(a RedirectAllowlist) {
+	h.redirects = a
+}
+
+// allowedRedirects reads the registry, treating a failure as "nothing is
+// registered". A lookup that errors must not widen what is permitted.
+func (h *Handler) allowedRedirects(ctx context.Context, projectID string) []string {
+	if h.redirects == nil || projectID == "" {
+		return nil
+	}
+	uris, err := h.redirects.RedirectURIsForProject(ctx, projectID)
+	if err != nil {
+		return nil
+	}
+	return uris
 }
 
 // SetTemplateResolver wires per-project auth message templates. When set, the
@@ -938,9 +950,11 @@ func (h *Handler) oauthRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate redirect URLs are relative-only to prevent open-redirect attacks.
-	successURL := safeRedirectURL(r.URL.Query().Get("success"))
-	failureURL := safeRedirectURL(r.URL.Query().Get("failure"))
+	// A redirect is a relative path, or one this project registered. Anything
+	// else is an open redirect on an unauthenticated endpoint.
+	allowed := h.allowedRedirects(r.Context(), projectID)
+	successURL := safeRedirectTarget(r.URL.Query().Get("success"), allowed)
+	failureURL := safeRedirectTarget(r.URL.Query().Get("failure"), allowed)
 
 	// Build callback URL
 	scheme := "https"
@@ -999,11 +1013,15 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	if len(parts) >= 2 {
 		projectID = parts[1]
 	}
+	// Re-validated here rather than trusted from the state: the state travelled
+	// through the provider and back, and a target that was allowed at
+	// initiation may have been withdrawn since.
+	allowedRedirects := h.allowedRedirects(r.Context(), projectID)
 	if len(parts) >= 3 {
-		successURL = safeRedirectURL(parts[2])
+		successURL = safeRedirectTarget(parts[2], allowedRedirects)
 	}
 	if len(parts) >= 4 {
-		failureURL = safeRedirectURL(parts[3])
+		failureURL = safeRedirectTarget(parts[3], allowedRedirects)
 	}
 
 	// CSRF: the state nonce must match the one we stored in the browser's cookie
@@ -1074,7 +1092,15 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   30 * 24 * 3600, // 30 days
 	})
 
-	_ = sess // session is set via cookie
+	_ = sess // web clients continue on the cookie set above
+
+	// A native app is reached on a custom scheme or another origin, where a
+	// cookie cannot follow, so it is handed the session in the redirect. Only
+	// ever a target the project registered — which is what makes putting a
+	// credential in a URL acceptable here rather than reckless.
+	if isAbsoluteRedirect(successURL) {
+		successURL = withParam(successURL, "secret", token)
+	}
 	http.Redirect(w, r, successURL, http.StatusTemporaryRedirect)
 }
 

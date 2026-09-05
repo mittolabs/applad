@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -428,16 +429,21 @@ func (h *Handler) createPlatform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Type     string `json:"type"`
-		Name     string `json:"name"`
-		Hostname string `json:"hostname"`
-		StoreID  string `json:"storeId"`
+		Type         string   `json:"type"`
+		Name         string   `json:"name"`
+		Hostname     string   `json:"hostname"`
+		StoreID      string   `json:"storeId"`
+		RedirectURIs []string `json:"redirectUris"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" || strings.TrimSpace(body.Type) == "" {
 		apperr.BadRequest(w, "name and type are required")
 		return
 	}
-	p, err := h.svc.CreatePlatform(r.Context(), projectID, body.Type, body.Name, body.Hostname, body.StoreID)
+	if bad, ok := invalidRedirectURI(body.RedirectURIs); !ok {
+		apperr.BadRequest(w, "redirect URI must be absolute with a scheme and host: "+bad)
+		return
+	}
+	p, err := h.svc.CreatePlatform(r.Context(), projectID, body.Type, body.Name, body.Hostname, body.StoreID, body.RedirectURIs)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -482,15 +488,22 @@ func (h *Handler) updatePlatform(w http.ResponseWriter, r *http.Request) {
 	}
 	platformID := chi.URLParam(r, "platformId")
 	var body struct {
-		Name           *string `json:"name"`
-		Hostname       *string `json:"hostname"`
-		DeployTargetID *string `json:"deployTargetId"`
+		Name           *string   `json:"name"`
+		Hostname       *string   `json:"hostname"`
+		DeployTargetID *string   `json:"deployTargetId"`
+		RedirectURIs   *[]string `json:"redirectUris"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.BadRequest(w, "invalid request body")
 		return
 	}
-	p, err := h.svc.UpdatePlatform(r.Context(), projectID, platformID, body.Name, body.Hostname, body.DeployTargetID)
+	if body.RedirectURIs != nil {
+		if bad, ok := invalidRedirectURI(*body.RedirectURIs); !ok {
+			apperr.BadRequest(w, "redirect URI must be absolute with a scheme and host: "+bad)
+			return
+		}
+	}
+	p, err := h.svc.UpdatePlatform(r.Context(), projectID, platformID, body.Name, body.Hostname, body.DeployTargetID, body.RedirectURIs)
 	if err != nil {
 		apperr.Internal(w, err)
 		return
@@ -706,4 +719,25 @@ func (h *Handler) updateServicesConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok"})
+}
+
+// invalidRedirectURI reports the first entry that is not a usable redirect
+// target, so a typo is refused at registration rather than silently never
+// matching. A relative path is rejected on purpose: those are always allowed
+// and registering one would suggest it did something.
+func invalidRedirectURI(uris []string) (string, bool) {
+	for _, raw := range uris {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return raw, false
+		}
+		u, err := url.Parse(trimmed)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return raw, false
+		}
+		if u.User != nil {
+			return raw, false
+		}
+	}
+	return "", true
 }

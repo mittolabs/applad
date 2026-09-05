@@ -365,36 +365,49 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 
 // Platform represents a registered platform for a project.
 type Platform struct {
-	ID             string    `json:"$id"`
-	ProjectID      string    `json:"projectId"`
-	Type           string    `json:"type"` // web, ios, android, desktop, server
-	Name           string    `json:"name"`
-	Hostname       string    `json:"hostname,omitempty"`
-	StoreID        string    `json:"storeId,omitempty"`
-	DeployTargetID string    `json:"deployTargetId,omitempty"`
-	CreatedAt      time.Time `json:"$createdAt"`
+	ID             string `json:"$id"`
+	ProjectID      string `json:"projectId"`
+	Type           string `json:"type"` // web, ios, android, desktop, server
+	Name           string `json:"name"`
+	Hostname       string `json:"hostname,omitempty"`
+	StoreID        string `json:"storeId,omitempty"`
+	DeployTargetID string `json:"deployTargetId,omitempty"`
+	// Where an OAuth sign-in may hand this app its session. A native app is
+	// reached on a custom scheme or an app link, neither of which a cookie or a
+	// relative path can follow, so the target has to be registered to be
+	// allowed — see internal/auth/redirect.go.
+	RedirectURIs []string  `json:"redirectUris"`
+	CreatedAt    time.Time `json:"$createdAt"`
 }
 
 // CreatePlatform registers a new platform for a project.
-func (s *Service) CreatePlatform(ctx context.Context, projectID, pType, name, hostname, storeID string) (*Platform, error) {
+func (s *Service) CreatePlatform(ctx context.Context, projectID, pType, name, hostname, storeID string, redirectURIs []string) (*Platform, error) {
 	id := uid.New("unique()")
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO platforms (id, project_id, type, name, hostname, store_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		id, projectID, pType, name, hostname, storeID, now)
+	if redirectURIs == nil {
+		redirectURIs = []string{}
+	}
+	encoded, err := json.Marshal(redirectURIs)
+	if err != nil {
+		return nil, fmt.Errorf("platforms: encode redirect uris: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx,
+		"INSERT INTO platforms (id, project_id, type, name, hostname, store_id, redirect_uris, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+		id, projectID, pType, name, hostname, storeID, encoded, now)
 	if err != nil {
 		return nil, fmt.Errorf("platforms: create: %w", err)
 	}
 	return &Platform{
 		ID: id, ProjectID: projectID, Type: pType, Name: name,
-		Hostname: hostname, StoreID: storeID, CreatedAt: now,
+		Hostname: hostname, StoreID: storeID, RedirectURIs: redirectURIs,
+		CreatedAt: now,
 	}, nil
 }
 
 // ListPlatforms returns all platforms for a project.
 func (s *Service) ListPlatforms(ctx context.Context, projectID string) ([]*Platform, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, created_at FROM platforms WHERE project_id = $1 ORDER BY created_at DESC",
+		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, COALESCE(redirect_uris, '[]'), created_at FROM platforms WHERE project_id = $1 ORDER BY created_at DESC",
 		projectID)
 	if err != nil {
 		return nil, fmt.Errorf("platforms: list: %w", err)
@@ -404,18 +417,55 @@ func (s *Service) ListPlatforms(ctx context.Context, projectID string) ([]*Platf
 	for rows.Next() {
 		var p Platform
 		var hostname, storeID, deployTargetID sql.NullString
-		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Type, &p.Name, &hostname, &storeID, &deployTargetID, &p.CreatedAt); err != nil {
+		var redirectRaw []byte
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Type, &p.Name, &hostname, &storeID, &deployTargetID, &redirectRaw, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		p.Hostname = hostname.String
 		p.StoreID = storeID.String
 		p.DeployTargetID = deployTargetID.String
+		p.RedirectURIs = decodeRedirectURIs(redirectRaw)
 		platforms = append(platforms, &p)
 	}
 	if platforms == nil {
 		platforms = []*Platform{}
 	}
 	return platforms, nil
+}
+
+// decodeRedirectURIs reads the stored JSON array, treating anything malformed
+// as no registration at all — the safe reading, since these authorise a
+// redirect.
+func decodeRedirectURIs(raw []byte) []string {
+	out := []string{}
+	if len(raw) == 0 {
+		return out
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return []string{}
+	}
+	return out
+}
+
+// RedirectURIsForProject returns every redirect target registered across a
+// project's platforms. An OAuth sign-in is allowed to land on one of these and
+// nowhere else off-origin.
+func (s *Service) RedirectURIsForProject(ctx context.Context, projectID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT COALESCE(redirect_uris, '[]') FROM platforms WHERE project_id = $1", projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		out = append(out, decodeRedirectURIs(raw)...)
+	}
+	return out, rows.Err()
 }
 
 // DeletePlatform removes a platform.
@@ -428,11 +478,12 @@ func (s *Service) DeletePlatform(ctx context.Context, projectID, platformID stri
 // GetPlatform fetches a single platform by ID.
 func (s *Service) GetPlatform(ctx context.Context, projectID, platformID string) (*Platform, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, created_at FROM platforms WHERE id = $1 AND project_id = $2",
+		"SELECT id, project_id, type, name, hostname, store_id, deploy_target_id, COALESCE(redirect_uris, '[]'), created_at FROM platforms WHERE id = $1 AND project_id = $2",
 		platformID, projectID)
 	var p Platform
 	var hostname, storeID, deployTargetID sql.NullString
-	if err := row.Scan(&p.ID, &p.ProjectID, &p.Type, &p.Name, &hostname, &storeID, &deployTargetID, &p.CreatedAt); err != nil {
+	var redirectRaw []byte
+	if err := row.Scan(&p.ID, &p.ProjectID, &p.Type, &p.Name, &hostname, &storeID, &deployTargetID, &redirectRaw, &p.CreatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("platform not found")
 		}
@@ -441,11 +492,12 @@ func (s *Service) GetPlatform(ctx context.Context, projectID, platformID string)
 	p.Hostname = hostname.String
 	p.StoreID = storeID.String
 	p.DeployTargetID = deployTargetID.String
+	p.RedirectURIs = decodeRedirectURIs(redirectRaw)
 	return &p, nil
 }
 
 // UpdatePlatform updates mutable fields of a platform.
-func (s *Service) UpdatePlatform(ctx context.Context, projectID, platformID string, name, hostname, deployTargetID *string) (*Platform, error) {
+func (s *Service) UpdatePlatform(ctx context.Context, projectID, platformID string, name, hostname, deployTargetID *string, redirectURIs *[]string) (*Platform, error) {
 	sets := []string{}
 	args := []interface{}{}
 	n := 1
@@ -457,6 +509,15 @@ func (s *Service) UpdatePlatform(ctx context.Context, projectID, platformID stri
 	if hostname != nil {
 		sets = append(sets, fmt.Sprintf("hostname = $%d", n))
 		args = append(args, *hostname)
+		n++
+	}
+	if redirectURIs != nil {
+		encoded, err := json.Marshal(*redirectURIs)
+		if err != nil {
+			return nil, fmt.Errorf("platforms: encode redirect uris: %w", err)
+		}
+		sets = append(sets, fmt.Sprintf("redirect_uris = $%d", n))
+		args = append(args, encoded)
 		n++
 	}
 	if deployTargetID != nil {

@@ -7,7 +7,7 @@ import { Layers } from 'lucide-react';
 import { api, friendlyError } from '@/api/client';
 import { DataTable, type DataTableColumn, type Row } from '@/components/data-table';
 import { AppBadge } from '@/components/app-badge';
-import { FormDialog, FormField, TextField } from '@/components/form-dialog';
+import { FormDialog, FormField, TextAreaField, TextField } from '@/components/form-dialog';
 import { toast } from '@/components/toast';
 import { cn } from '@/lib/utils';
 import { PlatformDetail } from './PlatformDetail';
@@ -257,12 +257,14 @@ function AddPlatformDialog({
   const [type, setType] = useState('web');
   const [name, setName] = useState('');
   const [hostname, setHostname] = useState('');
+  const [redirectUris, setRedirectUris] = useState('');
   const [saving, setSaving] = useState(false);
 
   const reset = () => {
     setType('web');
     setName('');
     setHostname('');
+    setRedirectUris('');
   };
 
   const submit = async () => {
@@ -273,6 +275,10 @@ function AddPlatformDialog({
         type,
         name: name.trim(),
         hostname: hostname.trim(),
+        redirectUris: redirectUris
+          .split(/[\n,]/)
+          .map((uri) => uri.trim())
+          .filter(Boolean),
       });
       onOpenChange(false);
       reset();
@@ -336,6 +342,14 @@ function AddPlatformDialog({
         value={hostname}
         onChange={(e) => setHostname(e.target.value)}
         placeholder={identityHint(type)}
+      />
+      <TextAreaField
+        label="OAuth redirect URIs"
+        hint="Where a sign-in may send this app back, one per line. A native app is reached on its own scheme — funnier://auth — which a cookie cannot follow, so it is handed the session here. Only registered targets are ever allowed."
+        value={redirectUris}
+        onChange={(e) => setRedirectUris(e.target.value)}
+        placeholder={type === 'web' ? 'https://example.com/auth/callback' : 'myapp://auth'}
+        rows={3}
       />
     </FormDialog>
   );
