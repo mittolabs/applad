@@ -105,6 +105,7 @@ func Routes(h *Handler) http.Handler {
 	r.Post("/topics", h.createTopic)
 	r.Get("/topics/{topicId}", h.getTopic)
 	r.Post("/topics/{topicId}/subscribers", h.addSubscriber)
+	r.Delete("/topics/{topicId}/subscribers/{target}", h.removeSubscriber)
 	r.Post("/topics/{topicId}/messages", h.sendToTopic)
 
 	// Templates
@@ -535,6 +536,22 @@ func (h *Handler) addSubscriber(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	topic, err := h.svc.AddSubscriber(r.Context(), projectID, topicID, body.Target)
+	if err != nil {
+		apperr.NotFound(w, "topic")
+		return
+	}
+	writeJSON(w, http.StatusOK, topic)
+}
+
+func (h *Handler) removeSubscriber(w http.ResponseWriter, r *http.Request) {
+	projectID := mw.ProjectFromContext(r.Context())
+	topicID := chi.URLParam(r, "topicId")
+	target := chi.URLParam(r, "target")
+	if target == "" {
+		apperr.BadRequest(w, "target is required")
+		return
+	}
+	topic, err := h.svc.RemoveSubscriber(r.Context(), projectID, topicID, target)
 	if err != nil {
 		apperr.NotFound(w, "topic")
 		return

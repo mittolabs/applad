@@ -1109,6 +1109,28 @@ func (s *Service) AddSubscriber(ctx context.Context, projectID, topicID, target 
 	return s.GetTopic(ctx, projectID, topicID)
 }
 
+// RemoveSubscriber unsubscribes a target from a topic.
+//
+// Subscribing had no counterpart, so "notify me" was a one-way door: an app
+// could join a topic and had no way to leave it, which makes a notifications
+// switch that can only be turned on.
+func (s *Service) RemoveSubscriber(ctx context.Context, projectID, topicID, target string) (*Topic, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM msg_topics WHERE id=$1 AND project_id=$2",
+		topicID, projectID).Scan(&count); err != nil || count == 0 {
+		return nil, fmt.Errorf("messaging: topic not found")
+	}
+	// Not an error when they were never subscribed: unsubscribing twice should
+	// leave them unsubscribed, not fail.
+	if _, err := s.db.ExecContext(ctx,
+		"DELETE FROM msg_topic_subscribers WHERE topic_id=$1 AND target=$2",
+		topicID, target); err != nil {
+		return nil, fmt.Errorf("messaging: remove subscriber: %w", err)
+	}
+	return s.GetTopic(ctx, projectID, topicID)
+}
+
 // SendToTopic sends a message to all subscribers of a topic.
 func (s *Service) SendToTopic(ctx context.Context, projectID, topicID, subject, body string) error {
 	t, err := s.GetTopic(ctx, projectID, topicID)
