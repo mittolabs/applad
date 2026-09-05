@@ -26,6 +26,9 @@ func (w *Mails) Start(ctx context.Context) error {
 	rdb := redis.NewClient(&redis.Options{Addr: w.cfg.RedisAddr})
 	w.queue = queue.New(rdb)
 	StartRedisHeartbeat(ctx, rdb, "mails")
+	// Touch the file heartbeat before the first tick so the compose
+	// healthcheck does not see the worker as hung during start-up.
+	Heartbeat()
 	w.queue.StartReaper(ctx, "mails")
 
 	slog.Info("mails worker: listening for jobs")
@@ -40,10 +43,11 @@ func (w *Mails) Start(ctx context.Context) error {
 			slog.Error("mails worker: pop error", "error", err)
 			continue
 		}
+		Heartbeat()
+
 		if receipt == nil {
 			continue
 		}
-		Heartbeat()
 		if processErr := w.process(ctx, receipt.Job); processErr != nil {
 			metrics.QueueJobs.Inc("mails", "failed")
 			receipt.Nack()

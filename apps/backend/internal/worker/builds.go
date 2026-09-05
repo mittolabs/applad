@@ -54,6 +54,9 @@ func (w *Builds) Start(ctx context.Context) error {
 	w.rdb = rdb
 	w.queue = queue.New(rdb)
 	StartRedisHeartbeat(ctx, rdb, "builds")
+	// Touch the file heartbeat before the first tick so the compose
+	// healthcheck does not see the worker as hung during start-up.
+	Heartbeat()
 
 	database, err := db.Connect(w.cfg.DatabaseDSN, w.cfg.DBMaxOpenConns, w.cfg.DBMaxIdleConns)
 	if err != nil {
@@ -93,10 +96,11 @@ func (w *Builds) Start(ctx context.Context) error {
 			slog.Error("builds worker: pop error", "error", err)
 			continue
 		}
+		Heartbeat()
+
 		if receipt == nil {
 			continue
 		}
-		Heartbeat()
 		if processErr := w.process(ctx, receipt.Job); processErr != nil {
 			slog.Error("builds worker: job failed", "job_id", receipt.Job.ID, "error", processErr)
 			metrics.QueueJobs.Inc("builds", "failed")

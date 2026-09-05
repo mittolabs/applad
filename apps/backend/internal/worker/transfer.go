@@ -45,6 +45,10 @@ func (w *Transfer) Start(ctx context.Context) error {
 	StartRedisHeartbeat(ctx, rdb, transfer.QueueName)
 	w.queue.StartReaper(ctx, transfer.QueueName)
 
+	// Touch the file heartbeat before the first tick so the compose
+	// healthcheck does not see the worker as hung during start-up.
+	Heartbeat()
+
 	slog.Info("transfer worker: listening for jobs")
 
 	for {
@@ -57,10 +61,11 @@ func (w *Transfer) Start(ctx context.Context) error {
 			slog.Error("transfer worker: pop error", "error", err)
 			continue
 		}
+		Heartbeat()
+
 		if receipt == nil {
 			continue
 		}
-		Heartbeat()
 		if processErr := w.process(ctx, receipt.Job); processErr != nil {
 			metrics.QueueJobs.Inc(transfer.QueueName, "failed")
 			receipt.Nack()
