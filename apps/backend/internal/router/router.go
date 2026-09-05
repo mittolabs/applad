@@ -401,6 +401,10 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 			// Per-project custom copy for the verification/magic/recovery emails
 			// and the OTP SMS, edited in the console. Falls back to built-in copy.
 			authHandler.SetTemplateResolver(projectSvc)
+			// Where an OAuth sign-in may land: a project registers targets
+			// against its platforms, and nothing off-origin is allowed without
+			// one. This is what lets a native app receive its session at all.
+			authHandler.SetRedirectAllowlist(projectSvc)
 
 			r.Mount("/account", auth.AccountRoutes(authHandler))
 
