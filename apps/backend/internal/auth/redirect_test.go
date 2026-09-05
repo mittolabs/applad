@@ -83,3 +83,43 @@ func TestIsAbsoluteRedirectAndWithParam(t *testing.T) {
 		t.Errorf("withParam kept/added wrongly: %q", got)
 	}
 }
+
+// The URL an emailed link points at carries a single-use credential, and the
+// caller chooses both it and the address the mail goes to. Unvalidated, that is
+// a way to have somebody else's token delivered somewhere of your choosing.
+func TestLinkCallbackURL(t *testing.T) {
+	registered := []string{"funnier://auth", "https://funnier.app/callback"}
+
+	// No URL is fine and means "send the bare token".
+	if url, ok := linkCallbackURL("", registered); !ok || url != "" {
+		t.Errorf(`linkCallbackURL("") = (%q, %v), want ("", true)`, url, ok)
+	}
+
+	for _, in := range []string{"funnier://auth", "https://funnier.app/callback"} {
+		if url, ok := linkCallbackURL(in, registered); !ok || url != in {
+			t.Errorf("registered %q was refused: (%q, %v)", in, url, ok)
+		}
+	}
+
+	refused := map[string]string{
+		"https://attacker.example/collect":  "unregistered host — the whole point",
+		"https://funnier.app.evil/callback": "host is not a prefix match",
+		"funnier://auth.evil":               "custom-scheme host is not a prefix match",
+		"/callback":                         "relative: an email has no origin to resolve it against",
+		"//evil.example":                    "protocol-relative",
+	}
+	for in, why := range refused {
+		if url, ok := linkCallbackURL(in, registered); ok {
+			t.Errorf("linkCallbackURL(%q) allowed %q (%s)", in, url, why)
+		}
+	}
+
+	// A project that registered nothing can still be sent a bare token, but
+	// cannot have one delivered anywhere.
+	if _, ok := linkCallbackURL("https://funnier.app/callback", nil); ok {
+		t.Error("unregistered project should not accept a callback")
+	}
+	if _, ok := linkCallbackURL("", nil); !ok {
+		t.Error("an empty callback is always fine")
+	}
+}
