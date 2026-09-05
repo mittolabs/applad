@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'apps/backend/')
+      contains(toJson(github.event.commits), 'apps/backend/')
     defaults:
       run:
         working-directory: apps/backend
@@ -46,9 +46,9 @@ jobs:
     runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/dart/') ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'melos.yaml') ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'pubspec.yaml')
+      contains(toJson(github.event.commits), 'sdks/dart/') ||
+      contains(toJson(github.event.commits), 'melos.yaml') ||
+      contains(toJson(github.event.commits), 'pubspec.yaml')
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'apps/console/')
+      contains(toJson(github.event.commits), 'apps/console/')
     defaults:
       run:
         working-directory: apps/console
@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'apps/backend/')
+      contains(toJson(github.event.commits), 'apps/backend/')
     services:
       postgres:
         image: postgres:16-alpine
@@ -166,7 +166,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/js/')
+      contains(toJson(github.event.commits), 'sdks/js/')
     defaults:
       run:
         working-directory: sdks/js
@@ -187,7 +187,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: |
       github.event_name == 'pull_request' ||
-      contains(toJson(github.event.commits.*.modified + github.event.commits.*.added + github.event.commits.*.removed), 'sdks/node/')
+      contains(toJson(github.event.commits), 'sdks/node/')
     defaults:
       run:
         working-directory: sdks/node
