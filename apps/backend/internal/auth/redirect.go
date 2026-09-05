@@ -109,3 +109,30 @@ func withParam(raw, key, value string) string {
 	u.RawQuery = q.Encode()
 	return u.String()
 }
+
+// linkCallbackURL resolves the URL an emailed sign-in, verification or reset
+// link should point at.
+//
+// These append a single-use credential to a URL the *caller* supplies and then
+// email the result to an address the caller also names. Unvalidated, that is a
+// way to have somebody else's token delivered somewhere of your choosing: ask
+// for a password reset for their address with a URL of yours, and the link they
+// receive hands you the token when they click it.
+//
+// So the same registry that governs an OAuth redirect governs these. An empty
+// URL is fine and means "send the bare token"; anything else has to be a target
+// the project registered.
+func linkCallbackURL(raw string, registered []string) (string, bool) {
+	if raw == "" {
+		return "", true
+	}
+	// A relative path is meaningless in an email — there is no origin to
+	// resolve it against — so unlike a redirect it is not quietly accepted.
+	if !isAbsoluteRedirect(raw) {
+		return "", false
+	}
+	if safeRedirectTarget(raw, registered) == raw {
+		return raw, true
+	}
+	return "", false
+}

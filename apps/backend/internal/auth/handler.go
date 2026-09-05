@@ -81,7 +81,7 @@ func (h *Handler) SetRedirectAllowlist(a RedirectAllowlist) {
 // allowedRedirects reads the registry, treating a failure as "nothing is
 // registered". A lookup that errors must not widen what is permitted.
 func (h *Handler) allowedRedirects(ctx context.Context, projectID string) []string {
-	if h.redirects == nil || projectID == "" {
+	if h.redirects == nil {
 		return nil
 	}
 	uris, err := h.redirects.RedirectURIsForProject(ctx, projectID)
@@ -763,6 +763,14 @@ func (h *Handler) createMagicLink(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "email is required")
 		return
 	}
+	// The token in this email is a credential. It may only be delivered to a
+	// callback the project registered — see linkCallbackURL.
+	callback, ok := linkCallbackURL(body.URL, h.allowedRedirects(r.Context(), projectID))
+	if !ok {
+		apperr.BadRequest(w, "url must be a redirect target registered for this project")
+		return
+	}
+
 	token, err := h.svc.CreateMagicLinkToken(r.Context(), projectID, body.Email)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -772,8 +780,8 @@ func (h *Handler) createMagicLink(w http.ResponseWriter, r *http.Request) {
 	// Send magic link email
 	if h.mailer != nil {
 		link := token
-		if body.URL != "" {
-			link = body.URL + "?secret=" + token
+		if callback != "" {
+			link = callback + "?secret=" + token
 		}
 		defHTML := fmt.Sprintf(`<h2>Sign in to Applad</h2><p>Click the link below to sign in:</p><p><a href="%s">Sign In</a></p><p>This link expires in 15 minutes.</p>`, link)
 		subject, html := h.resolveAuthMessage(r.Context(), projectID, "magic", "Sign in to Applad", defHTML,
@@ -822,6 +830,14 @@ func (h *Handler) createEmailVerification(w http.ResponseWriter, r *http.Request
 		apperr.BadRequest(w, "userId is required")
 		return
 	}
+	// The token in this email is a credential. It may only be delivered to a
+	// callback the project registered — see linkCallbackURL.
+	callback, ok := linkCallbackURL(body.URL, h.allowedRedirects(r.Context(), projectID))
+	if !ok {
+		apperr.BadRequest(w, "url must be a redirect target registered for this project")
+		return
+	}
+
 	token, err := h.svc.CreateEmailVerificationToken(r.Context(), body.UserID, projectID)
 	if err != nil {
 		apperr.Internal(w, err)
@@ -834,8 +850,8 @@ func (h *Handler) createEmailVerification(w http.ResponseWriter, r *http.Request
 		user, _ := h.svc.GetAccount(r.Context(), body.UserID, projectID)
 		if user != nil && user.Email != "" {
 			link := token
-			if body.URL != "" {
-				link = body.URL + "?secret=" + token
+			if callback != "" {
+				link = callback + "?secret=" + token
 			}
 			defHTML := fmt.Sprintf(`<h2>Verify your email</h2><p>Click the link below to verify your email address:</p><p><a href="%s">Verify Email</a></p><p>This link expires in 24 hours.</p>`, link)
 			subject, html := h.resolveAuthMessage(r.Context(), projectID, "verification", "Verify your email", defHTML,
@@ -875,6 +891,14 @@ func (h *Handler) createPasswordReset(w http.ResponseWriter, r *http.Request) {
 		apperr.BadRequest(w, "email is required")
 		return
 	}
+	// The token in this email is a credential. It may only be delivered to a
+	// callback the project registered — see linkCallbackURL.
+	callback, ok := linkCallbackURL(body.URL, h.allowedRedirects(r.Context(), projectID))
+	if !ok {
+		apperr.BadRequest(w, "url must be a redirect target registered for this project")
+		return
+	}
+
 	token, err := h.svc.CreatePasswordResetToken(r.Context(), projectID, body.Email)
 	if err != nil {
 		// Don't reveal whether email exists
@@ -885,8 +909,8 @@ func (h *Handler) createPasswordReset(w http.ResponseWriter, r *http.Request) {
 	// Send password reset email
 	if h.mailer != nil {
 		link := token
-		if body.URL != "" {
-			link = body.URL + "?secret=" + token
+		if callback != "" {
+			link = callback + "?secret=" + token
 		}
 		defHTML := fmt.Sprintf(`<h2>Reset your password</h2><p>Click the link below to reset your password:</p><p><a href="%s">Reset Password</a></p><p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>`, link)
 		subject, html := h.resolveAuthMessage(r.Context(), projectID, "recovery", "Reset your password", defHTML,

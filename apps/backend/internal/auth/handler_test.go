@@ -274,10 +274,20 @@ func magicLinkHandler(t *testing.T, mailer EmailSender, resolver AuthTemplateRes
 
 	h := NewHandler(NewService(&db.DB{DB: mockDB}, "test-secret"))
 	h.SetMailer(mailer)
+	// The link carries a credential, so its callback has to be a target the
+	// project registered. These tests use the one postMagicLink asks for.
+	h.SetRedirectAllowlist(fixedAllowlist{"https://app.example/callback"})
 	if resolver != nil {
 		h.SetTemplateResolver(resolver)
 	}
 	return h, mock
+}
+
+// fixedAllowlist stands in for the projects service in a handler unit test.
+type fixedAllowlist []string
+
+func (f fixedAllowlist) RedirectURIsForProject(context.Context, string) ([]string, error) {
+	return f, nil
 }
 
 func postMagicLink(h *Handler) *httptest.ResponseRecorder {
@@ -460,5 +470,31 @@ func TestGetAccount_NoUser(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+// A callback the project did not register is refused rather than emailed.
+//
+// The link carries a single-use credential and the caller chooses both the URL
+// and the address the mail goes to, so an unregistered target has to be a
+// refusal — not a link that is quietly sent somewhere else.
+func TestMagicLink_RefusesUnregisteredCallback(t *testing.T) {
+	mailer := &fakeMailer{}
+	h, _ := magicLinkHandler(t, mailer, nil)
+	// The harness registers https://app.example/callback and nothing else.
+
+	req := httptest.NewRequest(http.MethodPost, "/sessions/magic",
+		bytes.NewReader([]byte(`{"email":"user@example.com","url":"https://attacker.example/collect"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux := chi.NewMux()
+	mux.Post("/sessions/magic", h.createMagicLink)
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unregistered callback, got %d: %s", w.Code, w.Body.String())
+	}
+	if mailer.calls != 0 {
+		t.Fatalf("nothing should have been sent, got %d emails", mailer.calls)
 	}
 }
