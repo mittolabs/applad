@@ -213,6 +213,11 @@ func TestAtomicNumericOp_EmitsSingleAtomicUpdate(t *testing.T) {
 		WithArgs("t1", "views").
 		WillReturnRows(sqlmock.NewRows([]string{"validation"}).AddRow([]byte(`{}`)))
 	expectAnonTx(mock, "db1", "proj1")
+	// The increment path flags itself so its RLS policy applies to it and to
+	// nothing else; see incrementSetting.
+	mock.ExpectExec(regexp.QuoteMeta("SELECT set_config($1, 'on', true)")).
+		WithArgs("applad.increment").
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE "counters" SET "views" = COALESCE("views", 0) + $1, updated_at = NOW() WHERE id = $2 RETURNING to_jsonb("counters".*)`)).
 		WithArgs(float64(5), "r1").
 		WillReturnRows(sqlmock.NewRows([]string{"to_jsonb"}).AddRow([]byte(`{"id":"r1","views":5}`)))
@@ -243,6 +248,11 @@ func TestAtomicNumericOp_ClampsToConfiguredBounds(t *testing.T) {
 		WithArgs("t1", "views").
 		WillReturnRows(sqlmock.NewRows([]string{"validation"}).AddRow([]byte(`{"min":0,"max":10}`)))
 	expectAnonTx(mock, "db1", "proj1")
+	// The increment path flags itself so its RLS policy applies to it and to
+	// nothing else; see incrementSetting.
+	mock.ExpectExec(regexp.QuoteMeta("SELECT set_config($1, 'on', true)")).
+		WithArgs("applad.increment").
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE "counters" SET "views" = LEAST(GREATEST(COALESCE("views", 0) + $1, $2), $3), updated_at = NOW() WHERE id = $4 RETURNING to_jsonb("counters".*)`)).
 		WithArgs(float64(-5), float64(0), float64(10), "r1").
 		WillReturnRows(sqlmock.NewRows([]string{"to_jsonb"}).AddRow([]byte(`{"id":"r1","views":0}`)))

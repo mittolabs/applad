@@ -1290,6 +1290,11 @@ type tableContext struct {
 // consult it per row. The leading underscore keeps it clear of user columns.
 const rowPermColumn = "_permissions"
 
+// incrementSetting is set for the length of an atomic numeric transaction and
+// nothing else. It is what stops the increment RLS policy from doubling as an
+// ordinary UPDATE grant.
+const incrementSetting = "applad.increment"
+
 // rowPermExpression is the per-row half of an RLS policy for one action: the row
 // is admitted when any role its own permissions grant that action to is among
 // the caller's resolved roles. Validated against Postgres before shipping.
@@ -1469,6 +1474,7 @@ func (s *Service) syncRLSPolicies(ctx context.Context, table *tableContext) erro
 		"applad_create_access",
 		"applad_update_access",
 		"applad_delete_access",
+		"applad_increment_access",
 		"applad_owner_rows",
 	}
 	for _, policyName := range policyNames {
@@ -1533,6 +1539,10 @@ func (s *Service) syncRLSPolicies(ctx context.Context, table *tableContext) erro
 		{Action: "update", Name: "applad_update_access", Command: "UPDATE", UseUsing: true, UseCheck: true},
 		{Action: "delete", Name: "applad_delete_access", Command: "DELETE", UseUsing: true},
 	}
+	// "increment" has no policy of its own in this loop: an UPDATE policy built
+	// from it would also admit an ordinary PATCH, which is exactly the grant it
+	// exists to avoid. It gets a separate, gated policy below.
+	delete(grouped, "increment")
 	for _, policy := range actionPolicies {
 		// Table-level grant OR the row's own grant. Create is table-level only:
 		// a row cannot pre-authorise its own insertion. Read/update/delete also
@@ -1558,6 +1568,25 @@ func (s *Service) syncRLSPolicies(ctx context.Context, table *tableContext) erro
 			createPolicySQL(table.Schema, table.Name, policy.Name, "", policy.Command, usingExpr, checkExpr),
 		); err != nil {
 			return fmt.Errorf("create %s policy: %w", policy.Action, err)
+		}
+	}
+
+	// The increment path, and only it, sets applad.increment for the length of
+	// its transaction. Without that gate this policy would be an UPDATE grant
+	// like any other, and a plain PATCH would satisfy it — so the narrow
+	// permission would silently become a wide one at the database level, which
+	// is the failure it was added to prevent.
+	incrementExpr := combinePolicyExprs(
+		policyRoleExpression(grouped["increment"]),
+		rowPermExpression("increment"),
+	)
+	if incrementExpr != "" && incrementExpr != "FALSE" {
+		gated := fmt.Sprintf("(current_setting(%s, true) = 'on' AND %s)",
+			pgLiteral(incrementSetting), incrementExpr)
+		if _, err := s.db.ExecContext(ctx,
+			createPolicySQL(table.Schema, table.Name, "applad_increment_access", "", "UPDATE", gated, gated),
+		); err != nil {
+			return fmt.Errorf("create increment policy: %w", err)
 		}
 	}
 
@@ -2532,6 +2561,14 @@ func (s *Service) AtomicNumericOp(ctx context.Context, projectID, databaseID, ta
 		return nil, err
 	}
 	defer tx.Rollback() //nolint:errcheck
+
+	// set_config(..., true) is transaction-local, matching how every other
+	// applad.* setting is applied: it cannot leak onto a pooled connection that
+	// a later request reuses.
+	if _, err := tx.ExecContext(ctx,
+		"SELECT set_config($1, 'on', true)", incrementSetting); err != nil {
+		return nil, err
+	}
 
 	query := fmt.Sprintf(
 		"UPDATE %s SET %s = %s, updated_at = NOW() WHERE id = $%d RETURNING to_jsonb(%s.*)",
