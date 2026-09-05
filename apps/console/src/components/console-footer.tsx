@@ -1,7 +1,7 @@
 import { Github, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const VERSION = import.meta.env.VITE_APP_VERSION ?? '0.2.0';
+const VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 const YEAR = 2026; // Date.* is avoided; bump on release.
 
 /* Ports console_footer.dart — 44px bottom bar: © year, GitHub/Discord icons,

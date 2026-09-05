@@ -155,6 +155,10 @@ services:
     build:
       context: .
       dockerfile: docker/console/Dockerfile
+      # Baked into the bundle at build time; a local build with no version set
+      # says "dev" rather than claiming a release it is not.
+      args:
+        APP_VERSION: "${APPLAD_VERSION:-dev}"
     expose:
       - "80"
     networks:

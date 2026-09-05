@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils';
 type Mode = 'login' | 'signup' | 'forgot' | 'reset';
 
 const ACCENT = '#3472A4';
-const VERSION = import.meta.env.VITE_APP_VERSION ?? '0.2.0';
+const VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 
 const OAUTH_ERRORS: Record<string, string> = {
   signup_disabled: 'Account creation is disabled. Contact your administrator.',

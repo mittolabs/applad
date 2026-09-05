@@ -105,6 +105,9 @@ jobs:
         with:
           context: .
           file: ./docker/console/Dockerfile
+          # Baked into the bundle: Vite resolves import.meta.env at build time,
+          # so the running container cannot supply it.
+          build-args: APP_VERSION=${{ env.VERSION }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
