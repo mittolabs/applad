@@ -266,7 +266,7 @@ export function LoginPage() {
           </h1>
           <p className="mt-4 text-[15px] leading-[1.5] text-white/[0.35]">
             {isSignup
-              ? 'Plan, build, test, deploy and monitor in one platform.'
+              ? 'Build, deploy, automate and measure in one platform.'
               : 'Everything your app needs, without compromise.'}
           </p>
         </div>
