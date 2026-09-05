@@ -18,6 +18,7 @@ import { useAuthStore } from '@/stores/auth';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
+import { APP_VERSION } from '@/lib/version';
 
 /*
  * Login — faithful port of console/lib/features/login/login_page.dart.
@@ -29,7 +30,6 @@ import { cn } from '@/lib/utils';
 type Mode = 'login' | 'signup' | 'forgot' | 'reset';
 
 const ACCENT = '#3472A4';
-const VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 
 const OAUTH_ERRORS: Record<string, string> = {
   signup_disabled: 'Account creation is disabled. Contact your administrator.',
@@ -338,7 +338,7 @@ export function LoginPage() {
             )}
           </div>
         </div>
-        <div className="pb-4 text-center text-[11px] text-text-subtle">v{VERSION}</div>
+        <div className="pb-4 text-center text-[11px] text-text-subtle">{APP_VERSION}</div>
       </div>
     </div>
   );
