@@ -95,6 +95,44 @@ class Auth {
     return res.data;
   }
 
+  /// The URL that starts an OAuth2 sign-in for [provider].
+  ///
+  /// Open it in a browser or an in-app web view. Applad handles the provider
+  /// handshake and redirects to [success] or [failure] with the session
+  /// established; both must be relative paths, which is what stops this being
+  /// an open redirect. Providers are configured per project, so one that is not
+  /// configured fails at the redirect rather than here.
+  String oauth2SessionUrl(
+    String provider, {
+    String? success,
+    String? failure,
+  }) {
+    final query = <String, String>{
+      if (success != null) 'success': success,
+      if (failure != null) 'failure': failure,
+    };
+    return _url('/v1/account/sessions/oauth/$provider', query);
+  }
+
+  /// Adopts a session secret obtained outside the SDK — the value an OAuth
+  /// redirect hands back, for instance — so later calls are authenticated.
+  void setSession(String secret) {
+    _dio.options.headers['Authorization'] = 'Bearer $secret';
+  }
+
+  /// Joins the client's base URL to [path] with an optional query.
+  String _url(String path, Map<String, String> query) {
+    var base = _dio.options.baseUrl;
+    while (base.endsWith('/')) {
+      base = base.substring(0, base.length - 1);
+    }
+    if (query.isEmpty) return '$base$path';
+    final encoded = query.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return '$base$path?$encoded';
+  }
+
   /// Applies a freshly minted session secret as the bearer token, if present.
   void _applySecret(dynamic data) {
     if (data is Map && data['secret'] is String && (data['secret'] as String).isNotEmpty) {

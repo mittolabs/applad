@@ -1077,6 +1077,10 @@ var validActions = map[string]bool{
 	"create": true,
 	"update": true,
 	"delete": true,
+	// A counter everyone may move without being able to rewrite the row it
+	// sits on. Liking a post bumps its like count; it must not also grant the
+	// ability to edit the caption, which is what granting "update" would do.
+	"increment": true,
 }
 
 func (s *Service) checkPermission(ctx context.Context, projectID, resourceType, resourceID string, roles []string, action string) (bool, error) {
@@ -1360,7 +1364,7 @@ func parsePermissionStrings(perms []string) ([]Permission, error) {
 
 // rowPermissionsJSON builds the normalised {"read":[...],...} a document-security
 // row stores, from the permission strings a client sends. Create is table-level,
-// so it is ignored here; read/update/delete are what a row can carry.
+// so it is ignored here; read/update/delete/increment are what a row can carry.
 func rowPermissionsJSON(perms []string) ([]byte, error) {
 	parsed, err := parsePermissionStrings(perms)
 	if err != nil {
@@ -2439,6 +2443,44 @@ func (s *Service) authorizeRowUpdate(ctx context.Context, projectID, tableID, ro
 	return table, nil
 }
 
+// authorizeRowIncrement resolves access to an atomic numeric operation.
+//
+// Append deliberately still requires "update": adding an arbitrary value to an
+// array is not the same narrow, bounded act as moving a counter, and there is
+// no case yet that wants it opened up.
+//
+// These used to require "update", which conflated two very different grants: a
+// social app cannot let anyone like a post without also letting them rewrite
+// it. A row may now carry increment("users") on its own. "update" still
+// implies it — being allowed to rewrite a row obviously includes moving a
+// number in it — so nothing that worked before stops working.
+func (s *Service) authorizeRowIncrement(ctx context.Context, projectID, tableID, rowID, userID string, roles []string) (*tableContext, error) {
+	table, err := s.lookupTableContext(ctx, tableID)
+	if err != nil {
+		return nil, err
+	}
+	if table.ProjectID != projectID {
+		return nil, fmt.Errorf("row not found")
+	}
+	if userID == "" {
+		return table, nil
+	}
+	perms, exists, err := s.existingRowPermissions(ctx, table, rowID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("row not found")
+	}
+	if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "increment", perms); err == nil {
+		return table, nil
+	}
+	if err := s.enforcePermission(ctx, projectID, tableID, userID, roles, "update", perms); err != nil {
+		return nil, err
+	}
+	return table, nil
+}
+
 // numericBounds returns the min/max bounds configured on a column, or nil when
 // unset, so an atomic increment can clamp its result within the same statement.
 func (s *Service) numericBounds(ctx context.Context, tableID, field string) (min, max *float64) {
@@ -2464,7 +2506,7 @@ func (s *Service) numericBounds(ctx context.Context, tableID, field string) (min
 // column clamps the result within the same statement.
 func (s *Service) AtomicNumericOp(ctx context.Context, projectID, databaseID, tableID, rowID, field string, delta float64, userID string, roles []string) (*model.Row, error) {
 	roles = s.resolveRoles(ctx, projectID, userID, roles)
-	table, err := s.authorizeRowUpdate(ctx, projectID, tableID, rowID, userID, roles)
+	table, err := s.authorizeRowIncrement(ctx, projectID, tableID, rowID, userID, roles)
 	if err != nil {
 		return nil, err
 	}
