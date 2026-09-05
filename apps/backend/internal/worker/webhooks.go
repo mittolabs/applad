@@ -33,6 +33,9 @@ func (w *Webhooks) Start(ctx context.Context) error {
 	w.queue = queue.New(rdb)
 	w.client = &http.Client{Timeout: 30 * time.Second}
 	StartRedisHeartbeat(ctx, rdb, "webhooks")
+	// Touch the file heartbeat before the first tick so the compose
+	// healthcheck does not see the worker as hung during start-up.
+	Heartbeat()
 	w.queue.StartReaper(ctx, "webhooks")
 
 	slog.Info("webhooks worker: listening for jobs")
@@ -47,10 +50,11 @@ func (w *Webhooks) Start(ctx context.Context) error {
 			slog.Error("webhooks worker: pop error", "error", err)
 			continue
 		}
+		Heartbeat()
+
 		if receipt == nil {
 			continue
 		}
-		Heartbeat()
 		if processErr := w.process(ctx, receipt.Job); processErr != nil {
 			metrics.QueueJobs.Inc("webhooks", "failed")
 			receipt.Nack()
