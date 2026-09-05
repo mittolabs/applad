@@ -685,7 +685,12 @@ func parseQueryString(q string) *Query {
 	case "in", "notIn":
 		// Variadic: in("author_id", "a", "b", "c"). Everything after the field
 		// is a member of the list.
-		if len(args) < 2 {
+		//
+		// in("field") with no members is a filter, not a malformed query, and
+		// returning nil here would drop it — handing the caller the whole table
+		// when they asked for a specific none. The empty list is passed through
+		// so the WHERE builder can refuse it properly.
+		if len(args) < 1 {
 			return nil
 		}
 		values := make([]interface{}, 0, len(args)-1)

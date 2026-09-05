@@ -1799,7 +1799,7 @@ func queryToWhereSQL(queries []Query) (string, []interface{}) {
 	args := make([]interface{}, 0, len(queries))
 	n := 1
 	for _, q := range queries {
-		field := pgIdent(q.Field)
+		field := pgIdent(queryFieldName(q.Field))
 		valStr := fmt.Sprintf("%v", q.Values)
 		switch q.Method {
 		case "equal":
@@ -1888,6 +1888,23 @@ func queryToWhereSQL(queries []Query) (string, []interface{}) {
 		}
 	}
 	return "WHERE " + strings.Join(conditions, " AND "), args
+}
+
+// queryFieldName maps the names a row is returned under onto the columns it is
+// stored in. A caller reads back "$id" and "$createdAt" and reasonably filters
+// on the same names; without this those queries fail as unknown columns, which
+// is a confusing 500 rather than an answer.
+func queryFieldName(field string) string {
+	switch field {
+	case "$id":
+		return "id"
+	case "$createdAt":
+		return "created_at"
+	case "$updatedAt":
+		return "updated_at"
+	default:
+		return field
+	}
 }
 
 // listValues normalises what an in/notIn filter carries into a flat list of
