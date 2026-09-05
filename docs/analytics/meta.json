@@ -1,0 +1,14 @@
+{
+  "title": "Analytics",
+  "icon": "LineChart",
+  "pages": [
+    "---Getting started---",
+    "index",
+    "---Product---",
+    "funnels",
+    "---Platform---",
+    "performance",
+    "uptime",
+    "crons"
+  ]
+}

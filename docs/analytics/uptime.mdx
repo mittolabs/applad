@@ -1,4 +1,5 @@
 ---
+icon: HeartPulse
 title: Uptime monitors
 description: Create a monitor and Applad polls the URL itself on a schedule, recording status, latency, and a rolling uptime percentage.
 ---
@@ -8,7 +9,7 @@ every enabled monitor at its interval, records each result, and keeps a rolling
 uptime percentage and latency. This one is fully wired up server-side.
 
 ```dart
-await client.observe.createMonitor(
+await client.analytics.createMonitor(
   'API health',
   'https://api.example.com/health',
   checkType: 'http',
@@ -18,11 +19,11 @@ await client.observe.createMonitor(
 ```
 
 ```bash
-curl "$APPLAD/v1/observe/uptime" \
+curl "$APPLAD/v1/analytics/uptime" \
   -H "x-applad-project: $PROJECT" -H "x-applad-key: $KEY"
 ```
 
 A monitor starts as `pending` and becomes `up`, `degraded`, or `down` after its
 first check. Its `uptimePct`, `latencyMs`, and `lastChecked` are `null` until
 then, because a URL nobody has fetched has no measured uptime. Delete with
-`DELETE /observe/uptime/{monitorId}`. More in Uptime.
+`DELETE /analytics/uptime/{monitorId}`.

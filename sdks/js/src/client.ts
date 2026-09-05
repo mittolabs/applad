@@ -14,7 +14,6 @@ import { Search } from './search';
 import { Storage } from './storage';
 import { Vectors } from './vectors';
 import { Workflows } from './workflows';
-import { Observe } from './observe';
 import { errorFromResponse } from './errors';
 
 export interface ApplAdConfig {
@@ -43,7 +42,6 @@ export class Applad {
   readonly storage: Storage;
   readonly vectors: Vectors;
   readonly workflows: Workflows;
-  readonly observe: Observe;
 
   constructor(config: ApplAdConfig) {
     this.endpoint = config.endpoint.replace(/\/$/, '');
@@ -68,7 +66,6 @@ export class Applad {
     this.storage = new Storage(this);
     this.vectors = new Vectors(this);
     this.workflows = new Workflows(this);
-    this.observe = new Observe(this);
   }
 
   /**

@@ -51,7 +51,7 @@ const VaultPage = named(() => import('./features/vault/VaultPage'), 'VaultPage')
 const EnvironmentsPage = named(() => import('./features/environments/EnvironmentsPage'), 'EnvironmentsPage');
 const RealtimePage = named(() => import('./features/realtime/RealtimePage'), 'RealtimePage');
 const HealthPage = named(() => import('./features/health/HealthPage'), 'HealthPage');
-const ObservePage = named(() => import('./features/observe/ObservePage'), 'ObservePage');
+const AnalyticsPage = named(() => import('./features/analytics/AnalyticsPage'), 'AnalyticsPage');
 
 /* Router — ports console/lib/core/router/router.dart.
  * Guard: no token → /login; token on /login → /projects.
@@ -133,14 +133,11 @@ const shellSegments: [string, string][] = [
   ['mobile/:appId', 'Mobile'],
   ['desktop', 'Desktop'],
   ['desktop/:appId', 'Desktop'],
-  ['observe', 'Observe'],
-  ['errors', 'Errors'],
-  ['releases', 'Releases'],
-  ['logs', 'Logs'],
-  ['replays', 'Replays'],
+  ['analytics', 'Analytics'],
+  ['events', 'Events'],
+  ['funnels', 'Funnels'],
   ['uptime', 'Uptime'],
   ['crons', 'Crons'],
-  ['alerts', 'Alerts'],
   ['health', 'Health'],
   ['settings', 'Settings'],
   ['settings/keys/:keyId', 'API Key'],
@@ -191,15 +188,12 @@ const FEATURE_ELEMENTS: Record<string, React.ReactNode> = {
   environments: <EnvironmentsPage />,
   realtime: <RealtimePage />,
   health: <HealthPage />,
-  // Observe: all 8 segments render the one ObservePage (self-selects by URL).
-  observe: <ObservePage />,
-  errors: <ObservePage />,
-  releases: <ObservePage />,
-  logs: <ObservePage />,
-  replays: <ObservePage />,
-  uptime: <ObservePage />,
-  crons: <ObservePage />,
-  alerts: <ObservePage />,
+  // Analytics: all 5 segments render the one AnalyticsPage (self-selects by URL).
+  analytics: <AnalyticsPage />,
+  events: <AnalyticsPage />,
+  funnels: <AnalyticsPage />,
+  uptime: <AnalyticsPage />,
+  crons: <AnalyticsPage />,
 };
 
 export const router = createBrowserRouter([

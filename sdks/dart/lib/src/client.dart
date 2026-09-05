@@ -15,7 +15,6 @@ import 'storage.dart';
 import 'teams.dart';
 import 'vectors.dart';
 import 'workflows.dart';
-import 'observe.dart';
 
 class Applad {
   final String endpoint;
@@ -38,7 +37,6 @@ class Applad {
   late final Search search;
   late final Vectors vectors;
   late final Workflows workflows;
-  late final Observe observe;
 
   Applad({required this.endpoint, required this.projectId})
       : _dio = Dio(BaseOptions(
@@ -64,7 +62,6 @@ class Applad {
     search = Search(_dio);
     vectors = Vectors(_dio);
     workflows = Workflows(_dio);
-    observe = Observe(_dio);
   }
 
   Dio get dio => _dio;

@@ -12,7 +12,6 @@ import { Flags } from './flags';
 import { Regions } from './regions';
 import { Search } from './search';
 import { Vectors } from './vectors';
-import { Observe } from './observe';
 import { errorFromResponse } from './errors';
 
 export interface ApplAdServerConfig {
@@ -40,7 +39,6 @@ export class ApplAdServer {
   readonly regions: Regions;
   readonly search: Search;
   readonly vectors: Vectors;
-  readonly observe: Observe;
 
   constructor(config: ApplAdServerConfig) {
     this.endpoint = config.endpoint.replace(/\/$/, '');
@@ -64,7 +62,6 @@ export class ApplAdServer {
     this.regions = new Regions(this);
     this.search = new Search(this);
     this.vectors = new Vectors(this);
-    this.observe = new Observe(this);
   }
 
   async call<T = any>(method: string, path: string, body?: unknown): Promise<T> {

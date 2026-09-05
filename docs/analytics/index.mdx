@@ -1,16 +1,32 @@
 ---
 title: Analytics
 icon: LineChart
-description: "First-party product analytics: track custom events, count them over time, watch a live snapshot, measure daily active users, and analyse conversion funnels."
+description: "First-party product analytics — events, funnels, daily active users — alongside the uptime, cron and latency monitoring Applad runs for itself."
 ---
 
-import { Flag, Activity, Database, Boxes } from 'lucide-react';
+import { Flag, Filter, HeartPulse, CalendarClock, Gauge, Database, Boxes } from 'lucide-react';
 
 Analytics is first-party event tracking: your app records **events** ("signed
 up", "added to cart"), and Applad counts them, breaks them down over time, and
 computes daily active users and conversion **funnels**. It lives under
 `/v1/analytics`, in the same project as your data, so you are not shipping
 product usage to a third party.
+
+The same section also carries what the platform measures about itself — request
+latency, uptime monitors and cron check-ins — because a self-hosted install
+should not need a second product to learn whether its own scheduled job ran.
+Application diagnostics (errors, logs, session replays) are deliberately not
+here: that is [Bugslad](https://bugslad.com), a separate product.
+
+| Capability | What it does | Routes |
+|---|---|---|
+| Events | Record what people do in your app, then read the stream back or roll it up | `GET/POST /analytics/events`, `/events/batch`, `/events/counts` |
+| Active users | Distinct users per day over a window, and a five-minute live snapshot | `GET /analytics/dau`, `GET /analytics/realtime` |
+| [Funnels](/analytics/funnels) | Ordered event sequences with per-step conversion | `GET/POST/DELETE /analytics/funnels` |
+| [Performance](/analytics/performance) | Per-route latency percentiles Applad samples on every request | `GET/POST /analytics/performance` |
+| [Uptime](/analytics/uptime) | Applad polls a URL on a schedule and records status, latency and uptime | `GET/POST/DELETE /analytics/uptime` |
+| [Crons](/analytics/crons) | Scheduled jobs check in when they run; the monitor keeps the history | `GET/POST/DELETE /analytics/crons`, `.../{monitorId}/checkin` |
+| Overview | One rolled-up snapshot: events, active users, p95 and uptime | `GET /analytics/overview` |
 
 <Callout title="Ingest from the app, read from the backend">
 Tracking (`trackEvent`) is usually called from your running app, so a client
@@ -120,44 +136,11 @@ who fired any event that day, across the requested window.
 { "data": [ { "date": "2026-07-20", "users": 611 }, { "date": "2026-07-21", "users": 640 } ] }
 ```
 
-## Funnels
-
-A funnel measures how many users make it through an ordered sequence of events.
-Define it once with a name and at least two steps, then analyse it over any
-window.
-
-```bash
-# Define a funnel
-curl -X POST https://api.applad.io/v1/analytics/funnels \
-  -H "x-applad-project: <projectId>" -H "x-applad-key: <apiKey>" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Checkout","steps":["viewed_product","added_to_cart","order_completed"]}'
-```
-
-Then `GET /v1/analytics/funnels/{funnelId}/analyze` returns, for each step, the
-number of distinct users who did it and the conversion rate against the previous
-step:
-
-```json
-{
-  "funnelId": "fnl_1",
-  "steps": [
-    { "step": "viewed_product",  "count": 1000, "conversionRate": 100 },
-    { "step": "added_to_cart",   "count": 420,  "conversionRate": 42 },
-    { "step": "order_completed", "count": 180,  "conversionRate": 42.86 }
-  ]
-}
-```
-
-List funnels with `GET /v1/analytics/funnels` and remove one with
-`DELETE /v1/analytics/funnels/{funnelId}`.
-
 <Callout title="What the SDK covers">
-The `analytics` service in the SDKs covers the everyday surface:
-`trackEvent`, `listEvents`, `getStats` and `getRealtimeCount`. Batch ingest,
-DAU and funnels are available over the `/v1/analytics` routes above. Conversion
-in a funnel is measured over distinct users within the window, not per-user
-step ordering, so it is a cohort-style rate rather than a strict path trace.
+The `analytics` service in every SDK covers the everyday surface —
+`trackEvent`, `listEvents`, `getStats`, `getRealtimeCount`, `getOverview`,
+plus the uptime and cron monitors and `cronCheckin`. Batch ingest and funnel
+analysis are available over the `/v1/analytics` routes above.
 </Callout>
 
 ## Related
@@ -166,8 +149,17 @@ step ordering, so it is a cohort-style rate rather than a strict path trace.
   <Card icon={<Flag />} title="Feature Flags" href="/build/flags">
     Flip a feature, then measure the events that follow with a funnel.
   </Card>
-  <Card icon={<Activity />} title="Observe" href="/observe">
-    System-side monitoring: errors, logs, performance and uptime.
+  <Card icon={<Filter />} title="Funnels" href="/analytics/funnels">
+    Where people drop out of an ordered sequence of events.
+  </Card>
+  <Card icon={<Gauge />} title="Performance" href="/analytics/performance">
+    Per-route latency percentiles, sampled on every request.
+  </Card>
+  <Card icon={<HeartPulse />} title="Uptime" href="/analytics/uptime">
+    Applad polls your services and records what it finds.
+  </Card>
+  <Card icon={<CalendarClock />} title="Crons" href="/analytics/crons">
+    Scheduled jobs that report in, and the ones that go quiet.
   </Card>
   <Card icon={<Database />} title="Databases" href="/build/databases">
     Your product data, in the same project as its usage analytics.

@@ -12,7 +12,6 @@ import { Flags } from './flags';
 import { Regions } from './regions';
 import { Search } from './search';
 import { Vectors } from './vectors';
-import { Observe } from './observe';
 export interface ApplAdServerConfig {
     endpoint: string;
     projectId: string;
@@ -36,7 +35,6 @@ export declare class ApplAdServer {
     readonly regions: Regions;
     readonly search: Search;
     readonly vectors: Vectors;
-    readonly observe: Observe;
     constructor(config: ApplAdServerConfig);
     call<T = any>(method: string, path: string, body?: unknown): Promise<T>;
     upload<T = any>(path: string, formData: FormData): Promise<T>;

@@ -192,11 +192,19 @@ API and internal code use tables/rows/columns terminology only. User data lives 
 **Sidebar**: 68px icon rail + 220px labelled panel. Groups: Overview → Build
 (Auth, Databases, Functions, Storage, Messaging, Realtime, Feature Flags) →
 Deploy (Sites, Containers, Mobile, Desktop) → Automate (Workflows) →
-Observe (8 routes) → Settings pinned to bottom. The order mirrors the
-lifecycle the marketing site sells: Build, Test, Deploy, Automate, Monitor.
+Analytics (Overview, Events, Funnels, Uptime, Crons) → Settings pinned to
+bottom. The order mirrors the lifecycle the marketing site sells: Build, Test,
+Deploy, Automate, Measure.
+
 Every child of Deploy is a deploy target — /deploy/targets filtered by type.
 Workflows sits at rail level rather than inside Build because it composes the
 other primitives rather than being one.
+
+Analytics replaced Observe. Errors, logs, releases, replays and alerts left
+with it — application diagnostics is Bugslad's product, not Applad's. What
+stayed is what the platform measures about itself (request latency, uptime
+monitors, cron check-ins), because a self-hoster must not need a second
+product to learn whether their own cron fired.
 
 **Shared widgets**: `PageTabs` (horizontal tab bar), `SearchListHeader` (search + total + trailing button), `SearchListFooter` (per-page dropdown + pagination).
 
