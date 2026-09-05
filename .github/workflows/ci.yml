@@ -7,6 +7,16 @@ on:
     branches: [main]
 
 jobs:
+  # ── Self-host deployability ───────────────────────────────────────────────────
+  # Cheap, no dependencies, and guards the one-line install: if compose pulls an
+  # image the release workflow does not build, `curl | bash` cannot succeed.
+  release-images:
+    name: Compose images are built by the release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-release-images.sh
+
   # ── Go backend ────────────────────────────────────────────────────────────────
   backend:
     name: Backend (Go)
