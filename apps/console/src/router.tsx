@@ -16,6 +16,7 @@ import { InvitePage } from './features/login/InvitePage';
 import { ProjectsPage } from './features/projects/ProjectsPage';
 import { AccountPage } from './features/account/AccountPage';
 import { OnboardingPage } from './features/onboarding/OnboardingPage';
+import { useOrgs } from './api/queries';
 import { ExperimentsPage } from './features/experiments/ExperimentsPage';
 import { extensionRoutes, extensionStandaloneRoutes } from '@/extensions';
 import { AppError } from '@/components/app-error';
@@ -88,6 +89,28 @@ function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
   const status = useAuthStore((s) => s.status);
   if (status === 'authenticated') return <Navigate to="/projects" replace />;
   return <>{children}</>;
+}
+
+/* Guard: an account with no organization has not finished onboarding, so send
+ * it there rather than to an empty projects list it cannot act on. /onboarding
+ * and /account sit outside this guard — one is the destination, the other has
+ * to stay reachable so a stuck user can still sign out. */
+function RequireOnboarded() {
+  const { data: orgs, isPending, isError } = useOrgs();
+
+  if (isPending) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+      </div>
+    );
+  }
+  // On an error, fall through rather than trapping the user in onboarding —
+  // the page itself can report the failure.
+  if (!isError && orgs && orgs.length === 0) {
+    return <Navigate to="/onboarding" replace />;
+  }
+  return <Outlet />;
 }
 
 function RootRedirect() {
@@ -211,31 +234,36 @@ export const router = createBrowserRouter([
         element: <RequireAuth />,
         children: [
           { path: '/onboarding', element: <OnboardingPage /> },
-          { path: '/projects', element: <ProjectsPage /> },
-          { path: '/org/:orgId/projects', element: <ProjectsPage /> },
           { path: '/account', element: <AccountPage /> },
-          { path: '/experiments', element: <ExperimentsPage /> },
-          // Authed pages a compiled-in module owns that are not project-scoped
-          // (billing belongs to an organization, not a project). A default build
-          // contributes none.
-          ...extensionStandaloneRoutes().map(({ path, element: El }) => ({
-            path,
-            element: <El />,
-          })),
           {
-            path: '/project/:projectId',
-            element: <Shell />,
+            element: <RequireOnboarded />,
             children: [
-              { index: true, element: <Navigate to="overview" replace /> },
-              ...shellSegments.map(([path, title]) => ({
-                path,
-                element: FEATURE_ELEMENTS[path] ?? <PlaceholderPage name={title} />,
-              })),
-              // Project-scoped module pages, rendered inside the shell.
-              ...extensionRoutes().map(({ path, element: El }) => ({
-                path,
-                element: <El />,
-              })),
+            { path: '/projects', element: <ProjectsPage /> },
+            { path: '/org/:orgId/projects', element: <ProjectsPage /> },
+            { path: '/experiments', element: <ExperimentsPage /> },
+            // Authed pages a compiled-in module owns that are not project-scoped
+            // (billing belongs to an organization, not a project). A default build
+            // contributes none.
+            ...extensionStandaloneRoutes().map(({ path, element: El }) => ({
+              path,
+              element: <El />,
+            })),
+            {
+              path: '/project/:projectId',
+              element: <Shell />,
+              children: [
+                { index: true, element: <Navigate to="overview" replace /> },
+                ...shellSegments.map(([path, title]) => ({
+                  path,
+                  element: FEATURE_ELEMENTS[path] ?? <PlaceholderPage name={title} />,
+                })),
+                // Project-scoped module pages, rendered inside the shell.
+                ...extensionRoutes().map(({ path, element: El }) => ({
+                  path,
+                  element: <El />,
+                })),
+              ],
+            },
             ],
           },
         ],
