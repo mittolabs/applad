@@ -365,8 +365,6 @@ func apiKeyResourceScope(path string) string {
 		return "jobs"
 	case strings.HasPrefix(trimmed, "/cache"):
 		return "cache"
-	case strings.HasPrefix(trimmed, "/plan"):
-		return "plan"
 	case strings.HasPrefix(trimmed, "/usage"):
 		return "usage"
 	case strings.HasPrefix(trimmed, "/migrations"):

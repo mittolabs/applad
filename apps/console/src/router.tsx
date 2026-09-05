@@ -27,7 +27,6 @@ const named = <M extends Record<string, unknown>, K extends keyof M>(
 ) => lazy(() => loader().then((m) => ({ default: m[key] as React.ComponentType })));
 
 const OverviewPage = named(() => import('./features/overview/OverviewPage'), 'OverviewPage');
-const PlanPage = named(() => import('./features/plan/PlanPage'), 'PlanPage');
 const GetStartedPage = named(() => import('./features/get-started/GetStartedPage'), 'GetStartedPage');
 const AuthPage = named(() => import('./features/auth/AuthPage'), 'AuthPage');
 const DatabasesPage = named(() => import('./features/databases/DatabasesPage'), 'DatabasesPage');
@@ -99,8 +98,6 @@ function RootRedirect() {
 /** All project-scoped child routes under <Shell>, as [path, title] tuples. */
 const shellSegments: [string, string][] = [
   ['overview', 'Overview'],
-  ['plan', 'Plan'],
-  ['plan/:itemId', 'Plan'],
   ['get-started', 'Get started'],
   ['auth', 'Auth'],
   ['databases', 'Databases'],
@@ -146,8 +143,6 @@ const shellSegments: [string, string][] = [
  * PlaceholderPage until their feature lands. */
 const FEATURE_ELEMENTS: Record<string, React.ReactNode> = {
   overview: <OverviewPage />,
-  plan: <PlanPage />,
-  'plan/:itemId': <PlanPage />,
   'get-started': <GetStartedPage />,
   auth: <AuthPage />,
   databases: <DatabasesPage />,
