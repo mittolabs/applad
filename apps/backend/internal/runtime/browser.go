@@ -18,22 +18,22 @@ import (
 )
 
 /*
- * A browser held open for a recording session.
+ * A browser held open and driven over the DevTools protocol.
  *
- * Unlike a test run, which builds an image and waits for it to exit, this one
- * stays alive and is driven over the DevTools protocol for as long as somebody
- * is clicking through the app.
+ * It stays alive rather than building an image and waiting for it to exit, so
+ * the caller can navigate it and take a picture of what it found.
  */
 
-// StudioBrowserImage is the image sessions run.
-func StudioBrowserImage() string {
+// BrowserImage is the headless Chromium image the deploy pipeline runs to
+// photograph a site once it is serving.
+func BrowserImage() string {
 	if v := os.Getenv("APPLAD_BROWSER_IMAGE"); v != "" {
 		return v
 	}
-	return studioImageName
+	return browserImageName
 }
 
-const studioImageName = "applad-studio-browser:1"
+const browserImageName = "applad-browser:1"
 
 /*
  * Chromium binds its DevTools endpoint to loopback and refuses connections
@@ -53,7 +53,7 @@ const studioImageName = "applad-studio-browser:1"
  * minted the token, can drive the browser. The browser stays on the deploy
  * network because it must reach the target app it records by container name.
  */
-const studioDockerfile = `FROM golang:1.22-alpine AS build
+const browserDockerfile = `FROM golang:1.22-alpine AS build
 WORKDIR /src
 COPY devtools-proxy.go .
 RUN go build -o /devtools-proxy devtools-proxy.go
@@ -159,17 +159,17 @@ func handle(client net.Conn, token string) {
 }
 `
 
-// ensureBrowserImage builds the studio's browser image if it is not already
-// present. Docker's layer cache makes this free after the first session.
+// ensureBrowserImage builds the browser image if it is not already present.
+// Docker's layer cache makes this free after the first time.
 func (d *DeployExecutor) ensureBrowserImage(ctx context.Context, image string) error {
-	if image != studioImageName {
+	if image != browserImageName {
 		// A caller supplied their own image and is responsible for it.
 		return d.pullImage(ctx, image)
 	}
 
 	tarBuf := new(bytes.Buffer)
 	tw := tar.NewWriter(tarBuf)
-	addToTar(tw, "Dockerfile", []byte(studioDockerfile))
+	addToTar(tw, "Dockerfile", []byte(browserDockerfile))
 	addToTar(tw, "devtools-proxy.go", []byte(devtoolsProxySource))
 	tw.Close()
 
@@ -180,7 +180,7 @@ func (d *DeployExecutor) ensureBrowserImage(ctx context.Context, image string) e
 // StartBrowser launches a browser and returns its container and the DevTools
 // endpoint to drive it through.
 func (d *DeployExecutor) StartBrowser(ctx context.Context, sessionID, image string) (containerID, wsURL string, err error) {
-	name := fmt.Sprintf("applad-studio-%s", sessionID)
+	name := fmt.Sprintf("applad-browser-%s", sessionID)
 
 	// Remove a container left behind by a session that ended badly, so a
 	// retry is not blocked by its own debris.
@@ -197,7 +197,7 @@ func (d *DeployExecutor) StartBrowser(ctx context.Context, sessionID, image stri
 	// the endpoint URL, so an unauthenticated peer on the deploy network cannot
 	// drive the browser even though it can reach the port.
 	token := newDevToolsToken()
-	body := studioBrowserBody(image, token)
+	body := browserBody(image, token)
 
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST",
@@ -245,28 +245,28 @@ func newDevToolsToken() string {
 	return hex.EncodeToString(b)
 }
 
-// studioBrowserBody builds the Docker create request for a recording browser.
+// browserBody builds the Docker create request for a browser.
 // Split out so the token wiring and hardening can be asserted without a daemon.
-func studioBrowserBody(image, token string) map[string]interface{} {
+func browserBody(image, token string) map[string]interface{} {
 	return map[string]interface{}{
 		"Image": image,
 		"Env":   []string{"APPLAD_DEVTOOLS_TOKEN=" + token},
 		"Labels": map[string]string{
 			"applad.managed": "true",
-			"applad.type":    "studio",
+			"applad.type":    "browser",
 		},
 		"ExposedPorts": map[string]interface{}{"9222/tcp": struct{}{}},
 		// On the deploy network, so a session can record against an app
 		// deployed here by name.
 		"NetworkingConfig": map[string]interface{}{
 			"EndpointsConfig": map[string]interface{}{
-				deployNetwork(): map[string]interface{}{},
+				deployNetworkName(): map[string]interface{}{},
 			},
 		},
 		"HostConfig": map[string]interface{}{
 			"Memory":      int64(1536 * 1024 * 1024),
 			"NanoCPUs":    int64(2e9),
-			"NetworkMode": deployNetwork(),
+			"NetworkMode": deployNetworkName(),
 			"SecurityOpt": []string{"no-new-privileges"},
 			// Chromium runs with --no-sandbox, so it needs no Linux capabilities;
 			// drop them all and bound process count to match the function/deploy
@@ -372,16 +372,15 @@ func (d *DeployExecutor) StopBrowser(ctx context.Context, containerID string) er
 	return d.docker.RemoveContainer(ctx, containerID)
 }
 
-// ReapStaleBrowsers removes studio browsers older than maxAge.
+// ReapStaleBrowsers removes browsers older than maxAge.
 //
-// The API reaps sessions it knows about, but that state is in memory: an API
-// restart forgets every live session while their containers keep running, and
-// nothing would ever clean them up. Several were found up for more than a day,
-// each holding a Chromium. This is the backstop that does not depend on anyone
-// remembering — a recording is interactive and short-lived, so a studio
-// container older than maxAge is abandoned by definition.
+// A caller stops the browser it started, but that only holds while the caller
+// is alive: a worker killed mid-capture leaves a Chromium running and nothing
+// would ever clean it up. Several were found up for more than a day. This is
+// the backstop that does not depend on anyone remembering — a capture takes
+// seconds, so a container older than maxAge is abandoned by definition.
 func (d *DeployExecutor) ReapStaleBrowsers(ctx context.Context, maxAge time.Duration) (int, error) {
-	filter := url.QueryEscape(`{"name":["applad-studio-"]}`)
+	filter := url.QueryEscape(`{"name":["applad-browser-"]}`)
 	req, err := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf(d.docker.baseURL+"/v1.44/containers/json?all=true&filters=%s", filter), nil)
 	if err != nil {
@@ -410,10 +409,10 @@ func (d *DeployExecutor) ReapStaleBrowsers(ctx context.Context, maxAge time.Dura
 			continue
 		}
 		if err := d.StopBrowser(ctx, c.ID); err != nil {
-			slog.Warn("runtime: could not reap studio browser", "container", c.ID, "error", err)
+			slog.Warn("runtime: could not reap browser", "container", c.ID, "error", err)
 			continue
 		}
-		slog.Info("runtime: reaped stale studio browser", "names", c.Names)
+		slog.Info("runtime: reaped stale browser", "names", c.Names)
 		reaped++
 	}
 	return reaped, nil

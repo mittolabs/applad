@@ -74,14 +74,14 @@ func TestDeployContainerBodyStaysRoutable(t *testing.T) {
 	}
 }
 
-// The studio browser sits on the shared deploy network, reachable by every
+// The browser sits on the shared deploy network, reachable by every
 // deployed container. The forwarder in front of DevTools now demands a
 // per-session token, and that token is delivered to the browser as an env var.
 // Without it in the body, the running browser would accept an empty token and
 // the gate would be off.
-func TestStudioBrowserBodyCarriesToken(t *testing.T) {
+func TestBrowserBodyCarriesToken(t *testing.T) {
 	const token = "deadbeefcafe"
-	body := studioBrowserBody("applad-studio-browser:1", token)
+	body := browserBody("applad-browser:1", token)
 
 	env, ok := body["Env"].([]string)
 	if !ok || !contains(env, "APPLAD_DEVTOOLS_TOKEN="+token) {
@@ -98,7 +98,7 @@ func TestStudioBrowserBodyCarriesToken(t *testing.T) {
 // The token must reach the CDP client, which authenticates simply by dialing
 // the returned URL, so the token has to ride in the WebSocket URL's query.
 func TestWithDevToolsTokenEmbedsToken(t *testing.T) {
-	got := withDevToolsToken("ws://applad-studio-x:9222/devtools/page/AB12", "tok")
+	got := withDevToolsToken("ws://applad-browser-x:9222/devtools/page/AB12", "tok")
 	if !strings.Contains(got, devToolsTokenParam+"=tok") {
 		t.Errorf("withDevToolsToken did not embed token: %q", got)
 	}

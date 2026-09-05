@@ -3,7 +3,7 @@ title: Overview
 description: Decide and prioritise the work before you build it, with plan items, an impact and urgency priority grid, guided scoring, acceptance criteria, and milestones.
 ---
 
-import { Database, ShieldCheck, FlaskConical, Rocket } from 'lucide-react';
+import { Database, ShieldCheck, Rocket } from 'lucide-react';
 
 Plan is the stage that comes before [Build](/build/databases). Most backends
 start at "here is a database, write some code". Applad gives you a place to
@@ -45,9 +45,6 @@ session `secret` comes from.
   </Card>
   <Card icon={<ShieldCheck />} title="Authentication" href="/build/authentication">
     Sign a user in and get the session `secret` these routes expect.
-  </Card>
-  <Card icon={<FlaskConical />} title="Test" href="/test">
-    Prove acceptance criteria with executable tests a `specRef` points at.
   </Card>
   <Card icon={<Rocket />} title="Deploy" href="/deploy/sites">
     Ship the work once its milestone is done.

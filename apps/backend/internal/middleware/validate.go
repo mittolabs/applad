@@ -41,8 +41,6 @@ func isBulkUploadPath(path string) bool {
 		return true
 	case strings.HasPrefix(path, "/v1/deploy/pipelines/") && strings.HasSuffix(path, "/source"):
 		return true
-	case strings.HasPrefix(path, "/v1/tests/suites/") && strings.HasSuffix(path, "/source"):
-		return true
 	case strings.HasPrefix(path, "/v1/functions/") && strings.HasSuffix(path, "/deployments"):
 		return true
 	}

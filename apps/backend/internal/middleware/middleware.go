@@ -369,9 +369,6 @@ func apiKeyResourceScope(path string) string {
 		return "plan"
 	case strings.HasPrefix(trimmed, "/usage"):
 		return "usage"
-	// The studio drives test recordings, so it shares the tests scope.
-	case strings.HasPrefix(trimmed, "/tests"), strings.HasPrefix(trimmed, "/studio"):
-		return "tests"
 	case strings.HasPrefix(trimmed, "/migrations"):
 		return "migrations"
 	default:

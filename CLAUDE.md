@@ -42,7 +42,7 @@ docker compose up api postgres redis proxy -d
 ### Backend (Go 1.22+)
 ```bash
 cd apps/backend
-go build ./...          # build all binaries (202 tests, 19 suites)
+go build ./...          # build all binaries (680 tests, 45 suites)
 go test ./...           # all unit tests
 go test -tags=integration ./tests/...  # integration tests (requires running services)
 gofmt -w .              # format
@@ -87,8 +87,8 @@ apps/
   backend/      Go backend — single Go module (github.com/mittolabs/applad)
     api/        OpenAPI spec (openapi.yaml)
     cmd/api/    API server entry point
-    cmd/workers/  10 worker binaries
-    internal/   26 packages (see below)
+    cmd/workers/  12 worker binaries
+    internal/   58 packages (the principal ones below)
     tests/      Integration tests (build-tag gated: integration)
   console/      React + Vite admin app (Tailwind v4 + shadcn/ui, Lucide icons, dark Railway-style UI)
 docs/           Documentation CONTENT — markdown/mdx + meta.json, browsable here.
@@ -116,7 +116,7 @@ install.sh · docker-compose{,.dev}.yml            self-host run + hot-reload de
 
 `cmd/workers/{type}/` — 10 independent worker binaries. All have full Redis queue consumers.
 
-`internal/` packages (26 total):
+`internal/` packages (58 total; the principal ones):
 - `config` — env-var config loader (SMTP, OAuth, Twilio, FCM settings)
 - `db` — PostgreSQL connection + embedded migration runner (`db/migrations/*.sql`)
 - `cache` — Redis client
@@ -143,7 +143,7 @@ install.sh · docker-compose{,.dev}.yml            self-host run + hot-reload de
 - `console` — system-level admin auth: signup/login/me, name/email/password update, account deletion, signup-enabled config
 - `health` — health check endpoints
 - `workflows` — native DAG workflow engine: definitions, topological executor, 6 node types, execution history
-- `testlab` — runs a project's own test suite in a container and records per-case results, read from the JUnit XML the suite writes
+- `browsershot` — photographs a page in an already-running Chromium; what the deploy pipeline uses for site previews
 - `cronx` — cron expression parsing and validation (standard 5-field, ranges, lists, names, descriptors, `CRON_TZ=` prefix)
 - `worker` — 11 background workers (all fully implemented)
 
@@ -193,8 +193,8 @@ API and internal code use tables/rows/columns terminology only. User data lives 
 (Auth, Databases, Functions, Storage, Messaging, Realtime, Feature Flags) →
 Deploy (Sites, Containers, Mobile, Desktop) → Automate (Workflows) →
 Analytics (Overview, Events, Funnels, Uptime, Crons) → Settings pinned to
-bottom. The order mirrors the lifecycle the marketing site sells: Build, Test,
-Deploy, Automate, Measure.
+bottom. The order mirrors the lifecycle the marketing site sells: Build, Deploy,
+Automate, Measure.
 
 Every child of Deploy is a deploy target — /deploy/targets filtered by type.
 Workflows sits at rail level rather than inside Build because it composes the
@@ -238,7 +238,7 @@ Feature pages: `console/src/features/`:
 
 ### Testing
 
-**202 unit tests** across 19 packages using `go-sqlmock` for database mocking:
+**680 unit tests** across 45 packages using `go-sqlmock` for database mocking:
 - `auth` — signup, login, sessions, JWT, bcrypt, MFA/TOTP, auth tokens, password reset (16 tests)
 - `databases` — table/row CRUD, 12 query operators, relationships, cursor pagination (17 tests)
 - `storage` — bucket/file CRUD, disk I/O, image resize/format conversion, chunked upload assembly (12 tests)
@@ -309,60 +309,6 @@ On login the API sets two cookies: the HttpOnly session, and
 "Get started" for "Go to console". Their scope is derived from the console's
 own hostname, so `console.applad.io` shares them with `applad.io` and a
 self-hosted console on an IP keeps them host-only.
-
-### Test
-
-A suite says how a project runs its tests — base image, setup command, test
-command, and where it leaves a JUnit XML report. That report is the interchange
-format, so Applad supports a new framework by configuration rather than code.
-
-Runs execute on the builds worker: an image is built from the source (git or
-upload), run to completion, and the report copied out of the stopped container.
-Four objects, because conflating them is what made the first cut unusable:
-
-| | |
-|---|---|
-| **runner** | how tests execute — image, setup, command, report path |
-| **test** | one behaviour, recorded or discovered by running. Tagged, quarantinable, carries history |
-| **suite** | a selection of tests by tag, plus triggers: on deploy, on a schedule |
-| **run** | a suite executed against a target, at a moment |
-
-The target belongs to the run, not the test, so one suite checks main and a
-branch rather than being duplicated per environment. Recordings share a single
-generated runner; giving each its own is what listed every recording twice.
-
-Retries are on, and a test that fails then passes within a run is recorded as
-flaky rather than failing it. A quarantined test still runs and still reports
-but no longer decides the verdict, which is how a known-flaky test stops
-blocking deploys without being deleted and forgotten.
-
-A suite may also name an `artifactsPath`; that directory is copied out of the
-container and stored under `STORAGE_PATH/test-artifacts/<runId>`. Where a
-runner names its output after the test, the artifact is attached to that case,
-so a failing browser test shows its own recording. Test containers join the
-deploy network, so a browser suite reaches the app it exercises by container
-name — pass it as `BASE_URL`.
-
-### The recording studio
-
-`Test → Flows → Record` opens a real browser in a container against a target,
-streams it into the console over a WebSocket, and forwards clicks and
-keystrokes back. A recorder injected into the page turns each interaction into
-a step with a durable selector — role and name, a test id, a label — rather
-than a coordinate, and records which match was clicked so strict matching does
-not fail on replay. Assert mode turns a click into an assertion instead of an
-action.
-
-Flows are stored as steps, not code, and compile to Playwright for the web and
-Maestro for devices. Saving writes a complete generated Playwright project to
-the runner's source path, so a recording is immediately a suite that runs on
-every change. Device platforms need an emulator (virtualisation) or a Mac,
-which is why only web is wired up.
-
-The browser is started by the builds worker, not the API: only that worker
-holds the Docker socket. The API reaches the browser over the shared network.
-Chromium binds DevTools to loopback and rejects non-localhost Host headers, so
-the browser image runs a forwarder and every call presents `Host: localhost`.
 
 ### GitHub
 

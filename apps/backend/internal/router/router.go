@@ -52,7 +52,6 @@ import (
 	"github.com/mittolabs/applad/internal/status"
 	"github.com/mittolabs/applad/internal/storage"
 	"github.com/mittolabs/applad/internal/teams"
-	"github.com/mittolabs/applad/internal/testlab"
 	"github.com/mittolabs/applad/internal/trace"
 	"github.com/mittolabs/applad/internal/transfer"
 	"github.com/mittolabs/applad/internal/usage"
@@ -236,7 +235,6 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 	deploySvc.SetDeployDomain(cfg.DeployDomain)
 	deploySvc.SetRedis(cacheClient.Client())
 	deployHandler := deploy.NewHandler(deploySvc)
-	testlabHandler := testlab.NewHandler(testlab.NewService(database, deployQueue), deployQueue, cacheClient.Client())
 
 	// Console auth
 	consoleSvc := console.NewService(database, cfg.JWTSecret)
@@ -306,9 +304,6 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 		// AI chat — console JWT required, no project header needed
 		aiSvc := aichat.NewService(cfg.AIProvider, cfg.AIAPIKey, cfg.AIModel, cfg.AIBaseURL)
 		r.Mount("/ai", aichat.Routes(aichat.NewHandler(aiSvc, consoleSvc, cfg.Port)))
-		// The studio's "explain this capture" uses the same AI service; absent
-		// when none is configured.
-		testlabHandler.SetAI(aiSvc)
 
 		// Locale — no auth required
 		r.Mount("/locale", locale.Routes(locale.NewHandler()))
@@ -318,10 +313,6 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 
 		// Regions — public catalog (no auth)
 		r.Mount("/regions", regions.PublicRoutes(regions.NewHandler(regions.NewService(database))))
-
-		// A shared capture replay, opened by anyone with the token (no auth). The
-		// token is the only credential, so it is scoped to nothing else.
-		r.Mount("/shared-captures", testlabHandler.PublicRoutes())
 
 		// The edge asks this before issuing an on-demand certificate for an
 		// <app>.applad.dev name. Unauthenticated (the edge has no credential); it
@@ -455,9 +446,7 @@ func New(cfg *config.Config, database *db.DB, cacheClient *cache.Cache) *chi.Mux
 				r.Mount("/functions", functions.Routes(functions.NewHandler(functionSvc)))
 				r.Mount("/workflows", workflows.Routes(workflowHandler))
 				r.Mount("/endpoints", endpoints.Routes(endpointsHandler))
-				r.Mount("/tests", testlab.Routes(testlabHandler))
 				r.Mount("/plan", plan.Routes(plan.NewHandler(plan.NewService(database))))
-				r.Mount("/studio", testlab.StudioRoutes(testlabHandler))
 
 				// Data migrations: import a project's data from another platform
 				// (another Applad instance, Appwrite, Supabase, NHost, Firebase).
@@ -540,7 +529,7 @@ func (sw *statusWriter) WriteHeader(code int) {
 
 // Hijack passes the connection through, so wrapping a response does not stop
 // a WebSocket from being upgraded. Without it every endpoint under this
-// middleware — the studio's live session, realtime — fails the handshake.
+// middleware — realtime, streamed logs — fails the handshake.
 func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := sw.ResponseWriter.(http.Hijacker); ok {
 		return h.Hijack()
