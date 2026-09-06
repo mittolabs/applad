@@ -20,12 +20,14 @@ import { useOrgs } from './api/queries';
 import { ExperimentsPage } from './features/experiments/ExperimentsPage';
 import { extensionRoutes, extensionStandaloneRoutes } from '@/extensions';
 import { AppError } from '@/components/app-error';
+import { loadChunk } from '@/lib/chunk';
 // Shell feature pages are lazy-loaded so heavy deps (Monaco in databases/
 // functions, React Flow in workflows) only download when the route is visited.
 const named = <M extends Record<string, unknown>, K extends keyof M>(
   loader: () => Promise<M>,
   key: K,
-) => lazy(() => loader().then((m) => ({ default: m[key] as React.ComponentType })));
+) =>
+  lazy(() => loadChunk(loader).then((m) => ({ default: m[key] as React.ComponentType })));
 
 const OverviewPage = named(() => import('./features/overview/OverviewPage'), 'OverviewPage');
 const GetStartedPage = named(() => import('./features/get-started/GetStartedPage'), 'GetStartedPage');
