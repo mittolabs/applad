@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -40,14 +40,20 @@ const OAUTH_ERRORS: Record<string, string> = {
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [params, setParams] = useSearchParams();
+
+  // /reset-password shares this shell but is its own page.
+  const onResetRoute = location.pathname === '/reset-password';
   const login = useAuthStore((s) => s.login);
   const signup = useAuthStore((s) => s.signup);
   const loginWithToken = useAuthStore((s) => s.loginWithToken);
 
   // ?mode=signup lets the marketing site link straight to account creation.
   // If signup turns out to be disabled, the effect below drops back to login.
-  const [mode, setMode] = useState<Mode>(params.get('mode') === 'signup' ? 'signup' : 'login');
+  const [mode, setMode] = useState<Mode>(
+    onResetRoute ? 'reset' : params.get('mode') === 'signup' ? 'signup' : 'login',
+  );
   const [oauthLoading, setOauthLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -61,6 +67,9 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [surfacedToken, setSurfacedToken] = useState<string | null>(null);
+  // Whether the token came from the emailed link. If it did, it is not
+  // something to show the user, let alone ask them to fill in.
+  const [tokenFromLink, setTokenFromLink] = useState(false);
   const [busy, setBusy] = useState(false);
   // Set once the backend answers a correct password with console_mfa_required:
   // the form then asks for the authenticator code and resubmits with it.
@@ -113,13 +122,26 @@ export function LoginPage() {
 
   // Handle OAuth / reset callbacks once on mount.
   useEffect(() => {
-    const resetTok = params.get('reset_token');
+    // ?token= is what the reset mail sends now; ?reset_token= is what older
+    // mail sent, and those links are still in inboxes.
+    const resetTok = params.get('token') ?? params.get('reset_token');
     const consoleTok = params.get('console_token');
     const err = params.get('error');
     if (resetTok) {
       setMode('reset');
       setResetToken(resetTok);
-      clearParams();
+      setTokenFromLink(true);
+      if (!onResetRoute) {
+        // An older email points at /login. Correct the address rather than
+        // navigating away — /login and /reset-password render this same
+        // component, so a navigate alone would leave the mode behind and show
+        // a sign-in form at a reset URL.
+        navigate(`/reset-password?token=${encodeURIComponent(resetTok)}`, { replace: true });
+      }
+      // Deliberately left in the URL. Stripping it made a refresh land on a
+      // sign-in form with the token gone for good, and the page is useless
+      // without it. Nothing third-party loads here to leak it to — the CSP is
+      // default-src 'self'.
     } else if (consoleTok) {
       clearParams();
       setOauthLoading(true);
@@ -298,6 +320,7 @@ export function LoginPage() {
               <ResetForm
                 resetToken={resetToken}
                 setResetToken={setResetToken}
+                tokenFromLink={tokenFromLink}
                 newPass={newPass}
                 setNewPass={setNewPass}
                 confirm={confirm}
@@ -600,6 +623,7 @@ function ForgotForm({
 function ResetForm({
   resetToken,
   setResetToken,
+  tokenFromLink,
   newPass,
   setNewPass,
   confirm,
@@ -614,6 +638,7 @@ function ResetForm({
 }: {
   resetToken: string;
   setResetToken: (v: string) => void;
+  tokenFromLink: boolean;
   newPass: string;
   setNewPass: (v: string) => void;
   confirm: string;
@@ -631,18 +656,29 @@ function ResetForm({
       <LogoRow className="mb-7 min-[900px]:hidden" size={48} wordmark={24} />
       <Heading>Set new password</Heading>
       <p className="mt-2 text-[13px] text-text-muted">
-        Enter your reset token and choose a new password.
+        {tokenFromLink
+          ? 'Choose a new password for your account.'
+          : 'Enter your reset token and choose a new password.'}
       </p>
       <div className="h-7" />
 
-      <FieldLabel>Reset token</FieldLabel>
-      <Input
-        value={resetToken}
-        onChange={(e) => setResetToken(e.target.value)}
-        placeholder="Paste your token here"
-        autoComplete="one-time-code"
-      />
-      <div className="h-5" />
+      {/* The token is a credential, and one that arrived in the link. Showing
+          it in a field asks the reader to check something they cannot judge
+          and can only break. The field stays for the other way in: an
+          instance with no SMTP logs the token to the server, and somebody has
+          to paste it. */}
+      {!tokenFromLink && (
+        <>
+          <FieldLabel>Reset token</FieldLabel>
+          <Input
+            value={resetToken}
+            onChange={(e) => setResetToken(e.target.value)}
+            placeholder="Paste your token here"
+            autoComplete="one-time-code"
+          />
+          <div className="h-5" />
+        </>
+      )}
 
       <FieldLabel>New password</FieldLabel>
       <PasswordInput

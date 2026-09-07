@@ -102,6 +102,17 @@ services:
       MASTER_ENCRYPTION_KEY: "${MASTER_ENCRYPTION_KEY:-}"
       STORAGE_PATH: "/var/applad/storage"
       APP_ENV: "${APP_ENV:-development}"
+      # The API sends mail itself — a console password reset, a magic link, an
+      # email verification — rather than handing every message to the mails
+      # worker. Only the workers were given these, so on a compose deployment
+      # the API's SMTP host was always empty and every one of those emails was
+      # silently logged instead of sent. Keep this block in step with
+      # x-worker-env above.
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      SMTP_FROM: "${SMTP_FROM:-noreply@applad.local}"
       # auto (disabled once the first admin exists), true, or false.
       CONSOLE_SIGNUP_ENABLED: "${CONSOLE_SIGNUP_ENABLED:-auto}"
       RATE_LIMIT_ANON_PER_MINUTE: "${RATE_LIMIT_ANON_PER_MINUTE:-100}"

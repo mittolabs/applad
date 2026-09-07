@@ -225,6 +225,18 @@ export const router = createBrowserRouter([
           </RedirectIfAuthed>
         ),
       },
+      // Setting a new password is its own page, not a mode of the sign-in
+      // form. The address bar said /login while the page said "Set new
+      // password", and a refresh dropped you back at sign-in with the token
+      // gone. Same shell, own route.
+      {
+        path: '/reset-password',
+        element: (
+          <RedirectIfAuthed>
+            <LoginPage />
+          </RedirectIfAuthed>
+        ),
+      },
       // Invite redemption stands apart from login: the token is the
       // credential, and it works on instances where signup is closed.
       { path: '/invite/:token', element: <InvitePage /> },
