@@ -778,7 +778,9 @@ func (h *Handler) requestPasswordReset(w http.ResponseWriter, r *http.Request) {
 	if r.TLS == nil {
 		scheme = "http"
 	}
-	resetURL := fmt.Sprintf("%s://%s/login?reset_token=%s", scheme, r.Host, token)
+	// Its own page, not a mode of the sign-in form: the address bar should say
+	// what the page is, and a refresh should not lose the token.
+	resetURL := fmt.Sprintf("%s://%s/reset-password?token=%s", scheme, r.Host, token)
 
 	emailSent := false
 	if h.smtp.Host != "" {
